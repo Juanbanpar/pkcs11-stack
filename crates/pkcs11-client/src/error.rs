@@ -3,6 +3,9 @@
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum Error {
+    /// Supplied signature is invalid for the selected certificate and input.
+    #[error("signature verification failed")]
+    SignatureMismatch,
     /// Public key attributes are absent, inconsistent or invalid for SPKI encoding.
     #[error("invalid or incomplete public key attributes")]
     InvalidPublicKey,
@@ -30,8 +33,8 @@ pub enum Error {
     /// No policy-permitted signing mechanism can prove the binding.
     #[error("no permitted mechanism for key/certificate binding")]
     NoBindingMechanism,
-    /// An identity request cannot be independently verified by this client.
-    #[error("unsupported identity verification parameters")]
+    /// A request cannot be independently verified by this client.
+    #[error("unsupported signature verification parameters")]
     UnsupportedVerification,
 }
 

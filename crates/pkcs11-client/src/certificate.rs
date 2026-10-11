@@ -203,6 +203,24 @@ impl Certificate {
         }
         Ok(())
     }
+    /// Common SHA-2 verification choices for this certificate's public key.
+    /// PSS uses matching MGF1 digest and digest-length salt; no trust is asserted.
+    pub fn verification_options(&self) -> Vec<crate::SignatureParameters> {
+        crate::signature_options::candidates(self.key_kind())
+    }
+    /// Verify a raw RSA or fixed-width ECDSA r || s signature in software.
+    /// This proves signature validity against this key, not certificate trust.
+    pub fn verify_signature(
+        &self,
+        request: &SignRequest<'_>,
+        signature: &[u8],
+    ) -> Result<(), Error> {
+        self.verify(request, signature)
+            .map_err(|error| match error {
+                Error::KeyCertificateMismatch => Error::SignatureMismatch,
+                other => other,
+            })
+    }
     pub(crate) fn verify(&self, request: &SignRequest<'_>, signature: &[u8]) -> Result<(), Error> {
         self.validate_signing_request(request)?;
         let hash = match request.input {
@@ -320,11 +338,23 @@ mod tests {
                         pss: None,
                     };
                     certificate.verify(&request, &signature).unwrap();
+                    certificate.verify_signature(&request, &signature).unwrap();
+                    assert!(
+                        certificate
+                            .verification_options()
+                            .iter()
+                            .any(|choice| choice.algorithm == request.algorithm
+                                && choice.digest == request.digest)
+                    );
                     let mut bad = signature.clone();
                     bad[0] ^= 1;
                     assert!(matches!(
                         certificate.verify(&request, &bad),
                         Err(Error::KeyCertificateMismatch)
+                    ));
+                    assert!(matches!(
+                        certificate.verify_signature(&request, &bad),
+                        Err(Error::SignatureMismatch)
                     ));
                     assert!(certificate.verify(&request, &[]).is_err());
                     let changed = SignRequest {
@@ -343,6 +373,7 @@ mod tests {
                         };
                         let signature = fixture(&format!("rsa-pss-{name}.sig"));
                         certificate.verify(&request, &signature).unwrap();
+                        certificate.verify_signature(&request, &signature).unwrap();
                         let bad_salt = SignRequest {
                             pss: Some(PssParameters {
                                 mgf_digest: digest,

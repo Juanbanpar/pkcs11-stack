@@ -9,6 +9,7 @@ mod generation;
 mod management;
 mod object_locator;
 mod public_export;
+mod signature_options;
 
 pub use certificate::{Certificate, CertificateDocument};
 pub use client::{Client, Identity};
@@ -27,3 +28,4 @@ pub use pkcs11_runtime::{
     SignInput, SignPlan, SignRequest, SignatureAlgorithm, SigningMechanism, SigningPolicy,
     SlotInfo, TokenInfo,
 };
+pub use signature_options::{SignatureParameters, SigningChoice, SigningOptions};

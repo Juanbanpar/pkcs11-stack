@@ -100,6 +100,18 @@ computed digest, distinct from a message that still needs hashing.
 
 ## Identity association and verification
 
+`Client::signing_options` offers common SHA-2 message-signing choices under current
+key capabilities and the client's policy, including the planned mechanism and
+hashing boundary. PSS choices use a matching MGF1 digest and digest-length salt.
+Choices are advisory: signing rediscovers capabilities. `SignatureParameters`
+creates a typed request from borrowed message or digest bytes without retaining them.
+
+`Certificate::verification_options` supplies matching SHA-2 parameter choices.
+`verify_signature` independently verifies raw RSA or fixed-width ECDSA `r || s`
+signatures in software, returning `SignatureMismatch` for invalid signatures.
+It does not authenticate the certificate, establish trust, or associate it with
+a token key. Parameter validation remains separate from token signing policy.
+
 `CertificateDocument::from_der` parses exact X.509 DER independently of signing
 support. It provides original DER, SPKI, subject/issuer Names and serial-number DER
 for application inspection and certificate import. It accepts algorithms such as
