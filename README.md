@@ -23,6 +23,7 @@ flowchart TD
     runtime --> cryptoki
     adapter[pkcs11-rustls-adapter] --> runtime
     adapter --> rustls
+    desktop[pkcs11-desktop] --> client
 ```
 
 Runtime owns module initialization, sessions, authentication and mechanism
@@ -42,6 +43,9 @@ software crypto provider selection stay outside runtime.
   manage keys and certificates, and administer token PINs from the command line.
 - [pkcs11-rustls-adapter](crates/pkcs11-rustls-adapter/README.md): use token keys
   with rustls signing traits and server/client certificate resolvers.
+- [pkcs11-desktop](crates/pkcs11-desktop/README.md): native Iced window with
+  navigation, themes and background command processing.
+
 ## Status
 
 The libraries and CLI implement discovery, USER/SO authentication, session pooling,
@@ -58,9 +62,14 @@ requires verification support from the application's crypto provider. See the
 Encryption, decryption, derivation, wrapping and private-key import are not
 implemented. Certificate parsing and binding do not validate certificate trust;
 applications configure trust separately.
+
+The desktop application currently provides the window, navigation, themes and a
+synthetic worker operation. Module loading and token browsing are not implemented yet.
+
 ## Development
 
-Rust 1.85 or newer.
+Rust 1.85 or newer for libraries and CLI; Rust 1.88 or newer for desktop and
+full workspace checks.
 
 ```sh
 cargo fmt --all -- --check
@@ -75,10 +84,16 @@ bash tools/test-fuzz.sh
 
 The adapter's optional `tls12` feature enables TLS 1.2. Its default configuration
 uses rustls `std` without selecting a software crypto provider.
+
+Desktop uses Iced `tiny-skia`, `thread-pool`, `x11` and `wayland`, with default
+features disabled.
+
 [Test commands and configuration](tests/README.md) cover unit, property and
 SoftHSM integration tests. [Fuzzing](fuzz/README.md) describes the separate fuzz workspace.
 
 ## License
 
-The project is available under either the [MIT license](LICENSE-MIT) or the
-[Apache License 2.0](LICENSE-APACHE), at your option.
+The libraries, CLI and supporting code are available under either the
+[MIT license](LICENSE-MIT) or the [Apache License 2.0](LICENSE-APACHE), at your
+option. The desktop application is
+licensed under [GPL-3.0-or-later](crates/pkcs11-desktop/COPYING).
