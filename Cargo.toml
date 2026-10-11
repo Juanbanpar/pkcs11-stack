@@ -1,0 +1,42 @@
+[workspace]
+resolver = "3"
+exclude = ["fuzz"]
+members = [
+    "crates/pkcs11-locator",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[workspace.dependencies]
+pkcs11-locator = { path = "crates/pkcs11-locator" }
+pkcs11-runtime = { path = "crates/pkcs11-runtime" }
+pkcs11-client = { path = "crates/pkcs11-client" }
+serde_json = "1.0"
+cryptoki = "0.12.1"
+rustls = { version = "0.23.45", default-features = false, features = ["std"] }
+rustls-pki-types = "1.15.1"
+rustls-webpki = { version = "0.103.15", default-features = false, features = ["std"] }
+secrecy = "0.10.3"
+zeroize = "1.9.0"
+sha2 = "0.10.9"
+thiserror = "2.0.20"
+clap = "4.6.6"
+x509-cert = { version = "0.2.5", default-features = false, features = ["std"] }
+rsa = { version = "0.9.10", default-features = false, features = ["std", "sha2"] }
+p256 = { version = "0.13.2", default-features = false, features = ["ecdsa", "std"] }
+p384 = { version = "0.13.1", default-features = false, features = ["ecdsa", "std"] }
+p521 = { version = "0.13.3", default-features = false, features = ["ecdsa", "std"] }
+proptest = { version = "=1.11.0", default-features = false, features = ["std"] }
+der = { version = "0.7.10", features = ["std", "derive"] }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+all = "warn"

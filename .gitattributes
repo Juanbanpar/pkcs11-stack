@@ -1,0 +1,5 @@
+# Keep sources portable without changing signed fixture or fuzz-input bytes.
+* text=auto eol=lf
+crates/pkcs11-client/tests/fixtures/** -text
+crates/pkcs11-client/tests/fixtures/README.md text eol=lf
+fuzz/seeds/** -text
