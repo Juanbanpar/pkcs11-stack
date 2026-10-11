@@ -170,6 +170,13 @@ create persistent public objects; certificate metadata comes from
 use CKA_OBJECT_ID. Selectors still follow the runtime's CKA_ID semantics, so use
 unique labels to select data objects. IDs/labels do not imply uniqueness.
 
+`object_locator(&token, &attributes)` builds an object URI from available class,
+label and CKA_ID reads. Empty label/ID bytes remain exact constraints; token and
+module-path constraints are preserved. It returns `None` for missing identity,
+unsupported classes or labels that cannot be represented as URI text, and rejects
+credential-bearing token URIs. Resolve the resulting selector again before use;
+multiple objects can share the same metadata.
+
 `Provider::diagnose` exercises a fresh bounded runtime pool: simultaneous leases,
 exhaustion and reuse. It accepts an authentication factory called once per initial
 lease and once for reuse; the factory returns borrowed credentials. This is an

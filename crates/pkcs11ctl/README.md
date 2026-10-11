@@ -47,6 +47,10 @@ for current discovery and explicit initialization.
 | `set-label --object URI --label LABEL --confirm` | Relabel exactly one object |
 | `delete --object URI --confirm` | Delete exactly one object |
 
+Object summaries use the client's locator builder. Their `uri` is `null` when the
+available metadata cannot form a supported selector; other summaries remain
+available. Duplicate locators can still be ambiguous when passed to `inspect`.
+
 `inspect --attributes` accepts a comma-separated list: `class`, `label`, `id`,
 `object-id`, `private`, `sign`, `sensitive`, `extractable`, `always-authenticate`,
 `key-type`, `modulus`, `exponent`, `ec-params`, `ec-point`, `subject`, `issuer`,

@@ -6,6 +6,7 @@ mod certificate;
 mod client;
 mod error;
 mod management;
+mod object_locator;
 
 pub use certificate::{Certificate, CertificateDocument};
 pub use client::{Client, Identity};
@@ -14,6 +15,7 @@ pub use management::{
     AttributeRead, ManagementSession, MechanismSnapshot, PoolDiagnostic, Provider, SlotSnapshot,
     TokenSnapshot, object_reference, token_uri, validate_token_uri,
 };
+pub use object_locator::object_locator;
 pub use pkcs11_locator::Pkcs11Uri;
 pub use pkcs11_runtime::{
     Attribute, AttributeInfo, AttributeType, AttributeValues, Authentication, CertificateRef,
