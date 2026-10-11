@@ -3,6 +3,7 @@ resolver = "3"
 exclude = ["fuzz"]
 members = [
     "crates/pkcs11-locator",
+    "crates/pkcs11-runtime",
 ]
 
 [workspace.package]
