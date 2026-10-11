@@ -1,6 +1,6 @@
 # pkcs11-desktop
 
-Native PKCS#11 module and token browser built with Iced and `pkcs11-client`.
+Native PKCS#11 browser and object manager built with Iced and `pkcs11-client`.
 Load trusted vendor libraries, inspect module and slot metadata, and view token
 identity, initialization, authentication flags and PIN limits. Log in as USER or
 SO to browse visible persistent objects. Filter object lists and advertised
@@ -46,6 +46,31 @@ On Linux, the native file picker uses the desktop portal, with a Zenity fallback
 Manual path entry also works when no picker service is available. Modules are
 loaded only after an explicit Load action; paths are not saved or loaded on startup.
 
+Use **Operations** to generate a signing key pair or import a certificate. Log in
+as USER on a writable token first. Generation offers common RSA sizes and named
+EC curves within the client's advertised bounds. Supply a label and nonempty
+hexadecimal ID; the public and private keys share them. Private keys are sensitive
+and nonextractable. The per-operation authentication option sets
+CKA_ALWAYS_AUTHENTICATE. A provider may reject an advertised choice or template;
+operations are never retried automatically.
+
+Certificate import accepts one X.509 DER file up to 16 MiB and an explicit label/ID.
+It parses certificate metadata without establishing trust or binding the
+certificate to a key. PEM, bundles and private-key import are not supported.
+
+On **Objects**, select an unambiguous object and use **Delete object**. Confirm the
+shown locator to permanently delete that single object. Related keys and
+certificates are kept. **Export public object** saves public certificate/data
+values, or RSA/P-256/P-384/P-521 public keys as SPKI DER. Private objects and
+private/secret key classes cannot be exported. Export creates a new file and
+never overwrites one; a write failure can leave a partial file. On Unix, new
+export files are created with permissions 0600.
+
+Management clears selections and refreshes the object list, including after a
+failure that might have partial effects. Labels and IDs are not uniqueness
+constraints: collisions can produce ambiguous locators. Mutation commands and
+export finish before another operation can start; navigation remains available.
+
 ## Development
 
 Rust 1.88 or newer. Iced 0.14 uses `tiny-skia`, `thread-pool`, `x11` and `wayland`,
@@ -65,23 +90,24 @@ sudo apt-get install pkg-config libxkbcommon-dev libxkbcommon-x11-dev libwayland
 ## Execution
 
 One worker owns all client providers and performs module loading, discovery,
-refresh, inspection, authentication and finalization. One client-owned session per
-logged-in token keeps its role active without storing its PIN. Object browsing
+refresh, inspection, authentication, object management, file reads/writes and
+finalization. One client-owned session per logged-in token keeps its role active
+without storing its PIN. Object browsing
 opens scoped read-only sessions, or read-write sessions while SO is active, and
 reports explicit close failures. The UI receives metadata snapshots and local
 resource IDs, without providers, sessions or raw handles. An unchanged token keeps
-its ID across module refreshes; a replacement receives a new ID. Object IDs last for one
-list snapshot. Details resolve their client locator again in a fresh session.
+its ID across module refreshes; a replacement receives a new ID. Object IDs last
+for one list snapshot. Details resolve their client locator again in a fresh session.
 
 Request IDs reject cancelled or superseded results. Refresh cancellation ignores
 its eventual result. Token/page/object changes invalidate pending reads. Load,
-unload, login and logout complete before another lifecycle command can start;
+unload, login, logout and management finish before another operation can start;
 navigation remains available. Closing the window drains queued work, closes
 authentication sessions, finalizes providers and joins the worker off the UI thread.
 
 Tests cover state transitions, stale responses, picker results, backend errors,
 shutdown, lazy details, ambiguous objects, metadata redaction and isolated SoftHSM
-module/object/mechanism and USER/SO authentication workflows:
+module/object/mechanism, USER/SO authentication and object-management workflows:
 
 ```sh
 PKCS11_TEST_DESKTOP=1 ./tools/test-softhsm.sh
