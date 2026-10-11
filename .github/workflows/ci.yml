@@ -197,5 +197,10 @@ jobs:
           echo "PKCS11_TEST_MODULE=$prefix/lib/softhsm/libsofthsm2.so" >> "$GITHUB_ENV"
           echo "SOFTHSM2_UTIL=$prefix/bin/softhsm2-util" >> "$GITHUB_ENV"
           echo 'PKCS11_TEST_REQUIRE_EC_MULTIPART=1' >> "$GITHUB_ENV"
-      - name: Isolated runtime, client, CLI, TLS and application examples
+      - name: Install desktop native dependencies
+        run: |
+          sudo apt-get install --yes pkg-config libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev libegl1-mesa-dev
+      - name: Isolated runtime, client, CLI, TLS and desktop workflows
+        env:
+          PKCS11_TEST_DESKTOP: "1"
         run: ./tools/test-softhsm.sh
