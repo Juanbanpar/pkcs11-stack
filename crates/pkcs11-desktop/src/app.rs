@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::{
     backend::{
-        BackendCommand, BackendError, BackendEvent, EventSource, RequestId, ResourceId, Worker,
+        BackendCommand, BackendError, BackendEvent, EventSource, LoginRole, RequestId, ResourceId,
+        Worker,
     },
     state::{Dialog, Notification, Screen, TokenPage, UiState},
     views,
@@ -22,6 +23,18 @@ pub enum Message {
     Load,
     Unload,
     Refresh,
+    OpenLogin(LoginRole),
+    PinInput {
+        id: RequestId,
+        pin: secrecy::SecretString,
+    },
+    ProtectedPath {
+        id: RequestId,
+        enabled: bool,
+    },
+    SubmitLogin(RequestId),
+    DismissLogin(RequestId),
+    Logout,
     ShowPage(TokenPage),
     RefreshObjects,
     RefreshMechanisms,
@@ -57,6 +70,12 @@ impl std::fmt::Debug for Message {
             Self::Load => "Load",
             Self::Unload => "Unload",
             Self::Refresh => "Refresh",
+            Self::OpenLogin(_) => "OpenLogin",
+            Self::PinInput { .. } => "PinInput",
+            Self::ProtectedPath { .. } => "ProtectedPath",
+            Self::SubmitLogin(_) => "SubmitLogin",
+            Self::DismissLogin(_) => "DismissLogin",
+            Self::Logout => "Logout",
             Self::ShowPage(_) => "ShowPage",
             Self::RefreshObjects => "RefreshObjects",
             Self::RefreshMechanisms => "RefreshMechanisms",
@@ -143,6 +162,27 @@ impl App {
                 let command = self.state.refresh();
                 self.submit(command);
             }
+            Message::OpenLogin(role) => self.state.open_login(role),
+            Message::PinInput { id, pin } => self.state.edit_pin(id, pin),
+            Message::ProtectedPath { id, enabled } => self.state.use_protected_path(id, enabled),
+            Message::SubmitLogin(id) => {
+                let command = self.state.login(id);
+                self.submit(command);
+            }
+            Message::DismissLogin(id) => {
+                if self
+                    .state
+                    .login_form
+                    .as_ref()
+                    .is_some_and(|form| form.id == id)
+                {
+                    self.state.login_form = None;
+                }
+            }
+            Message::Logout => {
+                let command = self.state.logout();
+                self.submit(command);
+            }
             Message::ShowPage(page) => {
                 let command = self.state.show_page(page);
                 self.submit(command);
@@ -184,7 +224,10 @@ impl App {
                 return iced::exit();
             }
             Message::Joined { .. } => {}
-            Message::About => self.state.dialog = Some(Dialog::About),
+            Message::About => {
+                self.state.login_form = None;
+                self.state.dialog = Some(Dialog::About);
+            }
             Message::DismissDialog => self.state.dialog = None,
             Message::DismissNotification => self.state.notification = None,
         }
@@ -254,6 +297,16 @@ mod tests {
         assert_eq!(safe, BackendError::Client(pkcs11_client::ErrorKind::Client));
         assert_eq!(format!("{message:?}"), "Backend");
         assert_eq!(
+            format!(
+                "{:?}",
+                Message::PinInput {
+                    id: RequestId(1),
+                    pin: secret.into()
+                }
+            ),
+            "PinInput"
+        );
+        assert_eq!(
             format!("{:?}", Message::EditPath(secret.into())),
             "EditPath"
         );
@@ -275,6 +328,44 @@ mod tests {
             ),
             "Picked"
         );
+    }
+
+    #[test]
+    fn cancelling_a_pin_form_discards_secret_and_ignores_older_form_messages() {
+        use secrecy::ExposeSecret;
+        let mut app = App {
+            state: UiState::default(),
+            worker: None,
+            source: None,
+        };
+        let id = RequestId(2);
+        app.state.login_form = Some(crate::state::LoginForm {
+            id,
+            module: ResourceId(3),
+            token: ResourceId(4),
+            role: LoginRole::User,
+            protected_path: false,
+            pin: "original-canary".into(),
+        });
+        let _ = app.update(Message::DismissLogin(RequestId(1)));
+        assert_eq!(
+            app.state.login_form.as_ref().unwrap().pin.expose_secret(),
+            "original-canary"
+        );
+        let _ = app.update(Message::PinInput {
+            id,
+            pin: "edited-canary".into(),
+        });
+        assert_eq!(
+            app.state.login_form.as_ref().unwrap().pin.expose_secret(),
+            "edited-canary"
+        );
+        let _ = app.update(Message::DismissLogin(id));
+        let _ = app.update(Message::PinInput {
+            id,
+            pin: "late-canary".into(),
+        });
+        assert!(app.state.login_form.is_none());
     }
 
     #[test]

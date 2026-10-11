@@ -2,13 +2,14 @@
 use super::main::field;
 use crate::{
     app::Message,
-    backend::{MetadataField, TokenEntry},
+    backend::{LoginRole, LoginState, MetadataField, TokenEntry},
     state::{TokenPage, UiState},
 };
 use iced::{
     Element, Length,
-    widget::{button, column, container, row, rule, scrollable, text, text_input},
+    widget::{button, checkbox, column, container, row, rule, scrollable, text, text_input},
 };
+use secrecy::ExposeSecret;
 
 pub fn view<'a>(state: &'a UiState, token: &'a TokenEntry) -> Element<'a, Message> {
     let mut tabs = row![].spacing(10);
@@ -39,11 +40,79 @@ pub fn view<'a>(state: &'a UiState, token: &'a TokenEntry) -> Element<'a, Messag
             &token.label
         })
         .size(30),
+        authentication(state, token),
         tabs,
         content
     ]
     .spacing(18)
     .into()
+}
+fn authentication<'a>(state: &'a UiState, token: &'a TokenEntry) -> Element<'a, Message> {
+    let enabled = state.can_submit();
+    let mut content = column![
+        row![
+            text(token.login.label()).width(Length::Fill),
+            button("USER login").on_press_maybe(
+                (enabled && token.can_login(LoginRole::User))
+                    .then_some(Message::OpenLogin(LoginRole::User))
+            ),
+            button("SO login").on_press_maybe(
+                (enabled && token.can_login(LoginRole::SecurityOfficer))
+                    .then_some(Message::OpenLogin(LoginRole::SecurityOfficer))
+            ),
+            button("Logout").on_press_maybe(
+                (enabled && token.login != LoginState::Public).then_some(Message::Logout)
+            ),
+        ]
+        .spacing(10)
+    ]
+    .spacing(12);
+    if let Some(form) = &state.login_form {
+        let id = form.id;
+        content = content.push(
+            text(match form.role {
+                LoginRole::User => "Login as USER",
+                LoginRole::SecurityOfficer => "Login as Security Officer",
+            })
+            .size(20),
+        );
+        if token.protected_path {
+            content = content.push(
+                checkbox(form.protected_path)
+                    .label("Use token's protected authentication path")
+                    .on_toggle(move |enabled| Message::ProtectedPath { id, enabled }),
+            );
+        }
+        if form.protected_path {
+            content = content.push(text("Complete authentication on the token when prompted."));
+        } else {
+            content = content.push(
+                text_input("PIN", form.pin.expose_secret())
+                    .secure(true)
+                    .on_input(move |pin| Message::PinInput {
+                        id,
+                        pin: pin.into(),
+                    })
+                    .on_submit(Message::SubmitLogin(id)),
+            );
+        }
+        content = content
+            .push(
+                text("Each submission makes one login attempt. Failed attempts can lock the PIN.")
+                    .size(14),
+            )
+            .push(
+                row![
+                    button("Login").on_press(Message::SubmitLogin(id)),
+                    button("Cancel").on_press(Message::DismissLogin(id))
+                ]
+                .spacing(10),
+            );
+    }
+    container(content)
+        .padding(12)
+        .style(container::rounded_box)
+        .into()
 }
 fn overview(token: &TokenEntry) -> Element<'_, Message> {
     let mut content = column![
@@ -120,7 +189,7 @@ fn objects(state: &UiState) -> Element<'_, Message> {
         list = list.push(text(if !state.objects_loaded {
             "Object list has not been read. Refresh to retry."
         } else if state.objects.is_empty() {
-            "No persistent objects are visible without login."
+            "No persistent objects are visible in the current authentication state."
         } else {
             "No objects match the filter."
         }));
@@ -159,7 +228,7 @@ fn objects(state: &UiState) -> Element<'_, Message> {
         ]
         .spacing(10),
         text(format!(
-            "{count} of {} objects · public persistent objects only",
+            "{count} of {} objects · persistent objects visible to this role",
             state.objects.len()
         ))
         .size(14),

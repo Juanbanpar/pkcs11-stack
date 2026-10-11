@@ -170,10 +170,11 @@ fn detail_attributes(class: Option<ObjectClass>) -> Vec<(AttributeType, &'static
 fn read_session<T>(
     provider: &pkcs11_client::Provider,
     token: &Pkcs11Uri,
+    mode: SessionMode,
     operation: impl FnOnce(&mut ManagementSession<'_>) -> Result<T, BackendError>,
 ) -> Result<T, BackendError> {
     let mut session = provider
-        .management(token, SessionMode::ReadOnly, Authentication::None)
+        .management(token, mode, Authentication::None)
         .map_err(|e| BackendError::from(&e))?;
     let result = operation(&mut session);
     let closed = session.close().map_err(|e| BackendError::from(&e));
@@ -183,7 +184,7 @@ fn read_session<T>(
 }
 
 impl Registry {
-    fn location(
+    pub(super) fn location(
         &self,
         module: ResourceId,
         token: ResourceId,
@@ -216,11 +217,16 @@ impl Registry {
         self.modules[index]
             .catalogs
             .retain(|catalog| catalog.token != token);
-        let reads = read_session(&self.modules[index].provider, &uri, |session| {
-            session
-                .objects(&SUMMARY.map(|(kind, _)| kind))
-                .map_err(|e| BackendError::from(&e))
-        })?;
+        let reads = read_session(
+            &self.modules[index].provider,
+            &uri,
+            self.modules[index].read_mode(token)?,
+            |session| {
+                session
+                    .objects(&SUMMARY.map(|(kind, _)| kind))
+                    .map_err(|e| BackendError::from(&e))
+            },
+        )?;
         let mut objects = Vec::new();
         for reads in reads {
             let mut class = None;
@@ -291,19 +297,24 @@ impl Registry {
         )
         .map_err(|e| BackendError::from(&e))?;
         let attributes = detail_attributes(entry.class);
-        read_session(&self.modules[index].provider, &uri, |session| {
-            let reads = session
-                .inspect(
-                    &reference,
-                    &attributes.iter().map(|(kind, _)| *kind).collect::<Vec<_>>(),
-                )
-                .map_err(|e| BackendError::from(&e))?;
-            Ok(reads
-                .iter()
-                .zip(attributes)
-                .map(|(read, (_, name))| field(read, name))
-                .collect())
-        })
+        read_session(
+            &self.modules[index].provider,
+            &uri,
+            self.modules[index].read_mode(token)?,
+            |session| {
+                let reads = session
+                    .inspect(
+                        &reference,
+                        &attributes.iter().map(|(kind, _)| *kind).collect::<Vec<_>>(),
+                    )
+                    .map_err(|e| BackendError::from(&e))?;
+                Ok(reads
+                    .iter()
+                    .zip(attributes)
+                    .map(|(read, (_, name))| field(read, name))
+                    .collect())
+            },
+        )
     }
     pub(super) fn mechanisms(
         &self,

@@ -364,6 +364,13 @@ fn public_token_identity_distinguishes_replacement_in_the_same_slot() {
         serial: "A".into(),
         uri: None,
         details: Vec::new(),
+        login: crate::backend::LoginState::Public,
+        initialized: true,
+        user_pin_initialized: true,
+        user_pin_locked: false,
+        so_pin_locked: false,
+        write_protected: false,
+        protected_path: false,
     };
     let mut b = a.clone();
     b.details.push(("Initialized".into(), "true".into()));
@@ -472,5 +479,284 @@ fn software_token_browser_load_refresh_unload_and_shutdown() {
     drop(events);
     let provider = Provider::load(path).unwrap();
     assert!(!provider.tokens().unwrap().is_empty());
+    provider.finalize().unwrap();
+}
+
+#[test]
+fn unknown_authentication_targets_return_fixed_errors_without_echoing_pin() {
+    let mut registry = Registry::default();
+    let (_, _, error) = inventory(registry.execute(BackendCommand::Login {
+        id: RequestId(1),
+        module: ResourceId(2),
+        token: ResourceId(3),
+        role: LoginRole::User,
+        pin: SecretInput::Value("redaction-canary".into()),
+    }));
+    assert_eq!(error, Some(BackendError::UnknownModule));
+    assert!(!format!("{error:?}").contains("canary"));
+    assert_eq!(
+        inventory(registry.execute(BackendCommand::Logout {
+            id: RequestId(2),
+            module: ResourceId(2),
+            token: ResourceId(3),
+        }))
+        .2,
+        Some(BackendError::UnknownModule)
+    );
+}
+
+#[test]
+#[ignore = "requires the isolated SoftHSM runner"]
+fn software_token_authentication_visibility_roles_and_cleanup() {
+    assert_eq!(std::env::var("PKCS11_TEST_ISOLATED").as_deref(), Ok("1"));
+    let path = PathBuf::from(std::env::var_os("PKCS11_TEST_MODULE").unwrap());
+    let (worker, source) = Worker::spawn().unwrap();
+    let mut events = source.stream();
+    let mut next = 0;
+    let mut send = |make: &dyn Fn(RequestId) -> BackendCommand| {
+        next += 1;
+        let id = RequestId(next);
+        worker.submit(make(id)).unwrap();
+        let event = block_on(events.next()).unwrap();
+        assert!(matches!(&event, BackendEvent::Completed { id: returned, .. } if *returned == id));
+        event
+    };
+    let (modules, module, error) = inventory(send(&|id| BackendCommand::Load {
+        id,
+        path: path.clone(),
+    }));
+    assert!(error.is_none());
+    let module = module.unwrap();
+    let mut selected = None;
+    for token in modules[0]
+        .tokens
+        .iter()
+        .filter(|token| token.label == "runtime-test")
+    {
+        let event = send(&|id| BackendCommand::Objects {
+            id,
+            module,
+            token: token.id,
+        });
+        if let BackendEvent::Completed {
+            result: Ok(BackendResult::Objects { objects, .. }),
+            ..
+        } = event
+            && objects.iter().any(|object| object.label == "unique")
+        {
+            assert!(objects.iter().all(|object| object.label != "private"));
+            selected = Some(token.id);
+            break;
+        }
+    }
+    let token = selected.expect("public fixtures");
+    let serial = modules[0]
+        .tokens
+        .iter()
+        .find(|entry| entry.id == token)
+        .unwrap()
+        .serial
+        .clone();
+    let login = |id, role, pin: &str| BackendCommand::Login {
+        id,
+        module,
+        token,
+        role,
+        pin: SecretInput::Value(pin.into()),
+    };
+    let (modules, _, error) = inventory(send(&|id| BackendCommand::Login {
+        id,
+        module,
+        token,
+        role: LoginRole::User,
+        pin: SecretInput::ProtectedPath,
+    }));
+    assert_eq!(error, Some(BackendError::AuthenticationUnavailable));
+    assert_eq!(
+        modules[0]
+            .tokens
+            .iter()
+            .find(|entry| entry.id == token)
+            .unwrap()
+            .login,
+        LoginState::Public
+    );
+    let (modules, _, error) = inventory(send(&|id| {
+        login(id, LoginRole::User, "incorrect-desktop-canary")
+    }));
+    assert_eq!(error, Some(BackendError::AuthenticationFailed));
+    assert!(!format!("{modules:?} {error:?}").contains("incorrect-desktop-canary"));
+    assert_eq!(
+        modules[0]
+            .tokens
+            .iter()
+            .find(|entry| entry.id == token)
+            .unwrap()
+            .login,
+        LoginState::Public
+    );
+    assert!(
+        inventory(send(&|id| login(id, LoginRole::User, "12345678")))
+            .2
+            .is_none()
+    );
+    let objects = match send(&|id| BackendCommand::Objects { id, module, token }) {
+        BackendEvent::Completed {
+            result: Ok(BackendResult::Objects { objects, .. }),
+            ..
+        } => objects,
+        event => panic!("unexpected objects: {event:?}"),
+    };
+    let private = objects
+        .iter()
+        .find(|object| object.label == "private")
+        .unwrap()
+        .id;
+    match send(&|id| BackendCommand::Inspect {
+        id,
+        module,
+        token,
+        object: private,
+    }) {
+        BackendEvent::Completed {
+            result: Ok(BackendResult::ObjectDetails { fields, .. }),
+            ..
+        } => {
+            assert!(
+                fields
+                    .iter()
+                    .any(|field| field.name == "Private" && field.value.as_deref() == Some("true"))
+            );
+            assert!(!format!("{fields:?}").contains("fixture-canary"));
+        }
+        event => panic!("unexpected private metadata: {event:?}"),
+    }
+    // Reading and refreshing must not close the last authenticated session.
+    let (modules, _, error) = inventory(send(&|id| BackendCommand::Refresh { id, module }));
+    assert!(error.is_none());
+    assert_eq!(
+        modules[0]
+            .tokens
+            .iter()
+            .find(|entry| entry.id == token)
+            .unwrap()
+            .login,
+        LoginState::User
+    );
+    assert_eq!(
+        inventory(send(&|id| login(
+            id,
+            LoginRole::SecurityOfficer,
+            "87654321"
+        )))
+        .2,
+        Some(BackendError::AuthenticationUnavailable)
+    );
+    let (modules, _, error) = inventory(send(&|id| BackendCommand::Logout { id, module, token }));
+    assert!(error.is_none());
+    assert_eq!(
+        modules[0]
+            .tokens
+            .iter()
+            .find(|entry| entry.id == token)
+            .unwrap()
+            .login,
+        LoginState::Public
+    );
+    assert!(matches!(
+        send(&|id| BackendCommand::Inspect {
+            id,
+            module,
+            token,
+            object: private
+        }),
+        BackendEvent::Completed {
+            result: Err(BackendError::UnknownObject),
+            ..
+        }
+    ));
+    assert!(
+        matches!(send(&|id| BackendCommand::Objects { id, module, token }), BackendEvent::Completed { result: Ok(BackendResult::Objects { objects, .. }), .. } if objects.iter().all(|object| object.label != "private"))
+    );
+    let (modules, _, error) = inventory(send(&|id| {
+        login(id, LoginRole::SecurityOfficer, "87654321")
+    }));
+    assert!(error.is_none());
+    assert_eq!(
+        modules[0]
+            .tokens
+            .iter()
+            .find(|entry| entry.id == token)
+            .unwrap()
+            .login,
+        LoginState::SecurityOfficer
+    );
+    // SO state rejects RO sessions; browsing must select RW without another login.
+    assert!(matches!(
+        send(&|id| BackendCommand::Objects { id, module, token }),
+        BackendEvent::Completed {
+            result: Ok(BackendResult::Objects { .. }),
+            ..
+        }
+    ));
+    assert!(
+        inventory(send(&|id| BackendCommand::Logout { id, module, token }))
+            .2
+            .is_none()
+    );
+    assert!(
+        inventory(send(&|id| login(id, LoginRole::User, "12345678")))
+            .2
+            .is_none()
+    );
+    assert!(
+        inventory(send(&|id| BackendCommand::Unload { id, module }))
+            .2
+            .is_none()
+    );
+    let (modules, module, error) = inventory(send(&|id| BackendCommand::Load {
+        id,
+        path: path.clone(),
+    }));
+    assert!(error.is_none());
+    let module = module.unwrap();
+    let token = modules[0]
+        .tokens
+        .iter()
+        .find(|entry| entry.serial == serial)
+        .unwrap()
+        .id;
+    assert!(
+        inventory(send(&|id| BackendCommand::Login {
+            id,
+            module,
+            token,
+            role: LoginRole::User,
+            pin: SecretInput::Value("12345678".into())
+        }))
+        .2
+        .is_none()
+    );
+    // Shutdown closes the retained session before finalizing the provider.
+    block_on(worker.shutdown(RequestId(next + 1))).unwrap();
+    let provider = pkcs11_client::Provider::load(path).unwrap();
+    let token = provider
+        .tokens()
+        .unwrap()
+        .into_iter()
+        .find(|entry| entry.info.serial_number() == serial)
+        .unwrap();
+    let session = provider
+        .management(
+            &token.uri().unwrap(),
+            pkcs11_client::SessionMode::ReadOnly,
+            pkcs11_client::Authentication::None,
+        )
+        .unwrap();
+    assert_eq!(
+        session.state().unwrap(),
+        pkcs11_client::SessionState::RoPublic
+    );
+    session.close().unwrap();
     provider.finalize().unwrap();
 }

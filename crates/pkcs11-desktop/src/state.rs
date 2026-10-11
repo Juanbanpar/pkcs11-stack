@@ -2,10 +2,12 @@
 #[cfg(test)]
 use crate::backend::SyntheticOutcome;
 use crate::backend::{
-    BackendCommand, BackendError, BackendEvent, BackendResult, MechanismEntry, MetadataField,
-    ModuleEntry, ObjectEntry, RequestId, ResourceId, TokenEntry,
+    BackendCommand, BackendError, BackendEvent, BackendResult, LoginRole, LoginState,
+    MechanismEntry, MetadataField, ModuleEntry, ObjectEntry, RequestId, ResourceId, SecretInput,
+    TokenEntry,
 };
 use pkcs11_client::MechanismType;
+use secrecy::SecretString;
 use std::path::PathBuf;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -46,12 +48,23 @@ impl Notification {
 enum OperationKind {
     Load,
     Unload,
+    Login,
+    Logout,
     Refresh,
     Objects,
     Mechanisms,
     Inspect,
     #[cfg(test)]
     Synthetic,
+}
+
+pub struct LoginForm {
+    pub id: RequestId,
+    pub module: ResourceId,
+    pub token: ResourceId,
+    pub role: LoginRole,
+    pub protected_path: bool,
+    pub pin: SecretString,
 }
 
 /// UI metadata and identifiers. Providers and live PKCS#11 resources stay on the worker.
@@ -64,6 +77,7 @@ pub struct UiState {
     pub selected_object: Option<ResourceId>,
     pub current_operation: Option<RequestId>,
     pub dialog: Option<Dialog>,
+    pub login_form: Option<LoginForm>,
     pub notification: Option<Notification>,
     pub dark_theme: bool,
     pub worker_available: bool,
@@ -102,7 +116,12 @@ impl UiState {
             && self.shutdown_request.is_none()
             && !matches!(
                 self.operation_kind,
-                Some(OperationKind::Load | OperationKind::Unload)
+                Some(
+                    OperationKind::Load
+                        | OperationKind::Unload
+                        | OperationKind::Login
+                        | OperationKind::Logout
+                )
             )
     }
     fn begin(&mut self, kind: OperationKind) -> Option<RequestId> {
@@ -110,10 +129,89 @@ impl UiState {
             return None;
         }
         let id = self.request_id()?;
+        self.login_form = None;
         self.current_operation = Some(id);
         self.operation_kind = Some(kind);
         self.notification = None;
         Some(id)
+    }
+    pub fn open_login(&mut self, role: LoginRole) {
+        if !self.can_submit() || !self.token().is_some_and(|token| token.can_login(role)) {
+            return;
+        }
+        self.cancel();
+        if let Some(id) = self.request_id() {
+            self.dialog = None;
+            self.login_form = Some(LoginForm {
+                id,
+                module: self.module().unwrap().id,
+                token: self.token().unwrap().id,
+                role,
+                protected_path: self.token().unwrap().protected_path,
+                pin: SecretString::default(),
+            });
+        }
+    }
+    pub fn edit_pin(&mut self, id: RequestId, pin: SecretString) {
+        if let Some(form) = &mut self.login_form
+            && form.id == id
+            && !form.protected_path
+        {
+            form.pin = pin;
+        }
+    }
+    pub fn use_protected_path(&mut self, id: RequestId, enabled: bool) {
+        if enabled && !self.token().is_some_and(|token| token.protected_path) {
+            return;
+        }
+        if let Some(form) = &mut self.login_form
+            && form.id == id
+        {
+            form.pin = SecretString::default();
+            form.protected_path = enabled;
+        }
+    }
+    pub fn login(&mut self, form_id: RequestId) -> Option<BackendCommand> {
+        if !self.can_submit()
+            || !self
+                .login_form
+                .as_ref()
+                .is_some_and(|form| form.id == form_id)
+        {
+            return None;
+        }
+        let form = self.login_form.take()?;
+        if self.selected_module != Some(form.module)
+            || self.selected_token != Some(form.token)
+            || !self.token().is_some_and(|token| token.can_login(form.role))
+        {
+            return None;
+        }
+        let id = self.begin(OperationKind::Login)?;
+        self.reset_browser();
+        let pin = if form.protected_path {
+            SecretInput::ProtectedPath
+        } else {
+            SecretInput::Value(form.pin)
+        };
+        Some(BackendCommand::Login {
+            id,
+            module: form.module,
+            token: form.token,
+            role: form.role,
+            pin,
+        })
+    }
+    pub fn logout(&mut self) -> Option<BackendCommand> {
+        let module = self.module()?.id;
+        let entry = self.token()?;
+        if entry.login == LoginState::Public {
+            return None;
+        }
+        let token = entry.id;
+        let id = self.begin(OperationKind::Logout)?;
+        self.reset_browser();
+        Some(BackendCommand::Logout { id, module, token })
     }
     pub fn edit_path(&mut self, path: String) {
         self.module_path = path;
@@ -165,6 +263,7 @@ impl UiState {
         Some(BackendCommand::Refresh { id, module })
     }
     fn reset_browser(&mut self) {
+        self.login_form = None;
         self.token_page = TokenPage::Overview;
         self.objects.clear();
         self.mechanisms.clear();
@@ -181,6 +280,7 @@ impl UiState {
             return None;
         }
         self.cancel();
+        self.login_form = None;
         self.token_page = page;
         self.selected_object = None;
         self.object_details = None;
@@ -289,7 +389,12 @@ impl UiState {
         self.current_operation.is_some()
             && !matches!(
                 self.operation_kind,
-                Some(OperationKind::Load | OperationKind::Unload)
+                Some(
+                    OperationKind::Load
+                        | OperationKind::Unload
+                        | OperationKind::Login
+                        | OperationKind::Logout
+                )
             )
     }
     pub fn cancel(&mut self) {
@@ -453,6 +558,7 @@ impl UiState {
         self.operation_kind = None;
         self.picker_request = None;
         self.dialog = None;
+        self.login_form = None;
         self.notification = None;
         Some(id)
     }
@@ -466,7 +572,9 @@ impl UiState {
                 Some(OperationKind::Load) => "Loading module…",
                 Some(OperationKind::Unload) => "Unloading module…",
                 Some(OperationKind::Refresh) => "Refreshing slots and tokens…",
-                Some(OperationKind::Objects) => "Reading public object identities…",
+                Some(OperationKind::Objects) => "Reading visible object identities…",
+                Some(OperationKind::Login) => "Authenticating once…",
+                Some(OperationKind::Logout) => "Logging out…",
                 Some(OperationKind::Mechanisms) => "Reading advertised mechanisms…",
                 Some(OperationKind::Inspect) => "Reading selected object metadata…",
                 #[cfg(test)]

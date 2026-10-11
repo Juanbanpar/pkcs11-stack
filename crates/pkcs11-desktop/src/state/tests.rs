@@ -315,6 +315,13 @@ fn token(id: u64, serial: &str) -> TokenEntry {
         serial: serial.into(),
         uri: Some(format!("pkcs11:serial={serial}")),
         details: Vec::new(),
+        login: crate::backend::LoginState::Public,
+        initialized: true,
+        user_pin_initialized: true,
+        user_pin_locked: false,
+        so_pin_locked: false,
+        write_protected: false,
+        protected_path: false,
     }
 }
 fn module(id: u64, tokens: Vec<TokenEntry>) -> ModuleEntry {
@@ -487,4 +494,157 @@ fn selected_non_utf8_path_survives_display_conversion() {
     assert!(
         matches!(state.load(), Some(BackendCommand::Load { path: selected, .. }) if selected == path)
     );
+}
+
+#[test]
+fn authentication_form_rejects_stale_input_and_clears_on_navigation() {
+    use secrecy::ExposeSecret;
+    let mut state = browsing();
+    state.open_login(LoginRole::User);
+    let old = state.login_form.as_ref().unwrap().id;
+    state.edit_pin(old, "secret-canary".into());
+    state.select_token(ResourceId(1), ResourceId(3));
+    assert!(state.login_form.is_none());
+    state.open_login(LoginRole::User);
+    let new = state.login_form.as_ref().unwrap().id;
+    assert_ne!(old, new);
+    state.edit_pin(old, "late-canary".into());
+    assert!(
+        state
+            .login_form
+            .as_ref()
+            .unwrap()
+            .pin
+            .expose_secret()
+            .is_empty()
+    );
+    assert!(state.login(old).is_none());
+    state.edit_pin(new, "current".into());
+    state.begin_shutdown();
+    assert!(state.login_form.is_none());
+}
+#[test]
+fn login_submission_moves_secret_and_preserves_lifecycle_result_across_navigation() {
+    use secrecy::ExposeSecret;
+    let mut state = browsing();
+    state.objects = vec![object_entry(4, "old-private")];
+    state.open_login(LoginRole::User);
+    let form = state.login_form.as_ref().unwrap().id;
+    state.edit_pin(form, "secret-canary".into());
+    let request = match state.login(form).unwrap() {
+        BackendCommand::Login {
+            id,
+            module,
+            token,
+            role,
+            pin: SecretInput::Value(pin),
+        } => {
+            assert_eq!(module, ResourceId(1));
+            assert_eq!(token, ResourceId(2));
+            assert_eq!(role, LoginRole::User);
+            assert_eq!(pin.expose_secret(), "secret-canary");
+            id
+        }
+        _ => panic!("expected host login"),
+    };
+    assert!(state.login_form.is_none());
+    assert!(state.objects.is_empty());
+    assert!(!state.can_cancel());
+    assert!(!state.can_submit());
+    state.cancel();
+    state.select_token(ResourceId(1), ResourceId(3));
+    assert_eq!(state.current_operation, Some(request));
+    assert!(state.refresh().is_none());
+    let mut modules = state.loaded_modules.clone();
+    modules[0].tokens[0].login = LoginState::User;
+    state.event(complete(RequestId(request.0 - 1), BackendResult::Synthetic));
+    assert_eq!(state.current_operation, Some(request));
+    state.event(complete(
+        request,
+        BackendResult::Modules {
+            modules,
+            loaded: None,
+            error: None,
+        },
+    ));
+    assert_eq!(state.selected_token, Some(ResourceId(3)));
+    assert_eq!(state.loaded_modules[0].tokens[0].login, LoginState::User);
+    assert!(state.can_submit());
+}
+#[test]
+fn protected_path_clears_host_pin_and_is_capability_gated() {
+    use secrecy::ExposeSecret;
+    let mut state = browsing();
+    state.open_login(LoginRole::User);
+    let id = state.login_form.as_ref().unwrap().id;
+    state.edit_pin(id, "canary".into());
+    state.use_protected_path(id, true);
+    assert!(!state.login_form.as_ref().unwrap().protected_path);
+    state.loaded_modules[0].tokens[0].protected_path = true;
+    state.use_protected_path(id, true);
+    assert!(
+        state
+            .login_form
+            .as_ref()
+            .unwrap()
+            .pin
+            .expose_secret()
+            .is_empty()
+    );
+    state.edit_pin(id, "ignored".into());
+    assert!(
+        state
+            .login_form
+            .as_ref()
+            .unwrap()
+            .pin
+            .expose_secret()
+            .is_empty()
+    );
+    assert!(matches!(
+        state.login(id),
+        Some(BackendCommand::Login {
+            pin: SecretInput::ProtectedPath,
+            ..
+        })
+    ));
+}
+#[test]
+fn logout_clears_private_metadata_and_cannot_be_cancelled() {
+    let mut state = browsing();
+    state.loaded_modules[0].tokens[0].login = LoginState::User;
+    state.objects = vec![object_entry(4, "private")];
+    state.selected_object = Some(ResourceId(4));
+    state.object_details = Some(Vec::new());
+    let id = state.logout().unwrap().id();
+    assert!(state.objects.is_empty());
+    assert!(state.object_details.is_none());
+    assert!(state.selected_object.is_none());
+    state.navigate(Screen::Welcome);
+    state.cancel();
+    assert_eq!(state.current_operation, Some(id));
+    assert!(!state.can_cancel());
+}
+#[test]
+fn authentication_roles_obey_initialization_lock_and_write_flags() {
+    let mut entry = token(2, "A");
+    assert!(entry.can_login(LoginRole::User));
+    assert!(entry.can_login(LoginRole::SecurityOfficer));
+    entry.user_pin_locked = true;
+    assert!(!entry.can_login(LoginRole::User));
+    assert!(entry.can_login(LoginRole::SecurityOfficer));
+    entry.user_pin_locked = false;
+    entry.user_pin_initialized = false;
+    assert!(!entry.can_login(LoginRole::User));
+    entry.write_protected = true;
+    assert!(!entry.can_login(LoginRole::SecurityOfficer));
+    entry.write_protected = false;
+    entry.so_pin_locked = true;
+    assert!(!entry.can_login(LoginRole::SecurityOfficer));
+    entry.login = LoginState::User;
+    assert!(!entry.can_login(LoginRole::User));
+    entry.initialized = false;
+    entry.login = LoginState::Public;
+    assert!(!entry.can_login(LoginRole::User));
+    assert!(!entry.can_login(LoginRole::SecurityOfficer));
 }

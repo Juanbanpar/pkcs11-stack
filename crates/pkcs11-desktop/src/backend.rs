@@ -7,7 +7,9 @@ use std::{
     sync::{Arc, Mutex, mpsc},
     thread::{self, JoinHandle},
 };
+mod authentication;
 mod browse;
+pub use authentication::{LoginRole, LoginState, SecretInput};
 pub use browse::{MechanismEntry, MetadataField, ObjectEntry};
 
 /// Never reused during an application's lifetime, including after cancellation.
@@ -43,8 +45,24 @@ pub struct TokenEntry {
     pub serial: String,
     pub uri: Option<String>,
     pub details: Vec<(String, String)>,
+    pub login: LoginState,
+    pub initialized: bool,
+    pub user_pin_initialized: bool,
+    pub user_pin_locked: bool,
+    pub so_pin_locked: bool,
+    pub write_protected: bool,
+    pub protected_path: bool,
 }
 impl TokenEntry {
+    pub fn can_login(&self, role: LoginRole) -> bool {
+        self.initialized
+            && self.uri.is_some()
+            && self.login == LoginState::Public
+            && match role {
+                LoginRole::User => self.user_pin_initialized && !self.user_pin_locked,
+                LoginRole::SecurityOfficer => !self.write_protected && !self.so_pin_locked,
+            }
+    }
     fn same_resource(&self, other: &Self) -> bool {
         self.slot_id == other.slot_id
             && self.label == other.label
@@ -111,6 +129,18 @@ pub enum BackendCommand {
         id: RequestId,
         outcome: SyntheticOutcome,
     },
+    Login {
+        id: RequestId,
+        module: ResourceId,
+        token: ResourceId,
+        role: LoginRole,
+        pin: SecretInput,
+    },
+    Logout {
+        id: RequestId,
+        module: ResourceId,
+        token: ResourceId,
+    },
     Shutdown {
         id: RequestId,
     },
@@ -124,6 +154,8 @@ impl BackendCommand {
             | Self::Objects { id, .. }
             | Self::Mechanisms { id, .. }
             | Self::Inspect { id, .. }
+            | Self::Login { id, .. }
+            | Self::Logout { id, .. }
             | Self::Shutdown { id } => *id,
             #[cfg(test)]
             Self::Synthetic { id, .. } => *id,
@@ -175,11 +207,19 @@ pub enum BackendError {
     AmbiguousObject,
     ResourceExhausted,
     RequestExhausted,
+    AuthenticationUnavailable,
+    AuthenticationFailed,
     Client(ErrorKind),
 }
 impl BackendError {
     pub fn message(self) -> &'static str {
         match self {
+            Self::AuthenticationUnavailable => {
+                "Authentication is unavailable for this role or token. Refresh its status."
+            }
+            Self::AuthenticationFailed => {
+                "Authentication failed. Check the token status before submitting another login; failed attempts can lock the PIN."
+            }
             Self::Start => "Could not start the background worker.",
             Self::Busy => "The worker queue is full. Wait before trying again.",
             Self::Disconnected => "The background worker is unavailable.",
@@ -309,6 +349,7 @@ struct LoadedModule {
     provider: Provider,
     entry: ModuleEntry,
     catalogs: Vec<browse::ObjectCatalog>,
+    authentication: Vec<(ResourceId, pkcs11_client::ManagementSession<'static>)>,
 }
 #[derive(Default)]
 struct Registry {
@@ -332,12 +373,13 @@ impl Registry {
             entry.slots.clear();
             entry.tokens.clear();
             entry.discovery_error = Some(error);
+            let _ = self.modules[index].close_authentication();
         }
         result
     }
 
     fn discover_inner(&mut self, index: usize) -> Result<(), BackendError> {
-        // Retain no sessions: discovery uses only the client's provider snapshots.
+        // Discovery uses provider metadata; authentication sessions stay worker-local.
         let result = (|| {
             let provider = &self.modules[index].provider;
             let slots = provider.slots(false).map_err(|e| BackendError::from(&e))?;
@@ -356,6 +398,13 @@ impl Registry {
                 model: info.model().into(),
                 serial: info.serial_number().into(),
                 uri: token.uri().ok().map(|uri| uri.to_string()),
+                login: LoginState::Public,
+                initialized: info.token_initialized(),
+                user_pin_initialized: info.user_pin_initialized(),
+                user_pin_locked: info.user_pin_locked(),
+                so_pin_locked: info.so_pin_locked(),
+                write_protected: info.write_protected(),
+                protected_path: info.protected_authentication_path(),
                 details: vec![
                     ("Initialized".into(), info.token_initialized().to_string()),
                     ("Login required".into(), info.login_required().to_string()),
@@ -407,7 +456,7 @@ impl Registry {
             .collect();
         entry.tokens = entries;
         entry.discovery_error = None;
-        Ok(())
+        self.modules[index].refresh_authentication()
     }
 
     fn load(&mut self, path: &Path) -> Result<ResourceId, BackendError> {
@@ -433,6 +482,7 @@ impl Registry {
             provider,
             entry,
             catalogs: Vec::new(),
+            authentication: Vec::new(),
         });
         // A discovery failure leaves a visible, unloadable module with a refresh action.
         let _ = self.discover(self.modules.len() - 1);
@@ -485,17 +535,20 @@ impl Registry {
                     }),
                 };
             }
+            BackendCommand::Login {
+                module,
+                token,
+                role,
+                pin,
+                ..
+            } => self.login(module, token, role, pin),
+            BackendCommand::Logout { module, token, .. } => self.logout(module, token),
             BackendCommand::Load { path, .. } => {
                 self.load(&path).map(|module| loaded = Some(module))
             }
             BackendCommand::Unload { module, .. } => {
                 match self.modules.iter().position(|m| m.entry.id == module) {
-                    Some(index) => self
-                        .modules
-                        .remove(index)
-                        .provider
-                        .finalize()
-                        .map_err(|e| BackendError::from(&e)),
+                    Some(index) => self.modules.remove(index).close(),
                     None => Err(BackendError::UnknownModule),
                 }
             }
@@ -538,8 +591,8 @@ impl Registry {
     fn close(&mut self) -> Result<(), BackendError> {
         let mut error = None;
         for module in self.modules.drain(..) {
-            if let Err(failure) = module.provider.finalize() {
-                error.get_or_insert(BackendError::from(&failure));
+            if let Err(failure) = module.close() {
+                error.get_or_insert(failure);
             }
         }
         error.map_or(Ok(()), Err)
