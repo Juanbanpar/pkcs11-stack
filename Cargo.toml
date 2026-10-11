@@ -4,6 +4,7 @@ exclude = ["fuzz"]
 members = [
     "crates/pkcs11-locator",
     "crates/pkcs11-runtime",
+    "crates/pkcs11-client",
 ]
 
 [workspace.package]
