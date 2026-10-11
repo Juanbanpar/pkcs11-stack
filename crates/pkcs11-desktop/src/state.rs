@@ -9,6 +9,8 @@ use crate::backend::{
 use pkcs11_client::MechanismType;
 use secrecy::SecretString;
 use std::path::PathBuf;
+mod management;
+pub use management::{FilePurpose, KeyChoice, ManagementField, ManagementUi};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Screen {
@@ -19,6 +21,7 @@ pub enum Screen {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Dialog {
     About,
+    Delete(RequestId),
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum TokenPage {
@@ -26,6 +29,7 @@ pub enum TokenPage {
     Overview,
     Objects,
     Mechanisms,
+    Operations,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Notification {
@@ -54,6 +58,8 @@ enum OperationKind {
     Objects,
     Mechanisms,
     Inspect,
+    Capabilities,
+    Manage,
     #[cfg(test)]
     Synthetic,
 }
@@ -93,6 +99,7 @@ pub struct UiState {
     pub selected_mechanism: Option<MechanismType>,
     pub objects_loaded: bool,
     pub mechanisms_loaded: bool,
+    pub management: ManagementUi,
     picked_path: Option<PathBuf>,
     operation_kind: Option<OperationKind>,
     select_loaded: bool,
@@ -121,6 +128,7 @@ impl UiState {
                         | OperationKind::Unload
                         | OperationKind::Login
                         | OperationKind::Logout
+                        | OperationKind::Manage
                 )
             )
     }
@@ -130,6 +138,11 @@ impl UiState {
         }
         let id = self.request_id()?;
         self.login_form = None;
+        self.management.file_request = None;
+        self.management.confirmation = None;
+        if matches!(self.dialog, Some(Dialog::Delete(_))) {
+            self.dialog = None;
+        }
         self.current_operation = Some(id);
         self.operation_kind = Some(kind);
         self.notification = None;
@@ -263,6 +276,10 @@ impl UiState {
         Some(BackendCommand::Refresh { id, module })
     }
     fn reset_browser(&mut self) {
+        self.management = ManagementUi::default();
+        if matches!(self.dialog, Some(Dialog::Delete(_))) {
+            self.dialog = None;
+        }
         self.login_form = None;
         self.token_page = TokenPage::Overview;
         self.objects.clear();
@@ -281,6 +298,10 @@ impl UiState {
         }
         self.cancel();
         self.login_form = None;
+        self.management = ManagementUi::default();
+        if matches!(self.dialog, Some(Dialog::Delete(_))) {
+            self.dialog = None;
+        }
         self.token_page = page;
         self.selected_object = None;
         self.object_details = None;
@@ -289,6 +310,7 @@ impl UiState {
             TokenPage::Overview => None,
             TokenPage::Objects => self.read_objects(),
             TokenPage::Mechanisms => self.read_mechanisms(),
+            TokenPage::Operations => self.read_capabilities(),
         }
     }
     pub fn read_objects(&mut self) -> Option<BackendCommand> {
@@ -328,6 +350,11 @@ impl UiState {
         let module = self.module()?.id;
         let token = self.token()?.id;
         self.cancel();
+        self.management.confirmation = None;
+        self.management.file_request = None;
+        if matches!(self.dialog, Some(Dialog::Delete(_))) {
+            self.dialog = None;
+        }
         self.selected_object = Some(object);
         self.object_details = None;
         if !inspectable {
@@ -357,6 +384,11 @@ impl UiState {
             }
             self.selected_object = None;
             self.object_details = None;
+            self.management.confirmation = None;
+            self.management.file_request = None;
+            if matches!(self.dialog, Some(Dialog::Delete(_))) {
+                self.dialog = None;
+            }
         }
     }
     pub fn select_mechanism(&mut self, mechanism: MechanismType) {
@@ -394,6 +426,7 @@ impl UiState {
                         | OperationKind::Unload
                         | OperationKind::Login
                         | OperationKind::Logout
+                        | OperationKind::Manage
                 )
             )
     }
@@ -456,6 +489,7 @@ impl UiState {
                 let in_scope = match &result {
                     Ok(
                         BackendResult::Objects { module, token, .. }
+                        | BackendResult::Capabilities { module, token, .. }
                         | BackendResult::Mechanisms { module, token, .. },
                     ) => {
                         self.selected_module == Some(*module) && self.selected_token == Some(*token)
@@ -478,6 +512,38 @@ impl UiState {
                 self.current_operation = None;
                 self.operation_kind = None;
                 let error = match result {
+                    Ok(BackendResult::Capabilities { keys, .. }) => {
+                        self.management.keys = keys.into_iter().map(KeyChoice).collect();
+                        self.management.key = self.management.keys.first().copied();
+                        self.management.capabilities_loaded = true;
+                        None
+                    }
+                    Ok(BackendResult::Managed {
+                        module,
+                        token,
+                        modules,
+                        objects,
+                        error,
+                    }) => {
+                        self.loaded_modules = modules;
+                        if self.module().is_none() {
+                            self.selected_module = None;
+                            self.selected_token = None;
+                        } else if self.token().is_none() {
+                            self.selected_token = None;
+                        }
+                        self.reset_browser();
+                        if self.selected_module == Some(module)
+                            && self.selected_token == Some(token)
+                        {
+                            self.token_page = TokenPage::Objects;
+                            if let Some(objects) = objects {
+                                self.objects = objects;
+                                self.objects_loaded = true;
+                            }
+                        }
+                        error
+                    }
                     Ok(BackendResult::Modules {
                         modules,
                         loaded,
@@ -559,6 +625,7 @@ impl UiState {
         self.picker_request = None;
         self.dialog = None;
         self.login_form = None;
+        self.management = ManagementUi::default();
         self.notification = None;
         Some(id)
     }
@@ -576,6 +643,8 @@ impl UiState {
                 Some(OperationKind::Login) => "Authenticating once…",
                 Some(OperationKind::Logout) => "Logging out…",
                 Some(OperationKind::Mechanisms) => "Reading advertised mechanisms…",
+                Some(OperationKind::Capabilities) => "Reading key-generation capabilities…",
+                Some(OperationKind::Manage) => "Managing objects…",
                 Some(OperationKind::Inspect) => "Reading selected object metadata…",
                 #[cfg(test)]
                 Some(OperationKind::Synthetic) => "Working in the background…",

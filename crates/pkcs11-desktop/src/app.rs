@@ -4,7 +4,9 @@ use crate::{
         BackendCommand, BackendError, BackendEvent, EventSource, LoginRole, RequestId, ResourceId,
         Worker,
     },
-    state::{Dialog, Notification, Screen, TokenPage, UiState},
+    state::{
+        Dialog, FilePurpose, KeyChoice, ManagementField, Notification, Screen, TokenPage, UiState,
+    },
     views,
 };
 use iced::{Element, Subscription, Task, Theme};
@@ -37,6 +39,23 @@ pub enum Message {
     Logout,
     ShowPage(TokenPage),
     RefreshObjects,
+    ReadCapabilities,
+    ManagementEdit {
+        field: ManagementField,
+        value: String,
+    },
+    GenerationKey(KeyChoice),
+    AlwaysAuthenticate(bool),
+    Generate,
+    ImportCertificate,
+    ChooseCertificate,
+    ExportObject,
+    ObjectFilePicked {
+        id: RequestId,
+        path: Option<PathBuf>,
+    },
+    RequestDelete,
+    ConfirmDelete(RequestId),
     RefreshMechanisms,
     SelectObject(ResourceId),
     SelectMechanism(pkcs11_client::MechanismType),
@@ -77,6 +96,17 @@ impl std::fmt::Debug for Message {
             Self::DismissLogin(_) => "DismissLogin",
             Self::Logout => "Logout",
             Self::ShowPage(_) => "ShowPage",
+            Self::ReadCapabilities => "ReadCapabilities",
+            Self::ManagementEdit { .. } => "ManagementEdit",
+            Self::GenerationKey(_) => "GenerationKey",
+            Self::AlwaysAuthenticate(_) => "AlwaysAuthenticate",
+            Self::Generate => "Generate",
+            Self::ImportCertificate => "ImportCertificate",
+            Self::ChooseCertificate => "ChooseCertificate",
+            Self::ExportObject => "ExportObject",
+            Self::ObjectFilePicked { .. } => "ObjectFilePicked",
+            Self::RequestDelete => "RequestDelete",
+            Self::ConfirmDelete(_) => "ConfirmDelete",
             Self::RefreshObjects => "RefreshObjects",
             Self::RefreshMechanisms => "RefreshMechanisms",
             Self::SelectObject(_) => "SelectObject",
@@ -187,6 +217,67 @@ impl App {
                 let command = self.state.show_page(page);
                 self.submit(command);
             }
+            Message::ReadCapabilities => {
+                let command = self.state.read_capabilities();
+                self.submit(command);
+            }
+            Message::ManagementEdit { field, value } => self.state.edit_management(field, value),
+            Message::GenerationKey(key) => {
+                if self.state.can_submit() && self.state.management.keys.contains(&key) {
+                    self.state.management.key = Some(key);
+                }
+            }
+            Message::AlwaysAuthenticate(value) => {
+                if self.state.can_submit() {
+                    self.state.management.always_authenticate = value;
+                }
+            }
+            Message::Generate => {
+                let command = self.state.generate();
+                self.submit(command);
+            }
+            Message::ImportCertificate => {
+                let command = self.state.import_certificate();
+                self.submit(command);
+            }
+            Message::RequestDelete => self.state.request_delete(),
+            Message::ConfirmDelete(id) => {
+                let command = self.state.confirm_delete(id);
+                self.submit(command);
+            }
+            Message::ChooseCertificate | Message::ExportObject => {
+                if let Some((id, purpose)) = self
+                    .state
+                    .begin_object_file(matches!(message, Message::ExportObject))
+                {
+                    return Task::perform(
+                        async move {
+                            let dialog = rfd::AsyncFileDialog::new();
+                            let file = match purpose {
+                                FilePurpose::Certificate => {
+                                    dialog
+                                        .set_title("Select a DER certificate")
+                                        .pick_file()
+                                        .await
+                                }
+                                FilePurpose::Export { .. } => {
+                                    dialog
+                                        .set_title("Export public object to a new file")
+                                        .set_file_name("object.der")
+                                        .save_file()
+                                        .await
+                                }
+                            };
+                            file.map(|file| file.path().to_path_buf())
+                        },
+                        move |path| Message::ObjectFilePicked { id, path },
+                    );
+                }
+            }
+            Message::ObjectFilePicked { id, path } => {
+                let command = self.state.object_file_picked(id, path);
+                self.submit(command);
+            }
             Message::RefreshObjects => {
                 let command = self.state.read_objects();
                 self.submit(command);
@@ -226,9 +317,13 @@ impl App {
             Message::Joined { .. } => {}
             Message::About => {
                 self.state.login_form = None;
+                self.state.management.confirmation = None;
                 self.state.dialog = Some(Dialog::About);
             }
-            Message::DismissDialog => self.state.dialog = None,
+            Message::DismissDialog => {
+                self.state.dialog = None;
+                self.state.management.confirmation = None;
+            }
             Message::DismissNotification => self.state.notification = None,
         }
         Task::none()

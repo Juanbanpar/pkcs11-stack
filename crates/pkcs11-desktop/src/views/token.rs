@@ -3,7 +3,7 @@ use super::main::field;
 use crate::{
     app::Message,
     backend::{LoginRole, LoginState, MetadataField, TokenEntry},
-    state::{TokenPage, UiState},
+    state::{Dialog, TokenPage, UiState},
 };
 use iced::{
     Element, Length,
@@ -17,6 +17,7 @@ pub fn view<'a>(state: &'a UiState, token: &'a TokenEntry) -> Element<'a, Messag
         ("Overview", TokenPage::Overview),
         ("Objects", TokenPage::Objects),
         ("Mechanisms", TokenPage::Mechanisms),
+        ("Operations", TokenPage::Operations),
     ] {
         tabs = tabs.push(
             button(label)
@@ -32,6 +33,7 @@ pub fn view<'a>(state: &'a UiState, token: &'a TokenEntry) -> Element<'a, Messag
         TokenPage::Overview => overview(token),
         TokenPage::Objects => objects(state),
         TokenPage::Mechanisms => mechanisms(state),
+        TokenPage::Operations => super::operations::view(state),
     };
     column![
         text(if token.label.is_empty() {
@@ -205,6 +207,25 @@ fn objects(state: &UiState) -> Element<'_, Message> {
             detail = detail.push(text(
                 "The available identity attributes cannot form a supported object locator.",
             ));
+        }
+        detail = detail.push(
+            row![
+                button("Export public object…")
+                    .on_press_maybe(state.can_export().then_some(Message::ExportObject)),
+                button("Delete object…").on_press_maybe(
+                    (state.can_manage() && !object.ambiguous && object.uri.is_some())
+                        .then_some(Message::RequestDelete)
+                )
+            ]
+            .spacing(10),
+        );
+        if let Some(Dialog::Delete(id)) = state.dialog {
+            detail = detail.push(container(column![
+                text("Delete selected object?").size(20),
+                text("This permanently deletes this object only; related keys and certificates are kept."),
+                text(object.uri.as_deref().unwrap_or("")),
+                row![button("Delete permanently").on_press(Message::ConfirmDelete(id)), button("Cancel").on_press(Message::DismissDialog)].spacing(10),
+            ].spacing(10)).padding(12).style(container::rounded_box));
         }
         if object.ambiguous {
             detail = detail.push(text(

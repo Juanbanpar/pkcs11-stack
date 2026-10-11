@@ -648,3 +648,162 @@ fn authentication_roles_obey_initialization_lock_and_write_flags() {
     assert!(!entry.can_login(LoginRole::User));
     assert!(!entry.can_login(LoginRole::SecurityOfficer));
 }
+
+fn managing() -> UiState {
+    let mut state = browsing();
+    state.loaded_modules[0].tokens[0].login = LoginState::User;
+    state
+}
+#[test]
+fn generation_choices_are_scoped_and_invalid_forms_do_not_enqueue_mutations() {
+    let mut state = managing();
+    let request = state.show_page(TokenPage::Operations).unwrap().id();
+    let kind = pkcs11_client::KeyKind::Rsa { bits: 2048 };
+    state.event(complete(
+        request,
+        BackendResult::Capabilities {
+            module: ResourceId(1),
+            token: ResourceId(3),
+            keys: vec![kind],
+        },
+    ));
+    assert!(state.management.keys.is_empty());
+    state.event(complete(
+        request,
+        BackendResult::Capabilities {
+            module: ResourceId(1),
+            token: ResourceId(2),
+            keys: vec![kind],
+        },
+    ));
+    state.management.key_label = "test".into();
+    state.management.key_id = "0FF".into();
+    assert!(state.generate().is_none());
+    state.management.key_id = "00FF".into();
+    let request = state.generate().unwrap();
+    assert!(
+        matches!(request, BackendCommand::Manage { action: crate::backend::ManagementAction::Generate { kind: returned, id, .. }, .. } if returned == kind && id == vec![0, 255])
+    );
+    assert!(!state.can_cancel());
+    assert!(!state.can_submit());
+    assert!(state.management.key_label.is_empty());
+}
+#[test]
+fn deletion_confirmation_cannot_target_another_selection_and_refreshes_even_on_failure() {
+    let mut state = managing();
+    state.token_page = TokenPage::Objects;
+    state.objects = vec![object_entry(4, "old"), object_entry(5, "new")];
+    state.selected_object = Some(ResourceId(4));
+    state.request_delete();
+    let first = state.management.confirmation.as_ref().unwrap().id;
+    assert_eq!(state.dialog, Some(Dialog::Delete(first)));
+    assert!(state.current_operation.is_none());
+    state.select_object(ResourceId(5));
+    assert!(state.dialog.is_none());
+    assert!(state.confirm_delete(first).is_none());
+    state.request_delete();
+    let second = state.management.confirmation.as_ref().unwrap().id;
+    assert!(state.confirm_delete(first).is_none());
+    let request = state.confirm_delete(second).unwrap().id();
+    assert!(state.objects.is_empty());
+    assert!(state.dialog.is_none());
+    assert!(!state.can_cancel());
+    state.event(complete(
+        request,
+        BackendResult::Managed {
+            module: ResourceId(1),
+            token: ResourceId(2),
+            modules: state.loaded_modules.clone(),
+            objects: Some(vec![object_entry(6, "still present")]),
+            error: Some(BackendError::Client(pkcs11_client::ErrorKind::Runtime)),
+        },
+    ));
+    assert_eq!(state.objects[0].id, ResourceId(6));
+    assert!(state.selected_object.is_none());
+    assert_eq!(state.token_page, TokenPage::Objects);
+    assert!(matches!(state.notification, Some(Notification::Error(_))));
+}
+#[test]
+fn late_file_picker_and_management_results_cannot_restore_an_old_token() {
+    let mut state = managing();
+    let request = state.show_page(TokenPage::Operations).unwrap().id();
+    state.event(complete(
+        request,
+        BackendResult::Capabilities {
+            module: ResourceId(1),
+            token: ResourceId(2),
+            keys: Vec::new(),
+        },
+    ));
+    let (picker, _) = state.begin_object_file(false).unwrap();
+    state.select_token(ResourceId(1), ResourceId(3));
+    assert!(
+        state
+            .object_file_picked(picker, Some(PathBuf::from("old.der")))
+            .is_none()
+    );
+    assert!(state.management.certificate_path.is_empty());
+    state.select_token(ResourceId(1), ResourceId(2));
+    state.token_page = TokenPage::Objects;
+    state.objects = vec![object_entry(4, "public")];
+    state.selected_object = Some(ResourceId(4));
+    state.object_details = Some(vec![MetadataField {
+        name: "Private",
+        status: "available",
+        value: Some("false".into()),
+    }]);
+    let (picker, _) = state.begin_object_file(true).unwrap();
+    let operation = state
+        .object_file_picked(picker, Some(PathBuf::from("new.der")))
+        .unwrap()
+        .id();
+    state.select_token(ResourceId(1), ResourceId(3));
+    state.event(complete(
+        operation,
+        BackendResult::Managed {
+            module: ResourceId(1),
+            token: ResourceId(2),
+            modules: state.loaded_modules.clone(),
+            objects: Some(vec![object_entry(8, "foreign")]),
+            error: None,
+        },
+    ));
+    assert_eq!(state.selected_token, Some(ResourceId(3)));
+    assert!(state.objects.is_empty());
+    assert_eq!(state.token_page, TokenPage::Overview);
+}
+#[test]
+fn private_or_ambiguous_objects_never_offer_export_and_import_validation_is_local() {
+    let mut state = managing();
+    state.token_page = TokenPage::Objects;
+    let mut entry = object_entry(4, "private");
+    entry.class = Some(pkcs11_client::ObjectClass::PRIVATE_KEY);
+    state.objects = vec![entry];
+    state.selected_object = Some(ResourceId(4));
+    state.object_details = Some(vec![MetadataField {
+        name: "Private",
+        status: "available",
+        value: Some("false".into()),
+    }]);
+    assert!(!state.can_export());
+    state.objects[0].class = Some(pkcs11_client::ObjectClass::DATA);
+    state.objects[0].ambiguous = true;
+    assert!(!state.can_export());
+    state.request_delete();
+    assert!(state.dialog.is_none());
+    state.objects[0].ambiguous = false;
+    state.object_details.as_mut().unwrap()[0].value = Some("true".into());
+    assert!(!state.can_export());
+    state.show_page(TokenPage::Operations);
+    state.management.certificate_id = "01".into();
+    state.management.certificate_label = "certificate".into();
+    assert!(state.import_certificate().is_none());
+    state.management.certificate_path = "fixture.der".into();
+    assert!(matches!(
+        state.import_certificate(),
+        Some(BackendCommand::Manage {
+            action: crate::backend::ManagementAction::ImportCertificate { .. },
+            ..
+        })
+    ));
+}

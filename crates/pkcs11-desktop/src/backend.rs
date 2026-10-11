@@ -9,8 +9,10 @@ use std::{
 };
 mod authentication;
 mod browse;
+mod management;
 pub use authentication::{LoginRole, LoginState, SecretInput};
 pub use browse::{MechanismEntry, MetadataField, ObjectEntry};
+pub use management::ManagementAction;
 
 /// Never reused during an application's lifetime, including after cancellation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -62,6 +64,9 @@ impl TokenEntry {
                 LoginRole::User => self.user_pin_initialized && !self.user_pin_locked,
                 LoginRole::SecurityOfficer => !self.write_protected && !self.so_pin_locked,
             }
+    }
+    pub fn can_manage(&self) -> bool {
+        self.initialized && !self.write_protected && self.login == LoginState::User
     }
     fn same_resource(&self, other: &Self) -> bool {
         self.slot_id == other.slot_id
@@ -141,6 +146,17 @@ pub enum BackendCommand {
         module: ResourceId,
         token: ResourceId,
     },
+    Capabilities {
+        id: RequestId,
+        module: ResourceId,
+        token: ResourceId,
+    },
+    Manage {
+        id: RequestId,
+        module: ResourceId,
+        token: ResourceId,
+        action: ManagementAction,
+    },
     Shutdown {
         id: RequestId,
     },
@@ -156,6 +172,8 @@ impl BackendCommand {
             | Self::Inspect { id, .. }
             | Self::Login { id, .. }
             | Self::Logout { id, .. }
+            | Self::Capabilities { id, .. }
+            | Self::Manage { id, .. }
             | Self::Shutdown { id } => *id,
             #[cfg(test)]
             Self::Synthetic { id, .. } => *id,
@@ -165,6 +183,18 @@ impl BackendCommand {
 
 #[derive(Clone, Debug)]
 pub enum BackendResult {
+    Capabilities {
+        module: ResourceId,
+        token: ResourceId,
+        keys: Vec<pkcs11_client::KeyKind>,
+    },
+    Managed {
+        module: ResourceId,
+        token: ResourceId,
+        modules: Vec<ModuleEntry>,
+        objects: Option<Vec<ObjectEntry>>,
+        error: Option<BackendError>,
+    },
     Objects {
         module: ResourceId,
         token: ResourceId,
@@ -209,11 +239,33 @@ pub enum BackendError {
     RequestExhausted,
     AuthenticationUnavailable,
     AuthenticationFailed,
+    ManagementUnavailable,
+    RefreshAfterManagement,
+    InvalidForm,
+    FileRead,
+    FileWrite,
+    ExportUnavailable,
     Client(ErrorKind),
 }
 impl BackendError {
     pub fn message(self) -> &'static str {
         match self {
+            Self::ExportUnavailable => {
+                "Only public certificates, public data and supported RSA/EC public keys can be exported."
+            }
+            Self::RefreshAfterManagement => {
+                "The operation completed, but inventory refresh failed. Refresh before making another change."
+            }
+            Self::ManagementUnavailable => "Log in as USER on a writable token to manage objects.",
+            Self::InvalidForm => {
+                "Select an advertised key type and provide a label and a nonempty hexadecimal ID."
+            }
+            Self::FileRead => {
+                "Could not read one DER certificate of at most 16 MiB from the selected file."
+            }
+            Self::FileWrite => {
+                "Could not create the export file. Choose a new path; existing files are never overwritten. A failed write may leave a partial file."
+            }
             Self::AuthenticationUnavailable => {
                 "Authentication is unavailable for this role or token. Refresh its status."
             }
@@ -493,6 +545,29 @@ impl Registry {
         let id = command.id();
         let mut loaded = None;
         let result = match command {
+            BackendCommand::Capabilities { module, token, .. } => {
+                return BackendEvent::Completed {
+                    id,
+                    result: self.capabilities(module, token).map(|keys| {
+                        BackendResult::Capabilities {
+                            module,
+                            token,
+                            keys,
+                        }
+                    }),
+                };
+            }
+            BackendCommand::Manage {
+                module,
+                token,
+                action,
+                ..
+            } => {
+                return BackendEvent::Completed {
+                    id,
+                    result: Ok(self.manage(module, token, action)),
+                };
+            }
             BackendCommand::Objects { module, token, .. } => {
                 return BackendEvent::Completed {
                     id,

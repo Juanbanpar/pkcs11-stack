@@ -167,7 +167,7 @@ fn detail_attributes(class: Option<ObjectClass>) -> Vec<(AttributeType, &'static
     types
 }
 
-fn read_session<T>(
+pub(super) fn read_session<T>(
     provider: &pkcs11_client::Provider,
     token: &Pkcs11Uri,
     mode: SessionMode,
@@ -271,13 +271,13 @@ impl Registry {
         });
         Ok(objects)
     }
-    pub(super) fn inspect(
+    pub(super) fn reference(
         &self,
         module: ResourceId,
         token: ResourceId,
         object: ResourceId,
-    ) -> Result<Vec<MetadataField>, BackendError> {
-        let (index, uri) = self.location(module, token)?;
+    ) -> Result<(pkcs11_client::ObjectRef, Option<ObjectClass>), BackendError> {
+        let (index, _) = self.location(module, token)?;
         let entry = self.modules[index]
             .catalogs
             .iter()
@@ -296,7 +296,18 @@ impl Registry {
                 .map_err(|_| BackendError::UnknownObject)?,
         )
         .map_err(|e| BackendError::from(&e))?;
-        let attributes = detail_attributes(entry.class);
+        Ok((reference, entry.class))
+    }
+
+    pub(super) fn inspect(
+        &self,
+        module: ResourceId,
+        token: ResourceId,
+        object: ResourceId,
+    ) -> Result<Vec<MetadataField>, BackendError> {
+        let (index, uri) = self.location(module, token)?;
+        let (reference, class) = self.reference(module, token, object)?;
+        let attributes = detail_attributes(class);
         read_session(
             &self.modules[index].provider,
             &uri,
