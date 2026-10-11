@@ -1,8 +1,22 @@
 # pkcs11-desktop
 
-Native Iced window with welcome and module navigation pages, light/dark themes,
-status messages and a synthetic background operation. It uses `pkcs11-client` as
-its application API; module loading and token browsing are not implemented yet.
+Native PKCS#11 module and token browser built with Iced and `pkcs11-client`.
+Load trusted vendor libraries, inspect module and slot metadata, and view token
+identity, initialization, authentication flags and PIN limits.
+
+## Usage
+
+Choose a module with **Browse**, or enter its file path, then select **Load**.
+The sidebar lists loaded modules and their tokens. Select a module for library and
+slot information, or a token for its overview and locator.
+
+**Refresh** re-enumerates the selected module's slots and tokens. Removed or
+replaced tokens clear their selection. **Unload** finalizes the selected module;
+quitting finalizes all loaded modules. Browsing does not authenticate or open sessions.
+
+On Linux, the native file picker uses the desktop portal, with a Zenity fallback.
+Manual path entry also works when no picker service is available. Modules are
+loaded only after an explicit Load action; paths are not saved or loaded on startup.
 
 ## Development
 
@@ -22,19 +36,22 @@ sudo apt-get install pkg-config libxkbcommon-dev libxkbcommon-x11-dev libwayland
 
 ## Execution
 
-One worker thread processes a bounded command queue. Iced receives results through
-a subscription. The synthetic operation waits 350 ms, then returns success or a
-fixed error, allowing responsiveness and error handling to be tested without a token.
+One worker owns all client providers and performs module loading, discovery,
+refresh and finalization. The UI receives metadata snapshots and local resource
+IDs, without providers, sessions or raw handles. An unchanged token keeps its ID
+across refreshes; a replacement receives a new ID.
 
-Request IDs associate results with the active operation. Cancellation, navigation
-or another request invalidates an earlier result; it does not interrupt worker
-execution. A full queue returns an error without blocking the UI. Closing the
-window stops submissions, drains queued work and joins the worker off the UI thread.
+Request IDs reject cancelled or superseded results. Refresh cancellation ignores
+its eventual result. Load and unload complete before another lifecycle command
+can start; navigation remains available. Closing the window drains queued work,
+finalizes providers and joins the worker off the UI thread.
 
-`app.rs` routes messages and tasks, `state.rs` holds UI state, `views/` builds the
-layout, and `backend.rs` owns the worker. Message Debug omits payloads; commands
-have no Debug implementation. Errors use fixed presentation text. UI state holds
-no PINs, session handles or object handles.
+Tests cover state transitions, stale responses, picker results, backend errors,
+shutdown and an isolated SoftHSM load/refresh/unload cycle:
+
+```sh
+PKCS11_TEST_DESKTOP=1 ./tools/test-softhsm.sh
+```
 
 ## License
 

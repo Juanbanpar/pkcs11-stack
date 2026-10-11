@@ -44,7 +44,7 @@ software crypto provider selection stay outside runtime.
 - [pkcs11-rustls-adapter](crates/pkcs11-rustls-adapter/README.md): use token keys
   with rustls signing traits and server/client certificate resolvers.
 - [pkcs11-desktop](crates/pkcs11-desktop/README.md): native Iced window with
-  navigation, themes and background command processing.
+  module loading, token browsing, metadata overviews and background execution.
 
 ## Status
 
@@ -63,8 +63,9 @@ Encryption, decryption, derivation, wrapping and private-key import are not
 implemented. Certificate parsing and binding do not validate certificate trust;
 applications configure trust separately.
 
-The desktop application currently provides the window, navigation, themes and a
-synthetic worker operation. Module loading and token browsing are not implemented yet.
+The desktop application loads and unloads modules, enumerates slots and tokens,
+and displays their metadata. Refresh updates token presence and selection.
+Authentication, object browsing and token operations are not yet available in the GUI.
 
 ## Development
 
