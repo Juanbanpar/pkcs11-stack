@@ -3,7 +3,7 @@ use crate::{
     backend::{
         BackendCommand, BackendError, BackendEvent, EventSource, RequestId, ResourceId, Worker,
     },
-    state::{Dialog, Notification, Screen, UiState},
+    state::{Dialog, Notification, Screen, TokenPage, UiState},
     views,
 };
 use iced::{Element, Subscription, Task, Theme};
@@ -22,6 +22,13 @@ pub enum Message {
     Load,
     Unload,
     Refresh,
+    ShowPage(TokenPage),
+    RefreshObjects,
+    RefreshMechanisms,
+    SelectObject(ResourceId),
+    SelectMechanism(pkcs11_client::MechanismType),
+    ObjectFilter(String),
+    MechanismFilter(String),
     SelectModule(ResourceId),
     SelectToken {
         module: ResourceId,
@@ -50,6 +57,13 @@ impl std::fmt::Debug for Message {
             Self::Load => "Load",
             Self::Unload => "Unload",
             Self::Refresh => "Refresh",
+            Self::ShowPage(_) => "ShowPage",
+            Self::RefreshObjects => "RefreshObjects",
+            Self::RefreshMechanisms => "RefreshMechanisms",
+            Self::SelectObject(_) => "SelectObject",
+            Self::SelectMechanism(_) => "SelectMechanism",
+            Self::ObjectFilter(_) => "ObjectFilter",
+            Self::MechanismFilter(_) => "MechanismFilter",
             Self::SelectModule(_) => "SelectModule",
             Self::SelectToken { .. } => "SelectToken",
             Self::Cancel => "Cancel",
@@ -129,6 +143,25 @@ impl App {
                 let command = self.state.refresh();
                 self.submit(command);
             }
+            Message::ShowPage(page) => {
+                let command = self.state.show_page(page);
+                self.submit(command);
+            }
+            Message::RefreshObjects => {
+                let command = self.state.read_objects();
+                self.submit(command);
+            }
+            Message::RefreshMechanisms => {
+                let command = self.state.read_mechanisms();
+                self.submit(command);
+            }
+            Message::SelectObject(object) => {
+                let command = self.state.select_object(object);
+                self.submit(command);
+            }
+            Message::SelectMechanism(mechanism) => self.state.select_mechanism(mechanism),
+            Message::ObjectFilter(filter) => self.state.edit_object_filter(filter),
+            Message::MechanismFilter(filter) => self.state.edit_mechanism_filter(filter),
             Message::SelectModule(module) => self.state.select_module(module),
             Message::SelectToken { module, token } => self.state.select_token(module, token),
             Message::Cancel => self.state.cancel(),
@@ -223,6 +256,14 @@ mod tests {
         assert_eq!(
             format!("{:?}", Message::EditPath(secret.into())),
             "EditPath"
+        );
+        assert_eq!(
+            format!("{:?}", Message::ObjectFilter(secret.into())),
+            "ObjectFilter"
+        );
+        assert_eq!(
+            format!("{:?}", Message::MechanismFilter(secret.into())),
+            "MechanismFilter"
         );
         assert_eq!(
             format!(

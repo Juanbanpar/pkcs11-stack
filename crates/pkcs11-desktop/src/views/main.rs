@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::{
     app::Message,
-    backend::{ModuleEntry, TokenEntry},
+    backend::ModuleEntry,
     state::{Dialog, Screen, UiState},
-    views::welcome,
+    views::{token, welcome},
 };
 use iced::{
     Element, Length,
@@ -34,38 +34,13 @@ pub fn module_form(state: &UiState) -> Element<'_, Message> {
     .spacing(8)
     .into()
 }
-fn field<'a>(label: &'a str, value: impl Into<String>) -> Element<'a, Message> {
+pub(super) fn field<'a>(label: &'a str, value: impl Into<String>) -> Element<'a, Message> {
     row![
         text(label).width(180),
         text(value.into()).width(Length::Fill)
     ]
     .spacing(12)
     .into()
-}
-fn token_view(token: &TokenEntry) -> Element<'_, Message> {
-    let mut overview = column![
-        text(if token.label.is_empty() {
-            "Unnamed token"
-        } else {
-            &token.label
-        })
-        .size(30),
-        text("Overview").size(20),
-        field("Manufacturer", &token.manufacturer),
-        field("Model", &token.model),
-        field("Serial", &token.serial),
-        field("Current slot", token.slot_id.to_string()),
-    ]
-    .spacing(12);
-    for (label, value) in &token.details {
-        overview = overview.push(field(label, value));
-    }
-    overview = overview.push(text("Token locator").size(20));
-    overview
-        .push(text(token.uri.as_deref().unwrap_or(
-            "The reported token metadata cannot form a supported locator.",
-        )))
-        .into()
 }
 fn module_view(module: &ModuleEntry) -> Element<'_, Message> {
     let mut overview = column![
@@ -121,7 +96,7 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
     let selected = state.module().is_some() && state.can_submit();
     let toolbar = row![
         text("PKCS#11 Desktop").size(22).width(Length::Fill),
-        button("Refresh").on_press_maybe(selected.then_some(Message::Refresh)),
+        button("Refresh module").on_press_maybe(selected.then_some(Message::Refresh)),
         button("Unload").on_press_maybe(selected.then_some(Message::Unload)),
         button(if state.dark_theme {
             "Light theme"
@@ -190,7 +165,7 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
         Screen::Modules => {
             let mut detail = column![module_form(state)].spacing(24);
             if let Some(token) = state.token() {
-                detail = detail.push(token_view(token));
+                detail = detail.push(token::view(state, token));
             } else if let Some(module) = state.module() {
                 detail = detail.push(module_view(module));
             } else {

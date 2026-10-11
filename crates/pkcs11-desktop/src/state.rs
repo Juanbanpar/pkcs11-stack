@@ -2,9 +2,10 @@
 #[cfg(test)]
 use crate::backend::SyntheticOutcome;
 use crate::backend::{
-    BackendCommand, BackendError, BackendEvent, BackendResult, ModuleEntry, RequestId, ResourceId,
-    TokenEntry,
+    BackendCommand, BackendError, BackendEvent, BackendResult, MechanismEntry, MetadataField,
+    ModuleEntry, ObjectEntry, RequestId, ResourceId, TokenEntry,
 };
+use pkcs11_client::MechanismType;
 use std::path::PathBuf;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -16,6 +17,13 @@ pub enum Screen {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Dialog {
     About,
+}
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum TokenPage {
+    #[default]
+    Overview,
+    Objects,
+    Mechanisms,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Notification {
@@ -39,6 +47,9 @@ enum OperationKind {
     Load,
     Unload,
     Refresh,
+    Objects,
+    Mechanisms,
+    Inspect,
     #[cfg(test)]
     Synthetic,
 }
@@ -59,6 +70,15 @@ pub struct UiState {
     pub shutdown_request: Option<RequestId>,
     pub module_path: String,
     pub picker_request: Option<RequestId>,
+    pub token_page: TokenPage,
+    pub objects: Vec<ObjectEntry>,
+    pub mechanisms: Vec<MechanismEntry>,
+    pub object_filter: String,
+    pub mechanism_filter: String,
+    pub object_details: Option<Vec<MetadataField>>,
+    pub selected_mechanism: Option<MechanismType>,
+    pub objects_loaded: bool,
+    pub mechanisms_loaded: bool,
     picked_path: Option<PathBuf>,
     operation_kind: Option<OperationKind>,
     select_loaded: bool,
@@ -141,7 +161,124 @@ impl UiState {
     pub fn refresh(&mut self) -> Option<BackendCommand> {
         let module = self.module()?.id;
         let id = self.begin(OperationKind::Refresh)?;
+        self.reset_browser();
         Some(BackendCommand::Refresh { id, module })
+    }
+    fn reset_browser(&mut self) {
+        self.token_page = TokenPage::Overview;
+        self.objects.clear();
+        self.mechanisms.clear();
+        self.selected_object = None;
+        self.selected_mechanism = None;
+        self.object_details = None;
+        self.object_filter.clear();
+        self.mechanism_filter.clear();
+        self.objects_loaded = false;
+        self.mechanisms_loaded = false;
+    }
+    pub fn show_page(&mut self, page: TokenPage) -> Option<BackendCommand> {
+        if self.token().is_none() || !self.can_submit() {
+            return None;
+        }
+        self.cancel();
+        self.token_page = page;
+        self.selected_object = None;
+        self.object_details = None;
+        self.selected_mechanism = None;
+        match page {
+            TokenPage::Overview => None,
+            TokenPage::Objects => self.read_objects(),
+            TokenPage::Mechanisms => self.read_mechanisms(),
+        }
+    }
+    pub fn read_objects(&mut self) -> Option<BackendCommand> {
+        if self.token_page != TokenPage::Objects {
+            return None;
+        }
+        let module = self.module()?.id;
+        let token = self.token()?.id;
+        let id = self.begin(OperationKind::Objects)?;
+        self.objects.clear();
+        self.objects_loaded = false;
+        self.selected_object = None;
+        self.object_details = None;
+        Some(BackendCommand::Objects { id, module, token })
+    }
+    pub fn read_mechanisms(&mut self) -> Option<BackendCommand> {
+        if self.token_page != TokenPage::Mechanisms {
+            return None;
+        }
+        let module = self.module()?.id;
+        let token = self.token()?.id;
+        let id = self.begin(OperationKind::Mechanisms)?;
+        self.mechanisms.clear();
+        self.mechanisms_loaded = false;
+        self.selected_mechanism = None;
+        Some(BackendCommand::Mechanisms { id, module, token })
+    }
+    pub fn select_object(&mut self, object: ResourceId) -> Option<BackendCommand> {
+        if !self.can_submit() || self.token_page != TokenPage::Objects {
+            return None;
+        }
+        let entry = self
+            .objects
+            .iter()
+            .find(|entry| entry.id == object && entry.matches(&self.object_filter))?;
+        let inspectable = entry.uri.is_some() && !entry.ambiguous;
+        let module = self.module()?.id;
+        let token = self.token()?.id;
+        self.cancel();
+        self.selected_object = Some(object);
+        self.object_details = None;
+        if !inspectable {
+            return None;
+        }
+        let id = self.begin(OperationKind::Inspect)?;
+        Some(BackendCommand::Inspect {
+            id,
+            module,
+            token,
+            object,
+        })
+    }
+    pub fn object(&self) -> Option<&ObjectEntry> {
+        self.objects
+            .iter()
+            .find(|entry| Some(entry.id) == self.selected_object)
+    }
+    pub fn edit_object_filter(&mut self, filter: String) {
+        self.object_filter = filter;
+        if self
+            .object()
+            .is_some_and(|entry| !entry.matches(&self.object_filter))
+        {
+            if self.operation_kind == Some(OperationKind::Inspect) {
+                self.cancel();
+            }
+            self.selected_object = None;
+            self.object_details = None;
+        }
+    }
+    pub fn select_mechanism(&mut self, mechanism: MechanismType) {
+        if self.token_page == TokenPage::Mechanisms
+            && self
+                .mechanisms
+                .iter()
+                .any(|entry| entry.id == mechanism && entry.matches(&self.mechanism_filter))
+        {
+            self.selected_mechanism = Some(mechanism);
+        }
+    }
+    pub fn edit_mechanism_filter(&mut self, filter: String) {
+        self.mechanism_filter = filter;
+        if self
+            .mechanisms
+            .iter()
+            .find(|entry| Some(entry.id) == self.selected_mechanism)
+            .is_some_and(|entry| !entry.matches(&self.mechanism_filter))
+        {
+            self.selected_mechanism = None;
+        }
     }
     #[cfg(test)]
     pub fn start(&mut self, outcome: SyntheticOutcome) -> Option<BackendCommand> {
@@ -170,11 +307,14 @@ impl UiState {
         self.selected_module = None;
         self.selected_token = None;
         self.selected_object = None;
+        self.reset_browser();
     }
     pub fn select_module(&mut self, module: ResourceId) {
         if !self.loaded_modules.iter().any(|m| m.id == module) {
             return;
         }
+        self.cancel();
+        self.reset_browser();
         self.select_loaded = false;
         self.screen = Screen::Modules;
         self.selected_module = Some(module);
@@ -208,6 +348,28 @@ impl UiState {
             BackendEvent::Completed { id, result }
                 if self.shutdown_request.is_none() && self.current_operation == Some(id) =>
             {
+                let in_scope = match &result {
+                    Ok(
+                        BackendResult::Objects { module, token, .. }
+                        | BackendResult::Mechanisms { module, token, .. },
+                    ) => {
+                        self.selected_module == Some(*module) && self.selected_token == Some(*token)
+                    }
+                    Ok(BackendResult::ObjectDetails {
+                        module,
+                        token,
+                        object,
+                        ..
+                    }) => {
+                        self.selected_module == Some(*module)
+                            && self.selected_token == Some(*token)
+                            && self.selected_object == Some(*object)
+                    }
+                    _ => true,
+                };
+                if !in_scope {
+                    return;
+                }
                 self.current_operation = None;
                 self.operation_kind = None;
                 let error = match result {
@@ -233,7 +395,22 @@ impl UiState {
                             self.selected_token = None;
                             self.selected_object = None;
                         }
+                        self.reset_browser();
                         error
+                    }
+                    Ok(BackendResult::Objects { objects, .. }) => {
+                        self.objects = objects;
+                        self.objects_loaded = true;
+                        None
+                    }
+                    Ok(BackendResult::Mechanisms { mechanisms, .. }) => {
+                        self.mechanisms = mechanisms;
+                        self.mechanisms_loaded = true;
+                        None
+                    }
+                    Ok(BackendResult::ObjectDetails { fields, .. }) => {
+                        self.object_details = Some(fields);
+                        None
                     }
                     #[cfg(test)]
                     Ok(BackendResult::Synthetic) => None,
@@ -253,6 +430,7 @@ impl UiState {
                 self.selected_module = None;
                 self.selected_token = None;
                 self.selected_object = None;
+                self.reset_browser();
                 self.notification = Some(Notification::Error(BackendError::Disconnected));
             }
             BackendEvent::Stopped { id, result } if self.shutdown_request == Some(id) => {
@@ -288,6 +466,9 @@ impl UiState {
                 Some(OperationKind::Load) => "Loading module…",
                 Some(OperationKind::Unload) => "Unloading module…",
                 Some(OperationKind::Refresh) => "Refreshing slots and tokens…",
+                Some(OperationKind::Objects) => "Reading public object identities…",
+                Some(OperationKind::Mechanisms) => "Reading advertised mechanisms…",
+                Some(OperationKind::Inspect) => "Reading selected object metadata…",
                 #[cfg(test)]
                 Some(OperationKind::Synthetic) => "Working in the background…",
                 None => "Ready",
@@ -297,306 +478,4 @@ impl UiState {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn ready() -> UiState {
-        UiState {
-            worker_available: true,
-            ..UiState::default()
-        }
-    }
-    fn request(state: &mut UiState) -> RequestId {
-        match state.start(SyntheticOutcome::Success).unwrap() {
-            BackendCommand::Synthetic { id, .. } => id,
-            _ => unreachable!(),
-        }
-    }
-
-    #[test]
-    fn latest_request_wins_even_if_responses_arrive_out_of_order() {
-        let mut state = ready();
-        let a = request(&mut state);
-        let b = request(&mut state);
-        assert_ne!(a, b);
-        state.event(BackendEvent::Completed {
-            id: b,
-            result: Ok(BackendResult::Synthetic),
-        });
-        state.event(BackendEvent::Completed {
-            id: a,
-            result: Err(BackendError::Synthetic),
-        });
-        assert_eq!(state.notification, Some(Notification::Completed));
-        assert_eq!(state.current_operation, None);
-    }
-
-    #[test]
-    fn stale_result_does_not_clear_an_active_request() {
-        let mut state = ready();
-        let a = request(&mut state);
-        let b = request(&mut state);
-        state.event(BackendEvent::Completed {
-            id: a,
-            result: Ok(BackendResult::Synthetic),
-        });
-        assert_eq!(state.current_operation, Some(b));
-        assert_eq!(state.notification, None);
-    }
-
-    #[test]
-    fn cancel_and_navigation_ignore_eventual_results() {
-        let mut state = ready();
-        let cancelled = request(&mut state);
-        state.cancel();
-        state.event(BackendEvent::Completed {
-            id: cancelled,
-            result: Ok(BackendResult::Synthetic),
-        });
-        assert_eq!(state.notification, Some(Notification::Cancelled));
-        let navigated = request(&mut state);
-        state.navigate(Screen::Modules);
-        state.event(BackendEvent::Completed {
-            id: navigated,
-            result: Ok(BackendResult::Synthetic),
-        });
-        assert_eq!(state.screen, Screen::Modules);
-        assert_eq!(state.current_operation, None);
-        assert_eq!(state.notification, Some(Notification::Cancelled));
-    }
-
-    #[test]
-    fn shutdown_is_idempotent_and_rejects_new_work_and_late_results() {
-        let mut state = ready();
-        let old = request(&mut state);
-        let shutdown = state.begin_shutdown().unwrap();
-        assert_ne!(shutdown, old);
-        assert!(state.begin_shutdown().is_none());
-        assert!(state.start(SyntheticOutcome::Success).is_none());
-        state.event(BackendEvent::Completed {
-            id: old,
-            result: Ok(BackendResult::Synthetic),
-        });
-        state.event(BackendEvent::Stopped {
-            id: old,
-            result: Ok(()),
-        });
-        assert!(state.worker_available);
-        state.event(BackendEvent::Stopped {
-            id: shutdown,
-            result: Ok(()),
-        });
-        assert!(!state.worker_available);
-        assert_eq!(state.notification, None);
-    }
-
-    #[test]
-    fn failures_and_disconnects_are_visible() {
-        let mut state = ready();
-        let id = request(&mut state);
-        state.event(BackendEvent::Completed {
-            id,
-            result: Err(BackendError::Synthetic),
-        });
-        assert_eq!(
-            state.notification,
-            Some(Notification::Error(BackendError::Synthetic))
-        );
-        state.event(BackendEvent::Disconnected);
-        assert!(!state.worker_available);
-        assert!(state.start(SyntheticOutcome::Success).is_none());
-    }
-
-    #[test]
-    fn request_ids_do_not_wrap_and_shutdown_keeps_its_reserved_id() {
-        let mut state = ready();
-        state.next_request = u64::MAX - 2;
-        assert_eq!(request(&mut state), RequestId(u64::MAX - 1));
-        state.cancel();
-        assert!(state.start(SyntheticOutcome::Success).is_none());
-        assert_eq!(state.begin_shutdown(), Some(RequestId(u64::MAX)));
-    }
-    fn token(id: u64, serial: &str) -> TokenEntry {
-        TokenEntry {
-            id: ResourceId(id),
-            slot_id: 10,
-            label: "Token".into(),
-            manufacturer: "Maker".into(),
-            model: "Model".into(),
-            serial: serial.into(),
-            uri: Some(format!("pkcs11:serial={serial}")),
-            details: Vec::new(),
-        }
-    }
-    fn module(id: u64, tokens: Vec<TokenEntry>) -> ModuleEntry {
-        ModuleEntry {
-            id: ResourceId(id),
-            path: PathBuf::from("module.so"),
-            description: "Module".into(),
-            manufacturer: "Maker".into(),
-            library_version: "1.0".into(),
-            cryptoki_version: "2.40".into(),
-            slots: Vec::new(),
-            tokens,
-            discovery_error: None,
-        }
-    }
-    fn modules(
-        id: RequestId,
-        entries: Vec<ModuleEntry>,
-        loaded: Option<ResourceId>,
-        error: Option<BackendError>,
-    ) -> BackendEvent {
-        BackendEvent::Completed {
-            id,
-            result: Ok(BackendResult::Modules {
-                modules: entries,
-                loaded,
-                error,
-            }),
-        }
-    }
-    #[test]
-    fn loading_survives_navigation_and_cannot_be_cancelled_or_superseded() {
-        let mut state = ready();
-        state.edit_path("module.so".into());
-        let id = state.load().unwrap().id();
-        assert!(!state.can_cancel());
-        state.cancel();
-        state.navigate(Screen::Welcome);
-        assert_eq!(state.current_operation, Some(id));
-        assert!(state.load().is_none());
-        state.event(modules(
-            id,
-            vec![module(1, vec![token(2, "1")])],
-            Some(ResourceId(1)),
-            None,
-        ));
-        assert_eq!(state.loaded_modules.len(), 1);
-        assert_eq!(state.screen, Screen::Welcome);
-        assert!(state.selected_module.is_none());
-        assert!(state.can_submit());
-    }
-    #[test]
-    fn load_selects_module_and_failure_keeps_existing_inventory() {
-        let mut state = ready();
-        state.edit_path("module.so".into());
-        let id = state.load().unwrap().id();
-        state.event(modules(
-            id,
-            vec![module(1, vec![token(2, "1")])],
-            Some(ResourceId(1)),
-            None,
-        ));
-        assert_eq!(state.selected_module, Some(ResourceId(1)));
-        state.select_token(ResourceId(1), ResourceId(2));
-        let id = state.load().unwrap().id();
-        state.event(modules(
-            id,
-            state.loaded_modules.clone(),
-            None,
-            Some(BackendError::AlreadyLoaded),
-        ));
-        assert_eq!(state.selected_token, Some(ResourceId(2)));
-        assert_eq!(
-            state.notification,
-            Some(Notification::Error(BackendError::AlreadyLoaded))
-        );
-    }
-    #[test]
-    fn refresh_preserves_live_selection_and_rejects_a_late_snapshot() {
-        let mut state = ready();
-        state.loaded_modules = vec![module(1, vec![token(2, "A"), token(3, "B")])];
-        state.select_token(ResourceId(1), ResourceId(2));
-        let a = state.refresh().unwrap().id();
-        state.select_token(ResourceId(1), ResourceId(3));
-        let b = state.refresh().unwrap().id();
-        let mut latest = state.loaded_modules.clone();
-        latest[0].tokens[1]
-            .details
-            .push(("Current".into(), "B".into()));
-        state.event(modules(b, latest, None, None));
-        state.event(modules(a, vec![module(1, vec![token(2, "A")])], None, None));
-        assert_eq!(state.selected_token, Some(ResourceId(3)));
-        assert_eq!(state.token().unwrap().serial, "B");
-        assert_eq!(state.token().unwrap().details.len(), 1);
-    }
-    #[test]
-    fn removal_replacement_and_unload_clear_only_invalid_selections() {
-        let mut state = ready();
-        state.loaded_modules = vec![module(1, vec![token(2, "A")])];
-        state.select_token(ResourceId(1), ResourceId(2));
-        state.selected_object = Some(ResourceId(99));
-        let id = state.refresh().unwrap().id();
-        state.event(modules(
-            id,
-            vec![module(1, vec![token(3, "B")])],
-            None,
-            None,
-        ));
-        assert_eq!(state.selected_module, Some(ResourceId(1)));
-        assert!(state.selected_token.is_none());
-        assert!(state.selected_object.is_none());
-        state.select_token(ResourceId(1), ResourceId(3));
-        let id = state.unload().unwrap().id();
-        state.cancel();
-        assert_eq!(state.current_operation, Some(id));
-        state.event(modules(
-            id,
-            Vec::new(),
-            None,
-            Some(BackendError::Client(pkcs11_client::ErrorKind::Runtime)),
-        ));
-        assert!(state.selected_module.is_none());
-        assert!(state.selected_token.is_none());
-        assert!(state.loaded_modules.is_empty());
-        assert!(matches!(state.notification, Some(Notification::Error(_))));
-    }
-    #[test]
-    fn cancelled_refresh_and_invalid_selection_cannot_restore_stale_resources() {
-        let mut state = ready();
-        state.loaded_modules = vec![module(1, vec![token(2, "A")])];
-        state.select_token(ResourceId(1), ResourceId(2));
-        let id = state.refresh().unwrap().id();
-        state.cancel();
-        state.event(modules(id, Vec::new(), None, None));
-        assert_eq!(state.token().unwrap().serial, "A");
-        state.select_token(ResourceId(9), ResourceId(2));
-        assert_eq!(state.selected_module, Some(ResourceId(1)));
-        state.event(BackendEvent::Disconnected);
-        assert!(state.loaded_modules.is_empty());
-        assert!(state.refresh().is_none());
-    }
-    #[test]
-    fn picker_cancellation_editing_navigation_and_shutdown_reject_late_paths() {
-        let mut state = ready();
-        state.edit_path("manual.so".into());
-        let id = state.begin_picker().unwrap();
-        state.picked(id, None);
-        assert_eq!(state.module_path, "manual.so");
-        let id = state.begin_picker().unwrap();
-        state.edit_path("new.so".into());
-        state.picked(id, Some(PathBuf::from("stale.so")));
-        assert_eq!(state.module_path, "new.so");
-        let id = state.begin_picker().unwrap();
-        state.navigate(Screen::Modules);
-        state.picked(id, Some(PathBuf::from("other-screen.so")));
-        assert_eq!(state.module_path, "new.so");
-        let id = state.begin_picker().unwrap();
-        state.begin_shutdown();
-        state.picked(id, Some(PathBuf::from("late.so")));
-        assert_eq!(state.module_path, "new.so");
-    }
-    #[cfg(unix)]
-    #[test]
-    fn selected_non_utf8_path_survives_display_conversion() {
-        use std::os::unix::ffi::OsStringExt;
-        let path = PathBuf::from(std::ffi::OsString::from_vec(b"module-\xff.so".to_vec()));
-        let mut state = ready();
-        let id = state.begin_picker().unwrap();
-        state.picked(id, Some(path.clone()));
-        assert!(
-            matches!(state.load(), Some(BackendCommand::Load { path: selected, .. }) if selected == path)
-        );
-    }
-}
+mod tests;
