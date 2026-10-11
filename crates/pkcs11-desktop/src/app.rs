@@ -1,0 +1,205 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+use crate::{
+    backend::{
+        BackendCommand, BackendError, BackendEvent, EventSource, RequestId, SyntheticOutcome,
+        Worker,
+    },
+    state::{Dialog, Notification, Screen, UiState},
+    views,
+};
+use iced::{Element, Subscription, Task, Theme};
+
+#[derive(Clone)]
+pub enum Message {
+    Navigate(Screen),
+    ToggleTheme,
+    Run(SyntheticOutcome),
+    Cancel,
+    Backend(BackendEvent),
+    CloseRequested,
+    Joined {
+        id: RequestId,
+        result: Result<(), BackendError>,
+    },
+    About,
+    DismissDialog,
+    DismissNotification,
+}
+// Debug omits message payloads.
+impl std::fmt::Debug for Message {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Navigate(_) => "Navigate",
+            Self::ToggleTheme => "ToggleTheme",
+            Self::Run(_) => "Run",
+            Self::Cancel => "Cancel",
+            Self::Backend(_) => "Backend",
+            Self::CloseRequested => "CloseRequested",
+            Self::Joined { .. } => "Joined",
+            Self::About => "About",
+            Self::DismissDialog => "DismissDialog",
+            Self::DismissNotification => "DismissNotification",
+        })
+    }
+}
+
+pub struct App {
+    pub state: UiState,
+    worker: Option<Worker>,
+    source: Option<EventSource>,
+}
+impl App {
+    pub fn boot() -> Self {
+        let mut state = UiState::default();
+        let (worker, source) = match Worker::spawn() {
+            Ok((worker, source)) => {
+                state.worker_available = true;
+                (Some(worker), Some(source))
+            }
+            Err(error) => {
+                state.notification = Some(Notification::Error(error));
+                (None, None)
+            }
+        };
+        Self {
+            state,
+            worker,
+            source,
+        }
+    }
+
+    pub fn update(&mut self, message: Message) -> Task<Message> {
+        // Shutdown remains responsive but cannot enqueue more commands or dialogs.
+        if self.state.shutdown_request.is_some()
+            && !matches!(
+                message,
+                Message::Backend(_) | Message::Joined { .. } | Message::CloseRequested
+            )
+        {
+            return Task::none();
+        }
+        match message {
+            Message::Navigate(screen) => self.state.navigate(screen),
+            Message::ToggleTheme => self.state.dark_theme = !self.state.dark_theme,
+            Message::Run(outcome) => {
+                if let Some(command) = self.state.start(outcome) {
+                    let BackendCommand::Synthetic { id, .. } = command else {
+                        unreachable!()
+                    };
+                    let result = self
+                        .worker
+                        .as_ref()
+                        .ok_or(BackendError::Disconnected)
+                        .and_then(|worker| worker.submit(command));
+                    if let Err(error) = result {
+                        self.state.event(BackendEvent::Completed {
+                            id,
+                            result: Err(error),
+                        });
+                    }
+                }
+            }
+            Message::Cancel => self.state.cancel(),
+            Message::Backend(event) => self.state.event(event),
+            Message::CloseRequested => {
+                if let Some(id) = self.state.begin_shutdown() {
+                    return match self.worker.take() {
+                        Some(worker) => Task::perform(worker.shutdown(id), move |result| {
+                            Message::Joined { id, result }
+                        }),
+                        None => iced::exit(),
+                    };
+                }
+            }
+            Message::Joined { id, result } if self.state.shutdown_request == Some(id) => {
+                if let Err(error) = result {
+                    // Fixed text only; exit still occurs after the failed worker is joined.
+                    eprintln!("{}", error.message());
+                }
+                return iced::exit();
+            }
+            Message::Joined { .. } => {}
+            Message::About => self.state.dialog = Some(Dialog::About),
+            Message::DismissDialog => self.state.dialog = None,
+            Message::DismissNotification => self.state.notification = None,
+        }
+        Task::none()
+    }
+
+    pub fn subscription(&self) -> Subscription<Message> {
+        let events = self
+            .source
+            .as_ref()
+            .map_or_else(Subscription::none, |source| {
+                Subscription::run_with(source.clone(), EventSource::stream).map(Message::Backend)
+            });
+        Subscription::batch([
+            events,
+            iced::window::close_requests().map(|_| Message::CloseRequested),
+        ])
+    }
+
+    pub fn theme(&self) -> Theme {
+        if self.state.dark_theme {
+            Theme::Dark
+        } else {
+            Theme::Light
+        }
+    }
+
+    pub fn view(&self) -> Element<'_, Message> {
+        views::main::view(&self.state)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn client_errors_messages_and_notifications_do_not_echo_input() {
+        let secret = "pin-value=desktop-redaction-canary";
+        let error =
+            pkcs11_client::CertificateDocument::from_der(secret.as_bytes().to_vec()).unwrap_err();
+        let safe = BackendError::from(&error);
+        let message = Message::Backend(BackendEvent::Completed {
+            id: RequestId(7),
+            result: Err(safe),
+        });
+        let rendered = format!("{safe:?} {message:?} {}", Notification::Error(safe).text());
+        assert!(!rendered.contains(secret));
+        assert!(!rendered.contains("desktop-redaction-canary"));
+        assert_eq!(safe, BackendError::Client(pkcs11_client::ErrorKind::Client));
+        assert_eq!(format!("{message:?}"), "Backend");
+    }
+
+    #[test]
+    fn theme_and_dialog_transitions_need_no_window() {
+        let mut app = App {
+            state: UiState::default(),
+            worker: None,
+            source: None,
+        };
+        let _ = app.update(Message::ToggleTheme);
+        assert_eq!(app.theme(), Theme::Dark);
+        let _ = app.update(Message::About);
+        assert_eq!(app.state.dialog, Some(Dialog::About));
+        let _ = app.update(Message::DismissDialog);
+        assert_eq!(app.state.dialog, None);
+    }
+
+    #[test]
+    fn stale_join_does_not_exit() {
+        let mut app = App {
+            state: UiState::default(),
+            worker: None,
+            source: None,
+        };
+        app.state.begin_shutdown();
+        let task = app.update(Message::Joined {
+            id: RequestId(0),
+            result: Ok(()),
+        });
+        assert_eq!(task.units(), 0);
+    }
+}
