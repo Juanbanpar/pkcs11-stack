@@ -58,6 +58,22 @@ pub struct PoolDiagnostic {
     pub session_state: SessionState,
 }
 impl Provider {
+    /// Common RSA sizes and named curves within advertised key-generation bounds.
+    /// These are advisory choices, not a guarantee that a vendor accepts a template.
+    pub fn generation_options(&self, uri: &Pkcs11Uri) -> Result<Vec<KeyKind>, Error> {
+        Ok(self
+            .mechanisms(uri)?
+            .into_iter()
+            .flat_map(|entry| {
+                crate::generation::choices(
+                    entry.mechanism,
+                    entry.info.generate_key_pair(),
+                    entry.info.min_key_size(),
+                    entry.info.max_key_size(),
+                )
+            })
+            .collect())
+    }
     /// Load and initialize an explicitly trusted library path. A URI never loads code.
     pub fn load(path: impl AsRef<Path>) -> Result<Self, Error> {
         Ok(Self {
@@ -235,6 +251,51 @@ pub struct ManagementSession<'p> {
     session: Session<'p>,
 }
 impl ManagementSession<'_> {
+    /// Export only public certificate/data values or public keys as SPKI DER.
+    /// Private/secret key classes and CKA_PRIVATE objects are rejected before value reads.
+    pub fn export_public(&mut self, reference: &ObjectRef) -> Result<Vec<u8>, Error> {
+        let object = self.session.resolve(reference)?;
+        let identity = object.read_attributes(&[AttributeType::Class, AttributeType::Private])?;
+        let class = identity
+            .expose_values()
+            .iter()
+            .find_map(|value| match value {
+                Attribute::Class(class) => Some(*class),
+                _ => None,
+            })
+            .ok_or(Error::UnsupportedExport)?;
+        if !identity
+            .expose_values()
+            .contains(&Attribute::Private(false))
+        {
+            return Err(Error::UnsupportedExport);
+        }
+        match class {
+            ObjectClass::DATA | ObjectClass::CERTIFICATE => {
+                let values = object.read_attributes(&[AttributeType::Value])?;
+                values
+                    .expose_values()
+                    .iter()
+                    .find_map(|value| match value {
+                        Attribute::Value(bytes) => Some(bytes.clone()),
+                        _ => None,
+                    })
+                    .ok_or(Error::MissingAttributeStatus)
+            }
+            ObjectClass::PUBLIC_KEY => {
+                let key = crate::PublicKeyRef::new(
+                    reference
+                        .uri()
+                        .to_string()
+                        .parse()
+                        .map_err(pkcs11_runtime::Error::from)?,
+                )?;
+                let metadata = key.public_metadata(&mut self.session)?;
+                crate::public_export::encode_public_key(metadata)
+            }
+            _ => Err(Error::UnsupportedExport),
+        }
+    }
     /// Query actual token-wide login state through this live session.
     pub fn state(&self) -> Result<SessionState, Error> {
         Ok(self.session.info()?.session_state())

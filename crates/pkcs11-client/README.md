@@ -161,9 +161,20 @@ provider.finalize()?;
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
+`Provider::generation_options` returns common RSA sizes and P-256/P-384/P-521
+choices within the provider's advertised key-pair generation bounds. Choices are
+advisory: a vendor can still reject the requested curve or template. The existing
+generation API keeps its full RSA range and requires a nonempty ID.
+
+`export_public` exports public certificate/data values and supported public keys.
+It rejects CKA_PRIVATE objects and private/secret key classes before reading values.
+RSA and named EC public attributes are validated and encoded as SubjectPublicKeyInfo
+DER; incomplete or invalid attributes fail. `export_value` retains its explicit
+raw certificate/data export behavior.
+
 `objects` reads only caller-requested attributes of persistent objects visible to
 the session. `inspect` reports available, unavailable, sensitive or unsupported
-attributes. Export accepts raw certificate/data values without parsing their
+attributes. `export_value` accepts raw certificate/data values without parsing their
 signing algorithms, and rejects key classes before reading their value. Imports
 create persistent public objects; certificate metadata comes from
 `CertificateDocument`, including for algorithms outside signing support. Data IDs

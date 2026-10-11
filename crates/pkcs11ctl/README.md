@@ -32,7 +32,7 @@ for current discovery and explicit initialization.
 | `mechanisms --token URI` | Advertised flags and provider key-size bounds |
 | `objects --token URI` | Persistent object summaries; no secret values |
 | `inspect --object URI` | Unique object's attributes, defaulting to class/label/ID |
-| `export --object URI --output PATH` | Raw certificate/data CKA_VALUE; no certificate parsing |
+| `export --object URI --output PATH` | Raw certificate/data CKA_VALUE or RSA/EC public-key SPKI DER |
 | `certificate --object URI` | Supported certificate key summary and SPKI through client |
 | `capabilities --key URI` | Signing capabilities and available public key metadata |
 | `plan --key URI ...` | Selected signing plan, without signing |
@@ -58,7 +58,9 @@ available. Duplicate locators can still be ambiguous when passed to `inspect`.
 application data if the token permits it. Attribute statuses distinguish
 available, unsupported, sensitive and unavailable. Byte attributes are encoded
 as hexadecimal; labels also have a UTF-8 text field when valid. Defaults never
-request secret key material. `export` refuses private/secret-key classes.
+request secret key material. `export` refuses private/secret-key classes. Public-key
+export validates RSA or P-256/P-384/P-521 public attributes and encodes SPKI DER;
+certificate/data export retains its raw-value behavior.
 
 ## Authentication
 

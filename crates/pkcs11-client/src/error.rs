@@ -3,11 +3,14 @@
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum Error {
+    /// Public key attributes are absent, inconsistent or invalid for SPKI encoding.
+    #[error("invalid or incomplete public key attributes")]
+    InvalidPublicKey,
     /// Owned sessions still retain the module; close them before exclusive lifecycle work.
     #[error("provider still has live owned consumers")]
     ProviderInUse,
-    /// Export supports raw certificate/data values, never key material.
-    #[error("export supports certificate/data values only")]
+    /// The selected object class or privacy is outside the requested export boundary.
+    #[error("object cannot be exported by this operation")]
     UnsupportedExport,
     /// A provider did not supply a requested attribute status.
     #[error("provider omitted attribute status")]

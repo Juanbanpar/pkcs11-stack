@@ -5,8 +5,10 @@
 mod certificate;
 mod client;
 mod error;
+mod generation;
 mod management;
 mod object_locator;
+mod public_export;
 
 pub use certificate::{Certificate, CertificateDocument};
 pub use client::{Client, Identity};
