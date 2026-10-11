@@ -71,6 +71,30 @@ failure that might have partial effects. Labels and IDs are not uniqueness
 constraints: collisions can produce ambiguous locators. Mutation commands and
 export finish before another operation can start; navigation remains available.
 
+To sign a file, log in as USER and select an unambiguous private key on **Objects**.
+Choose **Sign file**, select a client-provided SHA-2 signature choice, and provide
+a message file and a new signature output path. Token hashing is required by
+default; **Allow software hashing** permits a fallback planned before signing.
+The displayed mechanism and hashing location are advisory and checked again at
+execution. PSS choices use a matching MGF1 digest and digest-length salt.
+
+Keys with CKA_ALWAYS_AUTHENTICATE require a per-operation PIN or supported
+protected authentication path. This credential is cleared on submission,
+cancellation or navigation. Each submission signs once; failures are never retried.
+The worker reserves a new output file before signing. Existing files are preserved;
+a failed signature or write can leave an empty or partial file. Signing refreshes
+token status and object inventories, including after authentication failures.
+
+Select a supported certificate and choose **Verify signature** to check a message
+and signature in software using its public key. Verification does not establish
+certificate trust or prove association with a token key. Editing the form or
+changing selection invalidates pending verification results.
+
+Message files are limited to 16 MiB and signature inputs to 16 KiB. RSA signatures
+use raw modulus-width bytes; EC signatures use fixed-width `r || s`, not ASN.1 DER.
+File contents, signature bytes and credentials remain on the worker. Encryption,
+decryption, derivation, wrapping, unwrapping and random generation await client APIs.
+
 ## Development
 
 Rust 1.88 or newer. Iced 0.14 uses `tiny-skia`, `thread-pool`, `x11` and `wayland`,
@@ -90,9 +114,9 @@ sudo apt-get install pkg-config libxkbcommon-dev libxkbcommon-x11-dev libwayland
 ## Execution
 
 One worker owns all client providers and performs module loading, discovery,
-refresh, inspection, authentication, object management, file reads/writes and
-finalization. One client-owned session per logged-in token keeps its role active
-without storing its PIN. Object browsing
+refresh, inspection, authentication, object management, signing, verification,
+file reads/writes and finalization. One client-owned session per logged-in token
+keeps its role active without storing its PIN. Object browsing
 opens scoped read-only sessions, or read-write sessions while SO is active, and
 reports explicit close failures. The UI receives metadata snapshots and local
 resource IDs, without providers, sessions or raw handles. An unchanged token keeps
@@ -101,13 +125,14 @@ for one list snapshot. Details resolve their client locator again in a fresh ses
 
 Request IDs reject cancelled or superseded results. Refresh cancellation ignores
 its eventual result. Token/page/object changes invalidate pending reads. Load,
-unload, login, logout and management finish before another operation can start;
-navigation remains available. Closing the window drains queued work, closes
+unload, login, logout, management and signing finish before another operation can
+start; navigation remains available. Closing the window drains queued work, closes
 authentication sessions, finalizes providers and joins the worker off the UI thread.
 
 Tests cover state transitions, stale responses, picker results, backend errors,
 shutdown, lazy details, ambiguous objects, metadata redaction and isolated SoftHSM
-module/object/mechanism, USER/SO authentication and object-management workflows:
+module/object/mechanism, USER/SO authentication, object management and signing/
+verification workflows:
 
 ```sh
 PKCS11_TEST_DESKTOP=1 ./tools/test-softhsm.sh
