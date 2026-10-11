@@ -184,6 +184,15 @@ explicit diagnostic, not automatic recovery or a signing retry. CLI limits capac
 to 1–64; the library accepts any nonzero capacity. Runtime keeps token-wide login
 semantics, so an established role does not validate the PIN again.
 
+`management_owned` returns a session that retains the provider's initialization
+owner without borrowing the provider. Use it to keep authentication active between
+application requests. `state` reads actual session state; `authenticate` applies
+one USER/SO login attempt; `logout` logs out the application's sessions on that
+token. SO requires read-write mode. These methods retain no PIN and never retry.
+Close owned sessions before `initialize_token` or `finalize`; live owned consumers
+return `Error::ProviderInUse`. A consumed or dropped provider does not finalize the
+module while an owned session remains alive.
+
 Management uses one explicitly authenticated session, not an additional pool.
 Mutations require RW mode and appropriate provider authorization. Failed operations
 retain runtime invalidation semantics and are never retried or rolled back. Drop

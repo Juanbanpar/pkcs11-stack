@@ -3,6 +3,9 @@
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum Error {
+    /// Owned sessions still retain the module; close them before exclusive lifecycle work.
+    #[error("provider still has live owned consumers")]
+    ProviderInUse,
     /// Export supports raw certificate/data values, never key material.
     #[error("export supports certificate/data values only")]
     UnsupportedExport,
@@ -50,7 +53,7 @@ impl Error {
         use pkcs11_runtime::Error as Runtime;
         match self {
             Self::UnsupportedExport => ErrorKind::Input,
-            Self::MissingAttributeStatus => ErrorKind::Runtime,
+            Self::MissingAttributeStatus | Self::ProviderInUse => ErrorKind::Runtime,
             Self::Runtime(error) => match error {
                 Runtime::NotFound(_) | Runtime::Ambiguous { .. } => ErrorKind::Selection,
                 Runtime::InvalidParameters(_)

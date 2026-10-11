@@ -540,6 +540,42 @@ fn management_workflows() {
         .count();
     assert_eq!(duplicates, 2);
     session.close().unwrap();
+    let mut owned = provider
+        .management_owned(&location, SessionMode::ReadWrite, Authentication::None)
+        .unwrap();
+    assert_eq!(owned.state().unwrap(), SessionState::RwPublic);
+    owned.authenticate(auth(&pin)).unwrap();
+    assert_eq!(owned.state().unwrap(), SessionState::RwUser);
+    let read = provider
+        .management(&location, SessionMode::ReadOnly, Authentication::None)
+        .unwrap();
+    assert_eq!(read.state().unwrap(), SessionState::RoUser);
+    read.close().unwrap();
+    assert_eq!(owned.state().unwrap(), SessionState::RwUser);
+    owned.logout().unwrap();
+    assert_eq!(owned.state().unwrap(), SessionState::RwPublic);
+    let so = SecretString::from("87654321");
+    owned
+        .authenticate(Authentication::SecurityOfficer(Pin::Value(&so)))
+        .unwrap();
+    assert_eq!(owned.state().unwrap(), SessionState::RwSecurityOfficer);
+    owned.logout().unwrap();
+    // An owned session keeps initialization alive after its Provider is dropped.
+    drop(provider);
+    assert_eq!(owned.state().unwrap(), SessionState::RwPublic);
+    owned.close().unwrap();
+    let mut provider = Provider::load(&path).unwrap();
+    let owned = provider
+        .management_owned(&location, SessionMode::ReadOnly, Authentication::None)
+        .unwrap();
+    assert!(matches!(
+        provider.initialize_token(0, &so, "must-not-erase"),
+        Err(Error::ProviderInUse)
+    ));
+    assert!(matches!(provider.finalize(), Err(Error::ProviderInUse)));
+    assert_eq!(owned.state().unwrap(), SessionState::RoPublic);
+    owned.close().unwrap();
+    let provider = Provider::load(&path).unwrap();
     provider.finalize().unwrap();
     runtime_mutation_guards(&path);
 }
