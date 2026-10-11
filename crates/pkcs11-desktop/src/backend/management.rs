@@ -39,7 +39,7 @@ fn certificate(path: &Path) -> Result<CertificateDocument, BackendError> {
     }
     CertificateDocument::from_der(bytes).map_err(|_| BackendError::FileRead)
 }
-fn save_new(path: &Path, bytes: &[u8]) -> Result<(), BackendError> {
+pub(super) fn create_output(path: &Path) -> Result<File, BackendError> {
     let mut options = OpenOptions::new();
     options.write(true).create_new(true);
     #[cfg(unix)]
@@ -47,7 +47,10 @@ fn save_new(path: &Path, bytes: &[u8]) -> Result<(), BackendError> {
         use std::os::unix::fs::OpenOptionsExt;
         options.mode(0o600);
     }
-    let mut file = options.open(path).map_err(|_| BackendError::FileWrite)?;
+    options.open(path).map_err(|_| BackendError::FileWrite)
+}
+fn save_new(path: &Path, bytes: &[u8]) -> Result<(), BackendError> {
+    let mut file = create_output(path)?;
     file.write_all(bytes)
         .and_then(|()| file.flush())
         .map_err(|_| BackendError::FileWrite)

@@ -2,7 +2,7 @@
 use super::main::field;
 use crate::{
     app::Message,
-    backend::{LoginRole, LoginState, MetadataField, TokenEntry},
+    backend::{CryptoMode, LoginRole, LoginState, MetadataField, TokenEntry},
     state::{Dialog, TokenPage, UiState},
 };
 use iced::{
@@ -219,6 +219,27 @@ fn objects(state: &UiState) -> Element<'_, Message> {
             ]
             .spacing(10),
         );
+        match object.class {
+            Some(pkcs11_client::ObjectClass::PRIVATE_KEY) => {
+                detail = detail.push(
+                    button("Sign file…").on_press_maybe(
+                        state
+                            .can_open_crypto(CryptoMode::Sign)
+                            .then_some(Message::OpenCrypto(CryptoMode::Sign)),
+                    ),
+                );
+            }
+            Some(pkcs11_client::ObjectClass::CERTIFICATE) => {
+                detail = detail.push(
+                    button("Verify signature…").on_press_maybe(
+                        state
+                            .can_open_crypto(CryptoMode::Verify)
+                            .then_some(Message::OpenCrypto(CryptoMode::Verify)),
+                    ),
+                );
+            }
+            _ => {}
+        }
         if let Some(Dialog::Delete(id)) = state.dialog {
             detail = detail.push(container(column![
                 text("Delete selected object?").size(20),
@@ -237,6 +258,9 @@ fn objects(state: &UiState) -> Element<'_, Message> {
             detail = detail.push(text(
                 "Details are read on selection. Select again to retry a failed or cancelled read.",
             ));
+        }
+        if state.crypto_form.is_some() {
+            detail = detail.push(super::crypto::view(state));
         }
     } else {
         detail = detail.push(text("Select an object to read its metadata."));

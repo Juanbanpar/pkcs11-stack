@@ -807,3 +807,197 @@ fn private_or_ambiguous_objects_never_offer_export_and_import_validation_is_loca
         })
     ));
 }
+
+fn crypto_state(
+    mode: crate::backend::CryptoMode,
+) -> (UiState, RequestId, crate::backend::CryptoScope) {
+    use crate::backend::{CryptoMode, SignatureOption};
+    let mut state = browsing();
+    state.loaded_modules[0].tokens[0].login = LoginState::User;
+    let list = state.show_page(TokenPage::Objects).unwrap().id();
+    let mut object = object_entry(4, "crypto");
+    object.class = Some(if mode == CryptoMode::Sign {
+        pkcs11_client::ObjectClass::PRIVATE_KEY
+    } else {
+        pkcs11_client::ObjectClass::CERTIFICATE
+    });
+    state.event(complete(list, objects_result(2, vec![object])));
+    let detail = state.select_object(ResourceId(4)).unwrap().id();
+    state.event(complete(detail, details_result(4, "crypto")));
+    let command = state.open_crypto(mode).unwrap();
+    let BackendCommand::CryptoOptions { id, scope, .. } = command else {
+        panic!("options command");
+    };
+    state.event(complete(
+        id,
+        BackendResult::CryptoOptions {
+            scope,
+            context: mode == CryptoMode::Sign,
+            options: vec![SignatureOption {
+                parameters: pkcs11_client::SignatureParameters {
+                    algorithm: pkcs11_client::SignatureAlgorithm::RsaPkcs1,
+                    digest: pkcs11_client::DigestAlgorithm::Sha256,
+                    pss: None,
+                },
+                plan: None,
+            }],
+        },
+    ));
+    (state, id, scope)
+}
+#[test]
+fn crypto_pin_moves_once_and_signing_cannot_be_superseded() {
+    use crate::backend::{CryptoJob, CryptoMode};
+    use CryptoField::*;
+    let (mut state, form, scope) = crypto_state(CryptoMode::Sign);
+    state.crypto_pin(form, "redaction-canary".into());
+    assert!(state.submit_crypto(form).is_none());
+    assert!(
+        secrecy::ExposeSecret::expose_secret(&state.crypto_form.as_ref().unwrap().pin).is_empty()
+    );
+    state.crypto_edit(form, Input, "message.bin".into());
+    state.crypto_edit(form, Signature, "new.sig".into());
+    state.crypto_pin(form, "redaction-canary".into());
+    let BackendCommand::Crypto {
+        id,
+        scope: actual,
+        job:
+            CryptoJob {
+                context: Some(SecretInput::Value(pin)),
+                ..
+            },
+    } = state.submit_crypto(form).unwrap()
+    else {
+        panic!("one-shot sign command");
+    };
+    assert_eq!(actual, scope);
+    assert_eq!(
+        secrecy::ExposeSecret::expose_secret(&pin),
+        "redaction-canary"
+    );
+    assert!(state.crypto_form.is_none());
+    assert!(!state.can_submit());
+    assert!(!state.can_cancel());
+    state.cancel();
+    assert_eq!(state.current_operation, Some(id));
+    assert!(state.submit_crypto(form).is_none());
+    state.select_token(ResourceId(1), ResourceId(3));
+    state.event(complete(
+        id,
+        BackendResult::Managed {
+            module: scope.module,
+            token: scope.token,
+            modules: state.loaded_modules.clone(),
+            objects: Some(vec![object_entry(8, "old")]),
+            error: None,
+        },
+    ));
+    assert_eq!(state.selected_token, Some(ResourceId(3)));
+    assert!(state.objects.is_empty());
+}
+#[test]
+fn verification_edits_and_navigation_reject_old_success() {
+    use crate::backend::CryptoMode;
+    let (mut state, form, scope) = crypto_state(CryptoMode::Verify);
+    state.crypto_edit(form, CryptoField::Input, "input".into());
+    state.crypto_edit(form, CryptoField::Signature, "signature".into());
+    let pending = state.submit_crypto(form).unwrap().id();
+    state.crypto_edit(form, CryptoField::Input, "changed".into());
+    state.event(complete(pending, BackendResult::Verified { scope }));
+    assert_ne!(state.notification, Some(Notification::SignatureVerified));
+    let current = state.submit_crypto(form).unwrap().id();
+    state.event(complete(current, BackendResult::Verified { scope }));
+    assert_eq!(state.notification, Some(Notification::SignatureVerified));
+    state.crypto_edit(form, CryptoField::Signature, "changed-signature".into());
+    assert!(state.notification.is_none());
+    let pending = state.submit_crypto(form).unwrap().id();
+    state.select_token(ResourceId(1), ResourceId(3));
+    state.event(complete(pending, BackendResult::Verified { scope }));
+    assert!(state.crypto_form.is_none());
+    assert_ne!(state.notification, Some(Notification::SignatureVerified));
+}
+#[test]
+fn crypto_policy_picker_and_secret_messages_are_scoped() {
+    use crate::backend::CryptoMode;
+    let (mut state, old, scope) = crypto_state(CryptoMode::Sign);
+    state.crypto_pin(old, "canary".into());
+    let (picker, _) = state.crypto_picker(old, CryptoField::Input).unwrap();
+    let command = state.crypto_policy(old, true).unwrap();
+    let current = command.id();
+    assert_ne!(old, current);
+    state.crypto_pin(old, "late-canary".into());
+    state.crypto_pin(current, "during-capability-query-canary".into());
+    state.crypto_picked(picker, Some("stale-input".into()));
+    let form = state.crypto_form.as_ref().unwrap();
+    assert_eq!(form.id, current);
+    assert!(form.input.is_empty());
+    assert!(secrecy::ExposeSecret::expose_secret(&form.pin).is_empty());
+    state.event(complete(
+        old,
+        BackendResult::CryptoOptions {
+            scope,
+            options: Vec::new(),
+            context: false,
+        },
+    ));
+    assert_eq!(state.current_operation, Some(current));
+    state.dismiss_crypto(current);
+    state.crypto_pin(current, "late-canary".into());
+    assert!(state.crypto_form.is_none());
+    let (mut state, id, _) = crypto_state(CryptoMode::Sign);
+    state.loaded_modules[0].tokens[0].protected_path = true;
+    state.crypto_pin(id, "canary".into());
+    state.crypto_protected(id, true);
+    assert!(
+        secrecy::ExposeSecret::expose_secret(&state.crypto_form.as_ref().unwrap().pin).is_empty()
+    );
+    state.crypto_pin(id, "ignored-canary".into());
+    assert!(
+        secrecy::ExposeSecret::expose_secret(&state.crypto_form.as_ref().unwrap().pin).is_empty()
+    );
+    state.begin_shutdown();
+    assert!(state.crypto_form.is_none());
+}
+#[test]
+fn ambiguous_or_wrong_class_objects_do_not_open_crypto_forms() {
+    use crate::backend::CryptoMode;
+    let (mut state, _, _) = crypto_state(CryptoMode::Sign);
+    state.objects[0].ambiguous = true;
+    assert!(state.open_crypto(CryptoMode::Sign).is_none());
+    state.objects[0].ambiguous = false;
+    state.objects[0].class = Some(pkcs11_client::ObjectClass::PUBLIC_KEY);
+    assert!(state.open_crypto(CryptoMode::Sign).is_none());
+    assert!(state.open_crypto(CryptoMode::Verify).is_none());
+}
+
+#[cfg(unix)]
+#[test]
+fn repeated_verification_preserves_native_non_utf8_paths() {
+    use crate::backend::CryptoMode;
+    use std::os::unix::ffi::OsStringExt;
+    let (mut state, id, scope) = crypto_state(CryptoMode::Verify);
+    let input = PathBuf::from(std::ffi::OsString::from_vec(b"input-\xff".to_vec()));
+    let signature = PathBuf::from(std::ffi::OsString::from_vec(b"sig-\xff".to_vec()));
+    let (picker, save) = state.crypto_picker(id, CryptoField::Input).unwrap();
+    assert!(!save);
+    state.crypto_picked(picker, Some(input.clone()));
+    let (picker, save) = state.crypto_picker(id, CryptoField::Signature).unwrap();
+    assert!(!save);
+    state.crypto_picked(picker, Some(signature.clone()));
+    for _ in 0..2 {
+        let command = state.submit_crypto(id).unwrap();
+        let request = command.id();
+        let BackendCommand::Crypto { job, .. } = command else {
+            panic!("verification command");
+        };
+        assert_eq!(job.input, input);
+        assert_eq!(job.signature, signature);
+        state.event(complete(request, BackendResult::Verified { scope }));
+    }
+    let pending = state.submit_crypto(id).unwrap().id();
+    state.edit_object_filter("no matches".into());
+    state.event(complete(pending, BackendResult::Verified { scope }));
+    assert!(state.current_operation.is_none());
+    assert!(state.crypto_form.is_none());
+    assert_ne!(state.notification, Some(Notification::SignatureVerified));
+}

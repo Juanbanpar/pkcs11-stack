@@ -9,9 +9,11 @@ use std::{
 };
 mod authentication;
 mod browse;
+mod crypto;
 mod management;
 pub use authentication::{LoginRole, LoginState, SecretInput};
 pub use browse::{MechanismEntry, MetadataField, ObjectEntry};
+pub use crypto::{CryptoJob, CryptoMode, CryptoScope, SignatureOption};
 pub use management::ManagementAction;
 
 /// Never reused during an application's lifetime, including after cancellation.
@@ -101,6 +103,16 @@ impl ModuleEntry {
 
 // Command payloads are excluded from diagnostics.
 pub enum BackendCommand {
+    CryptoOptions {
+        id: RequestId,
+        scope: CryptoScope,
+        software_hashing: bool,
+    },
+    Crypto {
+        id: RequestId,
+        scope: CryptoScope,
+        job: CryptoJob,
+    },
     Load {
         id: RequestId,
         path: PathBuf,
@@ -165,6 +177,8 @@ impl BackendCommand {
     pub fn id(&self) -> RequestId {
         match self {
             Self::Load { id, .. }
+            | Self::CryptoOptions { id, .. }
+            | Self::Crypto { id, .. }
             | Self::Unload { id, .. }
             | Self::Refresh { id, .. }
             | Self::Objects { id, .. }
@@ -183,6 +197,14 @@ impl BackendCommand {
 
 #[derive(Clone, Debug)]
 pub enum BackendResult {
+    CryptoOptions {
+        scope: CryptoScope,
+        options: Vec<SignatureOption>,
+        context: bool,
+    },
+    Verified {
+        scope: CryptoScope,
+    },
     Capabilities {
         module: ResourceId,
         token: ResourceId,
@@ -223,6 +245,11 @@ pub enum BackendResult {
 /// Presentation data contains a category and fixed text, never raw diagnostics.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BackendError {
+    SigningUnavailable,
+    SignatureChoice,
+    ContextRequired,
+    CryptoRead,
+    SignatureMismatch,
     Start,
     Busy,
     Disconnected,
@@ -250,6 +277,21 @@ pub enum BackendError {
 impl BackendError {
     pub fn message(self) -> &'static str {
         match self {
+            Self::SigningUnavailable => {
+                "Select a unique private key after USER login to sign, or a supported certificate to verify."
+            }
+            Self::SignatureChoice => {
+                "Select a currently permitted signature choice and input/output files."
+            }
+            Self::ContextRequired => {
+                "This key requires a per-operation PIN or protected authentication path."
+            }
+            Self::CryptoRead => {
+                "Could not read the selected files. Message files are limited to 16 MiB and signatures to 16 KiB."
+            }
+            Self::SignatureMismatch => {
+                "The signature is invalid for this certificate, input and parameters."
+            }
             Self::ExportUnavailable => {
                 "Only public certificates, public data and supported RSA/EC public keys can be exported."
             }
@@ -264,7 +306,7 @@ impl BackendError {
                 "Could not read one DER certificate of at most 16 MiB from the selected file."
             }
             Self::FileWrite => {
-                "Could not create the export file. Choose a new path; existing files are never overwritten. A failed write may leave a partial file."
+                "Could not create or write the output file. Choose a new path; existing files are never overwritten. A failed operation may leave an empty or partial file."
             }
             Self::AuthenticationUnavailable => {
                 "Authentication is unavailable for this role or token. Refresh its status."
@@ -545,6 +587,22 @@ impl Registry {
         let id = command.id();
         let mut loaded = None;
         let result = match command {
+            BackendCommand::CryptoOptions {
+                scope,
+                software_hashing,
+                ..
+            } => {
+                return BackendEvent::Completed {
+                    id,
+                    result: self.crypto_options(scope, software_hashing),
+                };
+            }
+            BackendCommand::Crypto { scope, job, .. } => {
+                return BackendEvent::Completed {
+                    id,
+                    result: self.crypto(scope, job),
+                };
+            }
             BackendCommand::Capabilities { module, token, .. } => {
                 return BackendEvent::Completed {
                     id,

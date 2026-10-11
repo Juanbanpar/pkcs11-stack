@@ -9,7 +9,9 @@ use crate::backend::{
 use pkcs11_client::MechanismType;
 use secrecy::SecretString;
 use std::path::PathBuf;
+mod crypto;
 mod management;
+pub use crypto::{CryptoField, CryptoForm, SignatureChoice};
 pub use management::{FilePurpose, KeyChoice, ManagementField, ManagementUi};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -33,6 +35,7 @@ pub enum TokenPage {
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Notification {
+    SignatureVerified,
     Completed,
     Cancelled,
     Error(BackendError),
@@ -40,6 +43,9 @@ pub enum Notification {
 impl Notification {
     pub fn text(self) -> &'static str {
         match self {
+            Self::SignatureVerified => {
+                "Signature verified against the selected certificate's public key. Certificate trust has not been checked."
+            }
             Self::Completed => "Operation completed.",
             Self::Cancelled => {
                 "Result cancelled; queued or running work will finish in the background."
@@ -50,6 +56,9 @@ impl Notification {
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum OperationKind {
+    CryptoOptions,
+    Sign,
+    Verify,
     Load,
     Unload,
     Login,
@@ -100,6 +109,7 @@ pub struct UiState {
     pub objects_loaded: bool,
     pub mechanisms_loaded: bool,
     pub management: ManagementUi,
+    pub crypto_form: Option<CryptoForm>,
     picked_path: Option<PathBuf>,
     operation_kind: Option<OperationKind>,
     select_loaded: bool,
@@ -129,6 +139,7 @@ impl UiState {
                         | OperationKind::Login
                         | OperationKind::Logout
                         | OperationKind::Manage
+                        | OperationKind::Sign
                 )
             )
     }
@@ -138,6 +149,10 @@ impl UiState {
         }
         let id = self.request_id()?;
         self.login_form = None;
+        if let Some(form) = &mut self.crypto_form {
+            form.pin = SecretString::default();
+            form.picker = None;
+        }
         self.management.file_request = None;
         self.management.confirmation = None;
         if matches!(self.dialog, Some(Dialog::Delete(_))) {
@@ -153,6 +168,7 @@ impl UiState {
             return;
         }
         self.cancel();
+        self.clear_crypto_form();
         if let Some(id) = self.request_id() {
             self.dialog = None;
             self.login_form = Some(LoginForm {
@@ -276,6 +292,7 @@ impl UiState {
         Some(BackendCommand::Refresh { id, module })
     }
     fn reset_browser(&mut self) {
+        self.clear_crypto_form();
         self.management = ManagementUi::default();
         if matches!(self.dialog, Some(Dialog::Delete(_))) {
             self.dialog = None;
@@ -298,6 +315,7 @@ impl UiState {
         }
         self.cancel();
         self.login_form = None;
+        self.clear_crypto_form();
         self.management = ManagementUi::default();
         if matches!(self.dialog, Some(Dialog::Delete(_))) {
             self.dialog = None;
@@ -350,6 +368,7 @@ impl UiState {
         let module = self.module()?.id;
         let token = self.token()?.id;
         self.cancel();
+        self.clear_crypto_form();
         self.management.confirmation = None;
         self.management.file_request = None;
         if matches!(self.dialog, Some(Dialog::Delete(_))) {
@@ -379,10 +398,14 @@ impl UiState {
             .object()
             .is_some_and(|entry| !entry.matches(&self.object_filter))
         {
-            if self.operation_kind == Some(OperationKind::Inspect) {
+            if matches!(
+                self.operation_kind,
+                Some(OperationKind::Inspect | OperationKind::CryptoOptions | OperationKind::Verify)
+            ) {
                 self.cancel();
             }
             self.selected_object = None;
+            self.clear_crypto_form();
             self.object_details = None;
             self.management.confirmation = None;
             self.management.file_request = None;
@@ -427,11 +450,16 @@ impl UiState {
                         | OperationKind::Login
                         | OperationKind::Logout
                         | OperationKind::Manage
+                        | OperationKind::Sign
                 )
             )
     }
     pub fn cancel(&mut self) {
         if self.can_cancel() {
+            if let Some(form) = &mut self.crypto_form {
+                form.pin = SecretString::default();
+                form.picker = None;
+            }
             self.current_operation = None;
             self.operation_kind = None;
             self.notification = Some(Notification::Cancelled);
@@ -488,6 +516,17 @@ impl UiState {
             {
                 let in_scope = match &result {
                     Ok(
+                        BackendResult::CryptoOptions { scope, .. }
+                        | BackendResult::Verified { scope },
+                    ) => {
+                        self.crypto_form
+                            .as_ref()
+                            .is_some_and(|form| form.scope == *scope)
+                            && self.selected_module == Some(scope.module)
+                            && self.selected_token == Some(scope.token)
+                            && self.selected_object == Some(scope.object)
+                    }
+                    Ok(
                         BackendResult::Objects { module, token, .. }
                         | BackendResult::Capabilities { module, token, .. }
                         | BackendResult::Mechanisms { module, token, .. },
@@ -512,6 +551,22 @@ impl UiState {
                 self.current_operation = None;
                 self.operation_kind = None;
                 let error = match result {
+                    Ok(BackendResult::CryptoOptions {
+                        options, context, ..
+                    }) => {
+                        if let Some(form) = &mut self.crypto_form {
+                            form.options = options.into_iter().map(SignatureChoice).collect();
+                            form.choice = form.options.first().copied();
+                            form.context_required = context;
+                            form.pin = SecretString::default();
+                            form.loaded = true;
+                        }
+                        None
+                    }
+                    Ok(BackendResult::Verified { .. }) => {
+                        self.notification = Some(Notification::SignatureVerified);
+                        return;
+                    }
                     Ok(BackendResult::Capabilities { keys, .. }) => {
                         self.management.keys = keys.into_iter().map(KeyChoice).collect();
                         self.management.key = self.management.keys.first().copied();
@@ -625,6 +680,7 @@ impl UiState {
         self.picker_request = None;
         self.dialog = None;
         self.login_form = None;
+        self.clear_crypto_form();
         self.management = ManagementUi::default();
         self.notification = None;
         Some(id)
@@ -636,6 +692,9 @@ impl UiState {
             "Background worker unavailable"
         } else {
             match self.operation_kind {
+                Some(OperationKind::CryptoOptions) => "Reading signature choices…",
+                Some(OperationKind::Sign) => "Signing once and saving the signature…",
+                Some(OperationKind::Verify) => "Verifying signature…",
                 Some(OperationKind::Load) => "Loading module…",
                 Some(OperationKind::Unload) => "Unloading module…",
                 Some(OperationKind::Refresh) => "Refreshing slots and tokens…",

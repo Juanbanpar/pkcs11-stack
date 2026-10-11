@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use crate::{
     backend::{
-        BackendCommand, BackendError, BackendEvent, EventSource, LoginRole, RequestId, ResourceId,
-        Worker,
+        BackendCommand, BackendError, BackendEvent, CryptoMode, EventSource, LoginRole, RequestId,
+        ResourceId, Worker,
     },
     state::{
-        Dialog, FilePurpose, KeyChoice, ManagementField, Notification, Screen, TokenPage, UiState,
+        CryptoField, Dialog, FilePurpose, KeyChoice, ManagementField, Notification, Screen,
+        SignatureChoice, TokenPage, UiState,
     },
     views,
 };
@@ -14,6 +15,38 @@ use std::path::PathBuf;
 
 #[derive(Clone)]
 pub enum Message {
+    OpenCrypto(CryptoMode),
+    CryptoChoice {
+        id: RequestId,
+        choice: SignatureChoice,
+    },
+    CryptoPolicy {
+        id: RequestId,
+        software: bool,
+    },
+    CryptoPin {
+        id: RequestId,
+        pin: secrecy::SecretString,
+    },
+    CryptoProtected {
+        id: RequestId,
+        enabled: bool,
+    },
+    CryptoEdit {
+        id: RequestId,
+        field: CryptoField,
+        value: String,
+    },
+    CryptoBrowse {
+        id: RequestId,
+        field: CryptoField,
+    },
+    CryptoPicked {
+        id: RequestId,
+        path: Option<PathBuf>,
+    },
+    SubmitCrypto(RequestId),
+    DismissCrypto(RequestId),
     Navigate(Screen),
     ToggleTheme,
     EditPath(String),
@@ -81,6 +114,16 @@ pub enum Message {
 impl std::fmt::Debug for Message {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
+            Self::OpenCrypto(_) => "OpenCrypto",
+            Self::CryptoChoice { .. } => "CryptoChoice",
+            Self::CryptoPolicy { .. } => "CryptoPolicy",
+            Self::CryptoPin { .. } => "CryptoPin",
+            Self::CryptoProtected { .. } => "CryptoProtected",
+            Self::CryptoEdit { .. } => "CryptoEdit",
+            Self::CryptoBrowse { .. } => "CryptoBrowse",
+            Self::CryptoPicked { .. } => "CryptoPicked",
+            Self::SubmitCrypto(_) => "SubmitCrypto",
+            Self::DismissCrypto(_) => "DismissCrypto",
             Self::Navigate(_) => "Navigate",
             Self::ToggleTheme => "ToggleTheme",
             Self::EditPath(_) => "EditPath",
@@ -162,6 +205,47 @@ impl App {
             return Task::none();
         }
         match message {
+            Message::OpenCrypto(mode) => {
+                let command = self.state.open_crypto(mode);
+                self.submit(command);
+            }
+            Message::CryptoPolicy { id, software } => {
+                let command = self.state.crypto_policy(id, software);
+                self.submit(command);
+            }
+            Message::CryptoChoice { id, choice } => self.state.crypto_choice(id, choice),
+            Message::CryptoPin { id, pin } => self.state.crypto_pin(id, pin),
+            Message::CryptoProtected { id, enabled } => self.state.crypto_protected(id, enabled),
+            Message::CryptoEdit { id, field, value } => self.state.crypto_edit(id, field, value),
+            Message::CryptoPicked { id, path } => self.state.crypto_picked(id, path),
+            Message::CryptoBrowse { id, field } => {
+                if let Some((request, save)) = self.state.crypto_picker(id, field) {
+                    return Task::perform(
+                        async move {
+                            let dialog = rfd::AsyncFileDialog::new();
+                            let file = if save {
+                                dialog
+                                    .set_title("Save signature to a new file")
+                                    .set_file_name("signature.bin")
+                                    .save_file()
+                                    .await
+                            } else {
+                                dialog
+                                    .set_title("Select a message or signature file")
+                                    .pick_file()
+                                    .await
+                            };
+                            file.map(|file| file.path().to_path_buf())
+                        },
+                        move |path| Message::CryptoPicked { id: request, path },
+                    );
+                }
+            }
+            Message::SubmitCrypto(id) => {
+                let command = self.state.submit_crypto(id);
+                self.submit(command);
+            }
+            Message::DismissCrypto(id) => self.state.dismiss_crypto(id),
             Message::Navigate(screen) => self.state.navigate(screen),
             Message::ToggleTheme => self.state.dark_theme = !self.state.dark_theme,
             Message::EditPath(path) => self.state.edit_path(path),
@@ -316,6 +400,9 @@ impl App {
             }
             Message::Joined { .. } => {}
             Message::About => {
+                if let Some(id) = self.state.crypto_form.as_ref().map(|form| form.id) {
+                    self.state.dismiss_crypto(id);
+                }
                 self.state.login_form = None;
                 self.state.management.confirmation = None;
                 self.state.dialog = Some(Dialog::About);
@@ -391,6 +478,27 @@ mod tests {
         assert!(!rendered.contains("desktop-redaction-canary"));
         assert_eq!(safe, BackendError::Client(pkcs11_client::ErrorKind::Client));
         assert_eq!(format!("{message:?}"), "Backend");
+        assert_eq!(
+            format!(
+                "{:?}",
+                Message::CryptoPin {
+                    id: RequestId(8),
+                    pin: secret.into()
+                }
+            ),
+            "CryptoPin"
+        );
+        assert_eq!(
+            format!(
+                "{:?}",
+                Message::CryptoEdit {
+                    id: RequestId(8),
+                    field: CryptoField::Input,
+                    value: secret.into()
+                }
+            ),
+            "CryptoEdit"
+        );
         assert_eq!(
             format!(
                 "{:?}",
