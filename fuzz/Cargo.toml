@@ -1,0 +1,41 @@
+[package]
+name = "pkcs11-stack-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "MIT OR Apache-2.0"
+
+[package.metadata]
+cargo-fuzz = true
+
+[workspace]
+resolver = "3"
+
+[dependencies]
+libfuzzer-sys = "=0.4.13"
+pkcs11-locator = { path = "../crates/pkcs11-locator" }
+pkcs11-runtime = { path = "../crates/pkcs11-runtime" }
+pkcs11-rustls-adapter = { path = "../crates/pkcs11-rustls-adapter" }
+secrecy = "0.10.3"
+der = { version = "0.7.10", features = ["std", "derive"] }
+
+[[bin]]
+name = "uri_parser"
+path = "fuzz_targets/uri_parser.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "binary_selectors"
+path = "fuzz_targets/binary_selectors.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ecdsa_encoding"
+path = "fuzz_targets/ecdsa_encoding.rs"
+test = false
+doc = false
+bench = false
