@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT OR Apache-2.0
 use iced::futures::{Stream, StreamExt, channel::mpsc as asynchronous};
 use pkcs11_client::{ErrorKind, Provider};
 use std::path::{Path, PathBuf};

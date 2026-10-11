@@ -89,4 +89,5 @@ PKCS11_TEST_DESKTOP=1 ./tools/test-softhsm.sh
 
 ## License
 
-This application is licensed under [GPL-3.0-or-later](COPYING).
+This application is available under either [MIT](../../LICENSE-MIT) or
+[Apache-2.0](../../LICENSE-APACHE), at your option.

@@ -96,7 +96,5 @@ SoftHSM integration tests. [Fuzzing](fuzz/README.md) describes the separate fuzz
 
 ## License
 
-The libraries, CLI and supporting code are available under either the
-[MIT license](LICENSE-MIT) or the [Apache License 2.0](LICENSE-APACHE), at your
-option. The desktop application is
-licensed under [GPL-3.0-or-later](crates/pkcs11-desktop/COPYING).
+The project is available under either the [MIT license](LICENSE-MIT) or the
+[Apache License 2.0](LICENSE-APACHE), at your option.

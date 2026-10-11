@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT OR Apache-2.0
 use super::{BackendError, Registry, ResourceId};
 use pkcs11_client::{
     Attribute, AttributeInfo, AttributeRead, AttributeType, Authentication, ManagementSession,
