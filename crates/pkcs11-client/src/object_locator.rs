@@ -82,11 +82,20 @@ fn build<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use secrecy::ExposeSecret;
 
     #[test]
     fn identity_bytes_empty_constraints_and_location_survive() {
-        let token = "pkcs11:token=test;serial=123?module-path=%2Ftrusted.so"
-            .parse()
+        let path = std::env::current_dir().unwrap().join("trusted.so");
+        let path = path.to_str().unwrap();
+        let token = Pkcs11Uri::builder()
+            .path_attribute("token", b"test")
+            .unwrap()
+            .path_attribute("serial", b"123")
+            .unwrap()
+            .query_attribute("module-path", path.into())
+            .unwrap()
+            .build()
             .unwrap();
         let attributes = [
             Attribute::Class(ObjectClass::PUBLIC_KEY),
@@ -96,7 +105,14 @@ mod tests {
         let uri = build(&token, attributes.iter()).unwrap().unwrap();
         assert_eq!(uri.path_attribute("object"), Some(b"".as_slice()));
         assert_eq!(uri.path_attribute("id"), Some([0, 255].as_slice()));
-        assert!(uri.to_string().contains("module-path=%2Ftrusted.so"));
+        assert_eq!(uri.path_attribute("serial"), Some(b"123".as_slice()));
+        assert_eq!(
+            uri.query_values("module-path")
+                .next()
+                .unwrap()
+                .expose_secret(),
+            path
+        );
         crate::object_reference(uri).unwrap();
     }
 
