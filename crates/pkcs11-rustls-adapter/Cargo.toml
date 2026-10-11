@@ -1,0 +1,32 @@
+[package]
+name = "pkcs11-rustls-adapter"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Thin rustls integration for PKCS#11 credentials"
+readme = "README.md"
+
+[features]
+default = []
+tls12 = ["rustls/tls12"]
+
+[dependencies]
+pkcs11-runtime.workspace = true
+rustls.workspace = true
+rustls-pki-types.workspace = true
+rustls-webpki.workspace = true
+x509-cert.workspace = true
+secrecy.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+rustls = { workspace = true, features = ["ring", "tls12"] }
+pkcs11-locator.workspace = true
+zeroize.workspace = true
+proptest.workspace = true
+der.workspace = true
+
+[lints]
+workspace = true

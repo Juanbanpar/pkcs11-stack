@@ -5,6 +5,7 @@ members = [
     "crates/pkcs11-locator",
     "crates/pkcs11-runtime",
     "crates/pkcs11-client",
+    "crates/pkcs11-rustls-adapter",
     "crates/pkcs11ctl",
 ]
 
