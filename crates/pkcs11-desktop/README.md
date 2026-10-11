@@ -2,8 +2,9 @@
 
 Native PKCS#11 module and token browser built with Iced and `pkcs11-client`.
 Load trusted vendor libraries, inspect module and slot metadata, and view token
-identity, initialization, authentication flags and PIN limits. Browse public
-objects and advertised mechanisms with local filters and metadata details.
+identity, initialization, authentication flags and PIN limits. Log in as USER or
+SO to browse visible persistent objects. Filter object lists and advertised
+mechanisms, then select an entry for metadata details.
 
 ## Usage
 
@@ -15,13 +16,26 @@ slot information, or a token for its overview and locator.
 replaced tokens clear their selection. **Unload** finalizes the selected module;
 quitting finalizes all loaded modules.
 
-Select **Objects** to list persistent objects visible without login. Filter by
+Select **Objects** to list persistent objects visible to the current role. Filter by
 label, class, hexadecimal ID or locator, then select an object to read its metadata.
 Listing requests only class, label and ID; detail reads use a small metadata
 allowlist and never fetch object values or private key material. Missing,
 sensitive and unsupported attributes remain distinguishable. Objects with
 duplicate locators or unsupported identities show their summary without a detail
 read. **Refresh objects** clears selection and reads a new list.
+
+Use **USER login** or **SO login** on the selected token, enter its PIN and select
+**Login**. Locked or uninitialized PINs disable their role; SO also needs writable
+session support. A token that advertises a protected authentication path defaults
+to that path; complete authentication on the token, or switch to host PIN entry.
+Each submission makes one attempt. The form clears after submission, cancellation
+or navigation. **Logout** clears object selections and details before the worker
+logs out. Refresh the object list after changing authentication.
+
+PINs are held in zeroizing application state and worker commands, excluded from
+diagnostics and never saved. Masked input disables copying and cutting. Iced's
+text editing internals create transient plaintext copies that are not guaranteed
+to be zeroized.
 
 Select **Mechanisms** to browse provider-advertised names, identifiers, flags and
 key-size bounds. Filter by name, hexadecimal identifier or flag, and use
@@ -51,22 +65,23 @@ sudo apt-get install pkg-config libxkbcommon-dev libxkbcommon-x11-dev libwayland
 ## Execution
 
 One worker owns all client providers and performs module loading, discovery,
-refresh, inspection and finalization. Object browsing uses scoped read-only
-sessions without authentication and reports explicit close failures. The UI
-receives metadata snapshots and local resource IDs, without providers, sessions
-or raw handles. An unchanged token keeps its ID
-across module refreshes; a replacement receives a new ID. Object IDs last for one
+refresh, inspection, authentication and finalization. One client-owned session per
+logged-in token keeps its role active without storing its PIN. Object browsing
+opens scoped read-only sessions, or read-write sessions while SO is active, and
+reports explicit close failures. The UI receives metadata snapshots and local
+resource IDs, without providers, sessions or raw handles. An unchanged token keeps
+its ID across module refreshes; a replacement receives a new ID. Object IDs last for one
 list snapshot. Details resolve their client locator again in a fresh session.
 
 Request IDs reject cancelled or superseded results. Refresh cancellation ignores
-its eventual result. Token/page/object changes invalidate pending reads. Load and
-unload complete before another lifecycle command can start; navigation remains
-available. Closing the window drains queued work,
-finalizes providers and joins the worker off the UI thread.
+its eventual result. Token/page/object changes invalidate pending reads. Load,
+unload, login and logout complete before another lifecycle command can start;
+navigation remains available. Closing the window drains queued work, closes
+authentication sessions, finalizes providers and joins the worker off the UI thread.
 
 Tests cover state transitions, stale responses, picker results, backend errors,
 shutdown, lazy details, ambiguous objects, metadata redaction and isolated SoftHSM
-module/object/mechanism workflows:
+module/object/mechanism and USER/SO authentication workflows:
 
 ```sh
 PKCS11_TEST_DESKTOP=1 ./tools/test-softhsm.sh

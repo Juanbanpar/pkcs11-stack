@@ -64,9 +64,10 @@ implemented. Certificate parsing and binding do not validate certificate trust;
 applications configure trust separately.
 
 The desktop application loads and unloads modules, enumerates slots and tokens,
-and browses public objects and advertised mechanisms with filters and metadata
-details. Refresh updates inventories and clears stale selections. Authentication,
-object management and cryptographic operations are not yet available in the GUI.
+and browses visible objects and advertised mechanisms with filters and metadata
+details. USER/SO login and logout support host PINs and token-protected
+authentication paths. Refresh updates inventories and clears stale selections.
+Object management and cryptographic operations are not yet available in the GUI.
 
 ## Development
 
