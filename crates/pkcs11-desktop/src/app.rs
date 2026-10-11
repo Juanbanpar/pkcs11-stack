@@ -1,19 +1,32 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::{
     backend::{
-        BackendCommand, BackendError, BackendEvent, EventSource, RequestId, SyntheticOutcome,
-        Worker,
+        BackendCommand, BackendError, BackendEvent, EventSource, RequestId, ResourceId, Worker,
     },
     state::{Dialog, Notification, Screen, UiState},
     views,
 };
 use iced::{Element, Subscription, Task, Theme};
+use std::path::PathBuf;
 
 #[derive(Clone)]
 pub enum Message {
     Navigate(Screen),
     ToggleTheme,
-    Run(SyntheticOutcome),
+    EditPath(String),
+    Browse,
+    Picked {
+        id: RequestId,
+        path: Option<PathBuf>,
+    },
+    Load,
+    Unload,
+    Refresh,
+    SelectModule(ResourceId),
+    SelectToken {
+        module: ResourceId,
+        token: ResourceId,
+    },
     Cancel,
     Backend(BackendEvent),
     CloseRequested,
@@ -31,7 +44,14 @@ impl std::fmt::Debug for Message {
         f.write_str(match self {
             Self::Navigate(_) => "Navigate",
             Self::ToggleTheme => "ToggleTheme",
-            Self::Run(_) => "Run",
+            Self::EditPath(_) => "EditPath",
+            Self::Browse => "Browse",
+            Self::Picked { .. } => "Picked",
+            Self::Load => "Load",
+            Self::Unload => "Unload",
+            Self::Refresh => "Refresh",
+            Self::SelectModule(_) => "SelectModule",
+            Self::SelectToken { .. } => "SelectToken",
             Self::Cancel => "Cancel",
             Self::Backend(_) => "Backend",
             Self::CloseRequested => "CloseRequested",
@@ -81,24 +101,36 @@ impl App {
         match message {
             Message::Navigate(screen) => self.state.navigate(screen),
             Message::ToggleTheme => self.state.dark_theme = !self.state.dark_theme,
-            Message::Run(outcome) => {
-                if let Some(command) = self.state.start(outcome) {
-                    let BackendCommand::Synthetic { id, .. } = command else {
-                        unreachable!()
-                    };
-                    let result = self
-                        .worker
-                        .as_ref()
-                        .ok_or(BackendError::Disconnected)
-                        .and_then(|worker| worker.submit(command));
-                    if let Err(error) = result {
-                        self.state.event(BackendEvent::Completed {
-                            id,
-                            result: Err(error),
-                        });
-                    }
+            Message::EditPath(path) => self.state.edit_path(path),
+            Message::Browse => {
+                if let Some(id) = self.state.begin_picker() {
+                    return Task::perform(
+                        async {
+                            rfd::AsyncFileDialog::new()
+                                .set_title("Select a trusted PKCS#11 module")
+                                .pick_file()
+                                .await
+                                .map(|file| file.path().to_path_buf())
+                        },
+                        move |path| Message::Picked { id, path },
+                    );
                 }
             }
+            Message::Picked { id, path } => self.state.picked(id, path),
+            Message::Load => {
+                let command = self.state.load();
+                self.submit(command);
+            }
+            Message::Unload => {
+                let command = self.state.unload();
+                self.submit(command);
+            }
+            Message::Refresh => {
+                let command = self.state.refresh();
+                self.submit(command);
+            }
+            Message::SelectModule(module) => self.state.select_module(module),
+            Message::SelectToken { module, token } => self.state.select_token(module, token),
             Message::Cancel => self.state.cancel(),
             Message::Backend(event) => self.state.event(event),
             Message::CloseRequested => {
@@ -124,6 +156,23 @@ impl App {
             Message::DismissNotification => self.state.notification = None,
         }
         Task::none()
+    }
+
+    fn submit(&mut self, command: Option<BackendCommand>) {
+        if let Some(command) = command {
+            let id = command.id();
+            let result = self
+                .worker
+                .as_ref()
+                .ok_or(BackendError::Disconnected)
+                .and_then(|worker| worker.submit(command));
+            if let Err(error) = result {
+                self.state.event(BackendEvent::Completed {
+                    id,
+                    result: Err(error),
+                });
+            }
+        }
     }
 
     pub fn subscription(&self) -> Subscription<Message> {
@@ -171,6 +220,20 @@ mod tests {
         assert!(!rendered.contains("desktop-redaction-canary"));
         assert_eq!(safe, BackendError::Client(pkcs11_client::ErrorKind::Client));
         assert_eq!(format!("{message:?}"), "Backend");
+        assert_eq!(
+            format!("{:?}", Message::EditPath(secret.into())),
+            "EditPath"
+        );
+        assert_eq!(
+            format!(
+                "{:?}",
+                Message::Picked {
+                    id: RequestId(8),
+                    path: Some(PathBuf::from(secret))
+                }
+            ),
+            "Picked"
+        );
     }
 
     #[test]
