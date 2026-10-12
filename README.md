@@ -69,8 +69,9 @@ details. USER/SO login and logout support host PINs and token-protected
 authentication paths. Refresh updates inventories and clears stale selections.
 The GUI also generates signing key pairs, imports DER certificates, confirms
 object deletion, exports public objects, signs files and verifies signatures
-against selected certificates. Encryption, derivation, wrapping, random generation
-and token/PIN administration are not yet available in the GUI.
+against selected certificates. It can also save bytes from a token's random
+generator. Encryption, derivation, wrapping and token/PIN administration are not
+yet available in the GUI.
 
 ## Development
 

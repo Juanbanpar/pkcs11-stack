@@ -244,6 +244,18 @@ do not authorize retries.
 Runnable [signing examples](../../docs/examples.md) demonstrate `Provider::client`,
 generic signing, binding and explicit shutdown with PIN files and raw stdout output.
 
+## Random bytes
+
+`ManagementSession::generate_random` accepts a `RandomRequest` with a length from
+1 byte to one MiB. `RandomRequest::new` rejects other lengths before allocation
+or token calls. The session requests the token's RNG once, with no automatic login,
+software fallback or retry; the provider may require an authenticated session.
+
+Returned `RandomBytes` use `secrecy::SecretBox<Vec<u8>>`: Debug is redacted and
+storage is zeroized on drop, including partial output discarded after failures.
+Access bytes explicitly through `secrecy::ExposeSecret` when writing an intended
+output. Close the session separately to report lifecycle failures.
+
 ## Testing
 
 ```sh

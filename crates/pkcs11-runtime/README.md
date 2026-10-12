@@ -230,6 +230,13 @@ from an independently selected object. There is no implicit association, certifi
 trust validation, certificate SPKI extraction or missing-SPKI construction. Consumers
 must validate associations; matching IDs/labels alone do not establish them.
 
+## Random bytes
+
+`Session::generate_random` fills a nonempty caller-owned buffer using the token's
+advertised RNG. It validates token identity and current capability before calling
+the provider once. No software fallback, authentication or retry is added.
+Discard the buffer after an error; a failed provider call invalidates the session.
+
 ## Administration
 
 `Module::initialize_token(&mut self, slot, so_pin, label)` initializes or erases

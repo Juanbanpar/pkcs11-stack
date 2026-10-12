@@ -93,7 +93,19 @@ changing selection invalidates pending verification results.
 Message files are limited to 16 MiB and signature inputs to 16 KiB. RSA signatures
 use raw modulus-width bytes; EC signatures use fixed-width `r || s`, not ASN.1 DER.
 File contents, signature bytes and credentials remain on the worker. Encryption,
-decryption, derivation, wrapping, unwrapping and random generation await client APIs.
+decryption, derivation, wrapping and unwrapping await client APIs.
+
+On **Operations**, use **Generate token random bytes** for an initialized token
+that advertises its own RNG. Enter a byte count from 1 to 1048576 and a new output
+path, then select **Generate and save**. The provider may require USER login; no
+authentication attempt or software fallback is made automatically.
+
+Random output stays in redacted, zeroizing storage on the worker and is written
+only to the requested file. The worker reserves the file before generation and
+reports session-close failures before writing bytes. Unix output permissions are
+0600. Existing files are never overwritten; failures can leave an empty or partial
+file. Generation and its file write finish before another operation can start;
+navigation remains available.
 
 ## Development
 
@@ -125,9 +137,10 @@ for one list snapshot. Details resolve their client locator again in a fresh ses
 
 Request IDs reject cancelled or superseded results. Refresh cancellation ignores
 its eventual result. Token/page/object changes invalidate pending reads. Load,
-unload, login, logout, management and signing finish before another operation can
-start; navigation remains available. Closing the window drains queued work, closes
-authentication sessions, finalizes providers and joins the worker off the UI thread.
+unload, login, logout, management, signing and random-file generation finish before
+another operation can start; navigation remains available. Closing the window
+drains queued work, closes authentication sessions, finalizes providers and joins
+the worker off the UI thread.
 
 Tests cover state transitions, stale responses, picker results, backend errors,
 shutdown, lazy details, ambiguous objects, metadata redaction and isolated SoftHSM
