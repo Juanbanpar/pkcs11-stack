@@ -5,6 +5,12 @@ use std::fmt;
 #[derive(thiserror::Error)]
 #[non_exhaustive]
 pub enum Error {
+    /// Provider returned an output inconsistent with the selected key operation.
+    #[error("invalid key operation output")]
+    InvalidKeyOutput,
+    /// Key class, permissions, trust policy or provider disallows this profile.
+    #[error("key operation unsupported for this key or provider")]
+    UnsupportedKeyOperation,
     /// Key class, permissions, context authentication or provider disallows OAEP.
     #[error("RSA OAEP operation unsupported for this key or provider")]
     UnsupportedCipher,

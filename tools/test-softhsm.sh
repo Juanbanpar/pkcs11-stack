@@ -48,6 +48,7 @@ cargo test -p pkcs11-runtime --test softhsm --test signing_softhsm --locked -- -
 export PKCS11_CLIENT_TEST_DIR="$scratch/client"
 mkdir "$PKCS11_CLIENT_TEST_DIR"
 bash tools/provision-client-softhsm.sh
+cargo test -p pkcs11-runtime --test key_operations_softhsm --locked -- --ignored --test-threads=1
 if [[ "${PKCS11_TEST_DESKTOP:-0}" == 1 ]]; then
     cargo test -p pkcs11-desktop --locked -- --ignored --test-threads=1
 fi
