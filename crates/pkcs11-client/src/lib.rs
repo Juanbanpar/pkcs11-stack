@@ -9,6 +9,7 @@ mod generation;
 mod management;
 mod object_locator;
 mod public_export;
+mod random;
 mod signature_options;
 
 pub use certificate::{Certificate, CertificateDocument};
@@ -28,4 +29,5 @@ pub use pkcs11_runtime::{
     SignInput, SignPlan, SignRequest, SignatureAlgorithm, SigningMechanism, SigningPolicy,
     SlotInfo, TokenInfo,
 };
+pub use random::{RandomBytes, RandomRequest};
 pub use signature_options::{SignatureParameters, SigningChoice, SigningOptions};

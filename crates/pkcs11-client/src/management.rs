@@ -248,7 +248,7 @@ fn read(object: &Object<'_, '_>, types: &[AttributeType]) -> Result<Vec<Attribut
 /// Failures preserve runtime invalidation and no-retry behavior.
 #[derive(Debug)]
 pub struct ManagementSession<'p> {
-    session: Session<'p>,
+    pub(crate) session: Session<'p>,
 }
 impl ManagementSession<'_> {
     /// Export only public certificate/data values or public keys as SPKI DER.

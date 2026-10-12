@@ -408,6 +408,13 @@ fn management_workflows() {
         ErrorKind::Policy
     );
     assert!(!ro.objects(&[AttributeType::Class]).unwrap().is_empty());
+    for length in [1, 32, 1024, RandomRequest::MAXIMUM] {
+        let bytes = ro
+            .generate_random(RandomRequest::new(length).unwrap())
+            .unwrap();
+        assert_eq!(secrecy::ExposeSecret::expose_secret(&bytes).len(), length);
+        assert!(format!("{bytes:?}").contains("REDACTED"));
+    }
     ro.close().unwrap();
     let mut session = provider
         .management(&location, SessionMode::ReadWrite, auth(&pin))

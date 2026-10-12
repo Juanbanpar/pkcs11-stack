@@ -3,6 +3,9 @@
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum Error {
+    /// A random request is empty or exceeds the client allocation bound.
+    #[error("random output length must be between 1 and 1048576 bytes")]
+    InvalidRandomLength,
     /// Supplied signature is invalid for the selected certificate and input.
     #[error("signature verification failed")]
     SignatureMismatch,
@@ -58,7 +61,7 @@ impl Error {
     pub fn kind(&self) -> ErrorKind {
         use pkcs11_runtime::Error as Runtime;
         match self {
-            Self::UnsupportedExport => ErrorKind::Input,
+            Self::UnsupportedExport | Self::InvalidRandomLength => ErrorKind::Input,
             Self::MissingAttributeStatus | Self::ProviderInUse => ErrorKind::Runtime,
             Self::Runtime(error) => match error {
                 Runtime::NotFound(_) | Runtime::Ambiguous { .. } => ErrorKind::Selection,
@@ -70,7 +73,8 @@ impl Error {
                 | Runtime::MissingMetadata(_)
                 | Runtime::ContextAuthenticationRequired
                 | Runtime::ProtectedPathUnavailable
-                | Runtime::ReadWriteRequired => ErrorKind::Policy,
+                | Runtime::ReadWriteRequired
+                | Runtime::RandomUnavailable => ErrorKind::Policy,
                 _ => ErrorKind::Runtime,
             },
             _ => ErrorKind::Client,
@@ -86,5 +90,10 @@ mod tests {
     fn provider_omissions_are_not_classified_as_user_input() {
         assert_eq!(Error::MissingAttributeStatus.kind(), ErrorKind::Runtime);
         assert_eq!(Error::UnsupportedExport.kind(), ErrorKind::Input);
+        assert_eq!(Error::InvalidRandomLength.kind(), ErrorKind::Input);
+        assert_eq!(
+            Error::Runtime(pkcs11_runtime::Error::RandomUnavailable).kind(),
+            ErrorKind::Policy
+        );
     }
 }
