@@ -91,15 +91,24 @@ impl Registry {
         if limit > 2048 {
             return Err(BackendError::CipherInput);
         }
-        let mut input = SecretBox::new(Box::new(Vec::with_capacity(limit + 1)));
-        File::open(&job.input)
-            .map_err(|_| BackendError::CipherInput)?
-            .take(limit as u64 + 1)
-            .read_to_end(input.expose_secret_mut())
-            .map_err(|_| BackendError::CipherInput)?;
-        if input.expose_secret().len() > limit
-            || (operation == RsaCipherOperation::Decrypt && input.expose_secret().len() != limit)
-        {
+        // A fixed allocation prevents plaintext copies during Vec growth.
+        let mut input = SecretBox::new(Box::new(vec![0; limit + 1]));
+        let mut file = File::open(&job.input).map_err(|_| BackendError::CipherInput)?;
+        let mut length = 0;
+        loop {
+            let read = file
+                .read(&mut input.expose_secret_mut()[length..])
+                .map_err(|_| BackendError::CipherInput)?;
+            if read == 0 {
+                break;
+            }
+            length += read;
+            if length > limit {
+                return Err(BackendError::CipherInput);
+            }
+        }
+        input.expose_secret_mut().truncate(length);
+        if operation == RsaCipherOperation::Decrypt && length != limit {
             return Err(BackendError::CipherInput);
         }
         // Reserve a new output before the token operation, then close its session before saving.
