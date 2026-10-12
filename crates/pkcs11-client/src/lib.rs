@@ -3,6 +3,9 @@
 #![doc = include_str!("../README.md")]
 
 mod certificate;
+mod encryption;
+pub use encryption::{DecryptRequest, EncryptRequest, OaepChoice, Plaintext};
+pub use pkcs11_runtime::RsaCipherOperation;
 mod client;
 mod error;
 mod generation;

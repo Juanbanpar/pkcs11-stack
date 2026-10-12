@@ -57,6 +57,11 @@ pub enum ErrorKind {
     Client,
 }
 impl Error {
+    /// Whether OAEP initialization rejected this profile's parameters.
+    /// This does not authorize retries, digest downgrades or software fallback.
+    pub fn oaep_parameters_rejected(&self) -> bool {
+        matches!(self, Self::Runtime(error) if error.oaep_parameters_rejected())
+    }
     /// Classify without requiring consumers to inspect runtime error variants.
     pub fn kind(&self) -> ErrorKind {
         use pkcs11_runtime::Error as Runtime;
@@ -75,6 +80,7 @@ impl Error {
                 | Runtime::ProtectedPathUnavailable
                 | Runtime::ReadWriteRequired
                 | Runtime::RandomUnavailable => ErrorKind::Policy,
+                Runtime::UnsupportedCipher => ErrorKind::Policy,
                 _ => ErrorKind::Runtime,
             },
             _ => ErrorKind::Client,
