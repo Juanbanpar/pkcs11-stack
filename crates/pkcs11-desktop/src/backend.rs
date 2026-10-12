@@ -11,6 +11,7 @@ mod authentication;
 mod browse;
 mod crypto;
 mod management;
+mod random;
 pub use authentication::{LoginRole, LoginState, SecretInput};
 pub use browse::{MechanismEntry, MetadataField, ObjectEntry};
 pub use crypto::{CryptoJob, CryptoMode, CryptoScope, SignatureOption};
@@ -56,6 +57,7 @@ pub struct TokenEntry {
     pub so_pin_locked: bool,
     pub write_protected: bool,
     pub protected_path: bool,
+    pub rng: bool,
 }
 impl TokenEntry {
     pub fn can_login(&self, role: LoginRole) -> bool {
@@ -69,6 +71,9 @@ impl TokenEntry {
     }
     pub fn can_manage(&self) -> bool {
         self.initialized && !self.write_protected && self.login == LoginState::User
+    }
+    pub fn can_random(&self) -> bool {
+        self.initialized && self.rng && self.uri.is_some()
     }
     fn same_resource(&self, other: &Self) -> bool {
         self.slot_id == other.slot_id
@@ -103,6 +108,13 @@ impl ModuleEntry {
 
 // Command payloads are excluded from diagnostics.
 pub enum BackendCommand {
+    Random {
+        id: RequestId,
+        module: ResourceId,
+        token: ResourceId,
+        request: pkcs11_client::RandomRequest,
+        path: PathBuf,
+    },
     CryptoOptions {
         id: RequestId,
         scope: CryptoScope,
@@ -177,6 +189,7 @@ impl BackendCommand {
     pub fn id(&self) -> RequestId {
         match self {
             Self::Load { id, .. }
+            | Self::Random { id, .. }
             | Self::CryptoOptions { id, .. }
             | Self::Crypto { id, .. }
             | Self::Unload { id, .. }
@@ -197,6 +210,9 @@ impl BackendCommand {
 
 #[derive(Clone, Debug)]
 pub enum BackendResult {
+    RandomWritten {
+        length: usize,
+    },
     CryptoOptions {
         scope: CryptoScope,
         options: Vec<SignatureOption>,
@@ -245,6 +261,8 @@ pub enum BackendResult {
 /// Presentation data contains a category and fixed text, never raw diagnostics.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BackendError {
+    RandomUnavailable,
+    RandomLength,
     SigningUnavailable,
     SignatureChoice,
     ContextRequired,
@@ -277,6 +295,12 @@ pub enum BackendError {
 impl BackendError {
     pub fn message(self) -> &'static str {
         match self {
+            Self::RandomUnavailable => {
+                "Select an initialized token that advertises a random generator."
+            }
+            Self::RandomLength => {
+                "Provide a byte count from 1 to 1048576 and a new output file path."
+            }
             Self::SigningUnavailable => {
                 "Select a unique private key after USER login to sign, or a supported certificate to verify."
             }
@@ -499,6 +523,7 @@ impl Registry {
                 so_pin_locked: info.so_pin_locked(),
                 write_protected: info.write_protected(),
                 protected_path: info.protected_authentication_path(),
+                rng: info.rng(),
                 details: vec![
                     ("Initialized".into(), info.token_initialized().to_string()),
                     ("Login required".into(), info.login_required().to_string()),
@@ -587,6 +612,22 @@ impl Registry {
         let id = command.id();
         let mut loaded = None;
         let result = match command {
+            BackendCommand::Random {
+                module,
+                token,
+                request,
+                path,
+                ..
+            } => {
+                return BackendEvent::Completed {
+                    id,
+                    result: self.random_file(module, token, request, &path).map(|()| {
+                        BackendResult::RandomWritten {
+                            length: request.length(),
+                        }
+                    }),
+                };
+            }
             BackendCommand::CryptoOptions {
                 scope,
                 software_hashing,

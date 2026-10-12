@@ -5,8 +5,8 @@ use crate::{
         ResourceId, Worker,
     },
     state::{
-        CryptoField, Dialog, FilePurpose, KeyChoice, ManagementField, Notification, Screen,
-        SignatureChoice, TokenPage, UiState,
+        CryptoField, Dialog, FilePurpose, KeyChoice, ManagementField, Notification, RandomField,
+        Screen, SignatureChoice, TokenPage, UiState,
     },
     views,
 };
@@ -15,6 +15,16 @@ use std::path::PathBuf;
 
 #[derive(Clone)]
 pub enum Message {
+    RandomEdit {
+        field: RandomField,
+        value: String,
+    },
+    RandomBrowse,
+    RandomPicked {
+        id: RequestId,
+        path: Option<PathBuf>,
+    },
+    GenerateRandom,
     OpenCrypto(CryptoMode),
     CryptoChoice {
         id: RequestId,
@@ -114,6 +124,10 @@ pub enum Message {
 impl std::fmt::Debug for Message {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
+            Self::RandomEdit { .. } => "RandomEdit",
+            Self::RandomBrowse => "RandomBrowse",
+            Self::RandomPicked { .. } => "RandomPicked",
+            Self::GenerateRandom => "GenerateRandom",
             Self::OpenCrypto(_) => "OpenCrypto",
             Self::CryptoChoice { .. } => "CryptoChoice",
             Self::CryptoPolicy { .. } => "CryptoPolicy",
@@ -205,6 +219,27 @@ impl App {
             return Task::none();
         }
         match message {
+            Message::RandomEdit { field, value } => self.state.random_edit(field, value),
+            Message::RandomPicked { id, path } => self.state.random_picked(id, path),
+            Message::GenerateRandom => {
+                let command = self.state.generate_random();
+                self.submit(command);
+            }
+            Message::RandomBrowse => {
+                if let Some(id) = self.state.random_picker() {
+                    return Task::perform(
+                        async {
+                            rfd::AsyncFileDialog::new()
+                                .set_title("Save token random bytes to a new file")
+                                .set_file_name("random.bin")
+                                .save_file()
+                                .await
+                                .map(|file| file.path().to_path_buf())
+                        },
+                        move |path| Message::RandomPicked { id, path },
+                    );
+                }
+            }
             Message::OpenCrypto(mode) => {
                 let command = self.state.open_crypto(mode);
                 self.submit(command);
@@ -478,6 +513,16 @@ mod tests {
         assert!(!rendered.contains("desktop-redaction-canary"));
         assert_eq!(safe, BackendError::Client(pkcs11_client::ErrorKind::Client));
         assert_eq!(format!("{message:?}"), "Backend");
+        assert_eq!(
+            format!(
+                "{:?}",
+                Message::RandomEdit {
+                    field: RandomField::Path,
+                    value: secret.into()
+                }
+            ),
+            "RandomEdit"
+        );
         assert_eq!(
             format!(
                 "{:?}",

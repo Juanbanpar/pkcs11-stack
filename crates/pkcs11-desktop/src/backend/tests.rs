@@ -371,6 +371,7 @@ fn public_token_identity_distinguishes_replacement_in_the_same_slot() {
         so_pin_locked: false,
         write_protected: false,
         protected_path: false,
+        rng: true,
     };
     let mut b = a.clone();
     b.details.push(("Initialized".into(), "true".into()));

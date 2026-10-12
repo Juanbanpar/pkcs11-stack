@@ -11,8 +11,10 @@ use secrecy::SecretString;
 use std::path::PathBuf;
 mod crypto;
 mod management;
+mod random;
 pub use crypto::{CryptoField, CryptoForm, SignatureChoice};
 pub use management::{FilePurpose, KeyChoice, ManagementField, ManagementUi};
+pub use random::{RandomField, RandomUi};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Screen {
@@ -35,6 +37,7 @@ pub enum TokenPage {
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Notification {
+    RandomSaved(usize),
     SignatureVerified,
     Completed,
     Cancelled,
@@ -43,6 +46,7 @@ pub enum Notification {
 impl Notification {
     pub fn text(self) -> &'static str {
         match self {
+            Self::RandomSaved(_) => "Token random bytes saved to the requested file.",
             Self::SignatureVerified => {
                 "Signature verified against the selected certificate's public key. Certificate trust has not been checked."
             }
@@ -56,6 +60,7 @@ impl Notification {
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum OperationKind {
+    Random,
     CryptoOptions,
     Sign,
     Verify,
@@ -110,6 +115,7 @@ pub struct UiState {
     pub mechanisms_loaded: bool,
     pub management: ManagementUi,
     pub crypto_form: Option<CryptoForm>,
+    pub random: RandomUi,
     picked_path: Option<PathBuf>,
     operation_kind: Option<OperationKind>,
     select_loaded: bool,
@@ -140,6 +146,7 @@ impl UiState {
                         | OperationKind::Logout
                         | OperationKind::Manage
                         | OperationKind::Sign
+                        | OperationKind::Random
                 )
             )
     }
@@ -148,6 +155,7 @@ impl UiState {
             return None;
         }
         let id = self.request_id()?;
+        self.random.picker = None;
         self.login_form = None;
         if let Some(form) = &mut self.crypto_form {
             form.pin = SecretString::default();
@@ -292,6 +300,7 @@ impl UiState {
         Some(BackendCommand::Refresh { id, module })
     }
     fn reset_browser(&mut self) {
+        self.random = RandomUi::default();
         self.clear_crypto_form();
         self.management = ManagementUi::default();
         if matches!(self.dialog, Some(Dialog::Delete(_))) {
@@ -314,6 +323,7 @@ impl UiState {
             return None;
         }
         self.cancel();
+        self.random = RandomUi::default();
         self.login_form = None;
         self.clear_crypto_form();
         self.management = ManagementUi::default();
@@ -451,6 +461,7 @@ impl UiState {
                         | OperationKind::Logout
                         | OperationKind::Manage
                         | OperationKind::Sign
+                        | OperationKind::Random
                 )
             )
     }
@@ -551,6 +562,10 @@ impl UiState {
                 self.current_operation = None;
                 self.operation_kind = None;
                 let error = match result {
+                    Ok(BackendResult::RandomWritten { length }) => {
+                        self.notification = Some(Notification::RandomSaved(length));
+                        return;
+                    }
                     Ok(BackendResult::CryptoOptions {
                         options, context, ..
                     }) => {
@@ -683,6 +698,7 @@ impl UiState {
         self.clear_crypto_form();
         self.management = ManagementUi::default();
         self.notification = None;
+        self.random = RandomUi::default();
         Some(id)
     }
     pub fn status(&self) -> &'static str {
@@ -692,6 +708,7 @@ impl UiState {
             "Background worker unavailable"
         } else {
             match self.operation_kind {
+                Some(OperationKind::Random) => "Generating token random bytes and saving them…",
                 Some(OperationKind::CryptoOptions) => "Reading signature choices…",
                 Some(OperationKind::Sign) => "Signing once and saving the signature…",
                 Some(OperationKind::Verify) => "Verifying signature…",

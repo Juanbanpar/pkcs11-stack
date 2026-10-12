@@ -322,6 +322,7 @@ fn token(id: u64, serial: &str) -> TokenEntry {
         so_pin_locked: false,
         write_protected: false,
         protected_path: false,
+        rng: true,
     }
 }
 fn module(id: u64, tokens: Vec<TokenEntry>) -> ModuleEntry {
@@ -1000,4 +1001,93 @@ fn repeated_verification_preserves_native_non_utf8_paths() {
     assert!(state.current_operation.is_none());
     assert!(state.crypto_form.is_none());
     assert_ne!(state.notification, Some(Notification::SignatureVerified));
+}
+
+#[test]
+fn random_requests_validate_length_and_keep_file_writes_unsuperseded() {
+    let mut state = browsing();
+    state.show_page(TokenPage::Operations);
+    assert!(state.can_random());
+    state.random_edit(RandomField::Path, "new-random.bin".into());
+    for value in ["0", "1048577", "-1", "", "184467440737095516160", "1.5"] {
+        state.random_edit(RandomField::Length, value.into());
+        assert!(state.generate_random().is_none());
+        assert_eq!(
+            state.notification,
+            Some(Notification::Error(BackendError::RandomLength))
+        );
+    }
+    state.random_edit(RandomField::Length, "1024".into());
+    let BackendCommand::Random {
+        id,
+        module,
+        token,
+        request,
+        path,
+    } = state.generate_random().unwrap()
+    else {
+        panic!("random command");
+    };
+    assert_eq!(module, ResourceId(1));
+    assert_eq!(token, ResourceId(2));
+    assert_eq!(request.length(), 1024);
+    assert_eq!(path, PathBuf::from("new-random.bin"));
+    assert!(!state.can_submit());
+    assert!(!state.can_cancel());
+    state.cancel();
+    assert_eq!(state.current_operation, Some(id));
+    assert!(state.generate_random().is_none());
+    state.select_token(ResourceId(1), ResourceId(3));
+    state.event(complete(
+        RequestId(id.0 - 1),
+        BackendResult::RandomWritten { length: 99 },
+    ));
+    assert_eq!(state.current_operation, Some(id));
+    state.event(complete(id, BackendResult::RandomWritten { length: 1024 }));
+    assert_eq!(state.selected_token, Some(ResourceId(3)));
+    assert!(state.objects.is_empty());
+    assert_eq!(state.notification, Some(Notification::RandomSaved(1024)));
+    assert!(state.current_operation.is_none());
+}
+#[test]
+fn random_capability_and_picker_results_are_scoped() {
+    let mut state = browsing();
+    state.show_page(TokenPage::Operations);
+    let picker = state.random_picker().unwrap();
+    state.random_edit(RandomField::Path, "typed-path".into());
+    state.random_picked(picker, Some("old-dialog-path".into()));
+    assert_eq!(state.random.path, "typed-path");
+    let picker = state.random_picker().unwrap();
+    state.select_token(ResourceId(1), ResourceId(3));
+    state.show_page(TokenPage::Operations);
+    state.random_picked(picker, Some("token-A-path".into()));
+    assert!(state.random.path.is_empty());
+    state.loaded_modules[0].tokens[1].rng = false;
+    assert!(!state.can_random());
+    assert!(state.random_picker().is_none());
+    assert!(state.generate_random().is_none());
+    state.loaded_modules[0].tokens[1].rng = true;
+    state.loaded_modules[0].tokens[1].initialized = false;
+    assert!(!state.can_random());
+    state.loaded_modules[0].tokens[1].initialized = true;
+    let picker = state.random_picker().unwrap();
+    state.begin_shutdown();
+    state.random_picked(picker, Some("late-path".into()));
+    assert!(state.random.path.is_empty());
+}
+#[cfg(unix)]
+#[test]
+fn random_generation_keeps_native_non_utf8_picker_path() {
+    use std::os::unix::ffi::OsStringExt;
+    let mut state = browsing();
+    state.show_page(TokenPage::Operations);
+    let path = PathBuf::from(std::ffi::OsString::from_vec(b"random-\xff.bin".to_vec()));
+    let picker = state.random_picker().unwrap();
+    state.random_picked(picker, Some(path.clone()));
+    let BackendCommand::Random { path: native, .. } = state.generate_random().unwrap() else {
+        panic!("random command");
+    };
+    assert_eq!(native, path);
+    assert!(state.random.path.is_empty());
+    assert!(state.random.picker.is_none());
 }

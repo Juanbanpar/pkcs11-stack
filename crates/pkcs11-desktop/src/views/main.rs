@@ -2,7 +2,7 @@
 use crate::{
     app::Message,
     backend::ModuleEntry,
-    state::{Dialog, Screen, UiState},
+    state::{Dialog, Notification, Screen, UiState},
     views::{token, welcome},
 };
 use iced::{
@@ -178,10 +178,16 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
     };
     let mut detail = column![content].spacing(16);
     if let Some(notification) = state.notification {
+        let message = match notification {
+            Notification::RandomSaved(length) => text(format!(
+                "{length} token random bytes saved to the requested file."
+            )),
+            _ => text(notification.text()),
+        };
         detail = detail.push(
             container(
                 row![
-                    text(notification.text()).width(Length::Fill),
+                    message.width(Length::Fill),
                     button("Dismiss").on_press(Message::DismissNotification)
                 ]
                 .spacing(12),
