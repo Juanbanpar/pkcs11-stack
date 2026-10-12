@@ -49,7 +49,6 @@ fn software_token_runtime_foundation() {
     let so = SecretString::from("87654321");
 
     // Fixture creation uses cryptoki directly, before the runtime owns lifecycle.
-    // No production creation, key generation or cryptographic API is introduced.
     let fixture = Pkcs11::new(&path).unwrap();
     fixture
         .initialize(CInitializeArgs::new(CInitializeFlags::OS_LOCKING_OK))
@@ -124,6 +123,13 @@ fn software_token_runtime_foundation() {
     let mut ro = token.open_session(SessionMode::ReadOnly).unwrap();
     assert!(!ro.info().unwrap().read_write());
     ro.authenticate(Authentication::None).unwrap();
+    assert!(matches!(
+        ro.generate_random(&mut []),
+        Err(Error::InvalidParameters(_))
+    ));
+    let mut random = [0; 32];
+    ro.generate_random(&mut random).unwrap();
+    assert!(ro.info().is_ok());
     assert!(matches!(
         ro.authenticate(Authentication::SecurityOfficer(Pin::Value(&so))),
         Err(Error::ReadWriteRequired)

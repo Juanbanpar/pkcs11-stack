@@ -5,14 +5,17 @@ use std::fmt;
 #[derive(thiserror::Error)]
 #[non_exhaustive]
 pub enum Error {
+    /// The token does not advertise its own random generator.
+    #[error("token random generator unavailable")]
+    RandomUnavailable,
     /// All pool slots are currently leased or being opened.
     #[error("session pool exhausted")]
     PoolExhausted,
     /// Pool synchronization was poisoned by a panic.
     #[error("session pool poisoned")]
     PoolPoisoned,
-    /// Invalid bounds, input, or signing parameters.
-    #[error("invalid signing or pool parameters: {0}")]
+    /// Invalid bounds, input, or operation parameters.
+    #[error("invalid operation parameters: {0}")]
     InvalidParameters(&'static str),
     /// Key metadata needed to make a safe decision is unavailable.
     #[error("required key metadata unavailable: {0}")]

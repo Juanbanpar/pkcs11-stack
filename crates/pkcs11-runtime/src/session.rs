@@ -172,6 +172,35 @@ impl<'m> Session<'m> {
         self.validate()?;
         self.raw()?.logout().map_err(|e| backend("logout", e))
     }
+    /// Fill a nonempty caller buffer using the token's advertised RNG, once.
+    /// No software fallback or retry is performed. Discard the buffer on failure.
+    pub fn generate_random(&mut self, output: &mut [u8]) -> Result<(), Error> {
+        if output.is_empty() {
+            return Err(Error::InvalidParameters("empty random output"));
+        }
+        self.validate()?;
+        let current = self
+            .token
+            .module
+            .token(self.token.slot)
+            .inspect_err(|_| self.healthy.set(false))?;
+        if !crate::module::same_token(self.token.info(), current.info()) {
+            self.healthy.set(false);
+            return Err(Error::TokenChanged);
+        }
+        if !current.info().rng() {
+            return Err(Error::RandomUnavailable);
+        }
+        let raw = self.raw()?;
+        self.healthy.set(false);
+        let result = raw
+            .generate_random_slice(output)
+            .map_err(|e| backend("generate random", e));
+        if result.is_ok() {
+            self.healthy.set(true);
+        }
+        result
+    }
     /// Close the session and report closure failures. No automatic logout call.
     pub fn close(mut self) -> Result<(), Error> {
         self.raw
