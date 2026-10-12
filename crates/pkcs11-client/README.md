@@ -244,6 +244,26 @@ do not authorize retries.
 Runnable [signing examples](../../docs/examples.md) demonstrate `Provider::client`,
 generic signing, binding and explicit shutdown with PIN files and raw stdout output.
 
+## RSA-OAEP encryption
+
+`ManagementSession::oaep_options` checks a selected key's class, permissions,
+allowed mechanisms and RSA bounds before offering SHA-256/SHA-384/SHA-512 choices.
+Each choice uses matching OAEP/MGF1 digests and an empty label. Providers may still
+reject a digest parameter; advertisement is advisory and no probe operation occurs.
+
+`encrypt` accepts a `PublicKeyRef` and `EncryptRequest`; `decrypt` accepts a
+`PrivateKeyRef` and `DecryptRequest`. Both resolve the selector afresh and execute
+once on the token, with no fallback or padding downgrade. RSA keys must have
+2048–16384 bits. Input is one block: at 2048 bits, SHA-256 OAEP permits 190 plaintext
+bytes and ciphertext is exactly 256 bytes. This is not a bulk-file format or sender
+authentication. Decryption requires a key with CKA_DECRYPT and without
+CKA_ALWAYS_AUTHENTICATE; the current binding cannot perform context login followed
+by single-part OAEP decryption.
+
+Requests redact input in Debug. Successful `Plaintext` uses zeroizing storage;
+no bytes are returned after failure. cryptoki's transient decryption buffers on
+provider errors cannot currently be guaranteed zeroized.
+
 ## Random bytes
 
 `ManagementSession::generate_random` accepts a `RandomRequest` with a length from

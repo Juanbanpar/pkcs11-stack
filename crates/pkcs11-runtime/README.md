@@ -230,6 +230,19 @@ from an independently selected object. There is no implicit association, certifi
 trust validation, certificate SPKI extraction or missing-SPKI construction. Consumers
 must validate associations; matching IDs/labels alone do not establish them.
 
+## RSA-OAEP encryption
+
+`Session::rsa_oaep_capabilities` checks a unique public/private key's permissions,
+allowed mechanisms and provider bounds. `encrypt_rsa_oaep` and `decrypt_rsa_oaep`
+resolve again and perform one RSA-OAEP operation with matching SHA-2/MGF1 digest
+and an empty label. RSA sizes are limited to 2048–16384 bits; plaintext must fit
+the OAEP bound and ciphertext must be modulus-width. An error or panic during a
+provider operation prevents session reuse.
+
+Per-operation-authentication decryption keys are rejected before init. Successful
+plaintext is redacted and zeroizing, but cryptoki's transient buffers from failed
+provider calls cannot currently be guaranteed zeroized.
+
 ## Random bytes
 
 `Session::generate_random` fills a nonempty caller-owned buffer using the token's

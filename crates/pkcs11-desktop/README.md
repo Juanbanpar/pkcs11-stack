@@ -92,8 +92,26 @@ changing selection invalidates pending verification results.
 
 Message files are limited to 16 MiB and signature inputs to 16 KiB. RSA signatures
 use raw modulus-width bytes; EC signatures use fixed-width `r || s`, not ASN.1 DER.
-File contents, signature bytes and credentials remain on the worker. Encryption,
-decryption, derivation, wrapping and unwrapping await client APIs.
+File contents, signature bytes and credentials remain on the worker. Derivation,
+wrapping and unwrapping await client APIs.
+
+On **Objects**, select a public RSA key and choose **Encrypt RSA OAEP**, or log in
+as USER and select a private RSA key for **Decrypt RSA OAEP**. Client-provided
+choices display SHA-2 digest and byte limits. OAEP uses a matching MGF1 digest and
+empty label; output is one raw RSA block, with no header. Select the same digest
+when decrypting. This handles small payloads, not bulk files or sender authentication.
+
+Permissions, allowed mechanisms and bounds are checked again at execution. Keys
+requiring authentication for each decrypt operation are unsupported by the binding
+and rejected before decrypt init. Vendor digest-parameter rejection never causes
+a retry, SHA-1 fallback or padding downgrade. Input and successful plaintext stay
+in zeroizing storage on the worker; cryptoki's transient buffers after a failed
+provider call cannot currently be guaranteed zeroized.
+
+The worker creates a new output file before the token call and reports session
+close failures before writing bytes. Existing files are preserved. Failures may
+leave an empty or partial file. Operations finish before another command can start;
+navigation remains available, and inventories refresh after failures as well as success.
 
 On **Operations**, use **Generate token random bytes** for an initialized token
 that advertises its own RNG. Enter a byte count from 1 to 1048576 and a new output

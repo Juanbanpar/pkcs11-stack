@@ -59,9 +59,10 @@ TLS 1.2. Supported signing keys are RSA and EC P-256/P-384/P-521; TLS use also
 requires verification support from the application's crypto provider. See the
 [signing and TLS examples](docs/examples.md) for runnable programs.
 
-Encryption, decryption, derivation, wrapping and private-key import are not
-implemented. Certificate parsing and binding do not validate certificate trust;
-applications configure trust separately.
+RSA-OAEP encryption/decryption supports SHA-2 with a matching MGF1 digest and
+empty label. It processes one RSA block. Derivation, wrapping and private-key
+import are not implemented. Certificate parsing and binding do not validate
+certificate trust; applications configure trust separately.
 
 The desktop application loads and unloads modules, enumerates slots and tokens,
 and browses visible objects and advertised mechanisms with filters and metadata
@@ -70,8 +71,8 @@ authentication paths. Refresh updates inventories and clears stale selections.
 The GUI also generates signing key pairs, imports DER certificates, confirms
 object deletion, exports public objects, signs files and verifies signatures
 against selected certificates. It can also save bytes from a token's random
-generator. Encryption, derivation, wrapping and token/PIN administration are not
-yet available in the GUI.
+generator and encrypt/decrypt small RSA-OAEP payloads with permitted keys.
+Derivation, wrapping and token/PIN administration are not yet available in the GUI.
 
 ## Development
 
