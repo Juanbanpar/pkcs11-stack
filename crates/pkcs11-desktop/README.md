@@ -92,8 +92,7 @@ changing selection invalidates pending verification results.
 
 Message files are limited to 16 MiB and signature inputs to 16 KiB. RSA signatures
 use raw modulus-width bytes; EC signatures use fixed-width `r || s`, not ASN.1 DER.
-File contents, signature bytes and credentials remain on the worker. Derivation,
-wrapping and unwrapping await client APIs.
+File contents, signature bytes and credentials remain on the worker.
 
 On **Objects**, select a public RSA key and choose **Encrypt RSA OAEP**, or log in
 as USER and select a private RSA key for **Decrypt RSA OAEP**. Client-provided
@@ -141,10 +140,42 @@ Linux build dependencies on Ubuntu:
 sudo apt-get install pkg-config libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev libegl1-mesa-dev
 ```
 
+## Derivation and key transfer
+
+After USER login, select an EC private key with derivation permission and choose
+**Derive ECDH secret**. Supply a peer public key in SPKI DER, a new label and a
+hexadecimal ID. The client validates the peer point and requires the same named
+curve as the base key. P-256/P-384/P-521 use the explicitly selected null KDF.
+The result is a persistent private, sensitive, nonextractable generic secret,
+with derivation permission only. It cannot be encrypted, signed or wrapped.
+A subsequent KDF is required before cryptographic use; KDF application is not
+implemented. Authenticate the peer separately; ECDH alone does not establish
+its identity. Per-operation-authentication base keys are unsupported.
+
+Select an AES key with wrapping permission and choose **Wrap AES key**. Select
+another secret key as the target and a new output file. The client requires an
+extractable AES-128/192/256 target and honors CKA_WRAP_WITH_TRUSTED. Candidates
+are checked on submission; the app never changes a key's extractability or trust
+policy. Wrapped output uses RFC 3394 with the default IV and contains no object
+metadata. Files are never overwritten; a failed operation may leave an empty or
+partial file.
+
+Choose **Unwrap AES key** on an AES key with unwrapping permission, select a
+24/32/40-byte wrapped file, and provide a new label and hexadecimal ID. It creates
+an AES-128/192/256 token key with encryption/decryption permission only. The key
+is private, sensitive and nonextractable. Existing secret key IDs are rejected.
+Unwrapping and derivation require a writable token. The app does not generate
+wrapping or ECDH base keys yet; provision compatible keys separately.
+
+All three operations execute once on the worker and refresh inventories on
+success or failure. Once submitted, they cannot be cancelled or superseded.
+Navigation remains available. There is no retry or rollback: a failed provider
+call or session close may still leave a created object. Refresh before retrying.
+
 ## Execution
 
 One worker owns all client providers and performs module loading, discovery,
-refresh, inspection, authentication, object management, signing, verification,
+refresh, inspection, authentication, object management, signing, verification, derivation, key transfer,
 file reads/writes and finalization. One client-owned session per logged-in token
 keeps its role active without storing its PIN. Object browsing
 opens scoped read-only sessions, or read-write sessions while SO is active, and
@@ -155,15 +186,14 @@ for one list snapshot. Details resolve their client locator again in a fresh ses
 
 Request IDs reject cancelled or superseded results. Refresh cancellation ignores
 its eventual result. Token/page/object changes invalidate pending reads. Load,
-unload, login, logout, management, signing and random-file generation finish before
+unload, login, logout, management, signing, encryption, key transfer and random-file generation finish before
 another operation can start; navigation remains available. Closing the window
 drains queued work, closes authentication sessions, finalizes providers and joins
 the worker off the UI thread.
 
 Tests cover state transitions, stale responses, picker results, backend errors,
 shutdown, lazy details, ambiguous objects, metadata redaction and isolated SoftHSM
-module/object/mechanism, USER/SO authentication, object management and signing/
-verification workflows:
+module/object/mechanism, USER/SO authentication, object management, signing/verification, RSA-OAEP, ECDH and RFC 3394 workflows:
 
 ```sh
 PKCS11_TEST_DESKTOP=1 ./tools/test-softhsm.sh

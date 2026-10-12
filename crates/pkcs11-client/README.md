@@ -264,6 +264,50 @@ Requests redact input in Debug. Successful `Plaintext` uses zeroizing storage;
 no bytes are returned after failure. cryptoki's transient decryption buffers on
 provider errors cannot currently be guaranteed zeroized.
 
+## Derivation and key transfer
+
+`ManagementSession::key_operation_options` checks the selected base/wrapping
+key's class, permissions, allowed mechanisms and advertised provider bounds.
+It returns an advisory `KeyOperationProfile` without performing crypto.
+Each request rechecks these constraints and resolves all selectors afresh.
+
+`derive` accepts a `DeriveRequest` with an `EcdhPeer` parsed from SPKI DER and a
+`SecretKeyIdentity`. The parser validates named-curve points on P-256/P-384/P-521
+and normalizes them to uncompressed SEC1 form. The base must be a private EC key
+with CKA_DERIVE on that curve, without per-operation authentication. The explicit
+null KDF creates raw ECDH material as a persistent private, sensitive,
+nonextractable generic secret with derivation permission only. Raw shared secrets
+never leave the provider. Peer authentication and a subsequent KDF are the
+caller's responsibility; this API does not implement the subsequent KDF.
+
+```no_run
+use pkcs11_client::{DeriveRequest, EcdhPeer, ManagementSession, ObjectRef, SecretKeyIdentity};
+fn derive(session: &mut ManagementSession<'_>, base: &ObjectRef, peer_der: &[u8])
+    -> Result<(), pkcs11_client::Error>
+{
+    let peer = EcdhPeer::from_spki_der(peer_der)?;
+    session.derive(base, &DeriveRequest {
+        peer: &peer,
+        identity: SecretKeyIdentity { id: b"agreement-1", label: b"ECDH material" },
+    })
+}
+```
+
+`wrap` accepts a `WrapRequest` naming an extractable AES-128/192/256 target.
+The wrapping key must be AES with CKA_WRAP; CKA_WRAP_WITH_TRUSTED requires a
+trusted wrapping key. The operation never reads CKA_VALUE or changes permissions.
+`unwrap` accepts an `UnwrapRequest` with a 24/32/40-byte RFC 3394 blob and an
+explicit identity. The AES unwrapping key must have CKA_UNWRAP. The created key
+is persistent, private, sensitive and nonextractable, with encryption/decryption
+permission only. Both use the default RFC 3394 IV; blobs contain no metadata.
+Provider wrapping/unwrapping templates remain authoritative.
+
+New identities require nonempty ID/label fields of at most 128 bytes and reject
+existing token secret-key IDs. The check is not atomic against another process.
+Derivation and unwrapping require RW mode and provider authorization. Creation
+has no retry or rollback: a failure may still have persistent effects. Requests
+and peer keys redact their payloads in Debug. No software fallback is used.
+
 ## Random bytes
 
 `ManagementSession::generate_random` accepts a `RandomRequest` with a length from

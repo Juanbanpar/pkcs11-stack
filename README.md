@@ -60,8 +60,9 @@ requires verification support from the application's crypto provider. See the
 [signing and TLS examples](docs/examples.md) for runnable programs.
 
 RSA-OAEP encryption/decryption supports SHA-2 with a matching MGF1 digest and
-empty label. It processes one RSA block. Derivation, wrapping and private-key
-import are not implemented. Certificate parsing and binding do not validate
+empty label. It processes one RSA block. Raw ECDH creates token-held generic
+secrets on P-256/P-384/P-521; AES key wrapping and unwrapping use RFC 3394.
+KDF application and private-key import are not implemented. Certificate parsing and binding do not validate
 certificate trust; applications configure trust separately.
 
 The desktop application loads and unloads modules, enumerates slots and tokens,
@@ -71,8 +72,9 @@ authentication paths. Refresh updates inventories and clears stale selections.
 The GUI also generates signing key pairs, imports DER certificates, confirms
 object deletion, exports public objects, signs files and verifies signatures
 against selected certificates. It can also save bytes from a token's random
-generator and encrypt/decrypt small RSA-OAEP payloads with permitted keys.
-Derivation, wrapping and token/PIN administration are not yet available in the GUI.
+generator, encrypt/decrypt small RSA-OAEP payloads, derive ECDH secrets, and
+wrap/unwrap AES keys with permitted keys. Token/PIN administration is not yet
+available in the GUI.
 
 ## Development
 
