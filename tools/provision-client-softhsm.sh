@@ -30,3 +30,11 @@ for specification in '01 RSA:2048 rsa' '02 EC:prime256v1 p256' '03 EC:secp384r1 
         --id "$id" --label "$label" >/dev/null 2>&1
 done
 rm -- "$scratch/ca.key"
+# Disposable RSA encryption fixture for independent OAEP interoperability checks.
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$scratch/cipher.key" 2>/dev/null
+openssl pkcs8 -topk8 -nocrypt -in "$scratch/cipher.key" -outform DER -out "$scratch/cipher-private.der"
+openssl pkey -in "$scratch/cipher.key" -pubout -outform DER -out "$scratch/cipher-public.der"
+args=(--module "$module" --token-label client-test --login --pin 12345678 --id 20 --label cipher --usage-decrypt)
+pkcs11-tool "${args[@]}" --write-object "$scratch/cipher-private.der" --type privkey --sensitive >/dev/null 2>&1
+pkcs11-tool "${args[@]}" --write-object "$scratch/cipher-public.der" --type pubkey >/dev/null 2>&1
+pkcs11-tool --module "$module" --token-label client-test --login --pin 12345678 --id 21 --label cipher-always --usage-decrypt --always-auth --write-object "$scratch/cipher-private.der" --type privkey --sensitive >/dev/null 2>&1

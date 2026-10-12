@@ -16,6 +16,8 @@ use std::{
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CryptoMode {
+    Encrypt,
+    Decrypt,
     Sign,
     Verify,
 }
@@ -123,6 +125,7 @@ impl Registry {
         software_hashing: bool,
     ) -> Result<BackendResult, BackendError> {
         let (options, context) = match scope.mode {
+            CryptoMode::Encrypt | CryptoMode::Decrypt => return self.cipher_options(scope),
             CryptoMode::Sign => {
                 let (index, uri, key) = self.signing_location(scope)?;
                 let client = self.modules[index]
@@ -246,7 +249,14 @@ impl Registry {
             return Ok(BackendResult::Verified { scope });
         }
         let operation = self.sign_file(scope, job);
-        // Context authentication may alter PIN flags even on failure. Rediscover without retrying.
+        Ok(self.finish_crypto(scope, operation))
+    }
+    pub(super) fn finish_crypto(
+        &mut self,
+        scope: CryptoScope,
+        operation: Result<(), BackendError>,
+    ) -> BackendResult {
+        // Failed operations can have effects. Rediscover without retrying.
         let refreshed = self
             .modules
             .iter()
@@ -259,7 +269,7 @@ impl Registry {
                 .is_err()
                 .then_some(BackendError::RefreshAfterManagement)
         });
-        Ok(BackendResult::Managed {
+        BackendResult::Managed {
             module: scope.module,
             token: scope.token,
             modules: self
@@ -269,7 +279,7 @@ impl Registry {
                 .collect(),
             objects: objects.ok(),
             error,
-        })
+        }
     }
 }
 

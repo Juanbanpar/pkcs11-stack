@@ -222,6 +222,13 @@ fn objects(state: &UiState) -> Element<'_, Message> {
         match object.class {
             Some(pkcs11_client::ObjectClass::PRIVATE_KEY) => {
                 detail = detail.push(
+                    button("Decrypt RSA OAEP…").on_press_maybe(
+                        state
+                            .can_open_cipher(CryptoMode::Decrypt)
+                            .then_some(Message::OpenCipher(CryptoMode::Decrypt)),
+                    ),
+                );
+                detail = detail.push(
                     button("Sign file…").on_press_maybe(
                         state
                             .can_open_crypto(CryptoMode::Sign)
@@ -235,6 +242,15 @@ fn objects(state: &UiState) -> Element<'_, Message> {
                         state
                             .can_open_crypto(CryptoMode::Verify)
                             .then_some(Message::OpenCrypto(CryptoMode::Verify)),
+                    ),
+                );
+            }
+            Some(pkcs11_client::ObjectClass::PUBLIC_KEY) => {
+                detail = detail.push(
+                    button("Encrypt RSA OAEP…").on_press_maybe(
+                        state
+                            .can_open_cipher(CryptoMode::Encrypt)
+                            .then_some(Message::OpenCipher(CryptoMode::Encrypt)),
                     ),
                 );
             }
@@ -261,6 +277,9 @@ fn objects(state: &UiState) -> Element<'_, Message> {
         }
         if state.crypto_form.is_some() {
             detail = detail.push(super::crypto::view(state));
+        }
+        if state.cipher_form.is_some() {
+            detail = detail.push(super::cipher::view(state));
         }
     } else {
         detail = detail.push(text("Select an object to read its metadata."));

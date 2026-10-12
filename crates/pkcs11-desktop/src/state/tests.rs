@@ -1091,3 +1091,139 @@ fn random_generation_keeps_native_non_utf8_picker_path() {
     assert!(state.random.path.is_empty());
     assert!(state.random.picker.is_none());
 }
+
+fn cipher_state(
+    mode: crate::backend::CryptoMode,
+) -> (UiState, RequestId, crate::backend::CryptoScope) {
+    use crate::backend::CryptoMode;
+    let mut state = browsing();
+    state.loaded_modules[0].tokens[0].login = LoginState::User;
+    let list = state.show_page(TokenPage::Objects).unwrap().id();
+    let mut object = object_entry(4, "cipher");
+    object.class = Some(if mode == CryptoMode::Encrypt {
+        pkcs11_client::ObjectClass::PUBLIC_KEY
+    } else {
+        pkcs11_client::ObjectClass::PRIVATE_KEY
+    });
+    state.event(complete(list, objects_result(2, vec![object])));
+    state.select_object(ResourceId(4));
+    let BackendCommand::CryptoOptions { id, scope, .. } = state.open_cipher(mode).unwrap() else {
+        panic!("cipher options");
+    };
+    state.event(complete(
+        id,
+        BackendResult::CipherOptions {
+            scope,
+            choices: vec![pkcs11_client::OaepChoice {
+                digest: pkcs11_client::DigestAlgorithm::Sha256,
+                maximum_plaintext: 190,
+                ciphertext_length: 256,
+            }],
+        },
+    ));
+    (state, id, scope)
+}
+#[test]
+fn cipher_forms_validate_and_submit_once_without_restoring_a_navigated_token() {
+    let (mut state, id, scope) = cipher_state(crate::backend::CryptoMode::Decrypt);
+    assert!(state.submit_cipher(id).is_none());
+    state.cipher_edit(id, CipherField::Input, "cipher.bin".into());
+    state.cipher_edit(id, CipherField::Output, "new-plain.bin".into());
+    let command = state.submit_cipher(id).unwrap();
+    let request = command.id();
+    let BackendCommand::Cipher {
+        scope: actual, job, ..
+    } = command
+    else {
+        panic!("cipher command");
+    };
+    assert_eq!(actual, scope);
+    assert_eq!(job.input, PathBuf::from("cipher.bin"));
+    assert_eq!(job.choice.maximum_plaintext, 190);
+    assert!(state.cipher_form.is_none());
+    assert!(!state.can_cancel());
+    assert!(!state.can_submit());
+    state.cancel();
+    assert_eq!(state.current_operation, Some(request));
+    state.select_token(ResourceId(1), ResourceId(3));
+    state.event(complete(
+        request,
+        BackendResult::Managed {
+            module: scope.module,
+            token: scope.token,
+            modules: state.loaded_modules.clone(),
+            objects: Some(vec![object_entry(7, "old")]),
+            error: None,
+        },
+    ));
+    assert_eq!(state.selected_token, Some(ResourceId(3)));
+    assert!(state.objects.is_empty());
+}
+#[test]
+fn cipher_options_picker_and_message_scopes_reject_old_results() {
+    let (mut state, id, scope) = cipher_state(crate::backend::CryptoMode::Encrypt);
+    let (picker, save) = state.cipher_picker(id, CipherField::Output).unwrap();
+    assert!(save);
+    state.cipher_edit(id, CipherField::Output, "typed".into());
+    state.cipher_picked(picker, Some("stale".into()));
+    assert_eq!(state.cipher_form.as_ref().unwrap().output, "typed");
+    state.dismiss_cipher(id);
+    state.cipher_edit(id, CipherField::Input, "old-input".into());
+    assert!(state.cipher_form.is_none());
+    let current = state
+        .open_cipher(crate::backend::CryptoMode::Encrypt)
+        .unwrap()
+        .id();
+    state.event(complete(
+        id,
+        BackendResult::CipherOptions {
+            scope,
+            choices: Vec::new(),
+        },
+    ));
+    assert_eq!(state.current_operation, Some(current));
+    let (picker, _) = state.cipher_picker(current, CipherField::Input).unwrap();
+    state.select_token(ResourceId(1), ResourceId(3));
+    state.cipher_picked(picker, Some("old-token".into()));
+    assert!(state.cipher_form.is_none());
+    let (mut state, id, _) = cipher_state(crate::backend::CryptoMode::Decrypt);
+    state.loaded_modules[0].tokens[0].login = LoginState::Public;
+    assert!(state.submit_cipher(id).is_none());
+}
+#[cfg(unix)]
+#[test]
+fn cipher_paths_preserve_native_non_utf8_names_and_shutdown_clears_forms() {
+    use std::os::unix::ffi::OsStringExt;
+    let (mut state, id, _) = cipher_state(crate::backend::CryptoMode::Encrypt);
+    let path = PathBuf::from(std::ffi::OsString::from_vec(b"cipher-\xff".to_vec()));
+    let (picker, _) = state.cipher_picker(id, CipherField::Input).unwrap();
+    state.cipher_picked(picker, Some(path.clone()));
+    state.cipher_edit(id, CipherField::Output, "new.bin".into());
+    let BackendCommand::Cipher { job, .. } = state.submit_cipher(id).unwrap() else {
+        panic!("cipher command");
+    };
+    assert_eq!(job.input, path);
+    state.begin_shutdown();
+    assert!(state.cipher_form.is_none());
+}
+
+#[test]
+fn failed_cipher_choice_loading_stops_and_clears_on_form_changes() {
+    let (mut state, id, _) = cipher_state(crate::backend::CryptoMode::Encrypt);
+    state.dismiss_cipher(id);
+    let request = state
+        .open_cipher(crate::backend::CryptoMode::Encrypt)
+        .unwrap()
+        .id();
+    state.event(BackendEvent::Completed {
+        id: request,
+        result: Err(BackendError::CipherUnavailable),
+    });
+    assert!(state.cipher_form.as_ref().unwrap().loaded);
+    assert!(state.cipher_form.as_ref().unwrap().choices.is_empty());
+    assert!(state.current_operation.is_none());
+    state.select_object(ResourceId(4));
+    state.objects[0].class = Some(pkcs11_client::ObjectClass::PRIVATE_KEY);
+    state.open_crypto(crate::backend::CryptoMode::Sign);
+    assert!(state.cipher_form.is_none());
+}

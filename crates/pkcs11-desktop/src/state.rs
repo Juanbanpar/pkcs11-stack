@@ -9,7 +9,9 @@ use crate::backend::{
 use pkcs11_client::MechanismType;
 use secrecy::SecretString;
 use std::path::PathBuf;
+mod cipher;
 mod crypto;
+pub use cipher::{CipherChoice, CipherField, CipherForm};
 mod management;
 mod random;
 pub use crypto::{CryptoField, CryptoForm, SignatureChoice};
@@ -60,6 +62,7 @@ impl Notification {
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum OperationKind {
+    Cipher,
     Random,
     CryptoOptions,
     Sign,
@@ -115,6 +118,7 @@ pub struct UiState {
     pub mechanisms_loaded: bool,
     pub management: ManagementUi,
     pub crypto_form: Option<CryptoForm>,
+    pub cipher_form: Option<CipherForm>,
     pub random: RandomUi,
     picked_path: Option<PathBuf>,
     operation_kind: Option<OperationKind>,
@@ -147,6 +151,7 @@ impl UiState {
                         | OperationKind::Manage
                         | OperationKind::Sign
                         | OperationKind::Random
+                        | OperationKind::Cipher
                 )
             )
     }
@@ -156,6 +161,9 @@ impl UiState {
         }
         let id = self.request_id()?;
         self.random.picker = None;
+        if let Some(form) = &mut self.cipher_form {
+            form.picker = None;
+        }
         self.login_form = None;
         if let Some(form) = &mut self.crypto_form {
             form.pin = SecretString::default();
@@ -462,6 +470,7 @@ impl UiState {
                         | OperationKind::Manage
                         | OperationKind::Sign
                         | OperationKind::Random
+                        | OperationKind::Cipher
                 )
             )
     }
@@ -537,6 +546,14 @@ impl UiState {
                             && self.selected_token == Some(scope.token)
                             && self.selected_object == Some(scope.object)
                     }
+                    Ok(BackendResult::CipherOptions { scope, .. }) => {
+                        self.cipher_form
+                            .as_ref()
+                            .is_some_and(|form| form.scope == *scope)
+                            && self.selected_module == Some(scope.module)
+                            && self.selected_token == Some(scope.token)
+                            && self.selected_object == Some(scope.object)
+                    }
                     Ok(
                         BackendResult::Objects { module, token, .. }
                         | BackendResult::Capabilities { module, token, .. }
@@ -559,9 +576,18 @@ impl UiState {
                 if !in_scope {
                     return;
                 }
+                let reading_choices = self.operation_kind == Some(OperationKind::CryptoOptions);
                 self.current_operation = None;
                 self.operation_kind = None;
                 let error = match result {
+                    Ok(BackendResult::CipherOptions { choices, .. }) => {
+                        if let Some(form) = &mut self.cipher_form {
+                            form.choices = choices.into_iter().map(CipherChoice).collect();
+                            form.choice = form.choices.first().copied();
+                            form.loaded = true;
+                        }
+                        None
+                    }
                     Ok(BackendResult::RandomWritten { length }) => {
                         self.notification = Some(Notification::RandomSaved(length));
                         return;
@@ -655,7 +681,17 @@ impl UiState {
                     }
                     #[cfg(test)]
                     Ok(BackendResult::Synthetic) => None,
-                    Err(error) => Some(error),
+                    Err(error) => {
+                        if reading_choices {
+                            if let Some(form) = &mut self.cipher_form {
+                                form.loaded = true;
+                            }
+                            if let Some(form) = &mut self.crypto_form {
+                                form.loaded = true;
+                            }
+                        }
+                        Some(error)
+                    }
                 };
                 self.select_loaded = false;
                 self.notification =
@@ -708,6 +744,7 @@ impl UiState {
             "Background worker unavailable"
         } else {
             match self.operation_kind {
+                Some(OperationKind::Cipher) => "Executing RSA OAEP once and saving output…",
                 Some(OperationKind::Random) => "Generating token random bytes and saving them…",
                 Some(OperationKind::CryptoOptions) => "Reading signature choices…",
                 Some(OperationKind::Sign) => "Signing once and saving the signature…",

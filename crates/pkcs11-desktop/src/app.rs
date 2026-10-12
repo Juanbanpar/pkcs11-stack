@@ -5,8 +5,8 @@ use crate::{
         ResourceId, Worker,
     },
     state::{
-        CryptoField, Dialog, FilePurpose, KeyChoice, ManagementField, Notification, RandomField,
-        Screen, SignatureChoice, TokenPage, UiState,
+        CipherChoice, CipherField, CryptoField, Dialog, FilePurpose, KeyChoice, ManagementField,
+        Notification, RandomField, Screen, SignatureChoice, TokenPage, UiState,
     },
     views,
 };
@@ -15,6 +15,26 @@ use std::path::PathBuf;
 
 #[derive(Clone)]
 pub enum Message {
+    OpenCipher(CryptoMode),
+    CipherEdit {
+        id: RequestId,
+        field: CipherField,
+        value: String,
+    },
+    CipherChoice {
+        id: RequestId,
+        choice: CipherChoice,
+    },
+    CipherBrowse {
+        id: RequestId,
+        field: CipherField,
+    },
+    CipherPicked {
+        id: RequestId,
+        path: Option<PathBuf>,
+    },
+    SubmitCipher(RequestId),
+    DismissCipher(RequestId),
     RandomEdit {
         field: RandomField,
         value: String,
@@ -124,6 +144,13 @@ pub enum Message {
 impl std::fmt::Debug for Message {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
+            Self::OpenCipher(_) => "OpenCipher",
+            Self::CipherEdit { .. } => "CipherEdit",
+            Self::CipherChoice { .. } => "CipherChoice",
+            Self::CipherBrowse { .. } => "CipherBrowse",
+            Self::CipherPicked { .. } => "CipherPicked",
+            Self::SubmitCipher(_) => "SubmitCipher",
+            Self::DismissCipher(_) => "DismissCipher",
             Self::RandomEdit { .. } => "RandomEdit",
             Self::RandomBrowse => "RandomBrowse",
             Self::RandomPicked { .. } => "RandomPicked",
@@ -219,6 +246,37 @@ impl App {
             return Task::none();
         }
         match message {
+            Message::OpenCipher(mode) => {
+                let command = self.state.open_cipher(mode);
+                self.submit(command);
+            }
+            Message::CipherEdit { id, field, value } => self.state.cipher_edit(id, field, value),
+            Message::CipherChoice { id, choice } => self.state.cipher_choice(id, choice),
+            Message::CipherPicked { id, path } => self.state.cipher_picked(id, path),
+            Message::SubmitCipher(id) => {
+                let command = self.state.submit_cipher(id);
+                self.submit(command);
+            }
+            Message::DismissCipher(id) => self.state.dismiss_cipher(id),
+            Message::CipherBrowse { id, field } => {
+                if let Some((request, save)) = self.state.cipher_picker(id, field) {
+                    return Task::perform(
+                        async move {
+                            let dialog = rfd::AsyncFileDialog::new();
+                            let file = if save {
+                                dialog
+                                    .set_title("Save RSA OAEP output to a new file")
+                                    .save_file()
+                                    .await
+                            } else {
+                                dialog.set_title("Select RSA OAEP input").pick_file().await
+                            };
+                            file.map(|file| file.path().to_path_buf())
+                        },
+                        move |path| Message::CipherPicked { id: request, path },
+                    );
+                }
+            }
             Message::RandomEdit { field, value } => self.state.random_edit(field, value),
             Message::RandomPicked { id, path } => self.state.random_picked(id, path),
             Message::GenerateRandom => {
@@ -435,6 +493,9 @@ impl App {
             }
             Message::Joined { .. } => {}
             Message::About => {
+                if let Some(id) = self.state.cipher_form.as_ref().map(|form| form.id) {
+                    self.state.dismiss_cipher(id);
+                }
                 if let Some(id) = self.state.crypto_form.as_ref().map(|form| form.id) {
                     self.state.dismiss_crypto(id);
                 }
@@ -513,6 +574,17 @@ mod tests {
         assert!(!rendered.contains("desktop-redaction-canary"));
         assert_eq!(safe, BackendError::Client(pkcs11_client::ErrorKind::Client));
         assert_eq!(format!("{message:?}"), "Backend");
+        assert_eq!(
+            format!(
+                "{:?}",
+                Message::CipherEdit {
+                    id: RequestId(8),
+                    field: CipherField::Input,
+                    value: secret.into()
+                }
+            ),
+            "CipherEdit"
+        );
         assert_eq!(
             format!(
                 "{:?}",

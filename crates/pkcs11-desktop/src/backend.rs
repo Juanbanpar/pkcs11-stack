@@ -9,7 +9,9 @@ use std::{
 };
 mod authentication;
 mod browse;
+mod cipher;
 mod crypto;
+pub use cipher::CipherJob;
 mod management;
 mod random;
 pub use authentication::{LoginRole, LoginState, SecretInput};
@@ -108,6 +110,11 @@ impl ModuleEntry {
 
 // Command payloads are excluded from diagnostics.
 pub enum BackendCommand {
+    Cipher {
+        id: RequestId,
+        scope: CryptoScope,
+        job: CipherJob,
+    },
     Random {
         id: RequestId,
         module: ResourceId,
@@ -189,6 +196,7 @@ impl BackendCommand {
     pub fn id(&self) -> RequestId {
         match self {
             Self::Load { id, .. }
+            | Self::Cipher { id, .. }
             | Self::Random { id, .. }
             | Self::CryptoOptions { id, .. }
             | Self::Crypto { id, .. }
@@ -210,6 +218,10 @@ impl BackendCommand {
 
 #[derive(Clone, Debug)]
 pub enum BackendResult {
+    CipherOptions {
+        scope: CryptoScope,
+        choices: Vec<pkcs11_client::OaepChoice>,
+    },
     RandomWritten {
         length: usize,
     },
@@ -261,6 +273,9 @@ pub enum BackendResult {
 /// Presentation data contains a category and fixed text, never raw diagnostics.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BackendError {
+    CipherUnavailable,
+    OaepParametersRejected,
+    CipherInput,
     RandomUnavailable,
     RandomLength,
     SigningUnavailable,
@@ -295,6 +310,15 @@ pub enum BackendError {
 impl BackendError {
     pub fn message(self) -> &'static str {
         match self {
+            Self::OaepParametersRejected => {
+                "The provider rejected these OAEP digest parameters. No digest downgrade or fallback was attempted."
+            }
+            Self::CipherUnavailable => {
+                "Select a permitted RSA public key to encrypt, or a permitted private key after USER login to decrypt. Per-operation-authentication decryption is unsupported."
+            }
+            Self::CipherInput => {
+                "Provide input and a new output path within the selected OAEP byte limits. Ciphertext must match the displayed RSA width."
+            }
             Self::RandomUnavailable => {
                 "Select an initialized token that advertises a random generator."
             }
@@ -612,6 +636,12 @@ impl Registry {
         let id = command.id();
         let mut loaded = None;
         let result = match command {
+            BackendCommand::Cipher { scope, job, .. } => {
+                return BackendEvent::Completed {
+                    id,
+                    result: Ok(self.cipher(scope, job)),
+                };
+            }
             BackendCommand::Random {
                 module,
                 token,
