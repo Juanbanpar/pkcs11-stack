@@ -3,6 +3,8 @@
 #![doc = include_str!("../README.md")]
 
 mod administration;
+mod encryption;
+pub use encryption::{RsaCipherOperation, RsaOaepCapabilities};
 mod error;
 mod module;
 mod pool;

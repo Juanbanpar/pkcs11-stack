@@ -459,7 +459,7 @@ fn digest_info(digest: DigestAlgorithm, data: &[u8]) -> Vec<u8> {
     encoded
 }
 
-fn attribute(
+pub(crate) fn attribute(
     object: &Object<'_, '_>,
     ty: AttributeType,
     required: bool,
@@ -478,7 +478,7 @@ fn attribute(
         _ => Err(Error::MissingMetadata("required or restricted attribute")),
     }
 }
-fn key_kind(object: &Object<'_, '_>) -> Result<KeyKind, Error> {
+pub(crate) fn key_kind(object: &Object<'_, '_>) -> Result<KeyKind, Error> {
     match attribute(object, AttributeType::KeyType, true)? {
         Some(Attribute::KeyType(KeyType::RSA)) => {
             match attribute(object, AttributeType::Modulus, true)? {
