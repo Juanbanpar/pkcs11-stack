@@ -10,6 +10,8 @@ use pkcs11_client::MechanismType;
 use secrecy::SecretString;
 use std::path::PathBuf;
 mod cipher;
+mod key_operations;
+pub use key_operations::{KeyField, KeyForm, WrapTarget};
 mod crypto;
 pub use cipher::{CipherChoice, CipherField, CipherForm};
 mod management;
@@ -62,6 +64,7 @@ impl Notification {
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum OperationKind {
+    KeyOperation,
     Cipher,
     Random,
     CryptoOptions,
@@ -119,6 +122,7 @@ pub struct UiState {
     pub management: ManagementUi,
     pub crypto_form: Option<CryptoForm>,
     pub cipher_form: Option<CipherForm>,
+    pub key_form: Option<KeyForm>,
     pub random: RandomUi,
     picked_path: Option<PathBuf>,
     operation_kind: Option<OperationKind>,
@@ -152,6 +156,7 @@ impl UiState {
                         | OperationKind::Sign
                         | OperationKind::Random
                         | OperationKind::Cipher
+                        | OperationKind::KeyOperation
                 )
             )
     }
@@ -161,6 +166,9 @@ impl UiState {
         }
         let id = self.request_id()?;
         self.random.picker = None;
+        if let Some(form) = &mut self.key_form {
+            form.picker = None;
+        }
         if let Some(form) = &mut self.cipher_form {
             form.picker = None;
         }
@@ -471,6 +479,7 @@ impl UiState {
                         | OperationKind::Sign
                         | OperationKind::Random
                         | OperationKind::Cipher
+                        | OperationKind::KeyOperation
                 )
             )
     }
@@ -546,6 +555,14 @@ impl UiState {
                             && self.selected_token == Some(scope.token)
                             && self.selected_object == Some(scope.object)
                     }
+                    Ok(BackendResult::KeyOptions { scope, .. }) => {
+                        self.key_form
+                            .as_ref()
+                            .is_some_and(|form| form.scope == *scope)
+                            && self.selected_module == Some(scope.module)
+                            && self.selected_token == Some(scope.token)
+                            && self.selected_object == Some(scope.object)
+                    }
                     Ok(BackendResult::CipherOptions { scope, .. }) => {
                         self.cipher_form
                             .as_ref()
@@ -580,6 +597,13 @@ impl UiState {
                 self.current_operation = None;
                 self.operation_kind = None;
                 let error = match result {
+                    Ok(BackendResult::KeyOptions { profile, .. }) => {
+                        if let Some(form) = &mut self.key_form {
+                            form.profile = Some(profile);
+                            form.loaded = true;
+                        }
+                        None
+                    }
                     Ok(BackendResult::CipherOptions { choices, .. }) => {
                         if let Some(form) = &mut self.cipher_form {
                             form.choices = choices.into_iter().map(CipherChoice).collect();
@@ -683,6 +707,9 @@ impl UiState {
                     Ok(BackendResult::Synthetic) => None,
                     Err(error) => {
                         if reading_choices {
+                            if let Some(form) = &mut self.key_form {
+                                form.loaded = true;
+                            }
                             if let Some(form) = &mut self.cipher_form {
                                 form.loaded = true;
                             }
@@ -744,9 +771,10 @@ impl UiState {
             "Background worker unavailable"
         } else {
             match self.operation_kind {
+                Some(OperationKind::KeyOperation) => "Executing token key operation once…",
                 Some(OperationKind::Cipher) => "Executing RSA OAEP once and saving output…",
                 Some(OperationKind::Random) => "Generating token random bytes and saving them…",
-                Some(OperationKind::CryptoOptions) => "Reading signature choices…",
+                Some(OperationKind::CryptoOptions) => "Reading permitted crypto choices…",
                 Some(OperationKind::Sign) => "Signing once and saving the signature…",
                 Some(OperationKind::Verify) => "Verifying signature…",
                 Some(OperationKind::Load) => "Loading module…",

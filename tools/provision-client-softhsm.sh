@@ -38,3 +38,20 @@ args=(--module "$module" --token-label client-test --login --pin 12345678 --id 2
 pkcs11-tool "${args[@]}" --write-object "$scratch/cipher-private.der" --type privkey --sensitive >/dev/null 2>&1
 pkcs11-tool "${args[@]}" --write-object "$scratch/cipher-public.der" --type pubkey >/dev/null 2>&1
 pkcs11-tool --module "$module" --token-label client-test --login --pin 12345678 --id 21 --label cipher-always --usage-decrypt --always-auth --write-object "$scratch/cipher-private.der" --type privkey --sensitive >/dev/null 2>&1
+# Derivation and RFC 3394 fixtures; key bytes are public test vectors.
+for specification in '30 EC:prime256v1 derive-p256' '31 EC:secp384r1 derive-p384' '32 EC:secp521r1 derive-p521'; do
+    read -r id type label <<< "$specification"
+    pkcs11-tool --module "$module" --token-label client-test --login --pin 12345678 \
+        --keypairgen --key-type "$type" --id "$id" --label "$label" --usage-derive --sensitive >/dev/null 2>&1
+done
+python3 - "$scratch" <<'PY'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+(path / "wrap-key.bin").write_bytes(bytes(range(32)))
+(path / "wrap-target.bin").write_bytes(bytes.fromhex("00112233445566778899aabbccddeeff"))
+PY
+args=(--module "$module" --token-label client-test --login --pin 12345678 --type secrkey --private --sensitive)
+pkcs11-tool "${args[@]}" --write-object "$scratch/wrap-key.bin" --key-type AES:32 --id 40 --label wrapping --usage-wrap >/dev/null 2>&1
+pkcs11-tool "${args[@]}" --write-object "$scratch/wrap-target.bin" --key-type AES:16 --id 41 --label transferable --usage-decrypt --extractable >/dev/null 2>&1
+pkcs11-tool "${args[@]}" --write-object "$scratch/wrap-target.bin" --key-type AES:16 --id 42 --label nonextractable --usage-decrypt >/dev/null 2>&1

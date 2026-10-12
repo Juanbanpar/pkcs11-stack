@@ -222,6 +222,13 @@ fn objects(state: &UiState) -> Element<'_, Message> {
         match object.class {
             Some(pkcs11_client::ObjectClass::PRIVATE_KEY) => {
                 detail = detail.push(
+                    button("Derive ECDH secret…").on_press_maybe(
+                        state
+                            .can_open_key_operation(CryptoMode::Derive)
+                            .then_some(Message::OpenKeyOperation(CryptoMode::Derive)),
+                    ),
+                );
+                detail = detail.push(
                     button("Decrypt RSA OAEP…").on_press_maybe(
                         state
                             .can_open_cipher(CryptoMode::Decrypt)
@@ -254,6 +261,23 @@ fn objects(state: &UiState) -> Element<'_, Message> {
                     ),
                 );
             }
+            Some(pkcs11_client::ObjectClass::SECRET_KEY) => {
+                detail = detail.push(
+                    row![
+                        button("Wrap AES key…").on_press_maybe(
+                            state
+                                .can_open_key_operation(CryptoMode::Wrap)
+                                .then_some(Message::OpenKeyOperation(CryptoMode::Wrap))
+                        ),
+                        button("Unwrap AES key…").on_press_maybe(
+                            state
+                                .can_open_key_operation(CryptoMode::Unwrap)
+                                .then_some(Message::OpenKeyOperation(CryptoMode::Unwrap))
+                        )
+                    ]
+                    .spacing(10),
+                );
+            }
             _ => {}
         }
         if let Some(Dialog::Delete(id)) = state.dialog {
@@ -277,6 +301,9 @@ fn objects(state: &UiState) -> Element<'_, Message> {
         }
         if state.crypto_form.is_some() {
             detail = detail.push(super::crypto::view(state));
+        }
+        if state.key_form.is_some() {
+            detail = detail.push(super::key_operations::view(state));
         }
         if state.cipher_form.is_some() {
             detail = detail.push(super::cipher::view(state));

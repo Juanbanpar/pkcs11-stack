@@ -93,7 +93,7 @@ fn public_value(value: &Attribute) -> Option<String> {
         Attribute::Class(class) => format!("{class:?}"),
         Attribute::KeyType(kind) => format!("{kind:?}"),
         Attribute::CertificateType(kind) => format!("{kind:?}"),
-        Attribute::ModulusBits(bits) => bits.to_string(),
+        Attribute::ModulusBits(bits) | Attribute::ValueLen(bits) => bits.to_string(),
         Attribute::Label(bytes) | Attribute::Application(bytes) => std::str::from_utf8(bytes)
             .map(str::to_owned)
             .unwrap_or_else(|_| format!("hex: {}", hex(bytes))),
@@ -106,6 +106,8 @@ fn public_value(value: &Attribute) -> Option<String> {
         | Attribute::Decrypt(value)
         | Attribute::Wrap(value)
         | Attribute::Unwrap(value)
+        | Attribute::WrapWithTrusted(value)
+        | Attribute::Trusted(value)
         | Attribute::Derive(value)
         | Attribute::Sensitive(value)
         | Attribute::Extractable(value)
@@ -147,14 +149,21 @@ fn detail_attributes(class: Option<ObjectClass>) -> Vec<(AttributeType, &'static
                 (A::Wrap, "Wrap"),
                 (A::Unwrap, "Unwrap"),
                 (A::Derive, "Derive"),
-                (A::ModulusBits, "RSA modulus bits"),
             ]);
-            if class != Some(ObjectClass::PUBLIC_KEY) {
+            if class == Some(ObjectClass::SECRET_KEY) {
                 types.extend([
-                    (A::Sensitive, "Sensitive"),
-                    (A::Extractable, "Extractable"),
-                    (A::AlwaysAuthenticate, "Always authenticate"),
+                    (A::ValueLen, "Key bytes"),
+                    (A::Trusted, "Trusted"),
+                    (A::WrapWithTrusted, "Wrap with trusted"),
                 ]);
+            } else {
+                types.push((A::ModulusBits, "RSA modulus bits"));
+            }
+            if class != Some(ObjectClass::PUBLIC_KEY) {
+                types.extend([(A::Sensitive, "Sensitive"), (A::Extractable, "Extractable")]);
+            }
+            if class == Some(ObjectClass::PRIVATE_KEY) {
+                types.push((A::AlwaysAuthenticate, "Always authenticate"));
             }
         }
         Some(ObjectClass::CERTIFICATE) => types.push((A::CertificateType, "Certificate type")),
@@ -400,7 +409,14 @@ mod tests {
             ObjectClass::SECRET_KEY,
         ] {
             let types = detail_attributes(Some(class));
-            assert!(types.len() <= 14);
+            assert!(
+                types.len()
+                    <= if class == ObjectClass::SECRET_KEY {
+                        15
+                    } else {
+                        14
+                    }
+            );
             assert!(!types.iter().any(|(kind, _)| {
                 [
                     AttributeType::Value,

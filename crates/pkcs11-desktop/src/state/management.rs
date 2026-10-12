@@ -51,7 +51,7 @@ pub struct ManagementUi {
     pub file_request: Option<FileRequest>,
     pub confirmation: Option<DeleteConfirmation>,
 }
-fn identifier(value: &str) -> Option<Vec<u8>> {
+pub(super) fn identifier(value: &str) -> Option<Vec<u8>> {
     let value = value.trim().as_bytes();
     if value.is_empty() || !value.len().is_multiple_of(2) {
         return None;

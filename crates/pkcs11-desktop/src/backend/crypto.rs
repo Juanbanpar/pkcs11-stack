@@ -16,6 +16,9 @@ use std::{
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CryptoMode {
+    Derive,
+    Wrap,
+    Unwrap,
     Encrypt,
     Decrypt,
     Sign,
@@ -125,6 +128,9 @@ impl Registry {
         software_hashing: bool,
     ) -> Result<BackendResult, BackendError> {
         let (options, context) = match scope.mode {
+            CryptoMode::Derive | CryptoMode::Wrap | CryptoMode::Unwrap => {
+                return self.key_options(scope);
+            }
             CryptoMode::Encrypt | CryptoMode::Decrypt => return self.cipher_options(scope),
             CryptoMode::Sign => {
                 let (index, uri, key) = self.signing_location(scope)?;

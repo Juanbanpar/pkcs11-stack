@@ -10,6 +10,8 @@ use std::{
 mod authentication;
 mod browse;
 mod cipher;
+mod key_operations;
+pub use key_operations::KeyJob;
 mod crypto;
 pub use cipher::CipherJob;
 mod management;
@@ -110,6 +112,12 @@ impl ModuleEntry {
 
 // Command payloads are excluded from diagnostics.
 pub enum BackendCommand {
+    KeyOperation {
+        id: RequestId,
+        scope: CryptoScope,
+        profile: pkcs11_client::KeyOperationProfile,
+        job: KeyJob,
+    },
     Cipher {
         id: RequestId,
         scope: CryptoScope,
@@ -195,7 +203,8 @@ pub enum BackendCommand {
 impl BackendCommand {
     pub fn id(&self) -> RequestId {
         match self {
-            Self::Load { id, .. }
+            Self::KeyOperation { id, .. }
+            | Self::Load { id, .. }
             | Self::Cipher { id, .. }
             | Self::Random { id, .. }
             | Self::CryptoOptions { id, .. }
@@ -218,6 +227,10 @@ impl BackendCommand {
 
 #[derive(Clone, Debug)]
 pub enum BackendResult {
+    KeyOptions {
+        scope: CryptoScope,
+        profile: pkcs11_client::KeyOperationProfile,
+    },
     CipherOptions {
         scope: CryptoScope,
         choices: Vec<pkcs11_client::OaepChoice>,
@@ -273,6 +286,8 @@ pub enum BackendResult {
 /// Presentation data contains a category and fixed text, never raw diagnostics.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BackendError {
+    KeyOperationUnavailable,
+    KeyOperationInput,
     CipherUnavailable,
     OaepParametersRejected,
     CipherInput,
@@ -310,6 +325,12 @@ pub enum BackendError {
 impl BackendError {
     pub fn message(self) -> &'static str {
         match self {
+            Self::KeyOperationUnavailable => {
+                "Select a permitted EC derivation key or AES wrapping key after USER login. Creating keys requires a writable token."
+            }
+            Self::KeyOperationInput => {
+                "Provide one EC SPKI DER peer key, or one 24/32/40-byte AES wrapped blob, with a new key label and hexadecimal ID."
+            }
             Self::OaepParametersRejected => {
                 "The provider rejected these OAEP digest parameters. No digest downgrade or fallback was attempted."
             }
@@ -636,6 +657,17 @@ impl Registry {
         let id = command.id();
         let mut loaded = None;
         let result = match command {
+            BackendCommand::KeyOperation {
+                scope,
+                profile,
+                job,
+                ..
+            } => {
+                return BackendEvent::Completed {
+                    id,
+                    result: Ok(self.key_operation(scope, profile, job)),
+                };
+            }
             BackendCommand::Cipher { scope, job, .. } => {
                 return BackendEvent::Completed {
                     id,

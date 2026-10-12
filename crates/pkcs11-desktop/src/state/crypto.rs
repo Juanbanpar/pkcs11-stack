@@ -49,6 +49,7 @@ pub struct CryptoForm {
 impl UiState {
     pub(super) fn clear_crypto_form(&mut self) {
         self.cipher_form = None;
+        self.key_form = None;
         self.crypto_form = None;
         if self.notification == Some(Notification::SignatureVerified) {
             self.notification = None;
@@ -91,6 +92,7 @@ impl UiState {
         let protected_path = self.token()?.protected_path;
         let id = self.begin(OperationKind::CryptoOptions)?;
         self.cipher_form = None;
+        self.key_form = None;
         self.crypto_form = Some(CryptoForm {
             id,
             scope,

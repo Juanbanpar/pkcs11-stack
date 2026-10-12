@@ -1227,3 +1227,123 @@ fn failed_cipher_choice_loading_stops_and_clears_on_form_changes() {
     state.open_crypto(crate::backend::CryptoMode::Sign);
     assert!(state.cipher_form.is_none());
 }
+
+fn key_state(
+    mode: crate::backend::CryptoMode,
+) -> (UiState, RequestId, crate::backend::CryptoScope) {
+    use crate::backend::CryptoMode;
+    let (mut state, _, _) = cipher_state(CryptoMode::Decrypt);
+    state.objects[0].class = Some(if mode == CryptoMode::Derive {
+        pkcs11_client::ObjectClass::PRIVATE_KEY
+    } else {
+        pkcs11_client::ObjectClass::SECRET_KEY
+    });
+    let mut target = object_entry(5, "target");
+    target.class = Some(pkcs11_client::ObjectClass::SECRET_KEY);
+    state.objects.push(target);
+    let BackendCommand::CryptoOptions { id, scope, .. } = state.open_key_operation(mode).unwrap()
+    else {
+        panic!("options");
+    };
+    let profile = if mode == CryptoMode::Derive {
+        pkcs11_client::KeyOperationProfile::EcdhRaw(pkcs11_client::NamedCurve::P256)
+    } else {
+        pkcs11_client::KeyOperationProfile::AesKeyWrap(32)
+    };
+    state.event(complete(id, BackendResult::KeyOptions { scope, profile }));
+    (state, id, scope)
+}
+#[test]
+fn key_operations_validate_forms_and_cannot_cancel_or_supersede_mutations() {
+    use crate::backend::CryptoMode;
+    for mode in [CryptoMode::Derive, CryptoMode::Unwrap, CryptoMode::Wrap] {
+        let (mut state, id, scope) = key_state(mode);
+        assert!(state.submit_key_operation(id).is_none());
+        assert_eq!(
+            state.notification,
+            Some(Notification::Error(BackendError::KeyOperationInput))
+        );
+        if mode == CryptoMode::Wrap {
+            let target = state.key_form.as_ref().unwrap().targets[0].clone();
+            state.key_target(id, target);
+            state.key_edit(id, KeyField::Output, "new-output".into());
+        } else {
+            state.key_edit(id, KeyField::Input, "peer-or-wrapped".into());
+            state.key_edit(id, KeyField::Label, "new-key".into());
+            state.key_edit(id, KeyField::Id, "ABCD".into());
+        }
+        assert!(state.submit_key_operation(RequestId(id.0 + 99)).is_none());
+        let command = state.submit_key_operation(id).unwrap();
+        assert!(!state.can_cancel());
+        assert!(!state.can_submit());
+        assert!(state.key_form.is_none());
+        state.select_token(ResourceId(1), ResourceId(3));
+        state.event(complete(
+            command.id(),
+            BackendResult::Managed {
+                module: scope.module,
+                token: scope.token,
+                modules: state.loaded_modules.clone(),
+                objects: Some(vec![object_entry(99, "late-created")]),
+                error: None,
+            },
+        ));
+        assert_eq!(state.selected_token, Some(ResourceId(3)));
+        assert!(state.objects.is_empty());
+    }
+}
+#[test]
+fn key_profiles_picker_and_errors_are_scoped_to_the_current_form() {
+    use crate::backend::CryptoMode;
+    let (mut state, id, scope) = key_state(CryptoMode::Derive);
+    let (picker, _) = state.key_picker(id, KeyField::Input).unwrap();
+    state.key_edit(id, KeyField::Input, "typed".into());
+    state.key_picked(picker, Some("stale".into()));
+    assert_eq!(state.key_form.as_ref().unwrap().input, "typed");
+    state.select_token(ResourceId(1), ResourceId(3));
+    state.event(complete(
+        id,
+        BackendResult::KeyOptions {
+            scope,
+            profile: pkcs11_client::KeyOperationProfile::EcdhRaw(pkcs11_client::NamedCurve::P256),
+        },
+    ));
+    state.key_picked(picker, Some("late".into()));
+    assert!(state.key_form.is_none());
+    let (mut state, id, _) = key_state(CryptoMode::Unwrap);
+    state.dismiss_key_operation(id);
+    let command = state.open_key_operation(CryptoMode::Unwrap).unwrap();
+    state.event(BackendEvent::Completed {
+        id: command.id(),
+        result: Err(BackendError::KeyOperationUnavailable),
+    });
+    assert!(state.key_form.as_ref().unwrap().loaded);
+    assert!(state.key_form.as_ref().unwrap().profile.is_none());
+    state.loaded_modules[0].tokens[0].login = LoginState::Public;
+    assert!(state.submit_key_operation(command.id()).is_none());
+}
+#[cfg(unix)]
+#[test]
+fn key_file_pickers_preserve_native_paths_and_shutdown_clears_forms() {
+    use crate::backend::{CryptoMode, KeyJob};
+    use std::os::unix::ffi::OsStringExt;
+    let (mut state, id, _) = key_state(CryptoMode::Derive);
+    let path = PathBuf::from(std::ffi::OsString::from_vec(b"peer-\xff.der".to_vec()));
+    let (picker, _) = state.key_picker(id, KeyField::Input).unwrap();
+    state.key_picked(picker, Some(path.clone()));
+    state.key_edit(id, KeyField::Id, "01".into());
+    state.key_edit(id, KeyField::Label, "secret".into());
+    let BackendCommand::KeyOperation {
+        job: KeyJob::Derive { peer, .. },
+        ..
+    } = state.submit_key_operation(id).unwrap()
+    else {
+        panic!("derive");
+    };
+    assert_eq!(peer, path);
+    let (mut state, id, _) = key_state(CryptoMode::Wrap);
+    let (picker, _) = state.key_picker(id, KeyField::Output).unwrap();
+    state.begin_shutdown();
+    state.key_picked(picker, Some(path));
+    assert!(state.key_form.is_none());
+}

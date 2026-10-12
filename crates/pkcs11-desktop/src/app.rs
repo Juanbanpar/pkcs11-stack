@@ -5,8 +5,9 @@ use crate::{
         ResourceId, Worker,
     },
     state::{
-        CipherChoice, CipherField, CryptoField, Dialog, FilePurpose, KeyChoice, ManagementField,
-        Notification, RandomField, Screen, SignatureChoice, TokenPage, UiState,
+        CipherChoice, CipherField, CryptoField, Dialog, FilePurpose, KeyChoice, KeyField,
+        ManagementField, Notification, RandomField, Screen, SignatureChoice, TokenPage, UiState,
+        WrapTarget,
     },
     views,
 };
@@ -15,6 +16,26 @@ use std::path::PathBuf;
 
 #[derive(Clone)]
 pub enum Message {
+    OpenKeyOperation(CryptoMode),
+    KeyEdit {
+        id: RequestId,
+        field: KeyField,
+        value: String,
+    },
+    KeyTarget {
+        id: RequestId,
+        target: WrapTarget,
+    },
+    KeyBrowse {
+        id: RequestId,
+        field: KeyField,
+    },
+    KeyPicked {
+        id: RequestId,
+        path: Option<PathBuf>,
+    },
+    SubmitKeyOperation(RequestId),
+    DismissKeyOperation(RequestId),
     OpenCipher(CryptoMode),
     CipherEdit {
         id: RequestId,
@@ -144,6 +165,13 @@ pub enum Message {
 impl std::fmt::Debug for Message {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
+            Self::OpenKeyOperation(_) => "OpenKeyOperation",
+            Self::KeyEdit { .. } => "KeyEdit",
+            Self::KeyTarget { .. } => "KeyTarget",
+            Self::KeyBrowse { .. } => "KeyBrowse",
+            Self::KeyPicked { .. } => "KeyPicked",
+            Self::SubmitKeyOperation(_) => "SubmitKeyOperation",
+            Self::DismissKeyOperation(_) => "DismissKeyOperation",
             Self::OpenCipher(_) => "OpenCipher",
             Self::CipherEdit { .. } => "CipherEdit",
             Self::CipherChoice { .. } => "CipherChoice",
@@ -246,6 +274,40 @@ impl App {
             return Task::none();
         }
         match message {
+            Message::OpenKeyOperation(mode) => {
+                let command = self.state.open_key_operation(mode);
+                self.submit(command);
+            }
+            Message::KeyEdit { id, field, value } => self.state.key_edit(id, field, value),
+            Message::KeyTarget { id, target } => self.state.key_target(id, target),
+            Message::KeyPicked { id, path } => self.state.key_picked(id, path),
+            Message::SubmitKeyOperation(id) => {
+                let command = self.state.submit_key_operation(id);
+                self.submit(command);
+            }
+            Message::DismissKeyOperation(id) => self.state.dismiss_key_operation(id),
+            Message::KeyBrowse { id, field } => {
+                if let Some((request, save)) = self.state.key_picker(id, field) {
+                    return Task::perform(
+                        async move {
+                            let dialog = rfd::AsyncFileDialog::new();
+                            let file = if save {
+                                dialog
+                                    .set_title("Save wrapped AES key to a new file")
+                                    .save_file()
+                                    .await
+                            } else {
+                                dialog
+                                    .set_title("Select peer public key or wrapped AES key")
+                                    .pick_file()
+                                    .await
+                            };
+                            file.map(|file| file.path().to_path_buf())
+                        },
+                        move |path| Message::KeyPicked { id: request, path },
+                    );
+                }
+            }
             Message::OpenCipher(mode) => {
                 let command = self.state.open_cipher(mode);
                 self.submit(command);
@@ -574,6 +636,27 @@ mod tests {
         assert!(!rendered.contains("desktop-redaction-canary"));
         assert_eq!(safe, BackendError::Client(pkcs11_client::ErrorKind::Client));
         assert_eq!(format!("{message:?}"), "Backend");
+        assert_eq!(
+            format!(
+                "{:?}",
+                Message::KeyEdit {
+                    id: RequestId(8),
+                    field: KeyField::Input,
+                    value: secret.into()
+                }
+            ),
+            "KeyEdit"
+        );
+        assert_eq!(
+            format!(
+                "{:?}",
+                Message::KeyPicked {
+                    id: RequestId(8),
+                    path: Some(secret.into())
+                }
+            ),
+            "KeyPicked"
+        );
         assert_eq!(
             format!(
                 "{:?}",
