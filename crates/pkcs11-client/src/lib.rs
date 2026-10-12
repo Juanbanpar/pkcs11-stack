@@ -4,7 +4,12 @@
 
 mod certificate;
 mod encryption;
+mod key_operations;
 pub use encryption::{DecryptRequest, EncryptRequest, OaepChoice, Plaintext};
+pub use key_operations::{
+    DeriveRequest, EcdhPeer, KeyOperation, KeyOperationProfile, SecretKeyIdentity, UnwrapRequest,
+    WrapRequest,
+};
 pub use pkcs11_runtime::RsaCipherOperation;
 mod client;
 mod error;
