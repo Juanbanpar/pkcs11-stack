@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-use crate::{CertificateDocument, Client, Error, Pkcs11Uri, SigningPolicy};
+use crate::{
+    CertificateDocument, Client, Error, Pin, Pkcs11Uri, PrivateKeyRef, SignRequest, SigningOptions,
+    SigningPolicy,
+};
 use pkcs11_runtime::{
     Attribute, AttributeInfo, AttributeType, AttributeValues, Authentication, CertificateType,
     KeyKind, LibraryInfo, MechanismInfo, MechanismType, Module, Object, ObjectClass, ObjectRef,
@@ -251,6 +254,31 @@ pub struct ManagementSession<'p> {
     pub(crate) session: Session<'p>,
 }
 impl ManagementSession<'_> {
+    /// Discover current signing choices under an explicit policy on this session.
+    /// Authentication is unchanged; the caller owns this session's login lifetime.
+    pub fn signing_options(
+        &mut self,
+        key: &PrivateKeyRef,
+        policy: &SigningPolicy,
+    ) -> Result<SigningOptions, Error> {
+        Ok(crate::signature_options::options(
+            &self.session.key_capabilities(key)?,
+            policy,
+        ))
+    }
+    /// Sign once on this session, rediscovering the key and its capabilities.
+    /// A context PIN is borrowed only for this call. Provider failures preserve
+    /// runtime invalidation and are never retried. Close before releasing output
+    /// when the caller needs to detect session cleanup failures.
+    pub fn sign(
+        &mut self,
+        key: &PrivateKeyRef,
+        request: &SignRequest<'_>,
+        policy: &SigningPolicy,
+        context_pin: Option<Pin<'_>>,
+    ) -> Result<Vec<u8>, Error> {
+        Ok(self.session.sign(key, request, policy, context_pin)?)
+    }
     /// Export only public certificate/data values or public keys as SPKI DER.
     /// Private/secret key classes and CKA_PRIVATE objects are rejected before value reads.
     pub fn export_public(&mut self, reference: &ObjectRef) -> Result<Vec<u8>, Error> {

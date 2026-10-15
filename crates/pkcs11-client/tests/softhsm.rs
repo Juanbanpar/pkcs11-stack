@@ -586,3 +586,39 @@ fn management_workflows() {
     provider.finalize().unwrap();
     runtime_mutation_guards(&path);
 }
+
+#[test]
+#[ignore = "requires the isolated SoftHSM runner"]
+fn scoped_signing_choices_signature_and_explicit_close() {
+    assert_eq!(std::env::var("PKCS11_TEST_ISOLATED").as_deref(), Ok("1"));
+    let provider = Provider::load(std::env::var_os("PKCS11_TEST_MODULE").unwrap()).unwrap();
+    let pin = SecretString::from("12345678");
+    let token = "pkcs11:token=client-test".parse().unwrap();
+    let key = PrivateKeyRef::new(uri("p256", "private")).unwrap();
+    let certificate = object_reference(uri("p256", "cert")).unwrap();
+    let policy = SigningPolicy {
+        hashing: HashingPolicy::SoftwareOnly,
+        ..SigningPolicy::default()
+    };
+    let mut session = provider
+        .management(&token, SessionMode::ReadOnly, auth(&pin))
+        .unwrap();
+    let certificate = Certificate::from_der(session.export_public(&certificate).unwrap()).unwrap();
+    let choices = session.signing_options(&key, &policy).unwrap();
+    let choice = choices
+        .choices
+        .iter()
+        .find(|choice| {
+            choice.parameters.algorithm == SignatureAlgorithm::Ecdsa
+                && choice.parameters.digest == DigestAlgorithm::Sha256
+        })
+        .unwrap();
+    assert_eq!(choice.hashing, HashLocation::Software);
+    let request = choice
+        .parameters
+        .request(SignInput::Message(b"scoped signing"));
+    let signature = session.sign(&key, &request, &policy, None).unwrap();
+    session.close().unwrap();
+    certificate.verify_signature(&request, &signature).unwrap();
+    provider.finalize().unwrap();
+}
