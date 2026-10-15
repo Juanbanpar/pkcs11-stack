@@ -63,7 +63,7 @@ fn choices(
         BackendResult::CryptoOptions {
             options, context, ..
         } => (options, context),
-        other => panic!("unexpected options: {other:?}"),
+        _ => panic!("unexpected signing choices result"),
     }
 }
 fn job(
@@ -90,7 +90,7 @@ fn managed(result: BackendResult, expected: Option<BackendError>) -> Vec<ObjectE
             assert_eq!(error, expected);
             objects
         }
-        other => panic!("unexpected signing result: {other:?}"),
+        _ => panic!("unexpected signing result"),
     }
 }
 // Independent conversion for OpenSSL, which expects ASN.1 ECDSA signatures.
