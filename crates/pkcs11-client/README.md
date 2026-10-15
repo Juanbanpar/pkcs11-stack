@@ -216,6 +216,14 @@ Close owned sessions before `initialize_token` or `finalize`; live owned consume
 return `Error::ProviderInUse`. A consumed or dropped provider does not finalize the
 module while an owned session remains alive.
 
+For confirmation flows, capture `TokenSnapshot::initialization_target` and pass
+it to `Provider::initialize_token_checked` after closing all consumers. It rejects
+changed slot/token metadata, initialized state or PIN bounds before initialization.
+The snapshot contains no live resources or credentials. Identical devices and
+changes between the check and native call cannot be distinguished; callers must
+arrange exclusive physical access. `accepts_new_pin` checks a nonempty host PIN
+against available advertised byte bounds; provider constraints remain authoritative.
+
 Management uses one explicitly authenticated session, not an additional pool.
 Mutations require RW mode and appropriate provider authorization. Failed operations
 retain runtime invalidation semantics and are never retried or rolled back. Drop

@@ -73,8 +73,8 @@ The GUI also generates signing key pairs, imports DER certificates, confirms
 object deletion, exports public objects, signs files and verifies signatures
 against selected certificates. It can also save bytes from a token's random
 generator, encrypt/decrypt small RSA-OAEP payloads, derive ECDH secrets, and
-wrap/unwrap AES keys with permitted keys. Token/PIN administration is not yet
-available in the GUI.
+wrap/unwrap AES keys with permitted keys. Administration supports confirmed token
+initialization, USER PIN initialization/reset, and USER/SO PIN changes with host PINs.
 
 ## Development
 

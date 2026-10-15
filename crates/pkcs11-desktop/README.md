@@ -172,6 +172,32 @@ success or failure. Once submitted, they cannot be cancelled or superseded.
 Navigation remains available. There is no retry or rollback: a failed provider
 call or session close may still leave a created object. Refresh before retrying.
 
+## Administration
+
+Select **Administration** on a writable token. **Initialize / erase token** sets
+its label and SO PIN on first initialization. For an initialized token it requires
+the current SO PIN, erases its objects and resets USER PIN initialization. The
+review shows the module path, slot, token identity and role; type `ERASE` to apply.
+All of this app's sessions for that module close first, including other tokens.
+The client rechecks the confirmed slot, identity, initialized state and PIN bounds
+before the call. Identical replacement devices or a swap after the check cannot
+be detected; ensure exclusive physical access. Refresh and select the resulting
+token before initializing its USER PIN.
+
+After SO login, **Initialize / reset USER PIN** sets a new USER PIN. After USER
+or SO login, **Change current role's PIN** changes that role's credential using
+its current PIN. New PINs require a matching confirmation and available provider
+byte bounds. Review the target and type `CHANGE` to submit. Successful and failed
+PIN attempts close this app's authenticated session on that token; log in again
+with the applicable PIN. Failed calls may still apply changes; no retry or rollback
+occurs. If session cleanup fails, unload the module before using it again.
+
+Administration accepts host PINs only. Protected-path tokens, read-only tokens,
+and locked roles are disabled, except that an uninitialized token can establish
+its first SO PIN. PIN forms clear on submission, cancellation, navigation and
+shutdown. Confirmation is invalidated by role or target changes. Submitted
+administration cannot be cancelled or superseded; navigation remains available.
+
 ## Execution
 
 One worker owns all client providers and performs module loading, discovery,
