@@ -230,6 +230,48 @@ from an independently selected object. There is no implicit association, certifi
 trust validation, certificate SPKI extraction or missing-SPKI construction. Consumers
 must validate associations; matching IDs/labels alone do not establish them.
 
+## RSA-OAEP encryption
+
+`Session::rsa_oaep_capabilities` checks a unique public/private key's permissions,
+allowed mechanisms and provider bounds. `encrypt_rsa_oaep` and `decrypt_rsa_oaep`
+resolve again and perform one RSA-OAEP operation with matching SHA-2/MGF1 digest
+and an empty label. RSA sizes are limited to 2048–16384 bits; plaintext must fit
+the OAEP bound and ciphertext must be modulus-width. An error or panic during a
+provider operation prevents session reuse.
+
+Per-operation-authentication decryption keys are rejected before init. Successful
+plaintext is redacted and zeroizing, but cryptoki's transient buffers from failed
+provider calls cannot currently be guaranteed zeroized.
+
+## Derivation and key transfer
+
+`Session::key_operation_profile` validates current key class, usage permissions,
+allowed mechanisms and provider bounds. `derive_ecdh_secret` uses raw ECDH with
+an explicit null KDF on P-256/P-384/P-521. Callers must validate the peer point
+on the same curve before supplying `EcdhDerivation`; `pkcs11-client` provides
+SPKI parsing and validation. The result is a private, sensitive, nonextractable
+token generic secret with derivation permission only. A later KDF and peer
+authentication remain the application's responsibility. Context authentication
+for ECDH is unsupported.
+
+`wrap_aes_key` and `unwrap_aes_key` use RFC 3394 with the default IV and
+AES-128/192/256 keys. Wrapping requires CKA_WRAP, an extractable AES target and
+compatible CKA_WRAP_WITH_TRUSTED policy. No key values are read. Unwrapping
+creates a private, sensitive, nonextractable AES token key with only encryption/
+decryption permission. Derived/unwrapped identities have bounded nonempty labels
+and IDs; an existing secret-key ID is rejected, without a cross-process lock.
+
+Derivation and unwrapping require RW mode. Failed native operations invalidate
+the session; no retry or rollback is attempted. Provider templates and
+permissions may narrow these profiles. Blobs carry ciphertext only, not metadata.
+
+## Random bytes
+
+`Session::generate_random` fills a nonempty caller-owned buffer using the token's
+advertised RNG. It validates token identity and current capability before calling
+the provider once. No software fallback, authentication or retry is added.
+Discard the buffer after an error; a failed provider call invalidates the session.
+
 ## Administration
 
 `Module::initialize_token(&mut self, slot, so_pin, label)` initializes or erases

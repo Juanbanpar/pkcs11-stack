@@ -148,6 +148,17 @@ fn command_workflows() {
         assert_eq!(attrs["extractable"]["value"], false);
         assert_eq!(attrs["sign"]["value"], true);
         f.ok(&["capabilities", "--key", &reference, "--pin-file", &f.pin]);
+        let public = format!("pkcs11:token=cli-test;object={kind};type=public");
+        let exported = f.path(&format!("{kind}-public.der"));
+        let out = f.run(&["export", "--object", &public, "--output", &exported]);
+        assert!(out.status.success());
+        assert!(out.stdout.is_empty());
+        external(
+            "openssl",
+            &[
+                "pkey", "-pubin", "-inform", "DER", "-in", &exported, "-noout",
+            ],
+        );
     }
     let objects = f.ok(&["objects", "--token", token, "--pin-file", &f.pin]);
     assert_eq!(objects.as_array().unwrap().len(), 8);

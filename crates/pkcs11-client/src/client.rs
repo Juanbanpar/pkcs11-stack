@@ -110,6 +110,17 @@ impl<'m> Client<'m> {
             .session()
             .key_capabilities(key)?)
     }
+    /// Common message-signing choices under current key capabilities and this policy.
+    pub fn signing_options(
+        &self,
+        key: &PrivateKeyRef,
+        authentication: Authentication<'_>,
+    ) -> Result<SigningOptions, Error> {
+        Ok(crate::signature_options::options(
+            &self.capabilities(key, authentication)?,
+            &self.policy,
+        ))
+    }
     /// Inspect a plan under this client's policy without performing a signature.
     pub fn plan(
         &self,

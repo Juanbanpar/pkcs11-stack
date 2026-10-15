@@ -5,14 +5,29 @@ use std::fmt;
 #[derive(thiserror::Error)]
 #[non_exhaustive]
 pub enum Error {
+    /// Provider returned an output inconsistent with the selected key operation.
+    #[error("invalid key operation output")]
+    InvalidKeyOutput,
+    /// Key class, permissions, trust policy or provider disallows this profile.
+    #[error("key operation unsupported for this key or provider")]
+    UnsupportedKeyOperation,
+    /// Key class, permissions, context authentication or provider disallows OAEP.
+    #[error("RSA OAEP operation unsupported for this key or provider")]
+    UnsupportedCipher,
+    /// Provider returned an output length inconsistent with the RSA modulus/profile.
+    #[error("invalid RSA OAEP output length")]
+    InvalidCiphertext,
+    /// The token does not advertise its own random generator.
+    #[error("token random generator unavailable")]
+    RandomUnavailable,
     /// All pool slots are currently leased or being opened.
     #[error("session pool exhausted")]
     PoolExhausted,
     /// Pool synchronization was poisoned by a panic.
     #[error("session pool poisoned")]
     PoolPoisoned,
-    /// Invalid bounds, input, or signing parameters.
-    #[error("invalid signing or pool parameters: {0}")]
+    /// Invalid bounds, input, or operation parameters.
+    #[error("invalid operation parameters: {0}")]
     InvalidParameters(&'static str),
     /// Key metadata needed to make a safe decision is unavailable.
     #[error("required key metadata unavailable: {0}")]
@@ -81,6 +96,24 @@ pub enum Error {
     InvalidTokenReference,
 }
 
+impl Error {
+    /// OAEP initialization specifically rejected the parameter shape.
+    /// Other key, device and execution failures do not qualify for this category.
+    pub fn oaep_parameters_rejected(&self) -> bool {
+        matches!(
+            self,
+            Self::Backend {
+                operation: "RSA OAEP encrypt" | "RSA OAEP decrypt",
+                source: cryptoki::error::Error::Pkcs11(
+                    cryptoki::error::RvError::ArgumentsBad
+                        | cryptoki::error::RvError::MechanismParamInvalid,
+                    cryptoki::context::Function::EncryptInit
+                        | cryptoki::context::Function::DecryptInit
+                )
+            }
+        )
+    }
+}
 impl fmt::Debug for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // Upstream Debug may include buffers (e.g. NulError); use its safe Display.
@@ -132,5 +165,24 @@ mod tests {
         let nul = std::ffi::CString::new(b"canary\0secret".to_vec()).unwrap_err();
         let error = backend("conversion", cryptoki::error::Error::NulError(nul));
         assert!(!format!("{error:?}").contains(&format!("{:?}", b"canary\0secret".to_vec())));
+    }
+    #[test]
+    fn oaep_parameter_rejection_classification_is_specific_to_init() {
+        use cryptoki::{context::Function, error::RvError};
+        let init = backend(
+            "RSA OAEP encrypt",
+            cryptoki::error::Error::Pkcs11(RvError::ArgumentsBad, Function::EncryptInit),
+        );
+        assert!(init.oaep_parameters_rejected());
+        let execution = backend(
+            "RSA OAEP encrypt",
+            cryptoki::error::Error::Pkcs11(RvError::ArgumentsBad, Function::Encrypt),
+        );
+        assert!(!execution.oaep_parameters_rejected());
+        let key = backend(
+            "RSA OAEP encrypt",
+            cryptoki::error::Error::Pkcs11(RvError::KeyHandleInvalid, Function::EncryptInit),
+        );
+        assert!(!key.oaep_parameters_rejected());
     }
 }

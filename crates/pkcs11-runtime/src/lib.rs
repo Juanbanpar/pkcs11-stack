@@ -3,6 +3,10 @@
 #![doc = include_str!("../README.md")]
 
 mod administration;
+mod encryption;
+mod key_operations;
+pub use encryption::{RsaCipherOperation, RsaOaepCapabilities};
+pub use key_operations::{EcdhDerivation, KeyOperation, KeyOperationProfile};
 mod error;
 mod module;
 mod pool;

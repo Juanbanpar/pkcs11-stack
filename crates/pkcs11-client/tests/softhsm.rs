@@ -408,6 +408,13 @@ fn management_workflows() {
         ErrorKind::Policy
     );
     assert!(!ro.objects(&[AttributeType::Class]).unwrap().is_empty());
+    for length in [1, 32, 1024, RandomRequest::MAXIMUM] {
+        let bytes = ro
+            .generate_random(RandomRequest::new(length).unwrap())
+            .unwrap();
+        assert_eq!(secrecy::ExposeSecret::expose_secret(&bytes).len(), length);
+        assert!(format!("{bytes:?}").contains("REDACTED"));
+    }
     ro.close().unwrap();
     let mut session = provider
         .management(&location, SessionMode::ReadWrite, auth(&pin))
@@ -540,6 +547,78 @@ fn management_workflows() {
         .count();
     assert_eq!(duplicates, 2);
     session.close().unwrap();
+    let mut owned = provider
+        .management_owned(&location, SessionMode::ReadWrite, Authentication::None)
+        .unwrap();
+    assert_eq!(owned.state().unwrap(), SessionState::RwPublic);
+    owned.authenticate(auth(&pin)).unwrap();
+    assert_eq!(owned.state().unwrap(), SessionState::RwUser);
+    let read = provider
+        .management(&location, SessionMode::ReadOnly, Authentication::None)
+        .unwrap();
+    assert_eq!(read.state().unwrap(), SessionState::RoUser);
+    read.close().unwrap();
+    assert_eq!(owned.state().unwrap(), SessionState::RwUser);
+    owned.logout().unwrap();
+    assert_eq!(owned.state().unwrap(), SessionState::RwPublic);
+    let so = SecretString::from("87654321");
+    owned
+        .authenticate(Authentication::SecurityOfficer(Pin::Value(&so)))
+        .unwrap();
+    assert_eq!(owned.state().unwrap(), SessionState::RwSecurityOfficer);
+    owned.logout().unwrap();
+    // An owned session keeps initialization alive after its Provider is dropped.
+    drop(provider);
+    assert_eq!(owned.state().unwrap(), SessionState::RwPublic);
+    owned.close().unwrap();
+    let mut provider = Provider::load(&path).unwrap();
+    let owned = provider
+        .management_owned(&location, SessionMode::ReadOnly, Authentication::None)
+        .unwrap();
+    assert!(matches!(
+        provider.initialize_token(0, &so, "must-not-erase"),
+        Err(Error::ProviderInUse)
+    ));
+    assert!(matches!(provider.finalize(), Err(Error::ProviderInUse)));
+    assert_eq!(owned.state().unwrap(), SessionState::RoPublic);
+    owned.close().unwrap();
+    let provider = Provider::load(&path).unwrap();
     provider.finalize().unwrap();
     runtime_mutation_guards(&path);
+}
+
+#[test]
+#[ignore = "requires the isolated SoftHSM runner"]
+fn scoped_signing_choices_signature_and_explicit_close() {
+    assert_eq!(std::env::var("PKCS11_TEST_ISOLATED").as_deref(), Ok("1"));
+    let provider = Provider::load(std::env::var_os("PKCS11_TEST_MODULE").unwrap()).unwrap();
+    let pin = SecretString::from("12345678");
+    let token = "pkcs11:token=client-test".parse().unwrap();
+    let key = PrivateKeyRef::new(uri("p256", "private")).unwrap();
+    let certificate = object_reference(uri("p256", "cert")).unwrap();
+    let policy = SigningPolicy {
+        hashing: HashingPolicy::SoftwareOnly,
+        ..SigningPolicy::default()
+    };
+    let mut session = provider
+        .management(&token, SessionMode::ReadOnly, auth(&pin))
+        .unwrap();
+    let certificate = Certificate::from_der(session.export_public(&certificate).unwrap()).unwrap();
+    let choices = session.signing_options(&key, &policy).unwrap();
+    let choice = choices
+        .choices
+        .iter()
+        .find(|choice| {
+            choice.parameters.algorithm == SignatureAlgorithm::Ecdsa
+                && choice.parameters.digest == DigestAlgorithm::Sha256
+        })
+        .unwrap();
+    assert_eq!(choice.hashing, HashLocation::Software);
+    let request = choice
+        .parameters
+        .request(SignInput::Message(b"scoped signing"));
+    let signature = session.sign(&key, &request, &policy, None).unwrap();
+    session.close().unwrap();
+    certificate.verify_signature(&request, &signature).unwrap();
+    provider.finalize().unwrap();
 }

@@ -2,10 +2,25 @@
 #![forbid(unsafe_code)]
 #![doc = include_str!("../README.md")]
 
+mod administration;
+pub use administration::TokenInitializationTarget;
 mod certificate;
+mod encryption;
+mod key_operations;
+pub use encryption::{DecryptRequest, EncryptRequest, OaepChoice, Plaintext};
+pub use key_operations::{
+    DeriveRequest, EcdhPeer, KeyOperation, KeyOperationProfile, SecretKeyIdentity, UnwrapRequest,
+    WrapRequest,
+};
+pub use pkcs11_runtime::RsaCipherOperation;
 mod client;
 mod error;
+mod generation;
 mod management;
+mod object_locator;
+mod public_export;
+mod random;
+mod signature_options;
 
 pub use certificate::{Certificate, CertificateDocument};
 pub use client::{Client, Identity};
@@ -14,6 +29,7 @@ pub use management::{
     AttributeRead, ManagementSession, MechanismSnapshot, PoolDiagnostic, Provider, SlotSnapshot,
     TokenSnapshot, object_reference, token_uri, validate_token_uri,
 };
+pub use object_locator::object_locator;
 pub use pkcs11_locator::Pkcs11Uri;
 pub use pkcs11_runtime::{
     Attribute, AttributeInfo, AttributeType, AttributeValues, Authentication, CertificateRef,
@@ -23,3 +39,5 @@ pub use pkcs11_runtime::{
     SignInput, SignPlan, SignRequest, SignatureAlgorithm, SigningMechanism, SigningPolicy,
     SlotInfo, TokenInfo,
 };
+pub use random::{RandomBytes, RandomRequest};
+pub use signature_options::{SignatureParameters, SigningChoice, SigningOptions};

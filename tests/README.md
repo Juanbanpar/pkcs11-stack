@@ -33,6 +33,9 @@ For another SoftHSM installation:
 PKCS11_TEST_MODULE=/path/to/libsofthsm2.so SOFTHSM2_UTIL=/path/to/softhsm2-util ./tools/test-softhsm.sh
 ```
 
+Set `PKCS11_TEST_DESKTOP=1` to include desktop backend integration without opening
+a window.
+
 Set `PKCS11_TEST_REQUIRE_EC_MULTIPART=1` to require combined multipart ECDSA support.
 CI tests both packaged SoftHSM and a pinned upstream build with that support.
 

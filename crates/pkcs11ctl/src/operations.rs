@@ -357,7 +357,11 @@ fn management_command(
         }
         "export" => {
             let reference = object_reference(uri(m, "object")?)?;
-            let bytes = session.export_value(&reference)?;
+            let bytes = if reference.uri().path_attribute("type") == Some(b"public") {
+                session.export_public(&reference)?
+            } else {
+                session.export_value(&reference)?
+            };
             session.close()?;
             return Ok(Output::Binary(bytes));
         }

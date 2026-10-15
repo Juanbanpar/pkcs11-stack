@@ -1,18 +1,21 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-use crate::{CertificateDocument, Client, Error, Pkcs11Uri, SigningPolicy};
+use crate::{
+    CertificateDocument, Client, Error, Pin, Pkcs11Uri, PrivateKeyRef, SignRequest, SigningOptions,
+    SigningPolicy,
+};
 use pkcs11_runtime::{
     Attribute, AttributeInfo, AttributeType, AttributeValues, Authentication, CertificateType,
     KeyKind, LibraryInfo, MechanismInfo, MechanismType, Module, Object, ObjectClass, ObjectRef,
     Session, SessionMode, SessionPool, SessionState, SlotInfo, TokenInfo,
 };
 use secrecy::{ExposeSecret, SecretString};
-use std::{num::NonZeroUsize, path::Path};
+use std::{num::NonZeroUsize, path::Path, sync::Arc};
 
 /// Explicit owner of one trusted module, shared by signing and management workflows.
-/// Borrowed consumers must be dropped before finalization or token initialization.
+/// Close borrowed and owned consumers before finalization or token initialization.
 #[derive(Debug)]
 pub struct Provider {
-    module: Module,
+    pub(crate) module: Arc<Module>,
 }
 /// Discovery metadata; a slot ID is diagnostic, not persistent token identity.
 #[derive(Debug)]
@@ -58,10 +61,26 @@ pub struct PoolDiagnostic {
     pub session_state: SessionState,
 }
 impl Provider {
+    /// Common RSA sizes and named curves within advertised key-generation bounds.
+    /// These are advisory choices, not a guarantee that a vendor accepts a template.
+    pub fn generation_options(&self, uri: &Pkcs11Uri) -> Result<Vec<KeyKind>, Error> {
+        Ok(self
+            .mechanisms(uri)?
+            .into_iter()
+            .flat_map(|entry| {
+                crate::generation::choices(
+                    entry.mechanism,
+                    entry.info.generate_key_pair(),
+                    entry.info.min_key_size(),
+                    entry.info.max_key_size(),
+                )
+            })
+            .collect())
+    }
     /// Load and initialize an explicitly trusted library path. A URI never loads code.
     pub fn load(path: impl AsRef<Path>) -> Result<Self, Error> {
         Ok(Self {
-            module: Module::load(path)?,
+            module: Arc::new(Module::load(path)?),
         })
     }
     /// Loaded library metadata.
@@ -129,6 +148,19 @@ impl Provider {
         session.authenticate(authentication)?;
         Ok(ManagementSession { session })
     }
+    /// Open a management session that retains the existing module owner.
+    /// Useful when authentication must survive between application requests.
+    /// No credential is retained. Close all owned sessions before finalization.
+    pub fn management_owned(
+        &self,
+        uri: &Pkcs11Uri,
+        mode: SessionMode,
+        authentication: Authentication<'_>,
+    ) -> Result<ManagementSession<'static>, Error> {
+        let mut session = self.module.open_owned_session(uri, mode)?;
+        session.authenticate(authentication)?;
+        Ok(ManagementSession { session })
+    }
     /// Exercise bounded simultaneous leases, exhaustion and reuse on a fresh pool.
     /// No signatures or mutations occur. PINs are borrowed and never retained.
     pub fn diagnose<'a>(
@@ -166,17 +198,19 @@ impl Provider {
         so_pin: &SecretString,
         label: &str,
     ) -> Result<(), Error> {
-        let slot = self
-            .module
+        let module = Arc::get_mut(&mut self.module).ok_or(Error::ProviderInUse)?;
+        let slot = module
             .slots(false)?
             .into_iter()
             .find(|s| s.id() == slot_id)
             .ok_or(pkcs11_runtime::Error::NotFound("slot"))?;
-        Ok(self.module.initialize_token(slot, so_pin, label)?)
+        Ok(module.initialize_token(slot, so_pin, label)?)
     }
-    /// Finalize after all borrowed consumers are dropped. Drop is best effort instead.
+    /// Finalize after all consumers close. Live owned sessions return `ProviderInUse`.
+    /// The consumed provider is released; owned sessions retain initialization until drop.
     pub fn finalize(self) -> Result<(), Error> {
-        Ok(self.module.finalize()?)
+        let module = Arc::try_unwrap(self.module).map_err(|_| Error::ProviderInUse)?;
+        Ok(module.finalize()?)
     }
 }
 
@@ -217,9 +251,91 @@ fn read(object: &Object<'_, '_>, types: &[AttributeType]) -> Result<Vec<Attribut
 /// Failures preserve runtime invalidation and no-retry behavior.
 #[derive(Debug)]
 pub struct ManagementSession<'p> {
-    session: Session<'p>,
+    pub(crate) session: Session<'p>,
 }
 impl ManagementSession<'_> {
+    /// Discover current signing choices under an explicit policy on this session.
+    /// Authentication is unchanged; the caller owns this session's login lifetime.
+    pub fn signing_options(
+        &mut self,
+        key: &PrivateKeyRef,
+        policy: &SigningPolicy,
+    ) -> Result<SigningOptions, Error> {
+        Ok(crate::signature_options::options(
+            &self.session.key_capabilities(key)?,
+            policy,
+        ))
+    }
+    /// Sign once on this session, rediscovering the key and its capabilities.
+    /// A context PIN is borrowed only for this call. Provider failures preserve
+    /// runtime invalidation and are never retried. Close before releasing output
+    /// when the caller needs to detect session cleanup failures.
+    pub fn sign(
+        &mut self,
+        key: &PrivateKeyRef,
+        request: &SignRequest<'_>,
+        policy: &SigningPolicy,
+        context_pin: Option<Pin<'_>>,
+    ) -> Result<Vec<u8>, Error> {
+        Ok(self.session.sign(key, request, policy, context_pin)?)
+    }
+    /// Export only public certificate/data values or public keys as SPKI DER.
+    /// Private/secret key classes and CKA_PRIVATE objects are rejected before value reads.
+    pub fn export_public(&mut self, reference: &ObjectRef) -> Result<Vec<u8>, Error> {
+        let object = self.session.resolve(reference)?;
+        let identity = object.read_attributes(&[AttributeType::Class, AttributeType::Private])?;
+        let class = identity
+            .expose_values()
+            .iter()
+            .find_map(|value| match value {
+                Attribute::Class(class) => Some(*class),
+                _ => None,
+            })
+            .ok_or(Error::UnsupportedExport)?;
+        if !identity
+            .expose_values()
+            .contains(&Attribute::Private(false))
+        {
+            return Err(Error::UnsupportedExport);
+        }
+        match class {
+            ObjectClass::DATA | ObjectClass::CERTIFICATE => {
+                let values = object.read_attributes(&[AttributeType::Value])?;
+                values
+                    .expose_values()
+                    .iter()
+                    .find_map(|value| match value {
+                        Attribute::Value(bytes) => Some(bytes.clone()),
+                        _ => None,
+                    })
+                    .ok_or(Error::MissingAttributeStatus)
+            }
+            ObjectClass::PUBLIC_KEY => {
+                let key = crate::PublicKeyRef::new(
+                    reference
+                        .uri()
+                        .to_string()
+                        .parse()
+                        .map_err(pkcs11_runtime::Error::from)?,
+                )?;
+                let metadata = key.public_metadata(&mut self.session)?;
+                crate::public_export::encode_public_key(metadata)
+            }
+            _ => Err(Error::UnsupportedExport),
+        }
+    }
+    /// Query actual token-wide login state through this live session.
+    pub fn state(&self) -> Result<SessionState, Error> {
+        Ok(self.session.info()?.session_state())
+    }
+    /// Authenticate once without storing or retrying a credential.
+    pub fn authenticate(&mut self, authentication: Authentication<'_>) -> Result<(), Error> {
+        Ok(self.session.authenticate(authentication)?)
+    }
+    /// Log out this application's sessions on the token, invalidating private handles.
+    pub fn logout(&mut self) -> Result<(), Error> {
+        Ok(self.session.logout()?)
+    }
     /// Identity criteria for the selected token; no slot ID is persisted.
     pub fn token_uri(&self) -> Result<Pkcs11Uri, Error> {
         metadata_uri(self.session.token().info())
