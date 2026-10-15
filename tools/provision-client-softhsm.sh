@@ -55,3 +55,5 @@ args=(--module "$module" --token-label client-test --login --pin 12345678 --type
 pkcs11-tool "${args[@]}" --write-object "$scratch/wrap-key.bin" --key-type AES:32 --id 40 --label wrapping --usage-wrap >/dev/null 2>&1
 pkcs11-tool "${args[@]}" --write-object "$scratch/wrap-target.bin" --key-type AES:16 --id 41 --label transferable --usage-decrypt --extractable >/dev/null 2>&1
 pkcs11-tool "${args[@]}" --write-object "$scratch/wrap-target.bin" --key-type AES:16 --id 42 --label nonextractable --usage-decrypt >/dev/null 2>&1
+"${SOFTHSM2_UTIL:-softhsm2-util}" --module "$module" --init-token --free \
+    --label admin-client-test --so-pin 87654321 --pin 12345678 >/dev/null

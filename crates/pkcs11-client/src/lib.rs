@@ -2,6 +2,8 @@
 #![forbid(unsafe_code)]
 #![doc = include_str!("../README.md")]
 
+mod administration;
+pub use administration::TokenInitializationTarget;
 mod certificate;
 mod encryption;
 mod key_operations;

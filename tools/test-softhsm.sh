@@ -53,7 +53,7 @@ if [[ "${PKCS11_TEST_DESKTOP:-0}" == 1 ]]; then
     cargo test -p pkcs11-desktop --locked -- --ignored --test-threads=1
 fi
 bash tools/test-examples.sh client
-cargo test -p pkcs11-client --test softhsm --locked -- --ignored --test-threads=1
+cargo test -p pkcs11-client --test softhsm --test administration_softhsm --locked -- --ignored --test-threads=1
 cargo test -p pkcs11ctl --test softhsm --locked -- --ignored --test-threads=1
 export PKCS11_TLS_TEST_DIR="$scratch/tls"
 mkdir "$PKCS11_TLS_TEST_DIR"

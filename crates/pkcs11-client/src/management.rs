@@ -12,7 +12,7 @@ use std::{num::NonZeroUsize, path::Path, sync::Arc};
 /// Close borrowed and owned consumers before finalization or token initialization.
 #[derive(Debug)]
 pub struct Provider {
-    module: Arc<Module>,
+    pub(crate) module: Arc<Module>,
 }
 /// Discovery metadata; a slot ID is diagnostic, not persistent token identity.
 #[derive(Debug)]
