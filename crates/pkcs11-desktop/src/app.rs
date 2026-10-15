@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use crate::{
     backend::{
-        BackendCommand, BackendError, BackendEvent, CryptoMode, EventSource, LoginRole, RequestId,
-        ResourceId, Worker,
+        AdministrationKind, BackendCommand, BackendError, BackendEvent, CryptoMode, EventSource,
+        LoginRole, RequestId, ResourceId, Worker,
     },
     state::{
-        CipherChoice, CipherField, CryptoField, Dialog, FilePurpose, KeyChoice, KeyField,
-        ManagementField, Notification, RandomField, Screen, SignatureChoice, TokenPage, UiState,
-        WrapTarget,
+        AdministrationField, AdministrationPinField, CipherChoice, CipherField, CryptoField,
+        Dialog, FilePurpose, KeyChoice, KeyField, ManagementField, Notification, RandomField,
+        Screen, SignatureChoice, TokenPage, UiState, WrapTarget,
     },
     views,
 };
@@ -16,6 +16,20 @@ use std::path::PathBuf;
 
 #[derive(Clone)]
 pub enum Message {
+    OpenAdministration(AdministrationKind),
+    AdministrationPin {
+        id: RequestId,
+        field: AdministrationPinField,
+        pin: secrecy::SecretString,
+    },
+    AdministrationEdit {
+        id: RequestId,
+        field: AdministrationField,
+        value: String,
+    },
+    ReviewAdministration(RequestId),
+    SubmitAdministration(RequestId),
+    DismissAdministration(RequestId),
     OpenKeyOperation(CryptoMode),
     KeyEdit {
         id: RequestId,
@@ -165,6 +179,12 @@ pub enum Message {
 impl std::fmt::Debug for Message {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
+            Self::OpenAdministration(_) => "OpenAdministration",
+            Self::AdministrationPin { .. } => "AdministrationPin",
+            Self::AdministrationEdit { .. } => "AdministrationEdit",
+            Self::ReviewAdministration(_) => "ReviewAdministration",
+            Self::SubmitAdministration(_) => "SubmitAdministration",
+            Self::DismissAdministration(_) => "DismissAdministration",
             Self::OpenKeyOperation(_) => "OpenKeyOperation",
             Self::KeyEdit { .. } => "KeyEdit",
             Self::KeyTarget { .. } => "KeyTarget",
@@ -274,6 +294,19 @@ impl App {
             return Task::none();
         }
         match message {
+            Message::OpenAdministration(kind) => self.state.open_administration(kind),
+            Message::AdministrationPin { id, field, pin } => {
+                self.state.administration_pin(id, field, pin)
+            }
+            Message::AdministrationEdit { id, field, value } => {
+                self.state.administration_edit(id, field, value)
+            }
+            Message::ReviewAdministration(id) => self.state.review_administration(id),
+            Message::SubmitAdministration(id) => {
+                let command = self.state.submit_administration(id);
+                self.submit(command);
+            }
+            Message::DismissAdministration(id) => self.state.dismiss_administration(id),
             Message::OpenKeyOperation(mode) => {
                 let command = self.state.open_key_operation(mode);
                 self.submit(command);
@@ -555,6 +588,7 @@ impl App {
             }
             Message::Joined { .. } => {}
             Message::About => {
+                self.state.administration_form = None;
                 if let Some(id) = self.state.cipher_form.as_ref().map(|form| form.id) {
                     self.state.dismiss_cipher(id);
                 }
@@ -636,6 +670,28 @@ mod tests {
         assert!(!rendered.contains("desktop-redaction-canary"));
         assert_eq!(safe, BackendError::Client(pkcs11_client::ErrorKind::Client));
         assert_eq!(format!("{message:?}"), "Backend");
+        assert_eq!(
+            format!(
+                "{:?}",
+                Message::AdministrationPin {
+                    id: RequestId(8),
+                    field: AdministrationPinField::New,
+                    pin: secret.into()
+                }
+            ),
+            "AdministrationPin"
+        );
+        assert_eq!(
+            format!(
+                "{:?}",
+                Message::AdministrationEdit {
+                    id: RequestId(8),
+                    field: AdministrationField::Confirmation,
+                    value: secret.into()
+                }
+            ),
+            "AdministrationEdit"
+        );
         assert_eq!(
             format!(
                 "{:?}",

@@ -7,6 +7,8 @@ use std::{
     sync::{Arc, Mutex, mpsc},
     thread::{self, JoinHandle},
 };
+mod administration;
+pub use administration::{AdministrationAction, AdministrationKind};
 mod authentication;
 mod browse;
 mod cipher;
@@ -46,6 +48,7 @@ pub struct SlotEntry {
 
 #[derive(Clone, Debug)]
 pub struct TokenEntry {
+    pub initialization: pkcs11_client::TokenInitializationTarget,
     pub id: ResourceId,
     pub slot_id: u64,
     pub label: String,
@@ -112,6 +115,14 @@ impl ModuleEntry {
 
 // Command payloads are excluded from diagnostics.
 pub enum BackendCommand {
+    Administer {
+        id: RequestId,
+        module: ResourceId,
+        token: ResourceId,
+        expected: pkcs11_client::TokenInitializationTarget,
+        role: LoginState,
+        action: AdministrationAction,
+    },
     KeyOperation {
         id: RequestId,
         scope: CryptoScope,
@@ -203,7 +214,8 @@ pub enum BackendCommand {
 impl BackendCommand {
     pub fn id(&self) -> RequestId {
         match self {
-            Self::KeyOperation { id, .. }
+            Self::Administer { id, .. }
+            | Self::KeyOperation { id, .. }
             | Self::Load { id, .. }
             | Self::Cipher { id, .. }
             | Self::Random { id, .. }
@@ -286,6 +298,10 @@ pub enum BackendResult {
 /// Presentation data contains a category and fixed text, never raw diagnostics.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BackendError {
+    AdministrationUnavailable,
+    AdministrationInput,
+    AdministrationFailed,
+    AdministrationCleanup,
     KeyOperationUnavailable,
     KeyOperationInput,
     CipherUnavailable,
@@ -325,6 +341,18 @@ pub enum BackendError {
 impl BackendError {
     pub fn message(self) -> &'static str {
         match self {
+            Self::AdministrationUnavailable => {
+                "Administration is unavailable for this token, role or changed selection. Refresh the token status. Protected-path administration is unsupported."
+            }
+            Self::AdministrationInput => {
+                "Provide matching nonempty PINs within the advertised byte limits, a token label of 1–32 UTF-8 bytes, and explicit confirmation."
+            }
+            Self::AdministrationCleanup => {
+                "A session could not be closed after administration. Unload this module before using it again; the change may have applied."
+            }
+            Self::AdministrationFailed => {
+                "Administration failed. Changes may still have applied. No retry was made; check token status before authenticating again."
+            }
             Self::KeyOperationUnavailable => {
                 "Select a permitted EC derivation key or AES wrapping key after USER login. Creating keys requires a writable token."
             }
@@ -509,6 +537,7 @@ impl Drop for Worker {
 }
 
 struct LoadedModule {
+    administration_cleanup_failed: bool,
     provider: Provider,
     entry: ModuleEntry,
     catalogs: Vec<browse::ObjectCatalog>,
@@ -530,7 +559,11 @@ impl Registry {
 
     fn discover(&mut self, index: usize) -> Result<(), BackendError> {
         self.modules[index].catalogs.clear();
-        let result = self.discover_inner(index);
+        let result = if self.modules[index].administration_cleanup_failed {
+            Err(BackendError::AdministrationCleanup)
+        } else {
+            self.discover_inner(index)
+        };
         if let Err(error) = result {
             let entry = &mut self.modules[index].entry;
             entry.slots.clear();
@@ -554,6 +587,7 @@ impl Registry {
         for token in tokens {
             let info = &token.info;
             let mut entry = TokenEntry {
+                initialization: token.initialization_target(),
                 id: ResourceId(0),
                 slot_id: token.slot_id,
                 label: info.label().into(),
@@ -643,6 +677,7 @@ impl Registry {
             discovery_error: None,
         };
         self.modules.push(LoadedModule {
+            administration_cleanup_failed: false,
             provider,
             entry,
             catalogs: Vec::new(),
@@ -657,6 +692,19 @@ impl Registry {
         let id = command.id();
         let mut loaded = None;
         let result = match command {
+            BackendCommand::Administer {
+                module,
+                token,
+                expected,
+                role,
+                action,
+                ..
+            } => {
+                return BackendEvent::Completed {
+                    id,
+                    result: Ok(self.administer(module, token, expected, role, action)),
+                };
+            }
             BackendCommand::KeyOperation {
                 scope,
                 profile,

@@ -307,6 +307,16 @@ fn request_ids_do_not_wrap_and_shutdown_keeps_its_reserved_id() {
 }
 fn token(id: u64, serial: &str) -> TokenEntry {
     TokenEntry {
+        initialization: pkcs11_client::TokenInitializationTarget {
+            slot_id: 10,
+            label: "Token".into(),
+            manufacturer: "Maker".into(),
+            model: "Model".into(),
+            serial: serial.into(),
+            initialized: true,
+            minimum_pin_length: 4,
+            maximum_pin_length: 32,
+        },
         id: ResourceId(id),
         slot_id: 10,
         label: "Token".into(),
@@ -1346,4 +1356,150 @@ fn key_file_pickers_preserve_native_paths_and_shutdown_clears_forms() {
     state.begin_shutdown();
     state.key_picked(picker, Some(path));
     assert!(state.key_form.is_none());
+}
+
+fn administration_state(kind: crate::backend::AdministrationKind) -> (UiState, RequestId) {
+    use crate::backend::AdministrationKind;
+    let mut state = browsing();
+    state.loaded_modules[0].tokens[0].login = if kind == AdministrationKind::InitializeUserPin {
+        LoginState::SecurityOfficer
+    } else {
+        LoginState::User
+    };
+    state.show_page(TokenPage::Administration);
+    state.open_administration(kind);
+    let id = state.administration_form.as_ref().unwrap().id;
+    (state, id)
+}
+fn fill_administration(state: &mut UiState, id: RequestId) {
+    state.administration_pin(id, AdministrationPinField::Current, "12345678".into());
+    state.administration_pin(id, AdministrationPinField::New, "23456789".into());
+    state.administration_pin(id, AdministrationPinField::Confirm, "23456789".into());
+    state.administration_edit(id, AdministrationField::Label, "new-label".into());
+}
+#[test]
+fn administration_requires_review_and_exact_confirmation_and_never_retains_submitted_pins() {
+    use crate::backend::AdministrationKind;
+    for kind in [
+        AdministrationKind::InitializeToken,
+        AdministrationKind::InitializeUserPin,
+        AdministrationKind::ChangePin,
+    ] {
+        let (mut state, id) = administration_state(kind);
+        fill_administration(&mut state, id);
+        assert!(state.submit_administration(id).is_none());
+        state.review_administration(id);
+        assert!(state.administration_form.as_ref().unwrap().reviewing);
+        state.administration_edit(id, AdministrationField::Confirmation, "wrong".into());
+        assert!(state.submit_administration(id).is_none());
+        state.administration_edit(
+            id,
+            AdministrationField::Confirmation,
+            if kind == AdministrationKind::InitializeToken {
+                "ERASE"
+            } else {
+                "CHANGE"
+            }
+            .into(),
+        );
+        let command = state.submit_administration(id).unwrap();
+        assert!(state.administration_form.is_none());
+        assert!(!state.can_cancel());
+        assert!(!state.can_submit());
+        state.cancel();
+        assert_eq!(state.current_operation, Some(command.id()));
+        state.select_token(ResourceId(1), ResourceId(3));
+        state.event(complete(
+            command.id(),
+            BackendResult::Modules {
+                modules: state.loaded_modules.clone(),
+                loaded: None,
+                error: None,
+            },
+        ));
+        assert_eq!(state.selected_token, Some(ResourceId(3)));
+        assert!(state.administration_form.is_none());
+    }
+}
+#[test]
+fn administration_clears_secrets_on_invalid_review_navigation_login_and_shutdown() {
+    use crate::backend::AdministrationKind;
+    use secrecy::ExposeSecret;
+    let (mut state, id) = administration_state(AdministrationKind::ChangePin);
+    fill_administration(&mut state, id);
+    state.administration_pin(id, AdministrationPinField::Confirm, "different".into());
+    state.review_administration(id);
+    let form = state.administration_form.as_ref().unwrap();
+    assert!(form.old_pin.expose_secret().is_empty());
+    assert!(form.new_pin.expose_secret().is_empty());
+    assert!(form.confirm_pin.expose_secret().is_empty());
+    assert!(!form.reviewing);
+    for action in 0..4 {
+        let (mut state, id) = administration_state(AdministrationKind::InitializeToken);
+        fill_administration(&mut state, id);
+        match action {
+            0 => {
+                state.show_page(TokenPage::Overview);
+            }
+            1 => state.select_token(ResourceId(1), ResourceId(3)),
+            2 => {
+                state.loaded_modules[0].tokens[0].login = LoginState::Public;
+                state.open_login(LoginRole::User);
+            }
+            _ => {
+                state.begin_shutdown();
+            }
+        }
+        assert!(state.administration_form.is_none());
+        state.review_administration(id);
+        assert!(state.submit_administration(id).is_none());
+    }
+}
+#[test]
+fn administration_rejects_role_identity_and_capability_changes_after_review() {
+    use crate::backend::AdministrationKind;
+    for change in 0..5 {
+        let (mut state, id) = administration_state(AdministrationKind::ChangePin);
+        fill_administration(&mut state, id);
+        state.review_administration(id);
+        state.administration_edit(id, AdministrationField::Confirmation, "CHANGE".into());
+        let token = &mut state.loaded_modules[0].tokens[0];
+        match change {
+            0 => token.login = LoginState::Public,
+            1 => token.initialization.serial.push('x'),
+            2 => token.write_protected = true,
+            3 => token.protected_path = true,
+            _ => token.user_pin_locked = true,
+        }
+        assert!(state.submit_administration(id).is_none());
+    }
+    let (mut state, id) = administration_state(AdministrationKind::InitializeUserPin);
+    state.loaded_modules[0].tokens[0].login = LoginState::User;
+    assert!(state.submit_administration(id).is_none());
+}
+#[test]
+fn uninitialized_token_requires_confirmed_new_so_pin_and_byte_bounded_label() {
+    use crate::backend::{AdministrationAction, AdministrationKind};
+    let mut state = browsing();
+    state.loaded_modules[0].tokens[0].initialized = false;
+    state.loaded_modules[0].tokens[0].initialization.initialized = false;
+    state.loaded_modules[0].tokens[0].so_pin_locked = true;
+    state.show_page(TokenPage::Administration);
+    state.open_administration(AdministrationKind::InitializeToken);
+    let id = state.administration_form.as_ref().unwrap().id;
+    state.administration_edit(id, AdministrationField::Label, "é".repeat(17));
+    fill_administration(&mut state, id);
+    state.administration_edit(id, AdministrationField::Label, "é".repeat(17));
+    state.review_administration(id);
+    assert!(!state.administration_form.as_ref().unwrap().reviewing);
+    fill_administration(&mut state, id);
+    state.review_administration(id);
+    state.administration_edit(id, AdministrationField::Confirmation, "ERASE".into());
+    assert!(matches!(
+        state.submit_administration(id),
+        Some(BackendCommand::Administer {
+            action: AdministrationAction::InitializeToken { .. },
+            ..
+        })
+    ));
 }

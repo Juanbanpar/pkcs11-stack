@@ -356,6 +356,16 @@ fn backend_failure_reaches_ui_without_loading_vendor_code() {
 #[test]
 fn public_token_identity_distinguishes_replacement_in_the_same_slot() {
     let a = TokenEntry {
+        initialization: pkcs11_client::TokenInitializationTarget {
+            slot_id: 2,
+            label: String::new(),
+            manufacturer: "Maker".into(),
+            model: "Model".into(),
+            serial: "A".into(),
+            initialized: true,
+            minimum_pin_length: 4,
+            maximum_pin_length: 32,
+        },
         id: ResourceId(1),
         slot_id: 2,
         label: String::new(),

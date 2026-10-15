@@ -9,6 +9,8 @@ use crate::backend::{
 use pkcs11_client::MechanismType;
 use secrecy::SecretString;
 use std::path::PathBuf;
+mod administration;
+pub use administration::{AdministrationField, AdministrationForm, AdministrationPinField};
 mod cipher;
 mod key_operations;
 pub use key_operations::{KeyField, KeyForm, WrapTarget};
@@ -38,6 +40,7 @@ pub enum TokenPage {
     Objects,
     Mechanisms,
     Operations,
+    Administration,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Notification {
@@ -64,6 +67,7 @@ impl Notification {
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum OperationKind {
+    Administer,
     KeyOperation,
     Cipher,
     Random,
@@ -96,6 +100,7 @@ pub struct LoginForm {
 /// UI metadata and identifiers. Providers and live PKCS#11 resources stay on the worker.
 #[derive(Default)]
 pub struct UiState {
+    pub administration_form: Option<AdministrationForm>,
     pub screen: Screen,
     pub loaded_modules: Vec<ModuleEntry>,
     pub selected_module: Option<ResourceId>,
@@ -157,6 +162,7 @@ impl UiState {
                         | OperationKind::Random
                         | OperationKind::Cipher
                         | OperationKind::KeyOperation
+                        | OperationKind::Administer
                 )
             )
     }
@@ -165,6 +171,7 @@ impl UiState {
             return None;
         }
         let id = self.request_id()?;
+        self.administration_form = None;
         self.random.picker = None;
         if let Some(form) = &mut self.key_form {
             form.picker = None;
@@ -193,6 +200,7 @@ impl UiState {
         }
         self.cancel();
         self.clear_crypto_form();
+        self.administration_form = None;
         if let Some(id) = self.request_id() {
             self.dialog = None;
             self.login_form = Some(LoginForm {
@@ -316,6 +324,7 @@ impl UiState {
         Some(BackendCommand::Refresh { id, module })
     }
     fn reset_browser(&mut self) {
+        self.administration_form = None;
         self.random = RandomUi::default();
         self.clear_crypto_form();
         self.management = ManagementUi::default();
@@ -339,6 +348,7 @@ impl UiState {
             return None;
         }
         self.cancel();
+        self.administration_form = None;
         self.random = RandomUi::default();
         self.login_form = None;
         self.clear_crypto_form();
@@ -351,7 +361,7 @@ impl UiState {
         self.object_details = None;
         self.selected_mechanism = None;
         match page {
-            TokenPage::Overview => None,
+            TokenPage::Overview | TokenPage::Administration => None,
             TokenPage::Objects => self.read_objects(),
             TokenPage::Mechanisms => self.read_mechanisms(),
             TokenPage::Operations => self.read_capabilities(),
@@ -480,6 +490,7 @@ impl UiState {
                         | OperationKind::Random
                         | OperationKind::Cipher
                         | OperationKind::KeyOperation
+                        | OperationKind::Administer
                 )
             )
     }
@@ -753,6 +764,7 @@ impl UiState {
         self.next_request += 1;
         let id = RequestId(self.next_request);
         self.shutdown_request = Some(id);
+        self.administration_form = None;
         self.current_operation = None;
         self.operation_kind = None;
         self.picker_request = None;
@@ -771,6 +783,7 @@ impl UiState {
             "Background worker unavailable"
         } else {
             match self.operation_kind {
+                Some(OperationKind::Administer) => "Applying token administration once…",
                 Some(OperationKind::KeyOperation) => "Executing token key operation once…",
                 Some(OperationKind::Cipher) => "Executing RSA OAEP once and saving output…",
                 Some(OperationKind::Random) => "Generating token random bytes and saving them…",

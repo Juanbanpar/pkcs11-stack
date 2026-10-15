@@ -18,6 +18,7 @@ pub fn view<'a>(state: &'a UiState, token: &'a TokenEntry) -> Element<'a, Messag
         ("Objects", TokenPage::Objects),
         ("Mechanisms", TokenPage::Mechanisms),
         ("Operations", TokenPage::Operations),
+        ("Administration", TokenPage::Administration),
     ] {
         tabs = tabs.push(
             button(label)
@@ -34,6 +35,7 @@ pub fn view<'a>(state: &'a UiState, token: &'a TokenEntry) -> Element<'a, Messag
         TokenPage::Objects => objects(state),
         TokenPage::Mechanisms => mechanisms(state),
         TokenPage::Operations => super::operations::view(state),
+        TokenPage::Administration => super::administration::view(state),
     };
     column![
         text(if token.label.is_empty() {
