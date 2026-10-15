@@ -177,19 +177,18 @@ fn detail_attributes(class: Option<ObjectClass>) -> Vec<(AttributeType, &'static
 }
 
 pub(super) fn read_session<T>(
-    provider: &pkcs11_client::Provider,
+    module: &super::LoadedModule,
     token: &Pkcs11Uri,
     mode: SessionMode,
     operation: impl FnOnce(&mut ManagementSession<'_>) -> Result<T, BackendError>,
 ) -> Result<T, BackendError> {
-    let mut session = provider
+    let mut session = module
+        .provider
         .management(token, mode, Authentication::None)
         .map_err(|e| BackendError::from(&e))?;
     let result = operation(&mut session);
     let closed = session.close().map_err(|e| BackendError::from(&e));
-    let value = result?;
-    closed?;
-    Ok(value)
+    super::finish_session(result, closed, &module.cleanup_failed)
 }
 
 impl Registry {
@@ -203,6 +202,9 @@ impl Registry {
             .iter()
             .position(|m| m.entry.id == module)
             .ok_or(BackendError::UnknownModule)?;
+        if self.modules[index].cleanup_failed.get() {
+            return Err(BackendError::SessionCleanup);
+        }
         let entry = self.modules[index]
             .entry
             .tokens
@@ -227,7 +229,7 @@ impl Registry {
             .catalogs
             .retain(|catalog| catalog.token != token);
         let reads = read_session(
-            &self.modules[index].provider,
+            &self.modules[index],
             &uri,
             self.modules[index].read_mode(token)?,
             |session| {
@@ -318,7 +320,7 @@ impl Registry {
         let (reference, class) = self.reference(module, token, object)?;
         let attributes = detail_attributes(class);
         read_session(
-            &self.modules[index].provider,
+            &self.modules[index],
             &uri,
             self.modules[index].read_mode(token)?,
             |session| {

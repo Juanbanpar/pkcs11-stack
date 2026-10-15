@@ -68,16 +68,11 @@ impl Registry {
     pub(super) fn cipher_options(&self, scope: CryptoScope) -> Result<BackendResult, BackendError> {
         let (index, uri, reference, operation) = self.cipher_reference(scope)?;
         let module = &self.modules[index];
-        let choices = read_session(
-            &module.provider,
-            &uri,
-            module.read_mode(scope.token)?,
-            |session| {
-                session
-                    .oaep_options(&reference, operation)
-                    .map_err(|e| cipher_error(&e))
-            },
-        )?;
+        let choices = read_session(module, &uri, module.read_mode(scope.token)?, |session| {
+            session
+                .oaep_options(&reference, operation)
+                .map_err(|e| cipher_error(&e))
+        })?;
         Ok(BackendResult::CipherOptions { scope, choices })
     }
     fn cipher_action(&self, scope: CryptoScope, job: CipherJob) -> Result<(), BackendError> {
@@ -113,54 +108,49 @@ impl Registry {
         }
         // Reserve a new output before the token operation, then close its session before saving.
         let mut output = super::management::create_output(&job.output)?;
-        let bytes = read_session(
-            &module.provider,
-            &uri,
-            module.read_mode(scope.token)?,
-            |session| {
-                if !session
-                    .oaep_options(&reference, operation)
-                    .map_err(|e| cipher_error(&e))?
-                    .contains(&job.choice)
-                {
-                    return Err(BackendError::CipherUnavailable);
+        let bytes = read_session(module, &uri, module.read_mode(scope.token)?, |session| {
+            if !session
+                .oaep_options(&reference, operation)
+                .map_err(|e| cipher_error(&e))?
+                .contains(&job.choice)
+            {
+                return Err(BackendError::CipherUnavailable);
+            }
+            let selector = reference
+                .uri()
+                .to_string()
+                .parse()
+                .map_err(|_| BackendError::CipherUnavailable)?;
+            match operation {
+                RsaCipherOperation::Encrypt => {
+                    let key =
+                        PublicKeyRef::new(selector).map_err(|_| BackendError::CipherUnavailable)?;
+                    session
+                        .encrypt(
+                            &key,
+                            &EncryptRequest {
+                                digest: job.choice.digest,
+                                plaintext: input.expose_secret(),
+                            },
+                        )
+                        .map(|bytes| SecretBox::new(Box::new(bytes)))
+                        .map_err(|e| cipher_error(&e))
                 }
-                let selector = reference
-                    .uri()
-                    .to_string()
-                    .parse()
-                    .map_err(|_| BackendError::CipherUnavailable)?;
-                match operation {
-                    RsaCipherOperation::Encrypt => {
-                        let key = PublicKeyRef::new(selector)
-                            .map_err(|_| BackendError::CipherUnavailable)?;
-                        session
-                            .encrypt(
-                                &key,
-                                &EncryptRequest {
-                                    digest: job.choice.digest,
-                                    plaintext: input.expose_secret(),
-                                },
-                            )
-                            .map(|bytes| SecretBox::new(Box::new(bytes)))
-                            .map_err(|e| cipher_error(&e))
-                    }
-                    RsaCipherOperation::Decrypt => {
-                        let key = PrivateKeyRef::new(selector)
-                            .map_err(|_| BackendError::CipherUnavailable)?;
-                        session
-                            .decrypt(
-                                &key,
-                                &DecryptRequest {
-                                    digest: job.choice.digest,
-                                    ciphertext: input.expose_secret(),
-                                },
-                            )
-                            .map_err(|e| cipher_error(&e))
-                    }
+                RsaCipherOperation::Decrypt => {
+                    let key = PrivateKeyRef::new(selector)
+                        .map_err(|_| BackendError::CipherUnavailable)?;
+                    session
+                        .decrypt(
+                            &key,
+                            &DecryptRequest {
+                                digest: job.choice.digest,
+                                ciphertext: input.expose_secret(),
+                            },
+                        )
+                        .map_err(|e| cipher_error(&e))
                 }
-            },
-        )?;
+            }
+        })?;
         output
             .write_all(bytes.expose_secret())
             .and_then(|()| output.flush())

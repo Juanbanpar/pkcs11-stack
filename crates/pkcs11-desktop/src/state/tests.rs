@@ -1503,3 +1503,75 @@ fn uninitialized_token_requires_confirmed_new_so_pin_and_byte_bounded_label() {
         })
     ));
 }
+
+#[test]
+fn cancelled_read_still_invalidates_a_module_after_cleanup_failure() {
+    let mut state = browsing();
+    let old = state.show_page(TokenPage::Objects).unwrap().id();
+    state.cancel();
+    state.open_login(LoginRole::User);
+    let mut disabled = module(1, Vec::new());
+    disabled.discovery_error = Some(BackendError::SessionCleanup);
+    state.event(complete(
+        old,
+        BackendResult::Modules {
+            modules: vec![disabled],
+            loaded: None,
+            error: Some(BackendError::SessionCleanup),
+        },
+    ));
+    assert!(state.loaded_modules[0].tokens.is_empty());
+    assert!(state.login_form.is_none());
+    assert!(state.selected_token.is_none());
+    assert_eq!(state.selected_module, Some(ResourceId(1)));
+    assert!(state.read_objects().is_none());
+    assert!(state.unload().is_some());
+}
+
+#[test]
+fn stale_cleanup_inventory_preserves_other_modules_and_newer_work() {
+    let mut state = browsing();
+    let old = state.show_page(TokenPage::Objects).unwrap().id();
+    state.loaded_modules.push(module(4, vec![token(5, "C")]));
+    state.select_token(ResourceId(4), ResourceId(5));
+    let current = state.show_page(TokenPage::Objects).unwrap().id();
+    let mut disabled = module(1, Vec::new());
+    disabled.discovery_error = Some(BackendError::SessionCleanup);
+    state.event(complete(
+        old,
+        BackendResult::Modules {
+            modules: vec![disabled],
+            loaded: None,
+            error: Some(BackendError::SessionCleanup),
+        },
+    ));
+    assert_eq!(state.loaded_modules.len(), 2);
+    assert_eq!(state.current_operation, Some(current));
+    assert_eq!(state.selected_module, Some(ResourceId(4)));
+    assert_eq!(state.selected_token, Some(ResourceId(5)));
+    state.event(complete(
+        current,
+        BackendResult::Objects {
+            module: ResourceId(4),
+            token: ResourceId(5),
+            objects: vec![object_entry(6, "current")],
+        },
+    ));
+    assert_eq!(state.objects[0].label, "current");
+    // A disabled module removed by a newer unload must never be restored.
+    state
+        .loaded_modules
+        .retain(|module| module.id != ResourceId(1));
+    let mut disabled = module(1, Vec::new());
+    disabled.discovery_error = Some(BackendError::SessionCleanup);
+    state.event(complete(
+        old,
+        BackendResult::Modules {
+            modules: vec![disabled],
+            loaded: None,
+            error: Some(BackendError::SessionCleanup),
+        },
+    ));
+    assert_eq!(state.loaded_modules.len(), 1);
+    assert_eq!(state.objects[0].label, "current");
+}

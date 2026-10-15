@@ -3,6 +3,34 @@ use super::*;
 use iced::futures::executor::block_on;
 
 #[test]
+fn close_failure_overrides_operation_error_and_blocks_reuse() {
+    let failed = std::cell::Cell::new(false);
+    assert_eq!(
+        finish_session::<()>(
+            Err(BackendError::InvalidForm),
+            Err(BackendError::Disconnected),
+            &failed
+        ),
+        Err(BackendError::SessionCleanup)
+    );
+    assert!(failed.get());
+    // A later successful close cannot make an uncertain module usable again.
+    assert_eq!(finish_session(Ok(42), Ok(()), &failed), Ok(42));
+    assert!(failed.get());
+}
+
+#[test]
+fn successful_close_preserves_operation_results_without_disabling_module() {
+    let failed = std::cell::Cell::new(false);
+    assert_eq!(finish_session(Ok(42), Ok(()), &failed), Ok(42));
+    assert_eq!(
+        finish_session::<()>(Err(BackendError::InvalidForm), Ok(()), &failed),
+        Err(BackendError::InvalidForm)
+    );
+    assert!(!failed.get());
+}
+
+#[test]
 #[ignore = "requires the isolated SoftHSM runner"]
 fn software_token_objects_mechanisms_and_scoped_detail_reads() {
     assert_eq!(std::env::var("PKCS11_TEST_ISOLATED").as_deref(), Ok("1"));
@@ -770,4 +798,99 @@ fn software_token_authentication_visibility_roles_and_cleanup() {
     );
     session.close().unwrap();
     provider.finalize().unwrap();
+}
+
+#[test]
+#[ignore = "requires the isolated SoftHSM runner"]
+fn cleanup_failure_disables_cached_tokens_and_allows_explicit_unload() {
+    assert_eq!(std::env::var("PKCS11_TEST_ISOLATED").as_deref(), Ok("1"));
+    let path = PathBuf::from(std::env::var_os("PKCS11_TEST_MODULE").unwrap());
+    let mut registry = Registry::default();
+    let module = registry.load(&path).unwrap();
+    let token = registry.modules[0]
+        .entry
+        .tokens
+        .iter()
+        .find(|entry| entry.label == "client-test")
+        .unwrap()
+        .id;
+    registry
+        .login(
+            module,
+            token,
+            LoginRole::User,
+            SecretInput::Value("12345678".into()),
+        )
+        .unwrap();
+    registry.objects(module, token).unwrap();
+    assert!(!registry.modules[0].catalogs.is_empty());
+    assert!(!registry.modules[0].authentication.is_empty());
+    // Inject a close error at the completion boundary. Invalidation still
+    // closes the real provider's authentication anchor.
+    assert_eq!(
+        finish_session::<()>(
+            Ok(()),
+            Err(BackendError::Disconnected),
+            &registry.modules[0].cleanup_failed
+        ),
+        Err(BackendError::SessionCleanup)
+    );
+    let (modules, _, error) = inventory(registry.execute(BackendCommand::Objects {
+        id: RequestId(1),
+        module,
+        token,
+    }));
+    assert_eq!(error, Some(BackendError::SessionCleanup));
+    assert!(modules[0].tokens.is_empty());
+    assert!(registry.modules[0].catalogs.is_empty());
+    assert!(registry.modules[0].authentication.is_empty());
+    assert!(matches!(
+        registry.location(module, token),
+        Err(BackendError::SessionCleanup)
+    ));
+    let output =
+        std::env::temp_dir().join(format!("desktop-blocked-output-{}", std::process::id()));
+    assert_eq!(
+        registry.random_file(
+            module,
+            token,
+            pkcs11_client::RandomRequest::new(32).unwrap(),
+            &output
+        ),
+        Err(BackendError::SessionCleanup)
+    );
+    assert!(!output.exists());
+    assert_eq!(
+        inventory(registry.execute(BackendCommand::Refresh {
+            id: RequestId(2),
+            module
+        }))
+        .2,
+        Some(BackendError::SessionCleanup)
+    );
+    // A disabled module must not replace unrelated command results.
+    assert!(matches!(
+        registry.execute(BackendCommand::Objects {
+            id: RequestId(3),
+            module: ResourceId(u64::MAX),
+            token
+        }),
+        BackendEvent::Completed {
+            result: Err(BackendError::UnknownModule),
+            ..
+        }
+    ));
+    assert!(
+        inventory(registry.execute(BackendCommand::Unload {
+            id: RequestId(4),
+            module
+        }))
+        .0
+        .is_empty()
+    );
+    let reloaded = registry.load(&path).unwrap();
+    assert_ne!(reloaded, module);
+    assert!(!registry.modules[0].entry.tokens.is_empty());
+    assert!(!registry.modules[0].cleanup_failed.get());
+    registry.close().unwrap();
 }

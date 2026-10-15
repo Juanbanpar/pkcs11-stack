@@ -4,13 +4,12 @@ use super::{
     browse::read_session,
 };
 use pkcs11_client::{
-    Authentication, Certificate, HashLocation, HashingPolicy, MechanismType, ObjectClass, Pin,
-    PrivateKeyRef, SessionState, SignInput, SignatureParameters, SigningPolicy,
+    Certificate, HashLocation, HashingPolicy, MechanismType, ObjectClass, Pin, PrivateKeyRef,
+    SessionState, SignInput, SignatureParameters, SigningPolicy,
 };
 use std::{
     fs::File,
     io::{Read, Write},
-    num::NonZeroUsize,
     path::{Path, PathBuf},
 };
 
@@ -110,16 +109,11 @@ impl Registry {
             return Err(BackendError::SigningUnavailable);
         }
         let module = &self.modules[index];
-        let der = read_session(
-            &module.provider,
-            &uri,
-            module.read_mode(scope.token)?,
-            |session| {
-                session
-                    .export_value(&reference)
-                    .map_err(|e| BackendError::from(&e))
-            },
-        )?;
+        let der = read_session(module, &uri, module.read_mode(scope.token)?, |session| {
+            session
+                .export_value(&reference)
+                .map_err(|e| BackendError::from(&e))
+        })?;
         Certificate::from_der(der).map_err(|e| BackendError::from(&e))
     }
     pub(super) fn crypto_options(
@@ -134,17 +128,13 @@ impl Registry {
             CryptoMode::Encrypt | CryptoMode::Decrypt => return self.cipher_options(scope),
             CryptoMode::Sign => {
                 let (index, uri, key) = self.signing_location(scope)?;
-                let client = self.modules[index]
-                    .provider
-                    .client(
-                        &uri,
-                        NonZeroUsize::new(1).unwrap(),
-                        policy(software_hashing),
-                    )
-                    .map_err(|e| BackendError::from(&e))?;
-                let options = client
-                    .signing_options(&key, Authentication::None)
-                    .map_err(|e| BackendError::from(&e))?;
+                let module = &self.modules[index];
+                let options =
+                    read_session(module, &uri, module.read_mode(scope.token)?, |session| {
+                        session
+                            .signing_options(&key, &policy(software_hashing))
+                            .map_err(|e| BackendError::from(&e))
+                    })?;
                 (
                     options
                         .choices
@@ -188,49 +178,45 @@ impl Registry {
             return Err(BackendError::AuthenticationUnavailable);
         }
         let input = read_bounded(&job.input, 16 * 1024 * 1024)?;
-        let client = module
-            .provider
-            .client(
-                &uri,
-                NonZeroUsize::new(1).unwrap(),
-                policy(job.software_hashing),
-            )
-            .map_err(|e| BackendError::from(&e))?;
-        let options = client
-            .signing_options(&key, Authentication::None)
-            .map_err(|e| BackendError::from(&e))?;
-        if !options
-            .choices
-            .iter()
-            .any(|choice| choice.parameters == job.parameters)
-        {
-            return Err(BackendError::SignatureChoice);
-        }
-        if options.always_authenticate && job.context.is_none() {
-            return Err(BackendError::ContextRequired);
-        }
-        // Reserve a new output before signing. Existing files cannot trigger a token operation.
-        let mut output = super::management::create_output(&job.signature)?;
-        let context = if options.always_authenticate {
-            job.context.as_ref().map(|pin| match pin {
-                SecretInput::Value(pin) => Pin::Value(pin),
-                SecretInput::ProtectedPath => Pin::ProtectedPath,
-            })
-        } else {
-            None
-        };
-        let signature = client
-            .sign(
-                &key,
-                &job.parameters.request(SignInput::Message(&input)),
-                Authentication::None,
-                context,
-            )
-            .map_err(|e| BackendError::from(&e));
+        let signature = read_session(module, &uri, module.read_mode(scope.token)?, |session| {
+            let policy = policy(job.software_hashing);
+            let options = session
+                .signing_options(&key, &policy)
+                .map_err(|e| BackendError::from(&e))?;
+            if !options
+                .choices
+                .iter()
+                .any(|choice| choice.parameters == job.parameters)
+            {
+                return Err(BackendError::SignatureChoice);
+            }
+            if options.always_authenticate && job.context.is_none() {
+                return Err(BackendError::ContextRequired);
+            }
+            // Reserve the path only after validating choices, before signing.
+            let output = super::management::create_output(&job.signature)?;
+            let context = if options.always_authenticate {
+                job.context.as_ref().map(|pin| match pin {
+                    SecretInput::Value(pin) => Pin::Value(pin),
+                    SecretInput::ProtectedPath => Pin::ProtectedPath,
+                })
+            } else {
+                None
+            };
+            let signature = session
+                .sign(
+                    &key,
+                    &job.parameters.request(SignInput::Message(&input)),
+                    &policy,
+                    context,
+                )
+                .map_err(|e| BackendError::from(&e))?;
+            Ok((signature, output))
+        });
         drop(job.context);
-        drop(client);
+        let (signature, mut output) = signature?;
         output
-            .write_all(&signature?)
+            .write_all(&signature)
             .and_then(|()| output.flush())
             .map_err(|_| BackendError::FileWrite)
     }

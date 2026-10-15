@@ -59,7 +59,7 @@ impl LoadedModule {
                 error.get_or_insert(BackendError::from(&failure));
             }
         }
-        error.map_or(Ok(()), Err)
+        super::finish_session(Ok(()), error.map_or(Ok(()), Err), &self.cleanup_failed)
     }
     pub(super) fn refresh_authentication(&mut self) -> Result<(), BackendError> {
         let mut retained = Vec::new();
@@ -70,8 +70,11 @@ impl LoadedModule {
                     Ok(state) => {
                         token.login = LoginState::from_session(state);
                         if token.login == LoginState::Public {
-                            if let Err(failure) = session.close() {
-                                error.get_or_insert(BackendError::from(&failure));
+                            let closed = session.close().map_err(|e| BackendError::from(&e));
+                            if let Err(failure) =
+                                super::finish_session(Ok(()), closed, &self.cleanup_failed)
+                            {
+                                error = Some(failure);
                             }
                             continue;
                         }
@@ -83,8 +86,11 @@ impl LoadedModule {
                 }
                 // Keep the anchor available for explicit logout/close after an error.
                 retained.push((id, session));
-            } else if let Err(failure) = session.close() {
-                error.get_or_insert(BackendError::from(&failure));
+            } else {
+                let closed = session.close().map_err(|e| BackendError::from(&e));
+                if let Err(failure) = super::finish_session(Ok(()), closed, &self.cleanup_failed) {
+                    error = Some(failure);
+                }
             }
         }
         self.authentication = retained;
@@ -152,8 +158,9 @@ impl Registry {
         } else {
             session.close().map_err(|e| BackendError::from(&e))
         };
+        let result = super::finish_session(result, closed, &self.modules[index].cleanup_failed);
         let refreshed = self.discover(index);
-        result.and(closed).and(refreshed)
+        result.and(refreshed)
     }
     pub(super) fn logout(
         &mut self,
@@ -175,7 +182,8 @@ impl Registry {
             self.modules[index].authentication.push((token, session));
             Ok(())
         };
+        let result = super::finish_session(logged_out, closed, &self.modules[index].cleanup_failed);
         let refreshed = self.discover(index);
-        logged_out.and(closed).and(refreshed)
+        result.and(refreshed)
     }
 }

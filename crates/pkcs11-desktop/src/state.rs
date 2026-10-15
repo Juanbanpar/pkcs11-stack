@@ -550,6 +550,47 @@ impl UiState {
             .find(|t| Some(t.id) == self.selected_token)
     }
     pub fn event(&mut self, event: BackendEvent) {
+        // Cancellation discards read results, not a module's cleanup failure.
+        // Merge only disabled modules; an old inventory must not restore other
+        // modules, selections or forms belonging to a newer request.
+        if self.shutdown_request.is_none()
+            && let BackendEvent::Completed {
+                id,
+                result:
+                    Ok(BackendResult::Modules {
+                        modules,
+                        error: Some(BackendError::SessionCleanup),
+                        ..
+                    }),
+            } = &event
+            && self.current_operation != Some(*id)
+        {
+            let mut invalidated = false;
+            let mut selected_invalidated = false;
+            for disabled in modules
+                .iter()
+                .filter(|module| module.discovery_error == Some(BackendError::SessionCleanup))
+            {
+                if let Some(module) = self
+                    .loaded_modules
+                    .iter_mut()
+                    .find(|module| module.id == disabled.id)
+                {
+                    *module = disabled.clone();
+                    selected_invalidated |= self.selected_module == Some(module.id);
+                    invalidated = true;
+                }
+            }
+            if selected_invalidated {
+                self.cancel();
+                self.selected_token = None;
+                self.reset_browser();
+            }
+            if invalidated {
+                self.notification = Some(Notification::Error(BackendError::SessionCleanup));
+            }
+            return;
+        }
         match event {
             BackendEvent::Completed { id, result }
                 if self.shutdown_request.is_none() && self.current_operation == Some(id) =>

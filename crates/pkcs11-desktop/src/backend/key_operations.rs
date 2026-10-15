@@ -89,16 +89,11 @@ impl Registry {
     pub(super) fn key_options(&self, scope: CryptoScope) -> Result<BackendResult, BackendError> {
         let (index, uri, reference, operation) = self.key_location(scope)?;
         let module = &self.modules[index];
-        let profile = read_session(
-            &module.provider,
-            &uri,
-            module.read_mode(scope.token)?,
-            |session| {
-                session
-                    .key_operation_options(&reference, operation)
-                    .map_err(|e| BackendError::from(&e))
-            },
-        )?;
+        let profile = read_session(module, &uri, module.read_mode(scope.token)?, |session| {
+            session
+                .key_operation_options(&reference, operation)
+                .map_err(|e| BackendError::from(&e))
+        })?;
         Ok(BackendResult::KeyOptions { scope, profile })
     }
     fn key_action(
@@ -118,7 +113,7 @@ impl Registry {
             (KeyOperation::Derive, KeyJob::Derive { peer, id, label }) => {
                 let peer = EcdhPeer::from_spki_der(&read(&peer, 1024)?)
                     .map_err(|_| BackendError::KeyOperationInput)?;
-                read_session(&module.provider, &uri, mode, |session| {
+                read_session(module, &uri, mode, |session| {
                     if session
                         .key_operation_options(&reference, operation)
                         .map_err(|e| BackendError::from(&e))?
@@ -143,7 +138,7 @@ impl Registry {
             (KeyOperation::Wrap, KeyJob::Wrap { target, output }) => {
                 let target = self.reference(scope.module, scope.token, target)?.0;
                 let mut output = super::management::create_output(&output)?;
-                let bytes = read_session(&module.provider, &uri, mode, |session| {
+                let bytes = read_session(module, &uri, mode, |session| {
                     if session
                         .key_operation_options(&reference, operation)
                         .map_err(|e| BackendError::from(&e))?
@@ -165,7 +160,7 @@ impl Registry {
                 if ![24, 32, 40].contains(&bytes.len()) {
                     return Err(BackendError::KeyOperationInput);
                 }
-                read_session(&module.provider, &uri, mode, |session| {
+                read_session(module, &uri, mode, |session| {
                     if session
                         .key_operation_options(&reference, operation)
                         .map_err(|e| BackendError::from(&e))?

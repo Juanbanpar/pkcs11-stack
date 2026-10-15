@@ -110,7 +110,7 @@ impl Registry {
             // releases the Arc consumers needed by the client's exclusive-owner check.
             self.modules[index]
                 .close_authentication()
-                .map_err(|_| BackendError::AdministrationCleanup)?;
+                .map_err(|_| BackendError::SessionCleanup)?;
             return self.modules[index]
                 .provider
                 .initialize_token_checked(expected, &so_pin, &label)
@@ -147,10 +147,8 @@ impl Registry {
                 }
                 .map_err(|_| BackendError::AdministrationFailed)
             })();
-            let closed = session
-                .close()
-                .map_err(|_| BackendError::AdministrationCleanup);
-            closed.and(result)
+            let closed = session.close().map_err(|_| BackendError::SessionCleanup);
+            super::finish_session(result, closed, &self.modules[index].cleanup_failed)
         })();
         // End this token's local authenticated lifetime after any PIN attempt.
         let mut cleanup = Ok(());
@@ -160,11 +158,9 @@ impl Registry {
             .position(|(id, _)| *id == token)
         {
             let (_, session) = self.modules[index].authentication.remove(position);
-            cleanup = session
-                .close()
-                .map_err(|_| BackendError::AdministrationCleanup);
+            cleanup = session.close().map_err(|_| BackendError::SessionCleanup);
         }
-        cleanup.and(result)
+        super::finish_session(result, cleanup, &self.modules[index].cleanup_failed)
     }
     pub(super) fn administer(
         &mut self,
@@ -175,14 +171,6 @@ impl Registry {
         action: AdministrationAction,
     ) -> BackendResult {
         let operation = self.administer_action(module, token, &expected, role, action);
-        if operation == Err(BackendError::AdministrationCleanup)
-            && let Some(entry) = self
-                .modules
-                .iter_mut()
-                .find(|entry| entry.entry.id == module)
-        {
-            entry.administration_cleanup_failed = true;
-        }
         let refreshed = self
             .modules
             .iter()

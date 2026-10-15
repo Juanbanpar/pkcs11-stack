@@ -293,7 +293,7 @@ fn software_token_initialization_pin_roles_stale_targets_and_reauthentication() 
         },
         Some(BackendError::UnknownToken),
     );
-    registry.modules[0].administration_cleanup_failed = true;
+    registry.modules[0].cleanup_failed.set(true);
     let result = registry.execute(BackendCommand::Refresh {
         id: RequestId(100),
         module,
@@ -302,17 +302,14 @@ fn software_token_initialization_pin_roles_stale_targets_and_reauthentication() 
         result,
         BackendEvent::Completed {
             result: Ok(BackendResult::Modules {
-                error: Some(BackendError::AdministrationCleanup),
+                error: Some(BackendError::SessionCleanup),
                 ..
             }),
             ..
         }
     ));
     assert!(registry.modules[0].entry.tokens.is_empty());
-    assert_eq!(
-        registry.discover(0),
-        Err(BackendError::AdministrationCleanup)
-    );
+    assert_eq!(registry.discover(0), Err(BackendError::SessionCleanup));
     registry.close().unwrap();
     Provider::load(path).unwrap().finalize().unwrap();
 }

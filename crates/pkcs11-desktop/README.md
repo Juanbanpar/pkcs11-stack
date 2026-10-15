@@ -16,6 +16,10 @@ slot information, or a token for its overview and locator.
 replaced tokens clear their selection. **Unload** finalizes the selected module;
 quitting finalizes all loaded modules.
 
+If a session cannot be closed, the module's tokens and cached objects are cleared
+and further token operations are blocked. Unload the module before using it again.
+This also applies when the operation itself failed; a change may still have applied.
+
 Select **Objects** to list persistent objects visible to the current role. Filter by
 label, class, hexadecimal ID or locator, then select an object to read its metadata.
 Listing requests only class, label and ID; detail reads use a small metadata
@@ -81,7 +85,8 @@ execution. PSS choices use a matching MGF1 digest and digest-length salt.
 Keys with CKA_ALWAYS_AUTHENTICATE require a per-operation PIN or supported
 protected authentication path. This credential is cleared on submission,
 cancellation or navigation. Each submission signs once; failures are never retried.
-The worker reserves a new output file before signing. Existing files are preserved;
+The worker reserves a new output file before signing and checks session closure
+before writing the signature. Existing files are preserved;
 a failed signature or write can leave an empty or partial file. Signing refreshes
 token status and object inventories, including after authentication failures.
 

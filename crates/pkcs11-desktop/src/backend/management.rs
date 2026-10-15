@@ -77,7 +77,7 @@ impl Registry {
         if let ManagementAction::Export { object, path } = action {
             let (reference, _) = self.reference(module, token, object)?;
             let bytes = read_session(
-                &self.modules[index].provider,
+                &self.modules[index],
                 &uri,
                 self.modules[index].read_mode(token)?,
                 |session| {
@@ -151,7 +151,7 @@ impl Registry {
             .map_err(|e| BackendError::from(&e))
         })();
         let closed = session.close().map_err(|e| BackendError::from(&e));
-        result.and(closed)
+        super::finish_session(result, closed, &self.modules[index].cleanup_failed)
     }
     pub(super) fn manage(
         &mut self,

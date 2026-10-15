@@ -24,16 +24,11 @@ impl Registry {
         }
         // Reserve the path before requesting bytes. Existing files never trigger generation.
         let mut output = super::management::create_output(path)?;
-        let bytes = read_session(
-            &module.provider,
-            &uri,
-            module.read_mode(token)?,
-            |session| {
-                session
-                    .generate_random(request)
-                    .map_err(|error| BackendError::from(&error))
-            },
-        )?;
+        let bytes = read_session(module, &uri, module.read_mode(token)?, |session| {
+            session
+                .generate_random(request)
+                .map_err(|error| BackendError::from(&error))
+        })?;
         output
             .write_all(bytes.expose_secret())
             .and_then(|()| output.flush())

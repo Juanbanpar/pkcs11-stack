@@ -301,7 +301,7 @@ pub enum BackendError {
     AdministrationUnavailable,
     AdministrationInput,
     AdministrationFailed,
-    AdministrationCleanup,
+    SessionCleanup,
     KeyOperationUnavailable,
     KeyOperationInput,
     CipherUnavailable,
@@ -347,8 +347,8 @@ impl BackendError {
             Self::AdministrationInput => {
                 "Provide matching nonempty PINs within the advertised byte limits, a token label of 1–32 UTF-8 bytes, and explicit confirmation."
             }
-            Self::AdministrationCleanup => {
-                "A session could not be closed after administration. Unload this module before using it again; the change may have applied."
+            Self::SessionCleanup => {
+                "A session could not be closed. Unload this module before using it again; an operation may have applied."
             }
             Self::AdministrationFailed => {
                 "Administration failed. Changes may still have applied. No retry was made; check token status before authenticating again."
@@ -536,8 +536,20 @@ impl Drop for Worker {
     }
 }
 
+fn finish_session<T>(
+    result: Result<T, BackendError>,
+    closed: Result<(), BackendError>,
+    cleanup_failed: &std::cell::Cell<bool>,
+) -> Result<T, BackendError> {
+    if closed.is_err() {
+        cleanup_failed.set(true);
+        return Err(BackendError::SessionCleanup);
+    }
+    result
+}
+
 struct LoadedModule {
-    administration_cleanup_failed: bool,
+    cleanup_failed: std::cell::Cell<bool>,
     provider: Provider,
     entry: ModuleEntry,
     catalogs: Vec<browse::ObjectCatalog>,
@@ -559,17 +571,22 @@ impl Registry {
 
     fn discover(&mut self, index: usize) -> Result<(), BackendError> {
         self.modules[index].catalogs.clear();
-        let result = if self.modules[index].administration_cleanup_failed {
-            Err(BackendError::AdministrationCleanup)
+        let result = if self.modules[index].cleanup_failed.get() {
+            Err(BackendError::SessionCleanup)
         } else {
             self.discover_inner(index)
         };
+        let cleanup = if result.is_err() {
+            self.modules[index].close_authentication()
+        } else {
+            Ok(())
+        };
+        let result = cleanup.and(result);
         if let Err(error) = result {
             let entry = &mut self.modules[index].entry;
             entry.slots.clear();
             entry.tokens.clear();
             entry.discovery_error = Some(error);
-            let _ = self.modules[index].close_authentication();
         }
         result
     }
@@ -677,7 +694,7 @@ impl Registry {
             discovery_error: None,
         };
         self.modules.push(LoadedModule {
-            administration_cleanup_failed: false,
+            cleanup_failed: std::cell::Cell::new(false),
             provider,
             entry,
             catalogs: Vec::new(),
@@ -689,6 +706,51 @@ impl Registry {
     }
 
     fn execute(&mut self, command: BackendCommand) -> BackendEvent {
+        let id = command.id();
+        let previously_disabled: Vec<_> = self
+            .modules
+            .iter()
+            .filter(|entry| entry.entry.discovery_error == Some(BackendError::SessionCleanup))
+            .map(|entry| entry.entry.id)
+            .collect();
+        let event = self.execute_inner(command);
+        // Even read-only commands can fail during close. Publish the disabled
+        // inventory instead of leaving stale token actions enabled in the UI.
+        let mut cleanup_failed = false;
+        for index in 0..self.modules.len() {
+            if self.modules[index].cleanup_failed.get()
+                && !previously_disabled.contains(&self.modules[index].entry.id)
+            {
+                let _ = self.discover(index);
+                cleanup_failed = true;
+            }
+        }
+        if cleanup_failed {
+            let loaded = match &event {
+                BackendEvent::Completed {
+                    result: Ok(BackendResult::Modules { loaded, .. }),
+                    ..
+                } => *loaded,
+                _ => None,
+            };
+            BackendEvent::Completed {
+                id,
+                result: Ok(BackendResult::Modules {
+                    modules: self
+                        .modules
+                        .iter()
+                        .map(|entry| entry.entry.clone())
+                        .collect(),
+                    loaded,
+                    error: Some(BackendError::SessionCleanup),
+                }),
+            }
+        } else {
+            event
+        }
+    }
+
+    fn execute_inner(&mut self, command: BackendCommand) -> BackendEvent {
         let id = command.id();
         let mut loaded = None;
         let result = match command {
