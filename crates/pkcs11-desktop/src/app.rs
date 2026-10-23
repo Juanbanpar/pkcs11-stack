@@ -16,6 +16,9 @@ use std::path::PathBuf;
 
 #[derive(Clone)]
 pub enum Message {
+    MoveFocus {
+        backwards: bool,
+    },
     OpenAdministration(AdministrationKind),
     AdministrationPin {
         id: RequestId,
@@ -179,6 +182,7 @@ pub enum Message {
 impl std::fmt::Debug for Message {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
+            Self::MoveFocus { .. } => "MoveFocus",
             Self::OpenAdministration(_) => "OpenAdministration",
             Self::AdministrationPin { .. } => "AdministrationPin",
             Self::AdministrationEdit { .. } => "AdministrationEdit",
@@ -294,6 +298,13 @@ impl App {
             return Task::none();
         }
         match message {
+            Message::MoveFocus { backwards } => {
+                return if backwards {
+                    iced::widget::operation::focus_previous()
+                } else {
+                    iced::widget::operation::focus_next()
+                };
+            }
             Message::OpenAdministration(kind) => self.state.open_administration(kind),
             Message::AdministrationPin { id, field, pin } => {
                 self.state.administration_pin(id, field, pin)
@@ -634,6 +645,12 @@ impl App {
             });
         Subscription::batch([
             events,
+            iced::keyboard::listen().filter_map(|event| match event {
+                iced::keyboard::Event::KeyPressed { key, modifiers, .. } => {
+                    focus_navigation(key, modifiers)
+                }
+                _ => None,
+            }),
             iced::window::close_requests().map(|_| Message::CloseRequested),
         ])
     }
@@ -651,9 +668,51 @@ impl App {
     }
 }
 
+fn focus_navigation(
+    key: iced::keyboard::Key,
+    modifiers: iced::keyboard::Modifiers,
+) -> Option<Message> {
+    use iced::keyboard::{Key, key::Named};
+    if key == Key::Named(Named::Tab)
+        && !modifiers.control()
+        && !modifiers.alt()
+        && !modifiers.logo()
+    {
+        Some(Message::MoveFocus {
+            backwards: modifiers.shift(),
+        })
+    } else {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn form_focus_navigation_accepts_only_tab_and_shift_tab() {
+        use iced::keyboard::{Key, Modifiers, key::Named};
+        assert!(matches!(
+            focus_navigation(Key::Named(Named::Tab), Modifiers::empty()),
+            Some(Message::MoveFocus { backwards: false })
+        ));
+        assert!(matches!(
+            focus_navigation(Key::Named(Named::Tab), Modifiers::SHIFT),
+            Some(Message::MoveFocus { backwards: true })
+        ));
+        for modifier in [Modifiers::CTRL, Modifiers::ALT, Modifiers::LOGO] {
+            assert!(focus_navigation(Key::Named(Named::Tab), modifier).is_none());
+        }
+        assert!(
+            focus_navigation(
+                Key::Character("secret-input-canary".into()),
+                Modifiers::empty()
+            )
+            .is_none()
+        );
+        assert!(focus_navigation(Key::Named(Named::Enter), Modifiers::empty()).is_none());
+    }
 
     #[test]
     fn client_errors_messages_and_notifications_do_not_echo_input() {

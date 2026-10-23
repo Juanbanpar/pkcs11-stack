@@ -12,6 +12,9 @@ Choose a module with **Browse**, or enter its file path, then select **Load**.
 The sidebar lists loaded modules and their tokens. Select a module for library and
 slot information, or a token for its overview and locator.
 
+Tab and Shift+Tab move between editable fields. Enter submits the module path or
+login PIN field. Buttons and resource lists currently require pointer input.
+
 **Refresh module** re-enumerates the selected module's slots and tokens. Removed or
 replaced tokens clear their selection. **Unload** finalizes the selected module;
 quitting finalizes all loaded modules.
