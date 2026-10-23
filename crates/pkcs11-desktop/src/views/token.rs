@@ -45,7 +45,7 @@ pub fn view<'a>(state: &'a UiState, token: &'a TokenEntry) -> Element<'a, Messag
         })
         .size(30),
         authentication(state, token),
-        tabs,
+        tabs.wrap(),
         content
     ]
     .spacing(18)
@@ -219,7 +219,8 @@ fn objects(state: &UiState) -> Element<'_, Message> {
                         .then_some(Message::RequestDelete)
                 )
             ]
-            .spacing(10),
+            .spacing(10)
+            .wrap(),
         );
         match object.class {
             Some(pkcs11_client::ObjectClass::PRIVATE_KEY) => {
@@ -277,7 +278,8 @@ fn objects(state: &UiState) -> Element<'_, Message> {
                                 .then_some(Message::OpenKeyOperation(CryptoMode::Unwrap))
                         )
                     ]
-                    .spacing(10),
+                    .spacing(10)
+                    .wrap(),
                 );
             }
             _ => {}
@@ -326,7 +328,7 @@ fn objects(state: &UiState) -> Element<'_, Message> {
         ))
         .size(14),
         row![
-            container(scrollable(list).height(340)).width(Length::FillPortion(2)),
+            container(scrollable(list).spacing(8).height(340)).width(Length::FillPortion(2)),
             container(detail).width(Length::FillPortion(3)).padding(12)
         ]
         .spacing(16)
@@ -398,7 +400,7 @@ fn mechanisms(state: &UiState) -> Element<'_, Message> {
         .spacing(10),
         text(format!("{count} of {} mechanisms", state.mechanisms.len())).size(14),
         row![
-            container(scrollable(list).height(340)).width(Length::FillPortion(2)),
+            container(scrollable(list).spacing(8).height(340)).width(Length::FillPortion(2)),
             container(detail).width(Length::FillPortion(3)).padding(12)
         ]
         .spacing(16)

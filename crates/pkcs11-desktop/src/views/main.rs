@@ -212,12 +212,12 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
         );
     }
     let body = row![
-        container(scrollable(navigation))
+        container(scrollable(navigation).spacing(8))
             .width(240)
             .height(Length::Fill)
             .padding(18)
             .style(container::rounded_box),
-        container(scrollable(detail))
+        container(scrollable(detail).spacing(8))
             .width(Length::Fill)
             .height(Length::Fill)
             .padding(24),
