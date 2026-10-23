@@ -23,6 +23,7 @@ flowchart TD
     runtime --> cryptoki
     adapter[pkcs11-rustls-adapter] --> runtime
     adapter --> rustls
+    desktop[pkcs11-desktop] --> client
 ```
 
 Runtime owns module initialization, sessions, authentication and mechanism
@@ -42,6 +43,9 @@ software crypto provider selection stay outside runtime.
   manage keys and certificates, and administer token PINs from the command line.
 - [pkcs11-rustls-adapter](crates/pkcs11-rustls-adapter/README.md): use token keys
   with rustls signing traits and server/client certificate resolvers.
+- [pkcs11-desktop](crates/pkcs11-desktop/README.md): native Iced window with
+  module loading, token browsing, metadata overviews and background execution.
+
 ## Status
 
 The libraries and CLI implement discovery, USER/SO authentication, session pooling,
@@ -55,12 +59,27 @@ TLS 1.2. Supported signing keys are RSA and EC P-256/P-384/P-521; TLS use also
 requires verification support from the application's crypto provider. See the
 [signing and TLS examples](docs/examples.md) for runnable programs.
 
-Encryption, decryption, derivation, wrapping and private-key import are not
-implemented. Certificate parsing and binding do not validate certificate trust;
-applications configure trust separately.
+RSA-OAEP encryption/decryption supports SHA-2 with a matching MGF1 digest and
+empty label. It processes one RSA block. Raw ECDH creates token-held generic
+secrets on P-256/P-384/P-521; AES key wrapping and unwrapping use RFC 3394.
+KDF application and private-key import are not implemented. Certificate parsing and binding do not validate
+certificate trust; applications configure trust separately.
+
+The desktop application loads and unloads modules, enumerates slots and tokens,
+and browses visible objects and advertised mechanisms with filters and metadata
+details. USER/SO login and logout support host PINs and token-protected
+authentication paths. Refresh updates inventories and clears stale selections.
+The GUI also generates signing key pairs, imports DER certificates, confirms
+object deletion, exports public objects, signs files and verifies signatures
+against selected certificates. It can also save bytes from a token's random
+generator, encrypt/decrypt small RSA-OAEP payloads, derive ECDH secrets, and
+wrap/unwrap AES keys with permitted keys. Administration supports confirmed token
+initialization, USER PIN initialization/reset, and USER/SO PIN changes with host PINs.
+
 ## Development
 
-Rust 1.85 or newer.
+Rust 1.85 or newer for libraries and CLI; Rust 1.88 or newer for desktop and
+full workspace checks.
 
 ```sh
 cargo fmt --all -- --check
@@ -75,6 +94,10 @@ bash tools/test-fuzz.sh
 
 The adapter's optional `tls12` feature enables TLS 1.2. Its default configuration
 uses rustls `std` without selecting a software crypto provider.
+
+Desktop uses Iced `tiny-skia`, `thread-pool`, `x11` and `wayland`, with default
+features disabled.
+
 [Test commands and configuration](tests/README.md) cover unit, property and
 SoftHSM integration tests. [Fuzzing](fuzz/README.md) describes the separate fuzz workspace.
 

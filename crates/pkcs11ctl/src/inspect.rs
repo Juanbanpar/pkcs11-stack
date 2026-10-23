@@ -94,28 +94,6 @@ pub(crate) fn attributes(reads: &[AttributeRead], names: &[&str]) -> Result<Valu
 }
 pub(crate) fn object_summary(object: &[AttributeRead], token: &Pkcs11Uri) -> Result<Value> {
     let attrs = attributes(object, &["class", "label", "id"])?;
-    let mut builder = Pkcs11Uri::builder();
-    for (name, value) in token.path_attributes() {
-        builder = builder.path_attribute(name, value)?;
-    }
-    if let Some(class) = attrs["class"]["value"]
-        .as_str()
-        .filter(|v| ["private", "public", "cert", "data", "secret-key"].contains(v))
-    {
-        builder = builder.path_attribute("type", class.as_bytes())?;
-    }
-    // URI criteria come from provider bytes, not the rendered JSON. Empty values
-    // are exact constraints too, and must not be widened into absent criteria.
-    for read in object {
-        if let Some(values) = &read.values {
-            for value in values.expose_values() {
-                builder = match value {
-                    Attribute::Id(bytes) => builder.path_attribute("id", bytes)?,
-                    Attribute::Label(bytes) => builder.path_attribute("object", bytes)?,
-                    _ => builder,
-                };
-            }
-        }
-    }
-    Ok(json!({"uri":builder.build()?.to_string(),"attributes":attrs}))
+    let uri = pkcs11_client::object_locator(token, object)?.map(|uri| uri.to_string());
+    Ok(json!({"uri":uri,"attributes":attrs}))
 }

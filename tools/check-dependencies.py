@@ -17,6 +17,7 @@ allowed = {
     "pkcs11-runtime": {"pkcs11-locator"},
     "pkcs11-client": {"pkcs11-runtime", "pkcs11-locator"},
     "pkcs11ctl": {"pkcs11-client", "pkcs11-locator"},
+    "pkcs11-desktop": {"pkcs11-client"},
     "pkcs11-rustls-adapter": {"pkcs11-runtime", "pkcs11-locator"},
 }
 for ident in members:
@@ -29,6 +30,8 @@ for ident in members:
         raise SystemExit(f"Only runtime may directly consume cryptoki: {name}")
     if name == "pkcs11ctl" and "pkcs11-client" not in direct:
         raise SystemExit("CLI must reuse client")
+    if name == "pkcs11-desktop" and "pkcs11-client" not in direct:
+        raise SystemExit("Desktop must reuse client")
     visited, pending = set(), [ident]
     while pending:
         current = pending.pop()
@@ -36,6 +39,8 @@ for ident in members:
             visited.add(current)
             pending.extend(nodes[current]["dependencies"])
     transitive = {packages[d]["name"] for d in visited}
+    if name != "pkcs11-desktop" and {"pkcs11-desktop", "iced"} & transitive:
+        raise SystemExit(f"Desktop dependency outside desktop: {name}")
     if name != "pkcs11-rustls-adapter" and {"rustls", "rustls-pki-types", "rustls-webpki"} & transitive:
         raise SystemExit(f"TLS dependency outside adapter: {name}")
     if name != "pkcs11ctl" and {"pkcs11ctl", "clap"} & transitive:

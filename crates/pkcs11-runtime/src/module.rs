@@ -19,7 +19,7 @@ use crate::{
 
 /// Owns one successful initialization of a trusted PKCS#11 library.
 ///
-/// Sessions borrow this owner or retain it through an owned pool's Arc.
+/// Sessions borrow this owner or retain it through shared ownership.
 /// No raw context or independent clone escapes.
 /// Already-initialized modules are rejected, never adopted or finalized.
 /// Do not mix independent lifecycle owners for the same module in one process.
@@ -40,6 +40,22 @@ impl std::fmt::Debug for Module {
 }
 
 impl Module {
+    /// Open a session that retains this initialization owner until it closes.
+    /// No new module is loaded. Drop owned sessions before explicit finalization.
+    pub fn open_owned_session(
+        self: &Arc<Self>,
+        uri: &Pkcs11Uri,
+        mode: SessionMode,
+    ) -> Result<Session<'static>, Error> {
+        let token = self.resolve_token_uri(uri)?;
+        let token = Token {
+            module: ModuleRef::Shared(self.clone()),
+            slot: token.slot,
+            info: token.info.clone(),
+        };
+        token.open_session(mode)
+    }
+
     /// Load a trusted shared library and initialize with native OS locking enabled.
     ///
     /// Module loading executes vendor code. There is no URI-driven automatic load.

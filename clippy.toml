@@ -1,1 +1,1 @@
-msrv = "1.85"
+# Use each package's Cargo.toml rust-version (libraries 1.85, desktop 1.88).

@@ -3,8 +3,20 @@
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum Error {
-    /// Export supports raw certificate/data values, never key material.
-    #[error("export supports certificate/data values only")]
+    /// A random request is empty or exceeds the client allocation bound.
+    #[error("random output length must be between 1 and 1048576 bytes")]
+    InvalidRandomLength,
+    /// Supplied signature is invalid for the selected certificate and input.
+    #[error("signature verification failed")]
+    SignatureMismatch,
+    /// Public key attributes are absent, inconsistent or invalid for SPKI encoding.
+    #[error("invalid or incomplete public key attributes")]
+    InvalidPublicKey,
+    /// Owned sessions still retain the module; close them before exclusive lifecycle work.
+    #[error("provider still has live owned consumers")]
+    ProviderInUse,
+    /// The selected object class or privacy is outside the requested export boundary.
+    #[error("object cannot be exported by this operation")]
     UnsupportedExport,
     /// A provider did not supply a requested attribute status.
     #[error("provider omitted attribute status")]
@@ -24,8 +36,8 @@ pub enum Error {
     /// No policy-permitted signing mechanism can prove the binding.
     #[error("no permitted mechanism for key/certificate binding")]
     NoBindingMechanism,
-    /// An identity request cannot be independently verified by this client.
-    #[error("unsupported identity verification parameters")]
+    /// A request cannot be independently verified by this client.
+    #[error("unsupported signature verification parameters")]
     UnsupportedVerification,
 }
 
@@ -45,12 +57,17 @@ pub enum ErrorKind {
     Client,
 }
 impl Error {
+    /// Whether OAEP initialization rejected this profile's parameters.
+    /// This does not authorize retries, digest downgrades or software fallback.
+    pub fn oaep_parameters_rejected(&self) -> bool {
+        matches!(self, Self::Runtime(error) if error.oaep_parameters_rejected())
+    }
     /// Classify without requiring consumers to inspect runtime error variants.
     pub fn kind(&self) -> ErrorKind {
         use pkcs11_runtime::Error as Runtime;
         match self {
-            Self::UnsupportedExport => ErrorKind::Input,
-            Self::MissingAttributeStatus => ErrorKind::Runtime,
+            Self::UnsupportedExport | Self::InvalidRandomLength => ErrorKind::Input,
+            Self::MissingAttributeStatus | Self::ProviderInUse => ErrorKind::Runtime,
             Self::Runtime(error) => match error {
                 Runtime::NotFound(_) | Runtime::Ambiguous { .. } => ErrorKind::Selection,
                 Runtime::InvalidParameters(_)
@@ -61,7 +78,9 @@ impl Error {
                 | Runtime::MissingMetadata(_)
                 | Runtime::ContextAuthenticationRequired
                 | Runtime::ProtectedPathUnavailable
-                | Runtime::ReadWriteRequired => ErrorKind::Policy,
+                | Runtime::ReadWriteRequired
+                | Runtime::RandomUnavailable => ErrorKind::Policy,
+                Runtime::UnsupportedCipher | Runtime::UnsupportedKeyOperation => ErrorKind::Policy,
                 _ => ErrorKind::Runtime,
             },
             _ => ErrorKind::Client,
@@ -77,5 +96,10 @@ mod tests {
     fn provider_omissions_are_not_classified_as_user_input() {
         assert_eq!(Error::MissingAttributeStatus.kind(), ErrorKind::Runtime);
         assert_eq!(Error::UnsupportedExport.kind(), ErrorKind::Input);
+        assert_eq!(Error::InvalidRandomLength.kind(), ErrorKind::Input);
+        assert_eq!(
+            Error::Runtime(pkcs11_runtime::Error::RandomUnavailable).kind(),
+            ErrorKind::Policy
+        );
     }
 }

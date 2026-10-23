@@ -100,6 +100,18 @@ computed digest, distinct from a message that still needs hashing.
 
 ## Identity association and verification
 
+`Client::signing_options` offers common SHA-2 message-signing choices under current
+key capabilities and the client's policy, including the planned mechanism and
+hashing boundary. PSS choices use a matching MGF1 digest and digest-length salt.
+Choices are advisory: signing rediscovers capabilities. `SignatureParameters`
+creates a typed request from borrowed message or digest bytes without retaining them.
+
+`Certificate::verification_options` supplies matching SHA-2 parameter choices.
+`verify_signature` independently verifies raw RSA or fixed-width ECDSA `r || s`
+signatures in software, returning `SignatureMismatch` for invalid signatures.
+It does not authenticate the certificate, establish trust, or associate it with
+a token key. Parameter validation remains separate from token signing policy.
+
 `CertificateDocument::from_der` parses exact X.509 DER independently of signing
 support. It provides original DER, SPKI, subject/issuer Names and serial-number DER
 for application inspection and certificate import. It accepts algorithms such as
@@ -161,14 +173,32 @@ provider.finalize()?;
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
+`Provider::generation_options` returns common RSA sizes and P-256/P-384/P-521
+choices within the provider's advertised key-pair generation bounds. Choices are
+advisory: a vendor can still reject the requested curve or template. The existing
+generation API keeps its full RSA range and requires a nonempty ID.
+
+`export_public` exports public certificate/data values and supported public keys.
+It rejects CKA_PRIVATE objects and private/secret key classes before reading values.
+RSA and named EC public attributes are validated and encoded as SubjectPublicKeyInfo
+DER; incomplete or invalid attributes fail. `export_value` retains its explicit
+raw certificate/data export behavior.
+
 `objects` reads only caller-requested attributes of persistent objects visible to
 the session. `inspect` reports available, unavailable, sensitive or unsupported
-attributes. Export accepts raw certificate/data values without parsing their
+attributes. `export_value` accepts raw certificate/data values without parsing their
 signing algorithms, and rejects key classes before reading their value. Imports
 create persistent public objects; certificate metadata comes from
 `CertificateDocument`, including for algorithms outside signing support. Data IDs
 use CKA_OBJECT_ID. Selectors still follow the runtime's CKA_ID semantics, so use
 unique labels to select data objects. IDs/labels do not imply uniqueness.
+
+`object_locator(&token, &attributes)` builds an object URI from available class,
+label and CKA_ID reads. Empty label/ID bytes remain exact constraints; token and
+module-path constraints are preserved. It returns `None` for missing identity,
+unsupported classes or labels that cannot be represented as URI text, and rejects
+credential-bearing token URIs. Resolve the resulting selector again before use;
+multiple objects can share the same metadata.
 
 `Provider::diagnose` exercises a fresh bounded runtime pool: simultaneous leases,
 exhaustion and reuse. It accepts an authentication factory called once per initial
@@ -176,6 +206,23 @@ lease and once for reuse; the factory returns borrowed credentials. This is an
 explicit diagnostic, not automatic recovery or a signing retry. CLI limits capacity
 to 1–64; the library accepts any nonzero capacity. Runtime keeps token-wide login
 semantics, so an established role does not validate the PIN again.
+
+`management_owned` returns a session that retains the provider's initialization
+owner without borrowing the provider. Use it to keep authentication active between
+application requests. `state` reads actual session state; `authenticate` applies
+one USER/SO login attempt; `logout` logs out the application's sessions on that
+token. SO requires read-write mode. These methods retain no PIN and never retry.
+Close owned sessions before `initialize_token` or `finalize`; live owned consumers
+return `Error::ProviderInUse`. A consumed or dropped provider does not finalize the
+module while an owned session remains alive.
+
+For confirmation flows, capture `TokenSnapshot::initialization_target` and pass
+it to `Provider::initialize_token_checked` after closing all consumers. It rejects
+changed slot/token metadata, initialized state or PIN bounds before initialization.
+The snapshot contains no live resources or credentials. Identical devices and
+changes between the check and native call cannot be distinguished; callers must
+arrange exclusive physical access. `accepts_new_pin` checks a nonempty host PIN
+against available advertised byte bounds; provider constraints remain authoritative.
 
 Management uses one explicitly authenticated session, not an additional pool.
 Mutations require RW mode and appropriate provider authorization. Failed operations
@@ -204,6 +251,82 @@ do not authorize retries.
 
 Runnable [signing examples](../../docs/examples.md) demonstrate `Provider::client`,
 generic signing, binding and explicit shutdown with PIN files and raw stdout output.
+
+## RSA-OAEP encryption
+
+`ManagementSession::oaep_options` checks a selected key's class, permissions,
+allowed mechanisms and RSA bounds before offering SHA-256/SHA-384/SHA-512 choices.
+Each choice uses matching OAEP/MGF1 digests and an empty label. Providers may still
+reject a digest parameter; advertisement is advisory and no probe operation occurs.
+
+`encrypt` accepts a `PublicKeyRef` and `EncryptRequest`; `decrypt` accepts a
+`PrivateKeyRef` and `DecryptRequest`. Both resolve the selector afresh and execute
+once on the token, with no fallback or padding downgrade. RSA keys must have
+2048–16384 bits. Input is one block: at 2048 bits, SHA-256 OAEP permits 190 plaintext
+bytes and ciphertext is exactly 256 bytes. This is not a bulk-file format or sender
+authentication. Decryption requires a key with CKA_DECRYPT and without
+CKA_ALWAYS_AUTHENTICATE; the current binding cannot perform context login followed
+by single-part OAEP decryption.
+
+Requests redact input in Debug. Successful `Plaintext` uses zeroizing storage;
+no bytes are returned after failure. cryptoki's transient decryption buffers on
+provider errors cannot currently be guaranteed zeroized.
+
+## Derivation and key transfer
+
+`ManagementSession::key_operation_options` checks the selected base/wrapping
+key's class, permissions, allowed mechanisms and advertised provider bounds.
+It returns an advisory `KeyOperationProfile` without performing crypto.
+Each request rechecks these constraints and resolves all selectors afresh.
+
+`derive` accepts a `DeriveRequest` with an `EcdhPeer` parsed from SPKI DER and a
+`SecretKeyIdentity`. The parser validates named-curve points on P-256/P-384/P-521
+and normalizes them to uncompressed SEC1 form. The base must be a private EC key
+with CKA_DERIVE on that curve, without per-operation authentication. The explicit
+null KDF creates raw ECDH material as a persistent private, sensitive,
+nonextractable generic secret with derivation permission only. Raw shared secrets
+never leave the provider. Peer authentication and a subsequent KDF are the
+caller's responsibility; this API does not implement the subsequent KDF.
+
+```no_run
+use pkcs11_client::{DeriveRequest, EcdhPeer, ManagementSession, ObjectRef, SecretKeyIdentity};
+fn derive(session: &mut ManagementSession<'_>, base: &ObjectRef, peer_der: &[u8])
+    -> Result<(), pkcs11_client::Error>
+{
+    let peer = EcdhPeer::from_spki_der(peer_der)?;
+    session.derive(base, &DeriveRequest {
+        peer: &peer,
+        identity: SecretKeyIdentity { id: b"agreement-1", label: b"ECDH material" },
+    })
+}
+```
+
+`wrap` accepts a `WrapRequest` naming an extractable AES-128/192/256 target.
+The wrapping key must be AES with CKA_WRAP; CKA_WRAP_WITH_TRUSTED requires a
+trusted wrapping key. The operation never reads CKA_VALUE or changes permissions.
+`unwrap` accepts an `UnwrapRequest` with a 24/32/40-byte RFC 3394 blob and an
+explicit identity. The AES unwrapping key must have CKA_UNWRAP. The created key
+is persistent, private, sensitive and nonextractable, with encryption/decryption
+permission only. Both use the default RFC 3394 IV; blobs contain no metadata.
+Provider wrapping/unwrapping templates remain authoritative.
+
+New identities require nonempty ID/label fields of at most 128 bytes and reject
+existing token secret-key IDs. The check is not atomic against another process.
+Derivation and unwrapping require RW mode and provider authorization. Creation
+has no retry or rollback: a failure may still have persistent effects. Requests
+and peer keys redact their payloads in Debug. No software fallback is used.
+
+## Random bytes
+
+`ManagementSession::generate_random` accepts a `RandomRequest` with a length from
+1 byte to one MiB. `RandomRequest::new` rejects other lengths before allocation
+or token calls. The session requests the token's RNG once, with no automatic login,
+software fallback or retry; the provider may require an authenticated session.
+
+Returned `RandomBytes` use `secrecy::SecretBox<Vec<u8>>`: Debug is redacted and
+storage is zeroized on drop, including partial output discarded after failures.
+Access bytes explicitly through `secrecy::ExposeSecret` when writing an intended
+output. Close the session separately to report lifecycle failures.
 
 ## Testing
 
