@@ -22,9 +22,7 @@ fn execute(matches: &clap::ArgMatches) -> Result<()> {
     let mut module = pkcs11_client::Provider::load(module_path)?;
     let outcome = operations::run(&mut module, name, m, &inputs);
     let finalized = module.finalize();
-    // Preserve the primary error if cleanup also fails, without retrying the operation.
-    let output = outcome?;
-    finalized?;
+    let output = finish(outcome, finalized, "module finalization")?;
     match output {
         operations::Output::Structured(value) => {
             emit(name, value, get(matches, "format") == Some("json"))

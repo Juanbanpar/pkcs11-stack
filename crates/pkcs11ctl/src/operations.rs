@@ -242,6 +242,15 @@ fn client_command(
     };
     let location = token_uri(uri(m, selector)?)?;
     let client = module.client(&location, NonZeroUsize::new(1).unwrap(), policy(m))?;
+    let outcome = client_operation(&client, name, m, inputs);
+    finish(outcome, client.close(), "client session closure")
+}
+fn client_operation(
+    client: &pkcs11_client::Client<'_>,
+    name: &str,
+    m: &ArgMatches,
+    inputs: &Inputs,
+) -> Result<Output> {
     let auth = || inputs.credential.auth(false);
     if name == "certificate" {
         let cert = client.certificate(uri(m, "object")?, auth())?;
@@ -331,8 +340,20 @@ fn management_command(
         } else {
             SessionMode::ReadOnly
         },
-        inputs.credential.auth(inputs.so),
+        pkcs11_client::Authentication::None,
     )?;
+    let outcome = (|| {
+        session.authenticate(inputs.credential.auth(inputs.so))?;
+        management_operation(&mut session, name, m, inputs)
+    })();
+    finish(outcome, session.close(), "session closure")
+}
+fn management_operation(
+    session: &mut pkcs11_client::ManagementSession<'_>,
+    name: &str,
+    m: &ArgMatches,
+    inputs: &Inputs,
+) -> Result<Output> {
     let value = match name {
         "objects" => {
             let token_uri = session.token_uri()?;
@@ -362,7 +383,6 @@ fn management_command(
             } else {
                 session.export_value(&reference)?
             };
-            session.close()?;
             return Ok(Output::Binary(bytes));
         }
         "init-pin" => {
@@ -422,6 +442,5 @@ fn management_command(
         }
         _ => return Err(usage("unknown command")),
     };
-    session.close()?;
     Ok(Output::Structured(value))
 }

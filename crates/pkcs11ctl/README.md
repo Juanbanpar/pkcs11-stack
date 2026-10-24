@@ -1,6 +1,6 @@
 # pkcs11ctl
 
-PKCS#11 inspection, signing and administration. through `pkcs11-client`.
+PKCS#11 inspection, signing and administration through `pkcs11-client`.
 
 ## Invocation
 
@@ -74,8 +74,10 @@ or silently prompts. Files and pipes are read once, not retried.
 PIN buffers use zeroizing storage and are borrowed by library calls. No input
 credentials are included in diagnostics. Token login is shared across sessions;
 `Authentication::None` does not imply logout. SO commands open RW sessions, while
-client signing uses USER/RO sessions. One invocation owns one client Provider and finalizes
-it after all clients/sessions are dropped.
+client signing uses USER/RO sessions. One invocation owns one client Provider.
+It checks client/session closure on success and failure, then finalizes the
+provider before releasing output. A close or finalization failure uses runtime exit code 5, retaining any primary operation
+error in the diagnostic. Cleanup does not retry the operation.
 
 Always-authenticate signing uses a separate `--context-pin-file PATH` or
 `--context-protected-path`. A bound `sign` performs two signatures (binding then
