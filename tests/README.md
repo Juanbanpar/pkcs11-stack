@@ -75,7 +75,10 @@ Typed ML-KEM tests cover all parameter sets, key permissions, allowed mechanisms
 read-only sessions, duplicate secret IDs, expected-parameter checks and ciphertext
 lengths. HMAC challenges compare full token-held secrets without extracting them,
 including the different secret produced for altered same-length ciphertext.
-Client tests cover persistent secret inspection/deletion, export refusal, explicit
+Public-key tests check RFC 9935 DER and FIPS 203 coefficient validation, import
+exported keys and use them for the secret-agreement checks. OpenSSL independently
+decodes the exported SPKI. Private public-key objects are refused, and duplicate
+IDs remain ambiguous. Client tests cover persistent secret inspection/deletion, export refusal, explicit
 session closure and semantic error categories.
 
 Runtime/client tests also require typed ML-DSA generation, capability checks,

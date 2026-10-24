@@ -20,3 +20,7 @@ Set `PKCS11_TEST_PQC_OPENSSL` to select an OpenSSL executable with ML-DSA suppor
 
 `.gitattributes` disables text conversion for fixture data, so Windows checkouts
 preserve the signed message, certificates and signatures byte for byte.
+
+`mlkem512.spki.der`, `mlkem768.spki.der` and `mlkem1024.spki.der` are RFC 9935
+public keys generated with OpenSSL 3.5.9 by `tools/generate-ml-kem-fixtures.sh`.
+The generator removes its temporary private keys on exit.

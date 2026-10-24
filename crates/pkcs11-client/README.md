@@ -431,6 +431,15 @@ The client exposes ML-KEM-512/768/1024 through scoped management sessions.
 `ml_kem_capabilities` checks the selected direction without performing crypto.
 Private decapsulation keys remain sensitive and nonextractable.
 
+`MlKemPublicKey::from_spki_der` accepts RFC 9935 public keys for all three
+parameter sets. It requires absent algorithm parameters, a byte-aligned raw
+public-key BIT STRING, the exact key length and canonical FIPS 203 coefficients.
+`to_spki_der` returns the same standard encoding. The management session's
+`export_ml_kem_public_key` reads only public, non-private objects;
+`import_ml_kem_public_key` creates a persistent public encapsulation key with an
+explicit ID/label in RW mode. It does not overwrite existing objects or establish
+peer trust. Duplicate key IDs make subsequent selection ambiguous.
+
 `encapsulate_ml_kem` returns public ciphertext and creates a persistent token-held
 raw shared secret under the `MlKemRequest` ID/label. `decapsulate_ml_kem` retains
 the corresponding secret under a different explicit identity. Both require RW

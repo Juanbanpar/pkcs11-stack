@@ -65,7 +65,7 @@ bound signature. The CLI exposes these workflows, including offline certificate
 verification and context authentication.
 
 Runtime and client also support ML-KEM-512/768/1024 key generation, encapsulation
-and decapsulation. Raw shared secrets remain sensitive and nonextractable on the
+and decapsulation, with RFC 9935 public-key import/export. Raw shared secrets remain sensitive and nonextractable on the
 token, with only further derivation permitted. Protocol KDF application and CLI
 ML-KEM workflows are not implemented.
 

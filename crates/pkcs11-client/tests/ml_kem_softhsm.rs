@@ -2,8 +2,8 @@
 //! Handle-free ML-KEM workflows using persistent nonextractable token secrets.
 use pkcs11_client::{
     Attribute, AttributeType, Authentication, Error, ErrorKind, MlKemOperation, MlKemParameterSet,
-    MlKemRequest, ObjectClass, Pin, PrivateKeyRef, Provider, PublicKeyRef, SessionMode,
-    object_reference,
+    MlKemPublicKey, MlKemRequest, ObjectClass, Pin, PrivateKeyRef, Provider, PublicKeyRef,
+    SessionMode, object_reference,
 };
 use secrecy::SecretString;
 
@@ -89,7 +89,36 @@ fn client_ml_kem_generation_and_shared_secret_lifecycle() {
                 .kind(),
             ErrorKind::Policy
         );
-        let ciphertext = session.encapsulate_ml_kem(&public, &sender).unwrap();
+        let der = session.export_ml_kem_public_key(&public).unwrap();
+        let peer = MlKemPublicKey::from_spki_der(&der).unwrap();
+        assert_eq!(peer.parameter_set(), parameter);
+        assert_eq!(peer.to_spki_der().unwrap(), der);
+        // Independent decoder: OpenSSL must preserve the generated SPKI exactly.
+        use std::{
+            io::Write,
+            process::{Command, Stdio},
+        };
+        let mut process = Command::new(std::env::var_os("PKCS11_TEST_PQC_OPENSSL").unwrap())
+            .args(["pkey", "-pubin", "-inform", "DER", "-outform", "DER"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        process.stdin.take().unwrap().write_all(&der).unwrap();
+        let output = process.wait_with_output().unwrap();
+        assert!(output.status.success());
+        assert_eq!(output.stdout, der);
+        session
+            .import_ml_kem_public_key(&peer, &[0xF3, index as u8], b"client peer")
+            .unwrap();
+        let imported = PublicKeyRef::new(
+            format!("pkcs11:token=pqc-test;id=%F3%{index:02X};type=public")
+                .parse()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(session.export_ml_kem_public_key(&imported).unwrap(), der);
+        let ciphertext = session.encapsulate_ml_kem(&imported, &sender).unwrap();
         assert_eq!(ciphertext.len(), parameter.ciphertext_length());
         assert_eq!(
             session
@@ -164,6 +193,7 @@ fn client_ml_kem_generation_and_shared_secret_lifecycle() {
                 ErrorKind::Selection
             );
         }
+        session.delete(imported.as_object_ref()).unwrap();
         session.delete(private.as_object_ref()).unwrap();
         session.delete(public.as_object_ref()).unwrap();
     }
