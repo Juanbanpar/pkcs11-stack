@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use iced::{
     Background, Border, Color, Theme,
-    widget::{button, container},
+    widget::{button, container, text},
 };
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -56,16 +56,52 @@ pub fn theme(dark: bool) -> Theme {
                 }
             } else {
                 Background {
-                    base: pair(250),
+                    base: pair(247),
                     weakest: pair(246),
-                    weaker: pair(242),
-                    weak: pair(238),
+                    weaker: pair(238),
+                    weak: pair(255),
                     neutral: pair(232),
-                    strong: pair(218),
+                    strong: pair(224),
                     stronger: pair(202),
                     strongest: pair(186),
                 }
             };
+            extended.primary.weak = Pair::new(
+                if dark {
+                    Color::from_rgb8(39, 62, 87)
+                } else {
+                    Color::from_rgb8(228, 239, 252)
+                },
+                if dark {
+                    Color::from_rgb8(190, 218, 250)
+                } else {
+                    Color::from_rgb8(20, 74, 132)
+                },
+            );
+            extended.success.weak = Pair::new(
+                if dark {
+                    Color::from_rgb8(35, 61, 44)
+                } else {
+                    Color::from_rgb8(235, 246, 238)
+                },
+                if dark {
+                    Color::from_rgb8(156, 215, 168)
+                } else {
+                    Color::from_rgb8(42, 102, 60)
+                },
+            );
+            extended.warning.weak = Pair::new(
+                if dark {
+                    Color::from_rgb8(75, 60, 31)
+                } else {
+                    Color::from_rgb8(255, 243, 218)
+                },
+                if dark {
+                    Color::from_rgb8(237, 209, 156)
+                } else {
+                    Color::from_rgb8(128, 90, 22)
+                },
+            );
             extended
         },
     )
@@ -85,7 +121,7 @@ pub fn surface(theme: &Theme) -> container::Style {
 }
 pub fn sidebar(theme: &Theme) -> container::Style {
     container::Style {
-        background: Some(theme.extended_palette().background.weak.color.into()),
+        background: Some(theme.extended_palette().background.weaker.color.into()),
         ..Default::default()
     }
 }
@@ -157,5 +193,71 @@ pub fn primary(theme: &Theme, status: button::Status) -> button::Style {
 pub fn danger(theme: &Theme, status: button::Status) -> button::Style {
     let mut style = button::danger(theme, status);
     style.border.radius = 8.0.into();
+    style
+}
+
+pub fn muted(theme: &Theme) -> text::Style {
+    text::Style {
+        color: Some(if theme.extended_palette().is_dark {
+            Color::from_rgb8(180, 180, 180)
+        } else {
+            Color::from_rgb8(98, 103, 110)
+        }),
+    }
+}
+pub fn accent(theme: &Theme) -> text::Style {
+    text::Style {
+        color: Some(theme.palette().primary),
+    }
+}
+pub fn inset(theme: &Theme) -> container::Style {
+    container::Style {
+        background: Some(theme.extended_palette().background.weaker.color.into()),
+        border: Border {
+            radius: 6.0.into(),
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+pub fn notice(theme: &Theme) -> container::Style {
+    let pair = theme.extended_palette().primary.weak;
+    container::Style {
+        background: Some(pair.color.into()),
+        text_color: Some(pair.text),
+        border: Border {
+            radius: 8.0.into(),
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+pub fn task_card(theme: &Theme, status: button::Status) -> button::Style {
+    let mut style = secondary(theme, status);
+    style.background = Some(
+        match status {
+            button::Status::Hovered => theme.extended_palette().primary.weak.color,
+            _ => theme.extended_palette().background.weak.color,
+        }
+        .into(),
+    );
+    style.border.radius = 10.0.into();
+    style
+}
+pub fn tab(theme: &Theme, status: button::Status) -> button::Style {
+    let mut style = navigation(theme, status);
+    style.border.radius = 5.0.into();
+    style
+}
+pub fn selected_tab(theme: &Theme, status: button::Status) -> button::Style {
+    let mut style = selected(theme, status);
+    style.border.radius = 5.0.into();
+    style
+}
+pub fn destructive_quiet(theme: &Theme, status: button::Status) -> button::Style {
+    let mut style = secondary(theme, status);
+    if status != button::Status::Disabled {
+        style.text_color = theme.palette().danger;
+    }
     style
 }

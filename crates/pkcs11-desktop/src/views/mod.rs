@@ -4,6 +4,7 @@ mod cipher;
 mod crypto;
 mod key_operations;
 pub mod main;
+pub(crate) mod object;
 mod operations;
 mod token;
 pub mod welcome;

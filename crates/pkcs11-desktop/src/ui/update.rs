@@ -156,6 +156,9 @@ impl App {
                     return super::focus::focus(format!("mechanism-{mechanism:?}"));
                 }
             }
+            Action::ToggleLocator if !modal => {
+                self.state.presentation.locator_expanded = !self.state.presentation.locator_expanded
+            }
             Action::Task(task) if !modal && self.state.can_submit() => {
                 self.state.presentation.task = task;
                 // Switching task invalidates file pickers and abandons the old form.

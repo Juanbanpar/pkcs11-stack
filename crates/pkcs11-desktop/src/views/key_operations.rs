@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-use crate::ui::{button, pick_list, text_input};
+use crate::ui::{button, components::EMPHASIS, pick_list, text_input};
 use crate::{
     app::Message,
     backend::CryptoMode,
@@ -24,7 +24,7 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
     } else {
         "Unwrap an AES key"
     };
-    let mut content = column![text(title).size(22)].spacing(10);
+    let mut content = column![text(title).size(22).font(EMPHASIS)].spacing(10);
     if let Some(profile) = form.profile {
         content = content.push(text(match profile {
             pkcs11_client::KeyOperationProfile::EcdhRaw(curve) => format!("Raw ECDH {curve:?} with an explicit null KDF. The token-held shared secret requires a later KDF before cryptographic use. Authenticate the peer public key separately."),
@@ -39,7 +39,7 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
     }
     if wrap {
         content = content.push(pick_list(form.targets.clone(), form.target.clone(), move |target| Message::KeyTarget { id, target }).placeholder("Target secret key").enabled(enabled))
-            .push(text("Candidates are secret keys. The client checks AES type, extractability and wrapping trust policy before wrapping; it never changes those permissions.").size(14));
+            .push(text("The target must be an extractable AES key that satisfies the wrapping trust policy. This action does not change key permissions.").size(14));
     } else {
         content = content.push(
             row![
@@ -103,7 +103,7 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
         .align_y(iced::Alignment::End),
     );
     container(content)
-        .padding(12)
+        .padding(18)
         .style(crate::ui::theme::surface)
         .into()
 }

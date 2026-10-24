@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-use crate::ui::{button, text_input};
+use crate::ui::{
+    button,
+    components::{self, EMPHASIS, muted},
+    text_input,
+};
 use crate::{
     app::Message,
     backend::ModuleEntry,
@@ -11,6 +15,7 @@ use iced::{
     Element, Length,
     widget::{column, container, row, rule, scrollable, text},
 };
+use iced_fonts::lucide;
 
 pub fn module_form(state: &UiState) -> Element<'_, Message> {
     let enabled = state.can_submit();
@@ -49,20 +54,62 @@ pub(super) fn field<'a>(label: &'a str, value: impl Into<String>) -> Element<'a,
 }
 fn module_view<'a>(state: &'a UiState, module: &'a ModuleEntry) -> Element<'a, Message> {
     let mut overview = column![
-        text(module.label()).size(30),
-        field("Path", module.path.to_string_lossy().into_owned()),
-        field("Description", &module.description),
-        field("Manufacturer", &module.manufacturer),
-        field("Library version", &module.library_version),
-        field("PKCS#11 version", &module.cryptoki_version),
-        text(format!(
-            "{} slots · {} tokens",
-            module.slots.len(),
-            module.tokens.len()
-        ))
-        .size(20),
+        muted("PROVIDER MODULE").size(11).font(EMPHASIS),
+        text(module.label())
+            .size(26)
+            .font(EMPHASIS)
+            .wrapping(text::Wrapping::WordOrGlyph),
+        muted(&module.description),
+        container(
+            column![
+                field("Library file", module.path.to_string_lossy().into_owned()),
+                field("Manufacturer", &module.manufacturer),
+                field("Library version", &module.library_version),
+                field("PKCS#11 version", &module.cryptoki_version)
+            ]
+            .spacing(12)
+        )
+        .padding(16)
+        .width(Length::Fill)
+        .style(theme::surface),
+        text(format!("Tokens ({})", module.tokens.len()))
+            .size(18)
+            .font(EMPHASIS),
     ]
-    .spacing(12);
+    .spacing(14);
+    for token in &module.tokens {
+        overview = overview.push(
+            button(
+                row![
+                    lucide::key().size(19).style(theme::accent),
+                    column![
+                        text(if token.label.is_empty() {
+                            "Unnamed token"
+                        } else {
+                            &token.label
+                        })
+                        .size(16)
+                        .font(EMPHASIS),
+                        muted(format!("{} · {}", token.model, token.serial)).size(13)
+                    ]
+                    .spacing(4)
+                    .width(Length::Fill),
+                    components::badge(token.login.label(), components::Tone::Neutral),
+                    lucide::chevron_right().size(16)
+                ]
+                .spacing(12)
+                .align_y(iced::Alignment::Center),
+            )
+            .width(Length::Fill)
+            .padding(16)
+            .style(theme::task_card)
+            .id(format!("module-token-{:?}", token.id))
+            .on_press(Message::SelectToken {
+                module: module.id,
+                token: token.id,
+            }),
+        );
+    }
     if let Some(error) = module.discovery_error {
         overview = overview
             .push(text(error.message()))
@@ -70,6 +117,11 @@ fn module_view<'a>(state: &'a UiState, module: &'a ModuleEntry) -> Element<'a, M
     } else if module.slots.is_empty() {
         overview = overview.push(text("The module reports no slots."));
     }
+    overview = overview.push(
+        text(format!("Slots ({})", module.slots.len()))
+            .size(18)
+            .font(EMPHASIS),
+    );
     for slot in &module.slots {
         overview = overview.push(
             container(
@@ -95,75 +147,128 @@ fn module_view<'a>(state: &'a UiState, module: &'a ModuleEntry) -> Element<'a, M
         overview = overview.push(text("No tokens available. Insert a token and refresh."));
     }
     overview
-        .push(button("Unload Module").on_press_maybe(state.can_submit().then_some(Message::Unload)))
+        .push(
+            button("Unload Module")
+                .style(theme::destructive_quiet)
+                .on_press_maybe(state.can_submit().then_some(Message::Unload)),
+        )
         .into()
 }
 
 pub fn view(state: &UiState) -> Element<'_, Message> {
-    let context = state
-        .token()
-        .map(|token| token.label.clone())
-        .or_else(|| state.module().map(ModuleEntry::label))
-        .unwrap_or_else(|| "PKCS#11 Desktop".into());
+    let refresh_label = match (state.token().is_some(), state.token_page) {
+        (true, crate::state::TokenPage::Objects) => "Refresh Objects",
+        (true, crate::state::TokenPage::Mechanisms) => "Refresh Mechanisms",
+        _ => "Refresh",
+    };
     let toolbar = container(
         row![
-            container(text(context).size(20).wrapping(text::Wrapping::None))
-                .width(Length::Fill)
-                .clip(true),
-            button("Add Module…")
-                .id("add-module")
-                .on_press_maybe(state.can_submit().then_some(Message::Ui(Action::AddModule))),
-            button("Refresh").on_press_maybe(
+            row![
+                lucide::shield().size(21).style(theme::accent),
+                text("PKCS#11 Desktop").size(16).font(EMPHASIS)
+            ]
+            .spacing(10)
+            .align_y(iced::Alignment::Center)
+            .width(Length::Fill),
+            button(
+                row![lucide::plus().size(16), text("Add Module…").size(14)]
+                    .spacing(6)
+                    .align_y(iced::Alignment::Center)
+            )
+            .id("add-module")
+            .on_press_maybe(state.can_submit().then_some(Message::Ui(Action::AddModule))),
+            button(
+                row![lucide::rotate_cw().size(15), text(refresh_label).size(14)]
+                    .spacing(6)
+                    .align_y(iced::Alignment::Center)
+            )
+            .on_press_maybe(
                 (state.module().is_some() && state.can_submit())
                     .then_some(Message::Ui(Action::Refresh))
             ),
-            button("Appearance")
+            button(text("Appearance").size(14))
+                .style(theme::navigation)
                 .id("appearance")
                 .on_press(Message::Ui(Action::Appearance)),
-            button("Help")
+            button(text("Help").size(14))
+                .style(theme::navigation)
                 .id("keyboard-help")
                 .on_press(Message::Ui(Action::KeyboardHelp)),
-            button("About").on_press(Message::About),
+            button(text("About").size(14))
+                .style(theme::navigation)
+                .on_press(Message::About),
         ]
-        .spacing(8)
+        .spacing(6)
         .align_y(iced::Alignment::Center),
     )
-    .padding([12, 16]);
+    .padding([10, 16]);
     let mut navigation = column![
-        button("Welcome")
-            .width(Length::Fill)
-            .style(if state.screen == Screen::Welcome {
+        muted("WORKSPACE").size(11).font(EMPHASIS),
+        button(
+            row![lucide::house().size(16), text("Welcome").size(14)]
+                .spacing(10)
+                .align_y(iced::Alignment::Center)
+        )
+        .width(Length::Fill)
+        .style(if state.screen == Screen::Welcome {
+            theme::selected
+        } else {
+            theme::navigation
+        })
+        .arrows()
+        .on_press(Message::Navigate(Screen::Welcome)),
+        button(
+            row![lucide::database().size(16), text("Modules").size(14)]
+                .spacing(10)
+                .align_y(iced::Alignment::Center)
+        )
+        .width(Length::Fill)
+        .style(
+            if state.screen == Screen::Modules && state.selected_module.is_none() {
                 theme::selected
             } else {
                 theme::navigation
-            })
-            .arrows()
-            .on_press(Message::Navigate(Screen::Welcome)),
-        button("Modules")
-            .width(Length::Fill)
-            .style(
-                if state.screen == Screen::Modules && state.selected_module.is_none() {
-                    theme::selected
-                } else {
-                    theme::navigation
-                }
-            )
-            .arrows()
-            .on_press(Message::Navigate(Screen::Modules)),
+            }
+        )
+        .arrows()
+        .on_press(Message::Navigate(Screen::Modules)),
     ]
     .spacing(4);
+    navigation = navigation.push(
+        container(
+            row![
+                muted("LOADED MODULES")
+                    .size(11)
+                    .font(EMPHASIS)
+                    .width(Length::Fill),
+                components::badge(
+                    state.loaded_modules.len().to_string(),
+                    components::Tone::Neutral
+                )
+            ]
+            .align_y(iced::Alignment::Center),
+        )
+        .padding([16, 0]),
+    );
     if state.loaded_modules.is_empty() {
-        navigation = navigation.push(text("No modules loaded").size(14));
+        navigation = navigation.push(muted("Add a module to see its tokens here."));
     }
     for module in &state.loaded_modules {
         let collapsed = state.presentation.collapsed.contains(&module.id.0);
         navigation = navigation.push(
             row![
-                button(if collapsed { "+" } else { "−" })
-                    .on_press(Message::Ui(Action::ToggleModule(module.id))),
+                button(if collapsed {
+                    lucide::chevron_right().size(14)
+                } else {
+                    lucide::chevron_down().size(14)
+                })
+                .padding([8, 6])
+                .style(theme::navigation)
+                .on_press(Message::Ui(Action::ToggleModule(module.id))),
                 button(
                     text(module.label())
-                        .size(14)
+                        .size(13)
+                        .font(EMPHASIS)
                         .wrapping(text::Wrapping::WordOrGlyph)
                 )
                 .width(Length::Fill)
@@ -188,18 +293,24 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
                 };
                 navigation = navigation.push(
                     container(
-                        button(column![text(label), text(&token.serial).size(12)].spacing(4))
-                            .width(Length::Fill)
-                            .arrows()
-                            .style(if state.selected_token == Some(token.id) {
-                                theme::selected
-                            } else {
-                                theme::navigation
-                            })
-                            .on_press(Message::SelectToken {
-                                module: module.id,
-                                token: token.id,
-                            }),
+                        button(
+                            column![
+                                text(label).size(14).wrapping(text::Wrapping::WordOrGlyph),
+                                muted(&token.serial).size(12)
+                            ]
+                            .spacing(4),
+                        )
+                        .width(Length::Fill)
+                        .arrows()
+                        .style(if state.selected_token == Some(token.id) {
+                            theme::selected
+                        } else {
+                            theme::navigation
+                        })
+                        .on_press(Message::SelectToken {
+                            module: module.id,
+                            token: token.id,
+                        }),
                     )
                     .padding([0, 12]),
                 );
@@ -234,14 +345,14 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
     };
     let body = row![
         container(scrollable(navigation).spacing(8))
-            .width(220)
+            .width(212)
             .height(Length::Fill)
             .padding(12)
             .style(theme::sidebar),
         container(content)
             .width(Length::Fill)
             .height(Length::Fill)
-            .padding(24),
+            .padding([18, 20]),
     ]
     .height(Length::Fill);
     let mut layout = column![toolbar, rule::horizontal(1)];
@@ -349,7 +460,36 @@ fn dialog(state: &UiState) -> Option<Element<'_, Message>> {
             text(
                 "This permanently deletes this object only; related keys and certificates are kept."
             ),
-            text(object.uri.as_deref().unwrap_or("")).font(iced::Font::MONOSPACE),
+            container(
+                column![
+                    text(if object.label.is_empty() {
+                        "Unnamed object"
+                    } else {
+                        &object.label
+                    })
+                    .size(17)
+                    .font(EMPHASIS),
+                    muted(format!(
+                        "{} · ID {}",
+                        object.class_name(),
+                        object.identifier
+                    )),
+                    muted(
+                        state
+                            .token()
+                            .map(|token| format!("Token {} · {}", token.label, token.serial))
+                            .unwrap_or_default()
+                    ),
+                ]
+                .spacing(6)
+            )
+            .padding(12)
+            .width(Length::Fill)
+            .style(theme::inset),
+            text(object.uri.as_deref().unwrap_or(""))
+                .size(13)
+                .font(iced::Font::MONOSPACE)
+                .wrapping(text::Wrapping::Glyph),
             row![
                 button("Cancel")
                     .id("modal-cancel")
@@ -363,7 +503,7 @@ fn dialog(state: &UiState) -> Option<Element<'_, Message>> {
         .spacing(16)
         .into()
     } else if state.dialog == Some(Dialog::About) {
-        column![text("PKCS#11 Desktop").size(24), text("Browse tokens, manage objects, and perform cryptographic operations through PKCS#11 modules."), button("Close").id("modal-cancel").on_press(Message::DismissDialog)].spacing(16).into()
+        column![text("PKCS#11 Desktop").size(24).font(EMPHASIS), text("Browse tokens, manage objects, and perform cryptographic operations through PKCS#11 modules."), muted("MIT OR Apache-2.0"), button("Close").id("modal-cancel").on_press(Message::DismissDialog), text("Icon notices").size(16).font(EMPHASIS), text(include_str!("../../LICENSE-LUCIDE")).size(12)].spacing(16).into()
     } else {
         return None;
     };

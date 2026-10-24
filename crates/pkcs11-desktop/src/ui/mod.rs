@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
+pub mod components;
 mod controls;
 mod presentation;
 pub mod theme;

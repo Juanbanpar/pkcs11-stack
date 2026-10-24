@@ -18,6 +18,7 @@ pub enum Action {
     Close,
     Escape,
     BackToList,
+    ToggleLocator,
     SortObjects(ObjectSort),
     SortMechanisms(MechanismSort),
     Task(Option<ManagementTask>),
@@ -80,6 +81,7 @@ pub struct Presentation {
     pub mechanism_sort: MechanismSort,
     pub mechanism_descending: bool,
     pub show_detail: bool,
+    pub locator_expanded: bool,
     pub width: f32,
 }
 impl Default for Presentation {
@@ -98,6 +100,7 @@ impl Default for Presentation {
             mechanism_sort: MechanismSort::Name,
             mechanism_descending: false,
             show_detail: false,
+            locator_expanded: false,
             width: 1060.0,
         }
     }

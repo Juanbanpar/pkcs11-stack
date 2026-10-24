@@ -585,6 +585,111 @@ fn populated_state() -> UiState {
 }
 
 #[test]
+fn representative_screens_render_without_a_provider() {
+    let mut state = populated_state();
+    for (width, height) in [(900, 600), (1440, 900)] {
+        state.presentation.width = width as f32;
+        for (name, page) in [
+            ("overview", TokenPage::Overview),
+            ("objects", TokenPage::Objects),
+            ("mechanisms", TokenPage::Mechanisms),
+            ("operations", TokenPage::Operations),
+            ("administration", TokenPage::Administration),
+        ] {
+            state.token_page = page;
+            state.selected_object = (page == TokenPage::Objects).then_some(ResourceId(3));
+            state.selected_mechanism = (page == TokenPage::Mechanisms)
+                .then_some(pkcs11_client::MechanismType::SHA256_RSA_PKCS);
+            for dark in [false, true] {
+                render_screen(&state, name, width, height, dark);
+            }
+        }
+    }
+}
+
+fn render_screen(state: &UiState, name: &str, width: u32, height: u32, dark: bool) {
+    let mut ui = iced_test::Simulator::with_size(
+        iced::Settings {
+            default_text_size: iced::Pixels(16.0),
+            fonts: vec![iced_fonts::LUCIDE_FONT_BYTES.into()],
+            ..Default::default()
+        },
+        Size::new(width as f32, height as f32),
+        crate::views::main::view(state),
+    );
+    let snapshot = ui
+        .snapshot(&theme::theme(dark))
+        .expect("rendered interface");
+    if let Some(directory) = std::env::var_os("PKCS11_DESKTOP_SNAPSHOT_DIR") {
+        assert!(
+            snapshot
+                .matches_image(std::path::PathBuf::from(directory).join(format!(
+                    "{name}-{width}-{}",
+                    if dark { "dark" } else { "light" }
+                )))
+                .expect("write UI snapshot"),
+            "snapshot differs from the supplied baseline"
+        );
+    }
+}
+
+#[test]
+fn workflow_screens_render_without_a_provider() {
+    use crate::backend::{
+        BackendCommand, BackendEvent, BackendResult, CryptoMode, LoginRole, SignatureOption,
+    };
+    let mut welcome = UiState::default();
+    welcome.worker_available = true;
+    render_screen(&welcome, "welcome", 900, 600, false);
+
+    let mut module = populated_state();
+    module.select_module(ResourceId(1));
+    render_screen(&module, "module", 1060, 720, false);
+
+    let mut login = populated_state();
+    login.loaded_modules[0].tokens[0].login = LoginState::Public;
+    login.open_login(LoginRole::User);
+    assert!(login.login_form.is_some());
+    render_screen(&login, "login", 900, 600, true);
+
+    let mut object = populated_state();
+    object.token_page = TokenPage::Objects;
+    object.presentation.width = 900.0;
+    object.presentation.show_detail = true;
+    render_screen(&object, "object-detail", 900, 600, false);
+    object.request_delete();
+    assert!(object.management.confirmation.is_some());
+    render_screen(&object, "delete", 900, 600, false);
+
+    let mut sign = populated_state();
+    sign.token_page = TokenPage::Objects;
+    let BackendCommand::CryptoOptions { id, scope, .. } =
+        sign.open_crypto(CryptoMode::Sign).expect("signing form")
+    else {
+        panic!("signature choices request");
+    };
+    sign.event(BackendEvent::Completed {
+        id,
+        result: Ok(BackendResult::CryptoOptions {
+            scope,
+            context: false,
+            options: vec![SignatureOption {
+                parameters: pkcs11_client::SignatureParameters {
+                    algorithm: pkcs11_client::SignatureAlgorithm::RsaPkcs1,
+                    digest: pkcs11_client::DigestAlgorithm::Sha256,
+                    pss: None,
+                },
+                plan: Some((
+                    pkcs11_client::MechanismType::SHA256_RSA_PKCS,
+                    pkcs11_client::HashLocation::Token,
+                )),
+            }],
+        }),
+    });
+    render_screen(&sign, "sign", 1060, 720, true);
+}
+
+#[test]
 fn filtering_out_a_selection_returns_the_narrow_browser_to_the_list() {
     let mut state = populated_state();
     state.token_page = TokenPage::Objects;
@@ -618,6 +723,21 @@ fn back_to_list_restores_the_selected_rows_keyboard_focus() {
 }
 
 #[test]
+fn showing_a_locator_does_not_read_or_change_the_selected_object() {
+    fn objects() -> UiState {
+        let mut state = populated_state();
+        state.token_page = TokenPage::Objects;
+        state
+    }
+    let mut app = run(objects, &["click \"Show PKCS#11 locator\""]);
+    assert!(app.state.presentation.locator_expanded);
+    assert_eq!(app.state.selected_object, Some(ResourceId(3)));
+    assert!(app.state.current_operation.is_none());
+    let _ = app.update(Message::SelectModule(ResourceId(1)));
+    assert!(!app.state.presentation.locator_expanded);
+}
+
+#[test]
 fn a_stale_selection_cannot_open_an_empty_detail_view() {
     let mut state = state();
     state.token_page = TokenPage::Objects;
@@ -629,12 +749,132 @@ fn a_stale_selection_cannot_open_an_empty_detail_view() {
 }
 
 #[test]
+fn secondary_text_and_status_badges_keep_readable_contrast() {
+    for dark in [false, true] {
+        let theme = theme::theme(dark);
+        let palette = theme.extended_palette();
+        let secondary = theme::muted(&theme).color.expect("secondary text color");
+        for background in [
+            palette.background.base.color,
+            palette.background.weak.color,
+            palette.background.weaker.color,
+        ] {
+            assert!(
+                secondary.relative_contrast(background) >= 4.5,
+                "secondary text contrast"
+            );
+        }
+        for pair in [
+            palette.primary.weak,
+            palette.success.weak,
+            palette.warning.weak,
+        ] {
+            assert!(
+                pair.text.relative_contrast(pair.color) >= 4.5,
+                "status label contrast"
+            );
+        }
+    }
+}
+
+#[test]
+fn identity_read_failures_remain_distinguishable_in_the_inspector() {
+    let mut state = populated_state();
+    state.objects[0].uri = None;
+    state.objects[0].fields = vec![
+        crate::backend::MetadataField {
+            name: "Label",
+            status: "sensitive",
+            value: None,
+        },
+        crate::backend::MetadataField {
+            name: "ID",
+            status: "unsupported",
+            value: None,
+        },
+    ];
+    let mut ui = iced_test::simulator(crate::views::object::detail(&state));
+    assert!(ui.find("sensitive").is_ok());
+    assert!(ui.find("unsupported").is_ok());
+}
+
+#[test]
+fn text_attributes_are_displayed_verbatim() {
+    let mut state = populated_state();
+    state.object_details = Some(vec![crate::backend::MetadataField {
+        name: "Application",
+        status: "available",
+        value: Some("true".into()),
+    }]);
+    let mut ui = iced_test::simulator(crate::views::object::detail(&state));
+    assert!(ui.find("true").is_ok());
+    assert!(ui.find("Yes").is_err());
+}
+
+#[test]
+fn primary_actions_stay_visible_at_supported_window_sizes() {
+    use iced::advanced::widget::{Id, Operation, operation::Focusable};
+    struct Bounds(Vec<(Id, iced::Rectangle)>);
+    impl Operation for Bounds {
+        fn traverse(&mut self, operate: &mut dyn FnMut(&mut dyn Operation)) {
+            operate(self);
+        }
+        fn focusable(&mut self, id: Option<&Id>, bounds: iced::Rectangle, _: &mut dyn Focusable) {
+            if let Some(id) = id {
+                self.0.push((id.clone(), bounds));
+            }
+        }
+    }
+    for (width, height) in [(900.0, 600.0), (1060.0, 720.0), (1440.0, 900.0)] {
+        for page in [TokenPage::Objects, TokenPage::Operations] {
+            let mut state = populated_state();
+            state.token_page = page;
+            state.presentation.width = width;
+            state.presentation.show_detail = true;
+            let mut renderer = iced::Renderer::new(iced::Font::DEFAULT, iced::Pixels(16.0));
+            let mut ui = iced_test::runtime::UserInterface::build(
+                crate::views::main::view(&state),
+                Size::new(width, height),
+                iced_test::runtime::user_interface::Cache::default(),
+                &mut renderer,
+            );
+            let mut bounds = Bounds(vec![]);
+            ui.operate(&renderer, &mut bounds);
+            let names: &[&str] = if page == TokenPage::Objects {
+                &["crypto-Sign"]
+            } else {
+                &[
+                    "task-Some(Generate)",
+                    "task-Some(Import)",
+                    "task-Some(Random)",
+                ]
+            };
+            for name in names {
+                let (_, area) = bounds
+                    .0
+                    .iter()
+                    .find(|(id, _)| id == &Id::new(name))
+                    .expect("primary action is enabled");
+                assert!(
+                    area.y >= 0.0
+                        && area.y + area.height <= height - 24.0
+                        && area.x + area.width <= width,
+                    "primary action must be visible without scrolling: {name}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn refreshing_resources_closes_the_obsolete_narrow_detail_view() {
     let mut state = populated_state();
     state.token_page = TokenPage::Objects;
     state.presentation.show_detail = true;
+    state.presentation.locator_expanded = true;
     assert!(state.read_objects().is_some());
     assert!(!state.presentation.show_detail);
+    assert!(!state.presentation.locator_expanded);
     assert!(state.selected_object.is_none());
     state.cancel();
     state.token_page = TokenPage::Mechanisms;

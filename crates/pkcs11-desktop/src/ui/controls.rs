@@ -415,6 +415,7 @@ fn action_id(message: &Message) -> String {
         Message::Navigate(screen) => format!("screen-{screen:?}"),
         Message::OpenLogin(role) => format!("login-{role:?}"),
         Message::Ui(Action::Refresh) => "refresh".into(),
+        Message::Ui(Action::ToggleLocator) => "toggle-locator".into(),
         Message::Ui(Action::BackToList) => "back-to-list".into(),
         Message::Ui(Action::Close) => "close-overlay".into(),
         Message::Ui(Action::ToggleModule(id)) => format!("expand-{id:?}"),

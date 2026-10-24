@@ -324,6 +324,7 @@ impl UiState {
         Some(BackendCommand::Refresh { id, module })
     }
     fn reset_browser(&mut self) {
+        self.presentation.locator_expanded = false;
         self.administration_form = None;
         self.random = RandomUi::default();
         self.clear_crypto_form();
@@ -356,6 +357,7 @@ impl UiState {
         if matches!(self.dialog, Some(Dialog::Delete(_))) {
             self.dialog = None;
         }
+        self.presentation.locator_expanded = false;
         self.token_page = page;
         self.selected_object = None;
         self.object_details = None;
@@ -376,6 +378,7 @@ impl UiState {
         let id = self.begin(OperationKind::Objects)?;
         self.clear_crypto_form();
         self.presentation.show_detail = false;
+        self.presentation.locator_expanded = false;
         self.objects.clear();
         self.objects_loaded = false;
         self.selected_object = None;
@@ -413,6 +416,7 @@ impl UiState {
         if matches!(self.dialog, Some(Dialog::Delete(_))) {
             self.dialog = None;
         }
+        self.presentation.locator_expanded = false;
         self.selected_object = Some(object);
         self.object_details = None;
         if !inspectable {
