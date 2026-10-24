@@ -95,8 +95,9 @@ bash tools/test-fuzz.sh
 The adapter's optional `tls12` feature enables TLS 1.2. Its default configuration
 uses rustls `std` without selecting a software crypto provider.
 
-Desktop uses Iced `tiny-skia`, `thread-pool`, `x11` and `wayland`, with default
-features disabled.
+Desktop uses Iced `tiny-skia`, `thread-pool`, `wayland`, `advanced` and
+`linux-theme-detection`, with default features disabled. `iced_aw` enables only
+`badge` and `spinner`. Linux requires Wayland.
 
 [Test commands and configuration](tests/README.md) cover unit, property and
 SoftHSM integration tests. [Fuzzing](fuzz/README.md) describes the separate fuzz workspace.
