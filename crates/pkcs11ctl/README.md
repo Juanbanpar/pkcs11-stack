@@ -63,6 +63,7 @@ available, unsupported, sensitive and unavailable. Byte attributes are encoded
 as hexadecimal; labels also have a UTF-8 text field when valid. Defaults never
 request secret key material. `export` refuses private/secret-key classes. Public-key
 export validates RSA or P-256/P-384/P-521 public attributes and encodes SPKI DER;
+`--key-family ml-dsa` exports an ML-DSA public key instead;
 certificate/data export retains its raw-value behavior.
 
 ## Authentication
@@ -97,7 +98,7 @@ pkcs11ctl --module /path/to/module.so sign \
   --output signature.bin --pin-file /secure/user.pin
 ```
 
-`sign` and `plan` require `--algorithm rsa-pkcs1|rsa-pss|ecdsa`,
+For classical keys, `sign` and `plan` require `--algorithm rsa-pkcs1|rsa-pss|ecdsa`,
 `--digest sha256|sha384|sha512` and `--input PATH`. `--input-kind message|digest`
 defaults to message; digest input is never hashed again. Its length must match the
 selected digest (32, 48 or 64 bytes), checked before output reservation or module
@@ -126,6 +127,51 @@ loading the module. Incomplete new files are removed on failure. An output or
 finalization error after signing does not undo the token operation: do not assume
 an error means no signature or mutation occurred.
 
+## ML-DSA
+
+`generate --kind ml-dsa-44|ml-dsa-65|ml-dsa-87` generates a persistent,
+sensitive, nonextractable key pair. `--bits` is RSA-only. The provider must support
+the selected parameter set; no software generation or signing fallback is used.
+
+```sh
+pkcs11ctl --module /path/to/module.so generate \
+  --token 'pkcs11:serial=123' --kind ml-dsa-65 --id 01 --label signing \
+  --pin-file /secure/user.pin --confirm
+pkcs11ctl --module /path/to/module.so sign \
+  --key 'pkcs11:serial=123;id=%01;type=private' \
+  --algorithm ml-dsa-65 --input message.bin --context-file context.bin \
+  --hedging required --output signature.bin --pin-file /secure/user.pin
+pkcs11ctl verify --certificate-file certificate.der \
+  --algorithm ml-dsa-65 --input message.bin --context-file context.bin \
+  --signature signature.bin
+```
+
+`sign`, `plan` and `verify` accept `--algorithm ml-dsa-44|ml-dsa-65|ml-dsa-87`.
+These are pure ML-DSA requests: digest input, `--digest`, PSS parameters and
+`--hashing` are rejected. Messages are limited to 64 MiB; empty messages are valid.
+`--context-file PATH` supplies up to 255 binary context bytes, defaulting to empty.
+It requires a file path, while `--input -` can read the message from stdin.
+Verification must use the same context as signing.
+
+`sign` and `plan` accept `--hedging required|preferred|deterministic`, defaulting
+to `required`. Required hedging demands fresh token randomness; preferred permits
+the provider's hedged or deterministic implementation; deterministic requires
+repeatable signing. Provider errors are returned without retry. `plan` validates
+current capabilities and reports parameters, context length, hedging and context
+authentication requirements without signing.
+
+Use `--key-family ml-dsa` with `capabilities`, `certificate`, `bind`, and public-key
+`export` to select the client's ML-DSA API. These commands default to `classical`.
+ML-DSA public export requires a `type=public` URI and writes RFC 9881 SPKI DER.
+Certificate import and raw certificate export need no family option.
+
+`sign --certificate URI` binds before signing and verifies the resulting signature
+in software. `bind --key-family ml-dsa` performs only the binding probe. Binding
+always requires hedging, independently of the message's `--hedging` choice.
+Always-authenticate keys use the separate context PIN options described above,
+including two authentications for bound signing. Certificate verification is
+available offline or against a token certificate and establishes no issuer trust.
+
 ## Verification and random bytes
 
 ```sh
@@ -138,7 +184,8 @@ pkcs11ctl --module /path/to/module.so random \
 
 `verify` accepts either `--certificate-file PATH` (X.509 DER, no module or login)
 or `--certificate URI` (loaded through the client, with optional USER authentication).
-It uses the same algorithm, digest, PSS and input-kind arguments as signing.
+It uses the same algorithm and input arguments as signing, including classical
+digest/PSS parameters or an ML-DSA context.
 Verification always runs in software and accepts no `--hashing` policy.
 RSA signatures are raw modulus-width bytes; ECDSA signatures are fixed-width
 `r || s`. A success reports `verified: true` and `trust_validated: false`;
@@ -171,7 +218,8 @@ after the check cannot be detected. Arrange exclusive physical access when erasi
 Runtime requires exclusive module ownership, so no borrowed token/session can
 survive initialization. Token labels are at most 32 UTF-8 bytes.
 
-`generate` supports `rsa`, `p256`, `p384` and `p521`. RSA defaults to 2048 bits;
+`generate` supports `rsa`, `p256`, `p384`, `p521` and the ML-DSA kinds above.
+RSA defaults to 2048 bits;
 `--bits` accepts multiples of eight from 2048 to 16384, subject to provider bounds.
 `--always-authenticate` sets the private key's context-authentication requirement.
 Both objects are persistent and share the explicit binary ID and label. The private
@@ -223,4 +271,5 @@ cargo test -p pkcs11ctl --locked
 
 Unit tests check argument validation, independent verification fixtures, redaction,
 output preservation and exit codes. SoftHSM tests exercise inspection, signing,
-verification, random generation and administration commands.
+verification, random generation and administration commands. The required PQC
+provider lane also tests ML-DSA CLI workflows and OpenSSL interoperability.

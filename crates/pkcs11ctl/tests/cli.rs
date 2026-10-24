@@ -563,3 +563,167 @@ fn token_erasure_requires_complete_expected_identity_before_loading() {
         assert_eq!(run(&args).status.code(), Some(5));
     }
 }
+
+#[test]
+fn ml_dsa_offline_verification_checks_all_parameters_and_contexts() {
+    let dir = Scratch::new();
+    let fixtures =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../pkcs11-client/tests/fixtures");
+    let context = dir.0.join("context");
+    std::fs::write(&context, b"fixture-context").unwrap();
+    for parameter in ["44", "65", "87"] {
+        let algorithm = format!("ml-dsa-{parameter}");
+        let cert = fixtures.join(format!("mldsa{parameter}.der"));
+        let message = fixtures.join("message.txt");
+        for suffix in ["sig", "context.sig"] {
+            let sig = fixtures.join(format!("mldsa{parameter}.{suffix}"));
+            let mut args = vec![
+                "--module",
+                "/must-not-load",
+                "--format",
+                "json",
+                "verify",
+                "--algorithm",
+                &algorithm,
+                "--certificate-file",
+                cert.to_str().unwrap(),
+                "--input",
+                message.to_str().unwrap(),
+                "--signature",
+                sig.to_str().unwrap(),
+            ];
+            if suffix == "context.sig" {
+                args.extend(["--context-file", context.to_str().unwrap()]);
+            }
+            let result = run(&args);
+            assert!(
+                result.status.success(),
+                "{}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            let value: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
+            assert_eq!(
+                value["result"],
+                serde_json::json!({"verified":true,"trust_validated":false})
+            );
+            for bad in [
+                vec!["--digest", "sha256"],
+                vec!["--input-kind", "digest"],
+                vec!["--mgf-digest", "sha256"],
+                vec!["--salt-length", "0"],
+            ] {
+                let mut invalid = args.clone();
+                invalid.extend(bad);
+                assert_eq!(run(&invalid).status.code(), Some(2));
+            }
+            if suffix == "context.sig" {
+                args.truncate(args.len() - 2);
+                assert_eq!(run(&args).status.code(), Some(4));
+            }
+            let wrong = if parameter == "44" {
+                "ml-dsa-65"
+            } else {
+                "ml-dsa-44"
+            };
+            let mut invalid = args.clone();
+            invalid[6] = wrong;
+            assert_eq!(run(&invalid).status.code(), Some(4));
+        }
+    }
+}
+
+#[test]
+fn ml_dsa_options_fail_before_provider_and_output_creation() {
+    let dir = Scratch::new();
+    let message = dir.0.join("message");
+    let context = dir.0.join("context");
+    let output = dir.0.join("signature");
+    std::fs::write(&message, b"message").unwrap();
+    std::fs::write(&context, [0; 256]).unwrap();
+    let base = [
+        "--module",
+        "/must-not-load",
+        "--format",
+        "json",
+        "sign",
+        "--key",
+        "pkcs11:token=test;id=%01;type=private",
+        "--algorithm",
+        "ml-dsa-44",
+        "--input",
+        message.to_str().unwrap(),
+        "--output",
+        output.to_str().unwrap(),
+    ];
+    for extra in [
+        vec!["--hashing", "token"],
+        vec!["--digest", "sha256"],
+        vec!["--input-kind", "digest"],
+        vec!["--context-file", "-"],
+        vec!["--context-file", context.to_str().unwrap()],
+    ] {
+        let mut args = base.to_vec();
+        args.extend(extra);
+        let result = run(&args);
+        assert_eq!(
+            result.status.code(),
+            Some(2),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        assert!(result.stdout.is_empty());
+        assert!(!output.exists());
+    }
+    for extra in [
+        vec!["--context-file", context.to_str().unwrap()],
+        vec!["--hedging", "required"],
+    ] {
+        let mut args = base.to_vec();
+        args[8] = "ecdsa";
+        args.extend(["--digest", "sha256"]);
+        args.extend(extra);
+        assert_eq!(run(&args).status.code(), Some(2));
+    }
+    for kind in ["ml-dsa-44", "ml-dsa-65", "ml-dsa-87"] {
+        assert_eq!(
+            run(&[
+                "--module",
+                "/must-not-load",
+                "generate",
+                "--token",
+                "pkcs11:token=test",
+                "--kind",
+                kind,
+                "--id",
+                "01",
+                "--label",
+                "test",
+                "--bits",
+                "2048",
+                "--confirm"
+            ])
+            .status
+            .code(),
+            Some(2)
+        );
+    }
+    assert_eq!(
+        run(&[
+            "--module",
+            "/must-not-load",
+            "bind",
+            "--key-family",
+            "ml-dsa",
+            "--key",
+            "pkcs11:token=test;id=%01;type=private",
+            "--certificate",
+            "pkcs11:token=test;id=%02;type=cert",
+            "--hashing",
+            "token"
+        ])
+        .status
+        .code(),
+        Some(2)
+    );
+    assert!(!output.exists());
+}

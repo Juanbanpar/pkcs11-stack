@@ -28,6 +28,13 @@ fn object(command: Command) -> Command {
 fn key(command: Command) -> Command {
     command.arg(required("key", "Stable private-key URI with type=private"))
 }
+fn key_family(command: Command) -> Command {
+    command.arg(
+        value("key-family", "Key/certificate algorithm family")
+            .value_parser(["classical", "ml-dsa"])
+            .default_value("classical"),
+    )
+}
 fn auth(command: Command) -> Command {
     command
         .arg(
@@ -67,9 +74,17 @@ fn signature(command: Command) -> Command {
             "rsa-pkcs1",
             "rsa-pss",
             "ecdsa",
+            "ml-dsa-44",
+            "ml-dsa-65",
+            "ml-dsa-87",
         ]))
         .arg(
-            required("digest", "Message/prehash digest")
+            value("digest", "Required for RSA/ECDSA; forbidden for ML-DSA")
+                .required_if_eq_any([
+                    ("algorithm", "rsa-pkcs1"),
+                    ("algorithm", "rsa-pss"),
+                    ("algorithm", "ecdsa"),
+                ])
                 .value_parser(["sha256", "sha384", "sha512"]),
         )
         .arg(
@@ -78,6 +93,10 @@ fn signature(command: Command) -> Command {
         )
         .arg(value("salt-length", "Exact PSS salt length in bytes"))
         .arg(required("input", "Input file; - reads stdin"))
+        .arg(value(
+            "context-file",
+            "ML-DSA domain context file, at most 255 bytes; no stdin",
+        ))
         .arg(
             value(
                 "input-kind",
@@ -88,11 +107,21 @@ fn signature(command: Command) -> Command {
         )
 }
 fn signing(command: Command) -> Command {
-    signature(command).arg(
-        value("hashing", "Message hashing policy")
-            .value_parser(["token", "allow-software", "software"])
-            .default_value("token"),
-    )
+    signature(command)
+        .arg(
+            value(
+                "hashing",
+                "Classical message hashing policy; defaults to token",
+            )
+            .value_parser(["token", "allow-software", "software"]),
+        )
+        .arg(
+            value(
+                "hedging",
+                "ML-DSA randomness requirement; defaults to required",
+            )
+            .value_parser(["required", "preferred", "deterministic"]),
+        )
 }
 fn mutation(command: Command) -> Command {
     command.arg(
@@ -124,9 +153,11 @@ pub(crate) fn command() -> Command {
         .about("Prove a key/certificate association with one signature")
         .arg(required("certificate", "Explicit certificate URI"))
         .arg(
-            value("hashing", "Binding probe hashing policy")
-                .value_parser(["token", "allow-software", "software"])
-                .default_value("token"),
+            value(
+                "hashing",
+                "Classical binding probe hashing policy; defaults to token",
+            )
+            .value_parser(["token", "allow-software", "software"]),
         );
     let sign = Command::new("sign")
         .about("Sign once; with a certificate, bind first and verify the output")
@@ -179,7 +210,15 @@ pub(crate) fn command() -> Command {
         .arg(required("new-pin-file", "New PIN file"));
     let generate = Command::new("generate")
         .about("Generate a persistent nonextractable signing key pair")
-        .arg(required("kind", "Key kind").value_parser(["rsa", "p256", "p384", "p521"]))
+        .arg(required("kind", "Key kind").value_parser([
+            "rsa",
+            "p256",
+            "p384",
+            "p521",
+            "ml-dsa-44",
+            "ml-dsa-65",
+            "ml-dsa-87",
+        ]))
         .arg(value("bits", "RSA modulus size; RSA only"))
         .arg(flag(
             "always-authenticate",
@@ -201,17 +240,17 @@ pub(crate) fn command() -> Command {
             Command::new("objects").about("List persistent objects, without secret values"),
         )),
         auth(object(inspect)),
-        auth(object(export)),
-        auth(object(
+        auth(object(key_family(export))),
+        auth(object(key_family(
             Command::new("certificate").about("Parse a supported certificate through client"),
-        )),
-        auth(key(
-            Command::new("capabilities").about("Inspect selected signing-key capabilities")
-        )),
+        ))),
+        auth(key(key_family(
+            Command::new("capabilities").about("Inspect selected signing-key capabilities"),
+        ))),
         auth(signing(key(
             Command::new("plan").about("Plan one signing request without signing")
         ))),
-        context(auth(key(bind))),
+        context(auth(key(key_family(bind)))),
         context(auth(signing(key(sign)))),
         auth(signature(verify)),
         auth(token(random)),

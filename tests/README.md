@@ -74,7 +74,10 @@ signature in software, rejects wrong certificates, and detects replacement keys
 even when the selector and parameter set are unchanged. Software verification
 also covers empty messages and 255-byte binary contexts. Exported SPKI keys and
 token signatures are verified through the pinned OpenSSL command-line tool,
-including always-authenticate keys.
+including always-authenticate keys. CLI tests generate all three parameter sets,
+export SPKI, bind certificates, sign with context authentication and verify using
+both certificate files and token certificates. They check deterministic signing,
+empty messages, binary contexts, mismatches and output preservation/cleanup.
 
 `PKCS11_TEST_PQC_OPENSSL` selects an OpenSSL executable with ML-DSA support; it
 defaults to `openssl`. Missing support fails the tests. These checks do not

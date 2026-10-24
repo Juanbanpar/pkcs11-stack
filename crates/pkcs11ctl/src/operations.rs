@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-use crate::{inspect, support::*};
+use crate::{inspect, ml_dsa, support::*};
 use clap::ArgMatches;
 use pkcs11_client::{
     AttributeType, DigestAlgorithm, HashingPolicy, KeyKind, NamedCurve, Provider, PssParameters,
@@ -65,6 +65,10 @@ fn request<'a>(m: &ArgMatches, bytes: &'a [u8]) -> Result<SignRequest<'a>> {
         pss,
     })
 }
+pub(crate) enum VerificationCertificate {
+    Classical(pkcs11_client::Certificate),
+    MlDsa(pkcs11_client::MlDsaCertificate),
+}
 // Validate non-provider inputs and load files before initializing a library or logging in.
 pub(crate) struct Inputs {
     pub credential: Credential,
@@ -72,13 +76,26 @@ pub(crate) struct Inputs {
     pub new_pin: Option<secrecy::SecretString>,
     pub bytes: Vec<u8>,
     pub certificate_document: Option<pkcs11_client::CertificateDocument>,
-    pub verification_certificate: Option<pkcs11_client::Certificate>,
+    pub verification_certificate: Option<VerificationCertificate>,
+    pub domain_context: Vec<u8>,
     pub signature: Vec<u8>,
     pub random: Option<RandomRequest>,
     pub so: bool,
 }
 impl Inputs {
     pub fn load(name: &str, m: &ArgMatches) -> Result<Self> {
+        let ml_dsa = ml_dsa::selected(m);
+        if ml_dsa {
+            ml_dsa::validate_options(m)?;
+        } else if get(m, "context-file").is_some() || get(m, "hedging").is_some() {
+            return Err(usage(
+                "context-file and hedging require an ML-DSA algorithm",
+            ));
+        }
+        if name == "export" && ml_dsa && uri(m, "object")?.path_attribute("type") != Some(b"public")
+        {
+            return Err(usage("ML-DSA SPKI export requires type=public"));
+        }
         let credential = Credential::load(m, "pin-file", "protected-path")?;
         let context = Credential::load(m, "context-pin-file", "context-protected-path")?;
         let so = get(m, "role") == Some("so");
@@ -110,7 +127,7 @@ impl Inputs {
             return Err(usage("only one verification input may read stdin"));
         }
         let bytes = if let Some(path) = get(m, "input") {
-            if name == "verify" {
+            if name == "verify" || ml_dsa {
                 bounded_input(path, 64 * 1024 * 1024)?
             } else {
                 input(path)?
@@ -118,8 +135,17 @@ impl Inputs {
         } else {
             vec![]
         };
+        let domain_context = match get(m, "context-file") {
+            Some("-") => return Err(usage("context-file requires a file path")),
+            Some(path) => bounded_input(path, 255)?,
+            None => vec![],
+        };
         if matches!(name, "sign" | "plan" | "verify") {
-            request(m, &bytes)?;
+            if ml_dsa {
+                ml_dsa::request(m, &bytes, &domain_context)?;
+            } else {
+                request(m, &bytes)?;
+            }
         }
         let signature = if name == "verify" {
             bounded_input(need(m, "signature")?, 16 * 1024)?
@@ -130,9 +156,20 @@ impl Inputs {
             if path == "-" {
                 return Err(usage("certificate-file requires a file path"));
             }
-            let certificate =
-                pkcs11_client::Certificate::from_der(bounded_input(path, 1024 * 1024)?)?;
-            certificate.validate_signing_request(&request(m, &bytes)?)?;
+            let der = bounded_input(path, 1024 * 1024)?;
+            let certificate = if ml_dsa {
+                let certificate = pkcs11_client::MlDsaCertificate::from_der(der)?;
+                certificate.validate_signing_request(&ml_dsa::request(
+                    m,
+                    &bytes,
+                    &domain_context,
+                )?)?;
+                VerificationCertificate::MlDsa(certificate)
+            } else {
+                let certificate = pkcs11_client::Certificate::from_der(der)?;
+                certificate.validate_signing_request(&request(m, &bytes)?)?;
+                VerificationCertificate::Classical(certificate)
+            };
             Some(certificate)
         } else {
             None
@@ -151,7 +188,13 @@ impl Inputs {
             unhex(id)?;
         }
         if name == "generate" {
-            generation_kind(m)?;
+            if ml_dsa::parameter(get(m, "kind")).is_some() {
+                if get(m, "bits").is_some() {
+                    return Err(usage("--bits applies only to RSA"));
+                }
+            } else {
+                generation_kind(m)?;
+            }
         }
         if name == "diagnose" && !(1..=64).contains(&number(m, "pool-size")?) {
             return Err(usage("pool size must be 1..=64"));
@@ -195,6 +238,7 @@ impl Inputs {
             bytes,
             certificate_document,
             verification_certificate,
+            domain_context,
             signature,
             random,
             so,
@@ -202,11 +246,21 @@ impl Inputs {
     }
 }
 pub(crate) fn verify(
-    certificate: &pkcs11_client::Certificate,
+    certificate: &VerificationCertificate,
     m: &ArgMatches,
     inputs: &Inputs,
 ) -> Result<Value> {
-    certificate.verify_signature(&request(m, &inputs.bytes)?, &inputs.signature)?;
+    match certificate {
+        VerificationCertificate::Classical(certificate) => {
+            certificate.verify_signature(&request(m, &inputs.bytes)?, &inputs.signature)?;
+        }
+        VerificationCertificate::MlDsa(certificate) => {
+            certificate.verify_signature(
+                &ml_dsa::request(m, &inputs.bytes, &inputs.domain_context)?,
+                &inputs.signature,
+            )?;
+        }
+    }
     Ok(json!({"verified":true,"trust_validated":false}))
 }
 fn expected_token(m: &ArgMatches) -> Result<pkcs11_client::Pkcs11Uri> {
@@ -327,10 +381,15 @@ fn client_operation(
     m: &ArgMatches,
     inputs: &Inputs,
 ) -> Result<Output> {
+    if ml_dsa::selected(m) {
+        return ml_dsa::client_operation(client, name, m, inputs);
+    }
     let auth = || inputs.credential.auth(false);
     if name == "verify" {
         return verify(
-            &client.certificate(uri(m, "certificate")?, auth())?,
+            &VerificationCertificate::Classical(
+                client.certificate(uri(m, "certificate")?, auth())?,
+            ),
             m,
             inputs,
         )
@@ -471,7 +530,11 @@ fn management_operation(
         }
         "export" => {
             let reference = object_reference(uri(m, "object")?)?;
-            let bytes = if reference.uri().path_attribute("type") == Some(b"public") {
+            let bytes = if ml_dsa::selected(m) {
+                let key = pkcs11_client::PublicKeyRef::new(uri(m, "object")?)
+                    .map_err(pkcs11_client::Error::from)?;
+                session.export_ml_dsa_public_key(&key)?
+            } else if reference.uri().path_attribute("type") == Some(b"public") {
                 session.export_public(&reference)?
             } else {
                 session.export_value(&reference)?
@@ -499,14 +562,25 @@ fn management_operation(
         }
         "generate" => {
             let id = unhex(need(m, "id")?)?;
-            let kind = generation_kind(m)?;
-            session.generate_signing_key_pair(
-                kind,
-                &id,
-                need(m, "label")?.as_bytes(),
-                flag(m, "always-authenticate"),
-            )?;
-            json!({"generated":true,"key":inspect::key_kind(kind),"id_hex":hex(&id),"label":need(m,"label")?,"extractable":false})
+            let key = if let Some(parameter) = ml_dsa::parameter(get(m, "kind")) {
+                session.generate_ml_dsa_key_pair(
+                    parameter,
+                    &id,
+                    need(m, "label")?.as_bytes(),
+                    flag(m, "always-authenticate"),
+                )?;
+                ml_dsa::key_info(parameter)
+            } else {
+                let kind = generation_kind(m)?;
+                session.generate_signing_key_pair(
+                    kind,
+                    &id,
+                    need(m, "label")?.as_bytes(),
+                    flag(m, "always-authenticate"),
+                )?;
+                inspect::key_kind(kind)
+            };
+            json!({"generated":true,"key":key,"id_hex":hex(&id),"label":need(m,"label")?,"extractable":false})
         }
         "import" => {
             let id = unhex(need(m, "id")?)?;

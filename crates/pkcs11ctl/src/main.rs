@@ -3,6 +3,7 @@
 //! PKCS#11 command-line workflows over the client library.
 mod args;
 mod inspect;
+mod ml_dsa;
 mod operations;
 mod support;
 use secrecy::ExposeSecret;
