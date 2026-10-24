@@ -39,6 +39,31 @@ a window.
 Set `PKCS11_TEST_REQUIRE_EC_MULTIPART=1` to require combined multipart ECDSA support.
 CI tests both packaged SoftHSM and a pinned upstream build with that support.
 
+### PQC provider compatibility
+
+Build the pinned OpenSSL 3.5.9 and SoftHSM sources with ML-DSA and ML-KEM enabled,
+then run the classical workflows and the required PQC tests:
+
+```sh
+bash tools/build-pqc-softhsm.sh /absolute/path/to/softhsm-pqc
+PKCS11_TEST_REQUIRE_PQC=1 \
+PKCS11_TEST_MODULE=/absolute/path/to/softhsm-pqc/lib/softhsm/libsofthsm2.so \
+SOFTHSM2_UTIL=/absolute/path/to/softhsm-pqc/bin/softhsm2-util \
+./tools/test-softhsm.sh
+```
+
+Building requires Git, a C/C++ toolchain, Make, Perl, Autoconf, Automake and
+Libtool. OpenSSL uses static PIC libraries, so the test module does not require
+changes to the system OpenSSL installation or library search path.
+
+The `pqc-provider` CI job requires ML-DSA-44/65/87 signing and verification, context
+handling, rejection of altered messages, and ML-KEM-512/768/1024 encapsulation and
+decapsulation. It checks ciphertext/signature sizes and nonextractability of
+private keys and shared secrets. A one-block AES round trip proves the KEM secrets
+agree without exporting them. Missing mechanisms or entry points fail the job.
+
+These checks do not establish formal algorithm validation or hardware compatibility.
+
 ## Property tests and fuzzing
 
 Increase the case count or choose a seed to reproduce a property failure:

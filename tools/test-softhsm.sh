@@ -43,6 +43,10 @@ for number in 1 2; do
     "$util" --module "$module" --init-token --free --label runtime-test --so-pin 87654321 --pin 12345678 >/dev/null
 done
 cargo test -p pkcs11-runtime --test softhsm --test signing_softhsm --locked -- --ignored --test-threads=1
+if [[ "${PKCS11_TEST_REQUIRE_PQC:-0}" == 1 ]]; then
+    "$util" --module "$module" --init-token --free --label pqc-test --so-pin 87654321 --pin 12345678 >/dev/null
+    cargo test -p pkcs11-runtime --test pqc_softhsm --locked -- --ignored --test-threads=1
+fi
 # Create application fixtures only after runtime tests finish: those deliberately
 # require exactly the two tokens provisioned above.
 export PKCS11_CLIENT_TEST_DIR="$scratch/client"

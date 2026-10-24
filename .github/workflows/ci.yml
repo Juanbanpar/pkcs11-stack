@@ -205,3 +205,24 @@ jobs:
         env:
           PKCS11_TEST_DESKTOP: "1"
         run: ./tools/test-softhsm.sh
+
+  pqc-provider:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install stable Rust and provider build dependencies
+        run: |
+          rustup toolchain install stable --no-self-update --profile minimal
+          rustup default stable
+          sudo apt-get update
+          sudo apt-get install --yes autoconf automake libtool g++ make perl openssl opensc
+      - name: Build pinned OpenSSL and SoftHSM with required PQC support
+        run: bash tools/build-pqc-softhsm.sh "$RUNNER_TEMP/softhsm-pqc"
+      - name: Require ML-DSA and ML-KEM execution alongside classical workflows
+        env:
+          PKCS11_TEST_REQUIRE_PQC: "1"
+          PKCS11_TEST_PQC_OPENSSL: ${{ runner.temp }}/softhsm-pqc/openssl/bin/openssl
+          PKCS11_TEST_MODULE: ${{ runner.temp }}/softhsm-pqc/lib/softhsm/libsofthsm2.so
+          SOFTHSM2_UTIL: ${{ runner.temp }}/softhsm-pqc/bin/softhsm2-util
+        run: ./tools/test-softhsm.sh
