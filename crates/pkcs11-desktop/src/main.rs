@@ -17,6 +17,7 @@ fn main() -> iced::Result {
         app::App::update,
         app::App::view,
     )
+    .font(iced_fonts::LUCIDE_FONT_BYTES)
     .title("PKCS#11 Desktop")
     .settings(iced::Settings {
         default_text_size: iced::Pixels(16.0),

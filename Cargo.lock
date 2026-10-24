@@ -2329,6 +2329,7 @@ version = "0.1.0"
 dependencies = [
  "iced",
  "iced_aw",
+ "iced_fonts",
  "iced_test",
  "pkcs11-client",
  "rfd",

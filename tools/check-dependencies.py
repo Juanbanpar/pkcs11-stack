@@ -53,6 +53,8 @@ for ident in members:
                 raise SystemExit("Desktop must use the thread-pool executor")
             if package in {"iced", "iced_winit", "winit"} and "x11" in features:
                 raise SystemExit(f"X11 backend enabled in {package}; Linux desktop requires Wayland")
+            if package == "iced_fonts" and features - {"default", "advanced_text"} != {"lucide"}:
+                raise SystemExit(f"Unexpected desktop icon fonts: {features}")
             if package == "iced_aw" and features != {"badge", "spinner"}:
                 raise SystemExit(f"Unexpected desktop component features: {features}")
     if name == "pkcs11-locator" and "cryptoki" in transitive:

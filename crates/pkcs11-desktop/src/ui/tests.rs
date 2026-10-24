@@ -92,6 +92,7 @@ fn run(initial: fn() -> UiState, steps: &[&str]) -> App {
         App::update,
         App::view,
     )
+    .font(iced_fonts::LUCIDE_FONT_BYTES)
     .subscription(App::subscription)
     .theme(App::theme);
     let (sender, mut receiver) = mpsc::channel(100);
