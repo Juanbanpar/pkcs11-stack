@@ -13,7 +13,9 @@ pub use ml_dsa::{
     MlDsaCapabilities, MlDsaHedging, MlDsaParameterSet, MlDsaPublicKey, MlDsaRequest,
     MlDsaSigningPolicy,
 };
-pub use ml_kem::{MlKemCapabilities, MlKemOperation, MlKemParameterSet, MlKemRequest};
+pub use ml_kem::{
+    MlKemCapabilities, MlKemOperation, MlKemParameterSet, MlKemPublicKey, MlKemRequest,
+};
 mod error;
 mod module;
 mod pool;

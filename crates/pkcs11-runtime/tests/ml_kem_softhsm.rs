@@ -140,7 +140,33 @@ fn typed_ml_kem_permissions_outputs_and_secret_agreement() {
             .unwrap()
             .update_attributes(&[Attribute::Encapsulate(true)])
             .unwrap();
-        let ciphertext = session.encapsulate_ml_kem(&public, &sender).unwrap();
+        // Export remains valid when encapsulation is disabled on the source object.
+        session
+            .resolve(public.as_object_ref())
+            .unwrap()
+            .update_attributes(&[Attribute::Encapsulate(false)])
+            .unwrap();
+        let exported = session.ml_kem_public_key(&public).unwrap();
+        assert_eq!(exported.parameter_set(), parameter);
+        let imported = PublicKeyRef::new(
+            format!("pkcs11:token=pqc-test;id=%E4%{index:02X};type=public")
+                .parse()
+                .unwrap(),
+        )
+        .unwrap();
+        session
+            .import_ml_kem_public_key(&exported, &[0xE4, index as u8], b"imported peer")
+            .unwrap();
+        assert_eq!(
+            session.ml_kem_public_key(&imported).unwrap().as_bytes(),
+            exported.as_bytes()
+        );
+        session
+            .resolve(public.as_object_ref())
+            .unwrap()
+            .update_attributes(&[Attribute::Encapsulate(true)])
+            .unwrap();
+        let ciphertext = session.encapsulate_ml_kem(&imported, &sender).unwrap();
         assert_eq!(ciphertext.len(), parameter.ciphertext_length());
         assert!(matches!(
             session.encapsulate_ml_kem(&public, &sender),
@@ -238,6 +264,32 @@ fn typed_ml_kem_permissions_outputs_and_secret_agreement() {
             Attribute::Encapsulate(true),
             Attribute::AllowedMechanisms(vec![pkcs11_runtime::MechanismType::ML_KEM_KEY_PAIR_GEN]),
         ];
+        let mut private_public = restricted.clone();
+        private_public.retain(|attr| !matches!(attr, Attribute::Private(_) | Attribute::Id(_)));
+        private_public.extend([
+            Attribute::Private(true),
+            Attribute::Id(vec![0xE5, index as u8]),
+        ]);
+        private_public.extend(public_value.expose_values().iter().cloned());
+        session.create_object(&private_public).unwrap();
+        let hidden = PublicKeyRef::new(
+            format!("pkcs11:token=pqc-test;id=%E5%{index:02X};type=public")
+                .parse()
+                .unwrap(),
+        )
+        .unwrap();
+        assert!(matches!(
+            session.ml_kem_public_key(&hidden),
+            Err(Error::UnsupportedKeyOperation)
+        ));
+        // Duplicate IDs are never silently overwritten or arbitrarily selected.
+        session
+            .import_ml_kem_public_key(&exported, &[0xE4, index as u8], b"duplicate")
+            .unwrap();
+        assert!(matches!(
+            session.ml_kem_public_key(&imported),
+            Err(Error::Ambiguous { count: 2, .. })
+        ));
         restricted.extend(public_value.expose_values().iter().cloned());
         session.create_object(&restricted).unwrap();
         let restricted = PublicKeyRef::new(
@@ -273,6 +325,15 @@ fn typed_ml_kem_permissions_outputs_and_secret_agreement() {
     assert!(matches!(
         read_only.generate_ml_kem_key_pair(parameters[0], b"ro", b"ro"),
         Err(Error::ReadWriteRequired)
+    ));
+    let exported = read_only.ml_kem_public_key(&public(0)).unwrap();
+    assert!(matches!(
+        read_only.import_ml_kem_public_key(&exported, b"read-only", b"peer"),
+        Err(Error::ReadWriteRequired)
+    ));
+    assert!(matches!(
+        read_only.import_ml_kem_public_key(&exported, b"", b"peer"),
+        Err(Error::InvalidParameters(_))
     ));
     read_only.close().unwrap();
     module.finalize().unwrap();

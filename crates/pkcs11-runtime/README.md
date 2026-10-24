@@ -358,6 +358,13 @@ checks advertised generation flags and public-key byte bounds.
 and a sensitive, nonextractable private decapsulation key with explicit ID/label.
 Duplicate key-pair IDs remain possible; selection must resolve exactly one object.
 
+`MlKemPublicKey::from_bytes` validates the parameter-set length and the FIPS 203
+modulus check. `Session::ml_kem_public_key` exports only public, non-private
+objects and applies the same validation to provider output.
+`Session::import_ml_kem_public_key` creates a persistent public encapsulation key
+in an RW session. Its explicit ID/label follows the generation contract; existing
+objects are not overwritten. These checks do not authenticate the key's owner.
+
 `Session::ml_kem_capabilities` checks the selected class, parameter set, direction,
 key permission, allowed mechanisms, token flags/bounds and the PKCS#11 entry point.
 Always-authenticate decapsulation is unsupported by this single-call profile.

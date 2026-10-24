@@ -57,6 +57,47 @@ const PARAMETERS: [MlKemParameterSet; 3] = [
     MlKemParameterSet::MlKem768,
     MlKemParameterSet::MlKem1024,
 ];
+/// Canonically encoded FIPS 203 encapsulation key. Contains only public material.
+#[derive(Clone)]
+pub struct MlKemPublicKey {
+    parameter_set: MlKemParameterSet,
+    bytes: Vec<u8>,
+}
+impl std::fmt::Debug for MlKemPublicKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MlKemPublicKey")
+            .field("parameter_set", &self.parameter_set)
+            .finish_non_exhaustive()
+    }
+}
+impl MlKemPublicKey {
+    /// Check the exact parameter-set length and FIPS 203's modulus check.
+    /// The packed polynomial coefficients must be below q=3329; rho is unrestricted.
+    /// Does not authenticate the owner or prove possession of the decapsulation key.
+    pub fn from_bytes(parameter_set: MlKemParameterSet, bytes: Vec<u8>) -> Result<Self, Error> {
+        if bytes.len() != parameter_set.public_key_length()
+            || bytes[..bytes.len() - 32].chunks_exact(3).any(|chunk| {
+                let first = u16::from(chunk[0]) | ((u16::from(chunk[1]) & 15) << 8);
+                let second = (u16::from(chunk[1]) >> 4) | (u16::from(chunk[2]) << 4);
+                first >= 3329 || second >= 3329
+            })
+        {
+            return Err(Error::InvalidParameters("ML-KEM public-key encoding"));
+        }
+        Ok(Self {
+            parameter_set,
+            bytes,
+        })
+    }
+    /// Parameter set encoded by this key.
+    pub fn parameter_set(&self) -> MlKemParameterSet {
+        self.parameter_set
+    }
+    /// Raw encapsulation-key bytes, without an ASN.1 wrapper.
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+}
 /// Direction of an ML-KEM operation; the key class and permission must match.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MlKemOperation {
@@ -113,18 +154,7 @@ fn capabilities(
             Function::DecapsulateKey,
         ),
     };
-    if !matches!(attribute(object,AttributeType::Class,true)?,Some(Attribute::Class(value)) if value==class)
-        || !matches!(
-            attribute(object, AttributeType::KeyType, true)?,
-            Some(Attribute::KeyType(KeyType::ML_KEM))
-        )
-    {
-        return Err(Error::UnsupportedKeyOperation);
-    }
-    let parameter_set = match attribute(object, AttributeType::ParameterSet, true)? {
-        Some(Attribute::ParameterSet(value)) => MlKemParameterSet::from_attribute(value)?,
-        _ => return Err(Error::MissingMetadata("ML-KEM parameter set")),
-    };
+    let parameter_set = parameter_set(object, class)?;
     if !matches!(
         attribute(object, permission, true)?,
         Some(Attribute::Encapsulate(true) | Attribute::Decapsulate(true))
@@ -168,6 +198,21 @@ fn capabilities(
         operation,
     })
 }
+fn parameter_set(object: &Object<'_, '_>, class: ObjectClass) -> Result<MlKemParameterSet, Error> {
+    if !matches!(attribute(object,AttributeType::Class,true)?,Some(Attribute::Class(value)) if value==class)
+        || !matches!(
+            attribute(object, AttributeType::KeyType, true)?,
+            Some(Attribute::KeyType(KeyType::ML_KEM))
+        )
+    {
+        return Err(Error::UnsupportedKeyOperation);
+    }
+    match attribute(object, AttributeType::ParameterSet, true)? {
+        Some(Attribute::ParameterSet(value)) => MlKemParameterSet::from_attribute(value),
+        _ => Err(Error::MissingMetadata("ML-KEM parameter set")),
+    }
+}
+
 impl Token<'_> {
     /// Advertised parameter sets; does not prove that a provider accepts a template.
     pub fn ml_kem_generation_options(&self) -> Result<Vec<MlKemParameterSet>, Error> {
@@ -247,6 +292,52 @@ impl<'m> Session<'m> {
                 handle: private,
             },
         ))
+    }
+    /// Read only an explicitly public, non-private ML-KEM encapsulation key.
+    /// Rejects malformed provider output; no private value or seed is read.
+    pub fn ml_kem_public_key(&mut self, key: &PublicKeyRef) -> Result<MlKemPublicKey, Error> {
+        let object = self.resolve(key.as_object_ref())?;
+        let parameter = parameter_set(&object, ObjectClass::PUBLIC_KEY)?;
+        if !matches!(
+            attribute(&object, AttributeType::Private, true)?,
+            Some(Attribute::Private(false))
+        ) {
+            return Err(Error::UnsupportedKeyOperation);
+        }
+        match attribute(&object, AttributeType::Value, true)? {
+            Some(Attribute::Value(value)) => {
+                MlKemPublicKey::from_bytes(parameter, value).map_err(|_| Error::InvalidKeyOutput)
+            }
+            _ => Err(Error::MissingMetadata("ML-KEM public value")),
+        }
+    }
+    /// Import a validated public encapsulation key as a persistent public object.
+    /// Requires RW mode and a nonempty ID. Existing IDs are not overwritten;
+    /// duplicate matches make subsequent locator resolution ambiguous.
+    pub fn import_ml_kem_public_key(
+        &mut self,
+        key: &MlKemPublicKey,
+        id: &[u8],
+        label: &[u8],
+    ) -> Result<Object<'_, 'm>, Error> {
+        if id.is_empty() {
+            return Err(Error::InvalidParameters("key ID must not be empty"));
+        }
+        self.create_object(&[
+            Attribute::Class(ObjectClass::PUBLIC_KEY),
+            Attribute::KeyType(KeyType::ML_KEM),
+            Attribute::Token(true),
+            Attribute::Private(false),
+            Attribute::Id(id.to_vec()),
+            Attribute::Label(label.to_vec()),
+            Attribute::ParameterSet(key.parameter_set.attribute()),
+            Attribute::Value(key.bytes.clone()),
+            Attribute::Encapsulate(true),
+            Attribute::Encrypt(false),
+            Attribute::Verify(false),
+            Attribute::Wrap(false),
+            Attribute::Derive(false),
+        ])
     }
     /// Discover current class, parameters, permissions, flags and required entry point.
     /// Always-authenticate decapsulation is unsupported by this single-call profile.
@@ -371,6 +462,38 @@ mod tests {
             }
             .validate()
             .unwrap();
+        }
+    }
+}
+
+#[cfg(test)]
+mod public_key_tests {
+    use super::*;
+
+    #[test]
+    fn lengths_coefficients_and_rho_are_checked_independently() {
+        for parameter in PARAMETERS {
+            for length in [
+                0,
+                31,
+                parameter.public_key_length() - 1,
+                parameter.public_key_length() + 1,
+            ] {
+                assert!(MlKemPublicKey::from_bytes(parameter, vec![0; length]).is_err());
+            }
+            let mut bytes = vec![0; parameter.public_key_length()];
+            // Both packed coefficients are q-1. The independent rho may contain any byte.
+            bytes[..3].copy_from_slice(&[0x00, 0x0D, 0xD0]);
+            let rho = bytes.len() - 32;
+            bytes[rho..].fill(0xFF);
+            let key = MlKemPublicKey::from_bytes(parameter, bytes.clone()).unwrap();
+            assert_eq!(key.as_bytes(), bytes);
+            assert_eq!(key.parameter_set(), parameter);
+            assert!(!format!("{key:?}").contains("bytes"));
+            for invalid in [[0x01, 0x0D, 0xD0], [0x00, 0x1D, 0xD0], [0xFF, 0xFF, 0xFF]] {
+                bytes[rho - 3..rho].copy_from_slice(&invalid);
+                assert!(MlKemPublicKey::from_bytes(parameter, bytes.clone()).is_err());
+            }
         }
     }
 }
