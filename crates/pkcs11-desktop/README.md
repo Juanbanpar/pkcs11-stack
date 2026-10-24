@@ -8,15 +8,29 @@ mechanisms, then select an entry for metadata details.
 
 ## Usage
 
-Choose a module with **Browse**, or enter its file path, then select **Load**.
+Select **Add Module**, choose a library with **Browse**, or enter its path, then
+select **Load**.
 The sidebar lists loaded modules and their tokens. Select a module for library and
-slot information, or a token for its overview and locator.
+slot information, or a token for its overview. The token header identifies the
+provider, serial number and current login role. **Show PKCS#11 locator** expands
+the technical identifier when needed.
 
-Tab and Shift+Tab move between editable fields. Enter submits the module path or
-login PIN field. Buttons and resource lists currently require pointer input.
+Tab and Shift+Tab move between enabled controls. Enter or Space activates buttons;
+arrows, Home and End move within navigation, resource lists, tabs and choices.
+Moving focus through resources does not read details until activation. Escape
+closes the current dialog or form. Ctrl+O opens Add Module, Ctrl+F focuses the
+resource filter, Ctrl+R refreshes the current resource and Ctrl+Q quits. Use
+Command instead of Ctrl on macOS.
 
-**Refresh module** re-enumerates the selected module's slots and tokens. Removed or
-replaced tokens clear their selection. **Unload** finalizes the selected module;
+**Appearance** offers System, Light and Dark. System follows the desktop theme
+when available and otherwise uses Light. Appearance is not saved. Resource lists
+and details appear side by side in wider windows; smaller windows show a separate
+detail view with **Back to List**, which returns focus to the selected row.
+Column headings sort without reading the token. The object inspector shows its
+identity, actions and attributes; locators are collapsed initially.
+
+**Refresh** on the module overview re-enumerates the selected module's slots and
+tokens. Removed or replaced tokens clear their selection. **Unload** finalizes the selected module;
 quitting finalizes all loaded modules.
 
 If a session cannot be closed, the module's tokens and cached objects are cleared
@@ -29,7 +43,7 @@ Listing requests only class, label and ID; detail reads use a small metadata
 allowlist and never fetch object values or private key material. Missing,
 sensitive and unsupported attributes remain distinguishable. Objects with
 duplicate locators or unsupported identities show their summary without a detail
-read. **Refresh objects** clears selection and reads a new list.
+read. **Refresh** on Objects clears selection and reads a new list.
 
 Use **USER login** or **SO login** on the selected token, enter its PIN and select
 **Login**. Locked or uninitialized PINs disable their role; SO also needs writable
@@ -46,15 +60,17 @@ to be zeroized.
 
 Select **Mechanisms** to browse provider-advertised names, identifiers, flags and
 key-size bounds. Filter by name, hexadecimal identifier or flag, and use
-**Refresh mechanisms** to re-enumerate. Bounds retain the provider's units;
+**Refresh** on Mechanisms to re-enumerate. Bounds retain the provider's units;
 the browser does not plan or execute cryptographic operations.
 
-On Linux, the native file picker uses the desktop portal, with a Zenity fallback.
+Linux requires Wayland; X11 is not built. The native file picker uses the desktop
+portal, with a Zenity fallback.
 Manual path entry also works when no picker service is available. Modules are
 loaded only after an explicit Load action; paths are not saved or loaded on startup.
 
-Use **Operations** to generate a signing key pair or import a certificate. Log in
-as USER on a writable token first. Generation offers common RSA sizes and named
+Use **Operations** to choose a key generation, certificate import or random
+generation task. Each task opens its own form. Key generation and certificate
+import require USER login on a writable token. Generation offers common RSA sizes and named
 EC curves within the client's advertised bounds. Supply a label and nonempty
 hexadecimal ID; the public and private keys share them. Private keys are sensitive
 and nonextractable. The per-operation authentication option sets
@@ -134,8 +150,9 @@ navigation remains available.
 
 ## Development
 
-Rust 1.88 or newer. Iced 0.14 uses `tiny-skia`, `thread-pool`, `x11` and `wayland`,
-with default features disabled.
+Rust 1.88 or newer. Iced 0.14 uses `tiny-skia`, `thread-pool`, `wayland`, `advanced`
+and `linux-theme-detection`, with default features disabled. `iced_aw` enables only `badge` and `spinner`.
+`iced_fonts` enables only the Lucide icon font.
 
 ```sh
 cargo run -p pkcs11-desktop --locked
@@ -145,7 +162,7 @@ cargo test -p pkcs11-desktop --locked
 Linux build dependencies on Ubuntu:
 
 ```sh
-sudo apt-get install pkg-config libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev libegl1-mesa-dev
+sudo apt-get install pkg-config libxkbcommon-dev libwayland-dev libegl1-mesa-dev
 ```
 
 ## Derivation and key transfer

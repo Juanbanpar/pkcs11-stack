@@ -2,7 +2,7 @@
 use super::*;
 use crate::backend::{CryptoMode, CryptoScope, KeyJob};
 use pkcs11_client::{KeyOperationProfile, ObjectClass};
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum KeyField {
     Input,
     Output,

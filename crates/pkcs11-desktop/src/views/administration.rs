@@ -1,4 +1,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
+use crate::ui::{
+    button,
+    components::{self, EMPHASIS, muted},
+    text_input,
+};
 use crate::{
     app::Message,
     backend::AdministrationKind,
@@ -6,14 +11,29 @@ use crate::{
 };
 use iced::{
     Element,
-    widget::{button, column, container, text, text_input},
+    widget::{column, container, text},
 };
+use iced_fonts::lucide;
 use secrecy::ExposeSecret;
 pub fn view(state: &UiState) -> Element<'_, Message> {
-    let mut content = column![text("Token and PIN administration").size(22), text("These actions change persistent token state. Host PINs are required; protected-path administration is unsupported. PIN changes end this app's login on the selected token. Each submission makes one attempt; incorrect credentials may lock the PIN.").size(14), column![button("Initialize / erase token…").on_press_maybe(state.can_administer(AdministrationKind::InitializeToken).then_some(Message::OpenAdministration(AdministrationKind::InitializeToken))), button("Initialize / reset USER PIN…").on_press_maybe(state.can_administer(AdministrationKind::InitializeUserPin).then_some(Message::OpenAdministration(AdministrationKind::InitializeUserPin))), button("Change current role's PIN…").on_press_maybe(state.can_administer(AdministrationKind::ChangePin).then_some(Message::OpenAdministration(AdministrationKind::ChangePin)))].spacing(10), text("USER PIN initialization requires SO login. Change PIN uses the logged-in USER or SO role. Token initialization uses the current SO PIN on an initialized token, or sets the SO PIN on an uninitialized token.").size(14)].spacing(12);
     let Some(form) = &state.administration_form else {
-        return content.into();
+        let common = if state.token().is_some_and(|token| token.protected_path) {
+            "Protected path unsupported"
+        } else if state.token().is_some_and(|token| token.write_protected) {
+            "Read-only token"
+        } else {
+            "Host PIN required"
+        };
+        return column![
+            text("Administration").size(20).font(EMPHASIS),
+            muted("Change token initialization or credentials. Every change requires a review and explicit confirmation."),
+            components::task_card(lucide::shield(), "Initialize / erase token…", "Initialize a new token, or permanently erase an existing token's objects and reset its USER PIN.", common, state.can_administer(AdministrationKind::InitializeToken).then_some(Message::OpenAdministration(AdministrationKind::InitializeToken))),
+            components::task_card(lucide::key(), "Initialize / reset USER PIN…", "Set a USER PIN through the Security Officer role. This ends the token's login in this app.", "SO login required", state.can_administer(AdministrationKind::InitializeUserPin).then_some(Message::OpenAdministration(AdministrationKind::InitializeUserPin))),
+            components::task_card(lucide::lock(), "Change current role's PIN…", "Change the credential for the logged-in USER or SO role using its current PIN.", "USER or SO required", state.can_administer(AdministrationKind::ChangePin).then_some(Message::OpenAdministration(AdministrationKind::ChangePin))),
+            components::notice("One attempt per submission", "An incorrect credential can lock a PIN. Administration is not retried automatically, and a failed provider call may still apply changes."),
+        ].spacing(12).max_width(850).into();
     };
+    let mut content = column![].spacing(16);
     let id = form.id;
     let mut fields = column![
         text(match form.kind {
@@ -54,6 +74,7 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
                 } else {
                     "Apply PIN change"
                 })
+                .style(button::danger)
                 .on_press(Message::SubmitAdministration(id)),
             );
     } else {
@@ -116,10 +137,14 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
                 ),
             );
         }
-        fields = fields.push(text(format!("Advertised PIN byte bounds: {}–{}. The provider may impose further restrictions.", bound(form.expected.minimum_pin_length), bound(form.expected.maximum_pin_length))).size(14)).push(button("Review change…").on_press(Message::ReviewAdministration(id)));
+        fields = fields.push(text(format!("Advertised PIN byte bounds: {}–{}. The provider may impose further restrictions.", bound(form.expected.minimum_pin_length), bound(form.expected.maximum_pin_length))).size(14)).push(button("Review change…").style(button::primary).on_press(Message::ReviewAdministration(id)));
     }
     fields = fields.push(button("Cancel").on_press(Message::DismissAdministration(id)));
-    content = content.push(container(fields).padding(12).style(container::rounded_box));
+    content = content.push(
+        container(fields)
+            .padding(12)
+            .style(crate::ui::theme::surface),
+    );
     content.into()
 }
 

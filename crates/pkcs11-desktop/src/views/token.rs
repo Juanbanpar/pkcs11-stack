@@ -1,18 +1,24 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use super::main::field;
+use crate::ui::{
+    button, checkbox,
+    components::{self, EMPHASIS, Tone, badge, muted},
+    text_input, theme,
+};
 use crate::{
     app::Message,
-    backend::{CryptoMode, LoginRole, LoginState, MetadataField, TokenEntry},
-    state::{Dialog, TokenPage, UiState},
+    backend::{LoginRole, LoginState, TokenEntry},
+    state::{TokenPage, UiState},
 };
 use iced::{
     Element, Length,
-    widget::{button, checkbox, column, container, row, rule, scrollable, text, text_input},
+    widget::{column, container, row, scrollable, text},
 };
+use iced_fonts::lucide;
 use secrecy::ExposeSecret;
 
 pub fn view<'a>(state: &'a UiState, token: &'a TokenEntry) -> Element<'a, Message> {
-    let mut tabs = row![].spacing(10);
+    let mut tabs = row![].spacing(4);
     for (label, page) in [
         ("Overview", TokenPage::Overview),
         ("Objects", TokenPage::Objects),
@@ -21,56 +27,108 @@ pub fn view<'a>(state: &'a UiState, token: &'a TokenEntry) -> Element<'a, Messag
         ("Administration", TokenPage::Administration),
     ] {
         tabs = tabs.push(
-            button(label)
+            button(text(label).size(14))
+                .padding([8, 10])
+                .arrows()
                 .style(if state.token_page == page {
-                    button::primary
+                    theme::selected_tab
                 } else {
-                    button::secondary
+                    theme::tab
                 })
                 .on_press_maybe(state.can_submit().then_some(Message::ShowPage(page))),
         );
     }
-    let content = match state.token_page {
-        TokenPage::Overview => overview(token),
+    let content: Element<'_, Message> = match state.token_page {
+        TokenPage::Overview => scrollable(overview(state, token)).spacing(8).into(),
         TokenPage::Objects => objects(state),
         TokenPage::Mechanisms => mechanisms(state),
-        TokenPage::Operations => super::operations::view(state),
-        TokenPage::Administration => super::administration::view(state),
+        TokenPage::Operations => scrollable(super::operations::view(state)).spacing(8).into(),
+        TokenPage::Administration => scrollable(super::administration::view(state))
+            .spacing(8)
+            .into(),
     };
-    column![
+    let module = state.module().expect("selected token has a module");
+    let breadcrumbs = row![
+        button(text(module.label()).size(12))
+            .id("breadcrumb-module")
+            .padding([4, 0])
+            .style(theme::navigation)
+            .on_press(Message::SelectModule(module.id)),
+        lucide::chevron_right().size(12).style(theme::muted),
+        muted(format!(
+            "Token · {}",
+            if token.serial.is_empty() {
+                "serial unavailable"
+            } else {
+                &token.serial
+            }
+        ))
+        .size(12),
+    ]
+    .spacing(8)
+    .align_y(iced::Alignment::Center);
+    let identity = column![
         text(if token.label.is_empty() {
             "Unnamed token"
         } else {
             &token.label
         })
-        .size(30),
-        authentication(state, token),
+        .size(24)
+        .font(EMPHASIS)
+        .wrapping(text::Wrapping::WordOrGlyph),
+        muted(format!("{} · {}", token.manufacturer, token.model))
+            .size(13)
+            .wrapping(text::Wrapping::WordOrGlyph),
+    ]
+    .spacing(4)
+    .width(Length::Fill);
+    column![
+        breadcrumbs,
+        row![identity, authentication(state, token)]
+            .spacing(12)
+            .align_y(iced::Alignment::Center),
         tabs.wrap(),
         content
     ]
-    .spacing(18)
+    .spacing(12)
+    .height(Length::Fill)
     .into()
 }
 fn authentication<'a>(state: &'a UiState, token: &'a TokenEntry) -> Element<'a, Message> {
     let enabled = state.can_submit();
-    let mut content = column![
-        row![
-            text(token.login.label()).width(Length::Fill),
-            button("USER login").on_press_maybe(
-                (enabled && token.can_login(LoginRole::User))
-                    .then_some(Message::OpenLogin(LoginRole::User))
-            ),
-            button("SO login").on_press_maybe(
-                (enabled && token.can_login(LoginRole::SecurityOfficer))
-                    .then_some(Message::OpenLogin(LoginRole::SecurityOfficer))
-            ),
-            button("Logout").on_press_maybe(
-                (enabled && token.login != LoginState::Public).then_some(Message::Logout)
-            ),
-        ]
-        .spacing(10)
-    ]
-    .spacing(12);
+    let mut content = row![badge(
+        token.login.label(),
+        match token.login {
+            LoginState::Public => Tone::Neutral,
+            LoginState::User => Tone::Success,
+            LoginState::SecurityOfficer | LoginState::Unknown => Tone::Warning,
+        }
+    )]
+    .spacing(8)
+    .align_y(iced::Alignment::Center);
+    if token.login == LoginState::Public {
+        content = content
+            .push(
+                button(text("USER login").size(13)).on_press_maybe(
+                    (enabled && token.can_login(LoginRole::User))
+                        .then_some(Message::OpenLogin(LoginRole::User)),
+                ),
+            )
+            .push(
+                button(text("SO login").size(13)).on_press_maybe(
+                    (enabled && token.can_login(LoginRole::SecurityOfficer))
+                        .then_some(Message::OpenLogin(LoginRole::SecurityOfficer)),
+                ),
+            );
+    } else {
+        content = content.push(
+            button(text("Logout").size(13)).on_press_maybe(enabled.then_some(Message::Logout)),
+        );
+    }
+    content.into()
+}
+pub(super) fn login<'a>(state: &'a UiState, token: &'a TokenEntry) -> Element<'a, Message> {
+    let mut content = column![].spacing(12);
     if let Some(form) = &state.login_form {
         let id = form.id;
         content = content.push(
@@ -80,6 +138,29 @@ fn authentication<'a>(state: &'a UiState, token: &'a TokenEntry) -> Element<'a, 
             })
             .size(20),
         );
+        content = content.push(
+            container(
+                column![
+                    muted("TARGET TOKEN").size(11).font(EMPHASIS),
+                    text(if token.label.is_empty() {
+                        "Unnamed token"
+                    } else {
+                        &token.label
+                    })
+                    .size(16)
+                    .font(EMPHASIS),
+                    muted(format!("Serial {} · {}", token.serial, token.model)).size(13),
+                ]
+                .spacing(4),
+            )
+            .padding(12)
+            .width(Length::Fill)
+            .style(theme::inset),
+        );
+        content = content.push(muted(match form.role {
+            LoginRole::User => "USER login gives access to private objects on this token.",
+            LoginRole::SecurityOfficer => "The Security Officer role can initialize the USER PIN. It is separate from USER login.",
+        }));
         if token.protected_path {
             content = content.push(
                 checkbox(form.protected_path)
@@ -107,258 +188,284 @@ fn authentication<'a>(state: &'a UiState, token: &'a TokenEntry) -> Element<'a, 
             )
             .push(
                 row![
-                    button("Login").on_press(Message::SubmitLogin(id)),
-                    button("Cancel").on_press(Message::DismissLogin(id))
+                    button("Login")
+                        .style(button::primary)
+                        .on_press(Message::SubmitLogin(id)),
+                    button("Cancel")
+                        .id("modal-cancel")
+                        .on_press(Message::DismissLogin(id))
                 ]
                 .spacing(10),
             );
     }
-    container(content)
-        .padding(12)
-        .style(container::rounded_box)
-        .into()
+    content.into()
 }
-fn overview(token: &TokenEntry) -> Element<'_, Message> {
-    let mut content = column![
+
+fn overview<'a>(state: &UiState, token: &'a TokenEntry) -> Element<'a, Message> {
+    let identity = column![
         field("Manufacturer", &token.manufacturer),
         field("Model", &token.model),
         field("Serial", &token.serial),
         field("Current slot", token.slot_id.to_string())
     ]
     .spacing(12);
+    let mut capabilities = column![].spacing(12);
     for (label, value) in &token.details {
-        content = content.push(field(label, value));
-    }
-    content
-        .push(text("Token locator").size(20))
-        .push(text(token.uri.as_deref().unwrap_or(
-            "The reported token metadata cannot form a supported locator.",
-        )))
-        .into()
-}
-fn metadata(fields: &[MetadataField]) -> Element<'_, Message> {
-    let mut content = column![].spacing(10);
-    for entry in fields {
-        let value = entry
-            .value
-            .as_deref()
-            .map(|value| if value.is_empty() { "(empty)" } else { value })
-            .unwrap_or(entry.status);
-        content = content.push(field(entry.name, value));
-    }
-    content.into()
-}
-fn objects(state: &UiState) -> Element<'_, Message> {
-    let enabled = state.can_submit();
-    let mut list = column![].spacing(8);
-    let mut count = 0;
-    for object in state
-        .objects
-        .iter()
-        .filter(|entry| entry.matches(&state.object_filter))
-    {
-        count += 1;
-        let label = if object.label.is_empty() {
-            "Unnamed object"
-        } else {
-            &object.label
-        };
-        list = list.push(
-            button(
-                column![
-                    text(label),
-                    text(format!(
-                        "{} · ID {}",
-                        object.class_name(),
-                        if object.identifier.is_empty() {
-                            "—"
-                        } else {
-                            &object.identifier
-                        }
-                    ))
-                    .size(13)
-                ]
-                .spacing(4),
-            )
-            .width(Length::Fill)
-            .style(if state.selected_object == Some(object.id) {
-                button::primary
-            } else {
-                button::secondary
-            })
-            .on_press_maybe(enabled.then_some(Message::SelectObject(object.id))),
-        );
-    }
-    if count == 0 {
-        list = list.push(text(if !state.objects_loaded {
-            "Object list has not been read. Refresh to retry."
-        } else if state.objects.is_empty() {
-            "No persistent objects are visible in the current authentication state."
-        } else {
-            "No objects match the filter."
-        }));
-    }
-    let mut detail = column![].spacing(12);
-    if let Some(object) = state.object() {
-        detail = detail
-            .push(text("Object metadata").size(20))
-            .push(metadata(&object.fields));
-        if let Some(uri) = &object.uri {
-            detail = detail.push(text("Object locator").size(18)).push(text(uri));
-        } else {
-            detail = detail.push(text(
-                "The available identity attributes cannot form a supported object locator.",
-            ));
-        }
-        detail = detail.push(
-            row![
-                button("Export public object…")
-                    .on_press_maybe(state.can_export().then_some(Message::ExportObject)),
-                button("Delete object…").on_press_maybe(
-                    (state.can_manage() && !object.ambiguous && object.uri.is_some())
-                        .then_some(Message::RequestDelete)
-                )
-            ]
-            .spacing(10)
-            .wrap(),
-        );
-        match object.class {
-            Some(pkcs11_client::ObjectClass::PRIVATE_KEY) => {
-                detail = detail.push(
-                    button("Derive ECDH secret…").on_press_maybe(
-                        state
-                            .can_open_key_operation(CryptoMode::Derive)
-                            .then_some(Message::OpenKeyOperation(CryptoMode::Derive)),
-                    ),
-                );
-                detail = detail.push(
-                    button("Decrypt RSA OAEP…").on_press_maybe(
-                        state
-                            .can_open_cipher(CryptoMode::Decrypt)
-                            .then_some(Message::OpenCipher(CryptoMode::Decrypt)),
-                    ),
-                );
-                detail = detail.push(
-                    button("Sign file…").on_press_maybe(
-                        state
-                            .can_open_crypto(CryptoMode::Sign)
-                            .then_some(Message::OpenCrypto(CryptoMode::Sign)),
-                    ),
-                );
-            }
-            Some(pkcs11_client::ObjectClass::CERTIFICATE) => {
-                detail = detail.push(
-                    button("Verify signature…").on_press_maybe(
-                        state
-                            .can_open_crypto(CryptoMode::Verify)
-                            .then_some(Message::OpenCrypto(CryptoMode::Verify)),
-                    ),
-                );
-            }
-            Some(pkcs11_client::ObjectClass::PUBLIC_KEY) => {
-                detail = detail.push(
-                    button("Encrypt RSA OAEP…").on_press_maybe(
-                        state
-                            .can_open_cipher(CryptoMode::Encrypt)
-                            .then_some(Message::OpenCipher(CryptoMode::Encrypt)),
-                    ),
-                );
-            }
-            Some(pkcs11_client::ObjectClass::SECRET_KEY) => {
-                detail = detail.push(
-                    row![
-                        button("Wrap AES key…").on_press_maybe(
-                            state
-                                .can_open_key_operation(CryptoMode::Wrap)
-                                .then_some(Message::OpenKeyOperation(CryptoMode::Wrap))
-                        ),
-                        button("Unwrap AES key…").on_press_maybe(
-                            state
-                                .can_open_key_operation(CryptoMode::Unwrap)
-                                .then_some(Message::OpenKeyOperation(CryptoMode::Unwrap))
-                        )
-                    ]
-                    .spacing(10)
-                    .wrap(),
-                );
-            }
-            _ => {}
-        }
-        if let Some(Dialog::Delete(id)) = state.dialog {
-            detail = detail.push(container(column![
-                text("Delete selected object?").size(20),
-                text("This permanently deletes this object only; related keys and certificates are kept."),
-                text(object.uri.as_deref().unwrap_or("")),
-                row![button("Delete permanently").on_press(Message::ConfirmDelete(id)), button("Cancel").on_press(Message::DismissDialog)].spacing(10),
-            ].spacing(10)).padding(12).style(container::rounded_box));
-        }
-        if object.ambiguous {
-            detail = detail.push(text(
-                "Several listed objects share this locator; details cannot be selected uniquely.",
-            ));
-        } else if let Some(fields) = &state.object_details {
-            detail = detail.push(rule::horizontal(1)).push(metadata(fields));
-        } else if object.uri.is_some() {
-            detail = detail.push(text(
-                "Details are read on selection. Select again to retry a failed or cancelled read.",
-            ));
-        }
-        if state.crypto_form.is_some() {
-            detail = detail.push(super::crypto::view(state));
-        }
-        if state.key_form.is_some() {
-            detail = detail.push(super::key_operations::view(state));
-        }
-        if state.cipher_form.is_some() {
-            detail = detail.push(super::cipher::view(state));
-        }
-    } else {
-        detail = detail.push(text("Select an object to read its metadata."));
+        capabilities = capabilities.push(field(
+            label,
+            match value.as_str() {
+                "true" => "Yes",
+                "false" => "No",
+                _ => value,
+            },
+        ));
     }
     column![
-        row![
-            text_input("Filter label, class, ID or locator", &state.object_filter)
-                .on_input(Message::ObjectFilter),
-            button("Refresh objects").on_press_maybe(enabled.then_some(Message::RefreshObjects))
-        ]
-        .spacing(10),
-        text(format!(
-            "{count} of {} objects · persistent objects visible to this role",
-            state.objects.len()
-        ))
-        .size(14),
-        row![
-            container(scrollable(list).spacing(8).height(340)).width(Length::FillPortion(2)),
-            container(detail).width(Length::FillPortion(3)).padding(12)
-        ]
-        .spacing(16)
+        text("Identity").size(20),
+        container(identity)
+            .padding(16)
+            .width(Length::Fill)
+            .style(crate::ui::theme::surface),
+        text("Capabilities and PIN limits").size(20),
+        container(capabilities)
+            .padding(16)
+            .width(Length::Fill)
+            .style(crate::ui::theme::surface),
+        components::locator(
+            state,
+            token
+                .uri
+                .as_deref()
+                .unwrap_or("The reported token metadata cannot form a supported locator.")
+        ),
     ]
-    .spacing(14)
+    .spacing(12)
     .into()
 }
+fn objects(state: &UiState) -> Element<'_, Message> {
+    let task = if let Some(form) = &state.crypto_form {
+        Some((super::crypto::view(state), Message::DismissCrypto(form.id)))
+    } else if let Some(form) = &state.cipher_form {
+        Some((super::cipher::view(state), Message::DismissCipher(form.id)))
+    } else {
+        state.key_form.as_ref().map(|form| {
+            (
+                super::key_operations::view(state),
+                Message::DismissKeyOperation(form.id),
+            )
+        })
+    };
+    if let Some((task, back)) = task {
+        let mut context = column![
+            button("Back to Objects")
+                .id("object-task-back")
+                .on_press(back)
+        ]
+        .spacing(12);
+        if let Some(object) = state.object() {
+            context = context.push(
+                container(
+                    column![
+                        muted("SELECTED OBJECT").size(11).font(EMPHASIS),
+                        text(if object.label.is_empty() {
+                            "Unnamed object"
+                        } else {
+                            &object.label
+                        })
+                        .size(17)
+                        .font(EMPHASIS),
+                        muted(format!(
+                            "{} · ID {}",
+                            object.class_name(),
+                            object.identifier
+                        ))
+                        .size(13),
+                    ]
+                    .spacing(4),
+                )
+                .padding(12)
+                .width(Length::Fill)
+                .style(theme::inset),
+            );
+        }
+        return scrollable(context.push(task).max_width(800))
+            .spacing(8)
+            .into();
+    }
+    let enabled = state.can_submit();
+    let entries = crate::ui::sorted_objects(state);
+    let count = entries.len();
+    let columns = [
+        iced::widget::table::column(
+            sort_object(state, "Label", crate::ui::ObjectSort::Label),
+            move |object: &crate::backend::ObjectEntry| -> Element<'_, Message> {
+                button(
+                    text(if object.label.is_empty() {
+                        "Unnamed object"
+                    } else {
+                        &object.label
+                    })
+                    .wrapping(text::Wrapping::WordOrGlyph),
+                )
+                .arrows()
+                .width(Length::Fill)
+                .style(if state.selected_object == Some(object.id) {
+                    crate::ui::theme::selected
+                } else {
+                    crate::ui::theme::navigation
+                })
+                .on_press_maybe(enabled.then_some(Message::SelectObject(object.id)))
+                .into()
+            },
+        )
+        .width(Length::FillPortion(2))
+        .align_y(iced::alignment::Vertical::Center),
+        iced::widget::table::column(
+            sort_object(state, "Class", crate::ui::ObjectSort::Class),
+            |object: &crate::backend::ObjectEntry| -> Element<'_, Message> {
+                muted(object.class_name()).size(13).into()
+            },
+        )
+        .width(Length::Fill)
+        .align_y(iced::alignment::Vertical::Center),
+        iced::widget::table::column(
+            sort_object(state, "ID", crate::ui::ObjectSort::Identifier),
+            |object: &crate::backend::ObjectEntry| -> Element<'_, Message> {
+                text(&object.identifier)
+                    .font(iced::Font::MONOSPACE)
+                    .size(13)
+                    .wrapping(text::Wrapping::Glyph)
+                    .into()
+            },
+        )
+        .width(Length::Fill)
+        .align_y(iced::alignment::Vertical::Center),
+    ];
+    let mut list = column![
+        iced::widget::table(columns, entries)
+            .padding(4)
+            .separator_x(0)
+            .separator_y(1)
+    ]
+    .spacing(12);
+    if count == 0 {
+        let (title, description) = if !state.objects_loaded && state.current_operation.is_some() {
+            (
+                "Reading objects…",
+                "The provider is returning the object identities visible to the current role.",
+            )
+        } else if !state.objects_loaded {
+            (
+                "Object list unavailable",
+                "Use Refresh Objects to retry. The status area shows the last operation result.",
+            )
+        } else if !state.objects.is_empty() {
+            (
+                "No matching objects",
+                "Try a different label, class, hexadecimal ID or locator.",
+            )
+        } else if state
+            .token()
+            .is_some_and(|token| token.login == LoginState::Public)
+        {
+            (
+                "No public objects visible",
+                "Log in as USER to see private objects, or refresh after inserting or changing a token.",
+            )
+        } else {
+            (
+                "No objects visible",
+                "This token has no persistent objects visible to the current role.",
+            )
+        };
+        list = list.push(components::empty(title, description));
+        if state.objects_loaded && !state.object_filter.is_empty() {
+            list = list.push(button("Clear filter").on_press(Message::ObjectFilter(String::new())));
+        }
+    }
+    let browser = browser(state, list.into(), super::object::detail(state));
+    column![
+        row![
+            text("Objects").size(18).font(EMPHASIS).width(Length::Fill),
+            muted(format!("{count} of {} visible", state.objects.len()))
+        ]
+        .align_y(iced::Alignment::Center),
+        text_input("Filter label, class, ID or locator", &state.object_filter)
+            .id("object-filter")
+            .on_input(Message::ObjectFilter),
+        browser,
+    ]
+    .spacing(10)
+    .height(Length::Fill)
+    .into()
+}
+
+fn sort_object<'a>(
+    state: &UiState,
+    label: &'a str,
+    sort: crate::ui::ObjectSort,
+) -> Element<'a, Message> {
+    let suffix = if state.presentation.object_sort == sort {
+        if state.presentation.object_descending {
+            " ↓"
+        } else {
+            " ↑"
+        }
+    } else {
+        ""
+    };
+    button(text(format!("{label}{suffix}")).size(14))
+        .style(crate::ui::theme::navigation)
+        .on_press(Message::Ui(crate::ui::Action::SortObjects(sort)))
+        .into()
+}
+
 fn mechanisms(state: &UiState) -> Element<'_, Message> {
-    let mut list = column![].spacing(8);
-    let mut count = 0;
-    for entry in state
-        .mechanisms
-        .iter()
-        .filter(|entry| entry.matches(&state.mechanism_filter))
-    {
-        count += 1;
-        list = list.push(
-            button(column![text(&entry.name), text(&entry.identifier).size(13)])
+    let entries = crate::ui::sorted_mechanisms(state);
+    let count = entries.len();
+    let columns = [
+        iced::widget::table::column(
+            sort_mechanism(state, "Name", crate::ui::MechanismSort::Name),
+            |entry: &crate::backend::MechanismEntry| -> Element<'_, Message> {
+                button(
+                    text(&entry.name)
+                        .font(iced::Font::MONOSPACE)
+                        .size(13)
+                        .wrapping(text::Wrapping::Glyph),
+                )
+                .arrows()
                 .width(Length::Fill)
                 .style(if state.selected_mechanism == Some(entry.id) {
-                    button::primary
+                    crate::ui::theme::selected
                 } else {
-                    button::secondary
+                    crate::ui::theme::navigation
                 })
-                .on_press(Message::SelectMechanism(entry.id)),
-        );
-    }
+                .on_press(Message::SelectMechanism(entry.id))
+                .into()
+            },
+        )
+        .width(Length::FillPortion(3)),
+        iced::widget::table::column(
+            sort_mechanism(state, "Identifier", crate::ui::MechanismSort::Identifier),
+            |entry: &crate::backend::MechanismEntry| -> Element<'_, Message> {
+                text(&entry.identifier)
+                    .font(iced::Font::MONOSPACE)
+                    .size(14)
+                    .into()
+            },
+        )
+        .width(Length::Fill),
+    ];
+    let mut list = column![
+        iced::widget::table(columns, entries)
+            .padding(4)
+            .separator_x(0)
+            .separator_y(1)
+    ]
+    .spacing(12);
     if count == 0 {
         list = list.push(text(if !state.mechanisms_loaded {
-            "Mechanism list has not been read. Refresh to retry."
+            "Reading mechanisms, or refresh to retry a failed read."
         } else if state.mechanisms.is_empty() {
             "The token advertises no mechanisms."
         } else {
@@ -372,10 +479,33 @@ fn mechanisms(state: &UiState) -> Element<'_, Message> {
         .find(|entry| Some(entry.id) == state.selected_mechanism)
     {
         detail = detail
-            .push(text(&entry.name).size(20))
-            .push(field("Identifier", &entry.identifier))
-            .push(field("Minimum key size", entry.minimum.to_string()))
-            .push(field("Maximum key size", entry.maximum.to_string()))
+            .push(
+                text(&entry.name)
+                    .size(18)
+                    .font(EMPHASIS)
+                    .wrapping(text::Wrapping::Glyph),
+            )
+            .push(
+                column![
+                    muted("Identifier").size(12),
+                    text(&entry.identifier).size(14).font(iced::Font::MONOSPACE)
+                ]
+                .spacing(4),
+            )
+            .push(
+                column![
+                    muted("Minimum key size").size(12),
+                    text(entry.minimum.to_string())
+                ]
+                .spacing(4),
+            )
+            .push(
+                column![
+                    muted("Maximum key size").size(12),
+                    text(entry.maximum.to_string())
+                ]
+                .spacing(4),
+            )
             .push(
                 text("Bounds are provider values; units and meaning depend on the mechanism.")
                     .size(14),
@@ -392,19 +522,74 @@ fn mechanisms(state: &UiState) -> Element<'_, Message> {
     }
     column![
         row![
-            text_input("Filter name, identifier or flag", &state.mechanism_filter)
-                .on_input(Message::MechanismFilter),
-            button("Refresh mechanisms")
-                .on_press_maybe(state.can_submit().then_some(Message::RefreshMechanisms))
+            text("Mechanisms")
+                .size(18)
+                .font(EMPHASIS)
+                .width(Length::Fill),
+            muted(format!("{count} of {} advertised", state.mechanisms.len()))
         ]
-        .spacing(10),
-        text(format!("{count} of {} mechanisms", state.mechanisms.len())).size(14),
+        .align_y(iced::Alignment::Center),
+        text_input("Filter name, identifier or flag", &state.mechanism_filter)
+            .id("mechanism-filter")
+            .on_input(Message::MechanismFilter),
+        browser(state, list.into(), detail.into()),
+    ]
+    .spacing(10)
+    .height(Length::Fill)
+    .into()
+}
+
+fn sort_mechanism<'a>(
+    state: &UiState,
+    label: &'a str,
+    sort: crate::ui::MechanismSort,
+) -> Element<'a, Message> {
+    let suffix = if state.presentation.mechanism_sort == sort {
+        if state.presentation.mechanism_descending {
+            " ↓"
+        } else {
+            " ↑"
+        }
+    } else {
+        ""
+    };
+    button(text(format!("{label}{suffix}")).size(14))
+        .style(crate::ui::theme::navigation)
+        .on_press(Message::Ui(crate::ui::Action::SortMechanisms(sort)))
+        .into()
+}
+fn browser<'a>(
+    state: &UiState,
+    list: Element<'a, Message>,
+    detail: Element<'a, Message>,
+) -> Element<'a, Message> {
+    if state.presentation.width - 252.0 >= 800.0 {
         row![
-            container(scrollable(list).spacing(8).height(340)).width(Length::FillPortion(2)),
-            container(detail).width(Length::FillPortion(3)).padding(12)
+            container(scrollable(list).spacing(8))
+                .padding(8)
+                .style(theme::surface)
+                .width(Length::FillPortion(3)),
+            container(scrollable(detail).spacing(8))
+                .padding(16)
+                .style(crate::ui::theme::surface)
+                .width(Length::FillPortion(2))
         ]
         .spacing(16)
-    ]
-    .spacing(14)
-    .into()
+        .height(Length::Fill)
+        .into()
+    } else if state.presentation.show_detail {
+        column![
+            button("Back to List").on_press(Message::Ui(crate::ui::Action::BackToList)),
+            scrollable(detail).spacing(8)
+        ]
+        .spacing(12)
+        .height(Length::Fill)
+        .into()
+    } else {
+        container(scrollable(list).spacing(8))
+            .padding(8)
+            .style(theme::surface)
+            .height(Length::Fill)
+            .into()
+    }
 }

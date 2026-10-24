@@ -12,7 +12,12 @@ readme = "README.md"
 pkcs11-client.workspace = true
 secrecy.workspace = true
 iced.workspace = true
+iced_fonts = { version = "0.3.0", default-features = false, features = ["lucide"] }
+iced_aw = { version = "0.14.1", default-features = false, features = ["badge", "spinner"] }
 rfd = { version = "0.17.2", default-features = false, features = ["xdg-portal"] }
+
+[dev-dependencies]
+iced_test = "0.14.0"
 
 [lints]
 workspace = true

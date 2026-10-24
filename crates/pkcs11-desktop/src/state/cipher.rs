@@ -13,7 +13,7 @@ impl std::fmt::Display for CipherChoice {
         })
     }
 }
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum CipherField {
     Input,
     Output,

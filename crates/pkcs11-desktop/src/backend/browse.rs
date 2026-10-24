@@ -30,7 +30,7 @@ impl ObjectEntry {
             Some(ObjectClass::PUBLIC_KEY) => "Public key".into(),
             Some(ObjectClass::PRIVATE_KEY) => "Private key".into(),
             Some(ObjectClass::SECRET_KEY) => "Secret key".into(),
-            Some(class) => format!("{class:?}"),
+            Some(class) => class.to_string(),
             None => "Unknown class".into(),
         }
     }
@@ -90,9 +90,9 @@ fn hex(bytes: &[u8]) -> String {
 }
 fn public_value(value: &Attribute) -> Option<String> {
     Some(match value {
-        Attribute::Class(class) => format!("{class:?}"),
-        Attribute::KeyType(kind) => format!("{kind:?}"),
-        Attribute::CertificateType(kind) => format!("{kind:?}"),
+        Attribute::Class(class) => class.to_string(),
+        Attribute::KeyType(kind) => kind.to_string(),
+        Attribute::CertificateType(kind) => kind.to_string(),
         Attribute::ModulusBits(bits) | Attribute::ValueLen(bits) => bits.to_string(),
         Attribute::Label(bytes) | Attribute::Application(bytes) => std::str::from_utf8(bytes)
             .map(str::to_owned)

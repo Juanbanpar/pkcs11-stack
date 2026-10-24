@@ -16,6 +16,7 @@ use std::path::PathBuf;
 
 #[derive(Clone)]
 pub enum Message {
+    Ui(crate::ui::Action),
     MoveFocus {
         backwards: bool,
     },
@@ -116,7 +117,6 @@ pub enum Message {
     SubmitCrypto(RequestId),
     DismissCrypto(RequestId),
     Navigate(Screen),
-    ToggleTheme,
     EditPath(String),
     Browse,
     Picked {
@@ -182,6 +182,7 @@ pub enum Message {
 impl std::fmt::Debug for Message {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
+            Self::Ui(_) => "Ui",
             Self::MoveFocus { .. } => "MoveFocus",
             Self::OpenAdministration(_) => "OpenAdministration",
             Self::AdministrationPin { .. } => "AdministrationPin",
@@ -218,7 +219,6 @@ impl std::fmt::Debug for Message {
             Self::SubmitCrypto(_) => "SubmitCrypto",
             Self::DismissCrypto(_) => "DismissCrypto",
             Self::Navigate(_) => "Navigate",
-            Self::ToggleTheme => "ToggleTheme",
             Self::EditPath(_) => "EditPath",
             Self::Browse => "Browse",
             Self::Picked { .. } => "Picked",
@@ -268,6 +268,15 @@ pub struct App {
     source: Option<EventSource>,
 }
 impl App {
+    #[cfg(test)]
+    pub(crate) fn without_worker(state: UiState) -> Self {
+        Self {
+            state,
+            worker: None,
+            source: None,
+        }
+    }
+
     pub fn boot() -> Self {
         let mut state = UiState::default();
         let (worker, source) = match Worker::spawn() {
@@ -297,12 +306,17 @@ impl App {
         {
             return Task::none();
         }
+        let before_object_task = self.state.crypto_form.is_some()
+            || self.state.cipher_form.is_some()
+            || self.state.key_form.is_some();
+        let before_modal = self.state.dialog.is_some() || self.state.login_form.is_some();
         match message {
+            Message::Ui(action) => return self.update_ui(action),
             Message::MoveFocus { backwards } => {
                 return if backwards {
-                    iced::widget::operation::focus_previous()
+                    crate::ui::focus::walk(None, crate::ui::focus::Movement::Previous)
                 } else {
-                    iced::widget::operation::focus_next()
+                    crate::ui::focus::walk(None, crate::ui::focus::Movement::Next)
                 };
             }
             Message::OpenAdministration(kind) => self.state.open_administration(kind),
@@ -446,7 +460,7 @@ impl App {
             }
             Message::DismissCrypto(id) => self.state.dismiss_crypto(id),
             Message::Navigate(screen) => self.state.navigate(screen),
-            Message::ToggleTheme => self.state.dark_theme = !self.state.dark_theme,
+
             Message::EditPath(path) => self.state.edit_path(path),
             Message::Browse => {
                 if let Some(id) = self.state.begin_picker() {
@@ -464,6 +478,7 @@ impl App {
             }
             Message::Picked { id, path } => self.state.picked(id, path),
             Message::Load => {
+                self.state.presentation.overlay = None;
                 let command = self.state.load();
                 self.submit(command);
             }
@@ -497,6 +512,8 @@ impl App {
                 self.submit(command);
             }
             Message::ShowPage(page) => {
+                self.state.presentation.task = None;
+                self.state.presentation.show_detail = false;
                 let command = self.state.show_page(page);
                 self.submit(command);
             }
@@ -571,15 +588,47 @@ impl App {
             }
             Message::SelectObject(object) => {
                 let command = self.state.select_object(object);
+                if self.state.selected_object == Some(object) {
+                    self.state.presentation.show_detail = true;
+                }
                 self.submit(command);
             }
-            Message::SelectMechanism(mechanism) => self.state.select_mechanism(mechanism),
-            Message::ObjectFilter(filter) => self.state.edit_object_filter(filter),
-            Message::MechanismFilter(filter) => self.state.edit_mechanism_filter(filter),
+            Message::SelectMechanism(mechanism) => {
+                self.state.select_mechanism(mechanism);
+                if self.state.selected_mechanism == Some(mechanism) {
+                    self.state.presentation.show_detail = true;
+                }
+            }
+            Message::ObjectFilter(filter) => {
+                self.state.edit_object_filter(filter);
+                if self.state.selected_object.is_none() {
+                    self.state.presentation.show_detail = false;
+                }
+            }
+            Message::MechanismFilter(filter) => {
+                self.state.edit_mechanism_filter(filter);
+                if self.state.selected_mechanism.is_none() {
+                    self.state.presentation.show_detail = false;
+                }
+            }
             Message::SelectModule(module) => self.state.select_module(module),
             Message::SelectToken { module, token } => self.state.select_token(module, token),
             Message::Cancel => self.state.cancel(),
-            Message::Backend(event) => self.state.event(event),
+            Message::Backend(event) => {
+                self.state.event(event);
+                if (self.state.token_page == TokenPage::Objects
+                    && self.state.selected_object.is_none())
+                    || (self.state.token_page == TokenPage::Mechanisms
+                        && self.state.selected_mechanism.is_none())
+                {
+                    self.state.presentation.show_detail = false;
+                }
+                if self.state.token().is_none() {
+                    self.state.presentation.task = None;
+                    self.state.presentation.show_detail = false;
+                    self.state.presentation.choice = None;
+                }
+            }
             Message::CloseRequested => {
                 if let Some(id) = self.state.begin_shutdown() {
                     return match self.worker.take() {
@@ -599,6 +648,9 @@ impl App {
             }
             Message::Joined { .. } => {}
             Message::About => {
+                if let Some(id) = self.state.key_form.as_ref().map(|form| form.id) {
+                    self.state.dismiss_key_operation(id);
+                }
                 self.state.administration_form = None;
                 if let Some(id) = self.state.cipher_form.as_ref().map(|form| form.id) {
                     self.state.dismiss_cipher(id);
@@ -615,6 +667,23 @@ impl App {
                 self.state.management.confirmation = None;
             }
             Message::DismissNotification => self.state.notification = None,
+        }
+        let after_object_task = self.state.crypto_form.is_some()
+            || self.state.cipher_form.is_some()
+            || self.state.key_form.is_some();
+        if !before_object_task && after_object_task {
+            return crate::ui::focus::focus("object-task-back");
+        }
+        let after_modal = self.state.dialog.is_some() || self.state.login_form.is_some();
+        if !before_modal && after_modal {
+            self.state.presentation.restore_focus = self.state.presentation.focused.clone();
+            return crate::ui::focus::focus("modal-cancel");
+        }
+        if before_modal
+            && !after_modal
+            && let Some(id) = self.state.presentation.restore_focus.take()
+        {
+            return crate::ui::focus::focus(id);
         }
         Task::none()
     }
@@ -645,22 +714,16 @@ impl App {
             });
         Subscription::batch([
             events,
-            iced::keyboard::listen().filter_map(|event| match event {
-                iced::keyboard::Event::KeyPressed { key, modifiers, .. } => {
-                    focus_navigation(key, modifiers)
-                }
-                _ => None,
-            }),
+            iced::system::theme_changes()
+                .map(|mode| Message::Ui(crate::ui::Action::SystemTheme(mode))),
+            iced::window::resize_events()
+                .map(|(_, size)| Message::Ui(crate::ui::Action::Resize(size))),
             iced::window::close_requests().map(|_| Message::CloseRequested),
         ])
     }
 
     pub fn theme(&self) -> Theme {
-        if self.state.dark_theme {
-            Theme::Dark
-        } else {
-            Theme::Light
-        }
+        crate::ui::theme::theme(self.state.presentation.dark())
     }
 
     pub fn view(&self) -> Element<'_, Message> {
@@ -668,7 +731,28 @@ impl App {
     }
 }
 
-fn focus_navigation(
+pub(crate) fn shortcut(
+    key: &iced::keyboard::Key,
+    modifiers: iced::keyboard::Modifiers,
+) -> Option<Message> {
+    use crate::ui::Action;
+    use iced::keyboard::{Key, key::Named};
+    if key == &Key::Named(Named::Escape) {
+        return Some(Message::Ui(Action::Escape));
+    }
+    if !modifiers.command() || modifiers.alt() || modifiers.shift() {
+        return None;
+    }
+    match key.as_ref() {
+        Key::Character("o") => Some(Message::Ui(Action::AddModule)),
+        Key::Character("f") => Some(Message::Ui(Action::Filter)),
+        Key::Character("r") => Some(Message::Ui(Action::Refresh)),
+        Key::Character("q") => Some(Message::CloseRequested),
+        _ => None,
+    }
+}
+
+pub(crate) fn focus_navigation(
     key: iced::keyboard::Key,
     modifiers: iced::keyboard::Modifiers,
 ) -> Option<Message> {
@@ -893,8 +977,10 @@ mod tests {
             worker: None,
             source: None,
         };
-        let _ = app.update(Message::ToggleTheme);
-        assert_eq!(app.theme(), Theme::Dark);
+        let _ = app.update(Message::Ui(crate::ui::Action::SetAppearance(
+            crate::ui::theme::Appearance::Dark,
+        )));
+        assert_eq!(app.theme(), crate::ui::theme::theme(true));
         let _ = app.update(Message::About);
         assert_eq!(app.state.dialog, Some(Dialog::About));
         let _ = app.update(Message::DismissDialog);

@@ -100,6 +100,7 @@ pub struct LoginForm {
 /// UI metadata and identifiers. Providers and live PKCS#11 resources stay on the worker.
 #[derive(Default)]
 pub struct UiState {
+    pub presentation: crate::ui::Presentation,
     pub administration_form: Option<AdministrationForm>,
     pub screen: Screen,
     pub loaded_modules: Vec<ModuleEntry>,
@@ -110,7 +111,6 @@ pub struct UiState {
     pub dialog: Option<Dialog>,
     pub login_form: Option<LoginForm>,
     pub notification: Option<Notification>,
-    pub dark_theme: bool,
     pub worker_available: bool,
     pub shutdown_request: Option<RequestId>,
     pub module_path: String,
@@ -324,6 +324,7 @@ impl UiState {
         Some(BackendCommand::Refresh { id, module })
     }
     fn reset_browser(&mut self) {
+        self.presentation.locator_expanded = false;
         self.administration_form = None;
         self.random = RandomUi::default();
         self.clear_crypto_form();
@@ -356,6 +357,7 @@ impl UiState {
         if matches!(self.dialog, Some(Dialog::Delete(_))) {
             self.dialog = None;
         }
+        self.presentation.locator_expanded = false;
         self.token_page = page;
         self.selected_object = None;
         self.object_details = None;
@@ -374,6 +376,9 @@ impl UiState {
         let module = self.module()?.id;
         let token = self.token()?.id;
         let id = self.begin(OperationKind::Objects)?;
+        self.clear_crypto_form();
+        self.presentation.show_detail = false;
+        self.presentation.locator_expanded = false;
         self.objects.clear();
         self.objects_loaded = false;
         self.selected_object = None;
@@ -387,6 +392,7 @@ impl UiState {
         let module = self.module()?.id;
         let token = self.token()?.id;
         let id = self.begin(OperationKind::Mechanisms)?;
+        self.presentation.show_detail = false;
         self.mechanisms.clear();
         self.mechanisms_loaded = false;
         self.selected_mechanism = None;
@@ -410,6 +416,7 @@ impl UiState {
         if matches!(self.dialog, Some(Dialog::Delete(_))) {
             self.dialog = None;
         }
+        self.presentation.locator_expanded = false;
         self.selected_object = Some(object);
         self.object_details = None;
         if !inspectable {
@@ -506,6 +513,8 @@ impl UiState {
         }
     }
     pub fn navigate(&mut self, screen: Screen) {
+        self.presentation.task = None;
+        self.presentation.show_detail = false;
         self.cancel();
         self.select_loaded = false;
         self.picker_request = None;
@@ -516,6 +525,8 @@ impl UiState {
         self.reset_browser();
     }
     pub fn select_module(&mut self, module: ResourceId) {
+        self.presentation.task = None;
+        self.presentation.show_detail = false;
         if !self.loaded_modules.iter().any(|m| m.id == module) {
             return;
         }
@@ -805,6 +816,8 @@ impl UiState {
         self.next_request += 1;
         let id = RequestId(self.next_request);
         self.shutdown_request = Some(id);
+        self.presentation.overlay = None;
+        self.presentation.choice = None;
         self.administration_form = None;
         self.current_operation = None;
         self.operation_kind = None;
