@@ -5,6 +5,9 @@ use std::fmt;
 #[derive(thiserror::Error)]
 #[non_exhaustive]
 pub enum Error {
+    /// A supplied signature does not verify; no provider failure is implied.
+    #[error("signature verification failed")]
+    SignatureMismatch,
     /// Provider returned an output inconsistent with the selected key operation.
     #[error("invalid key operation output")]
     InvalidKeyOutput,

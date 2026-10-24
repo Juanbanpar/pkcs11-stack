@@ -312,6 +312,32 @@ session can be used after such a failure. Caller templates may contain secrets a
 are never logged. `validate_token_uri` provides the same pure constraint validation
 used by module resolution, so callers can reject unsupported input before loading.
 
+## ML-DSA
+
+Pure ML-DSA uses `MlDsaRequest` with an expected parameter set, the original message,
+a context of at most 255 bytes, and an explicit hedging choice. It has no external
+digest or prehash field. `MlDsaSigningPolicy` restricts allowed parameter sets
+independently of the RSA/EC `SigningPolicy`; its default permits ML-DSA-44/65/87.
+
+`Token::ml_dsa_generation_options` reports advertised choices. RW sessions provide
+`generate_ml_dsa_key_pair` with explicit ID/label and optional always-authenticate.
+Generated private keys are sensitive and nonextractable. `ml_dsa_capabilities`
+intersects key permissions, allowed mechanisms and token flags/bounds; ML-DSA
+mechanism bounds are public-key bytes, not bits.
+
+`sign_ml_dsa` rediscovers the key, checks its parameter set and policy, then signs
+once with CKM_ML_DSA. Always-authenticate keys use signing initialization, context
+login and multipart signing. Other keys use single-part signing. Returned signature
+length must match the selected parameter set. No private value or seed is read.
+`ml_dsa_public_key` reads only an explicitly public, non-private public-key object
+and checks its encoding length.
+
+`verify_ml_dsa` verifies on the token. A malformed or nonmatching signature returns
+`Error::SignatureMismatch`; a completed C_Verify mismatch leaves the session usable.
+Other backend failures invalidate it. Verification does not bind a private key to
+a public key or establish certificate trust. Software verification and certificate
+binding belong to `pkcs11-client`. HashML-DSA and external-mu signing are not implemented.
+
 ## Testing
 
 ```sh
