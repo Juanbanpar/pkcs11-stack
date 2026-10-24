@@ -228,6 +228,13 @@ Management uses one explicitly authenticated session, not an additional pool.
 Mutations require RW mode and appropriate provider authorization. Failed operations
 retain runtime invalidation semantics and are never retried or rolled back. Drop
 never explicitly logs out; closing the last session may reset token login state.
+
+`Client::close` checks closure of idle pooled sessions and reports earlier
+closure failures from discarded leases. Release leases before calling it, then
+finalize the provider before releasing operation output when cleanup must be
+verified. Drop remains best effort. Management session constructors also attempt
+checked closure after authentication fails; a closure error takes precedence.
+
 `Provider::initialize_token` can erase a selected slot and requires exclusive owner
 access. Drop all sessions/clients before finalizing or initializing a token:
 

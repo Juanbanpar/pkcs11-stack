@@ -88,7 +88,9 @@ token. Signing is synchronous and acquires one exclusive, nonblocking runtime
 lease; exhaustion fails immediately. There are no hidden workers, signing retries,
 logout calls or secondary pools. Failed/uncertain sessions are discarded by runtime;
 encoding or binding failures also discard the lease. Later independent operations
-may acquire a fresh session. Token removal and slot rediscovery remain explicit.
+may acquire a fresh session after successful cleanup. If a discarded session fails
+to close, runtime blocks further checkouts; replace the pool explicitly. Token
+removal and slot rediscovery remain explicit.
 
 An owned runtime pool holds `Arc<Module>` through session closure, satisfying rustls's
 `'static` signing traits without leaking the owner. For explicit shutdown, stop

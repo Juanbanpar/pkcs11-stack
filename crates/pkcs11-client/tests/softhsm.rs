@@ -622,3 +622,62 @@ fn scoped_signing_choices_signature_and_explicit_close() {
     certificate.verify_signature(&request, &signature).unwrap();
     provider.finalize().unwrap();
 }
+
+#[test]
+#[ignore = "requires the isolated SoftHSM runner"]
+fn checked_client_shutdown_closes_idle_and_discarded_sessions_without_logout() {
+    assert_eq!(std::env::var("PKCS11_TEST_ISOLATED").as_deref(), Ok("1"));
+    let provider = Provider::load(std::env::var_os("PKCS11_TEST_MODULE").unwrap()).unwrap();
+    let token = "pkcs11:token=client-test".parse().unwrap();
+    let pin = SecretString::from("12345678");
+    let mut anchor = provider
+        .management(&token, SessionMode::ReadOnly, auth(&pin))
+        .unwrap();
+    let client = provider
+        .client(
+            &token,
+            NonZeroUsize::new(2).unwrap(),
+            SigningPolicy::default(),
+        )
+        .unwrap();
+    let first = client.pool().try_acquire(Authentication::None).unwrap();
+    let mut second = client.pool().try_acquire(Authentication::None).unwrap();
+    second.discard();
+    drop(second);
+    drop(first);
+    client.close().unwrap();
+    assert_eq!(anchor.state().unwrap(), SessionState::RoUser);
+    anchor.logout().unwrap();
+    let client = provider
+        .client(
+            &token,
+            NonZeroUsize::new(1).unwrap(),
+            SigningPolicy::default(),
+        )
+        .unwrap();
+    assert!(
+        client
+            .private_key(
+                uri("p256", "private"),
+                auth(&SecretString::from("invalid-fixture-pin"))
+            )
+            .is_err()
+    );
+    client.close().unwrap();
+    assert_eq!(anchor.state().unwrap(), SessionState::RoPublic);
+    // A later explicitly authenticated operation still works after closing the failed client.
+    let client = provider
+        .client(
+            &token,
+            NonZeroUsize::new(1).unwrap(),
+            SigningPolicy::default(),
+        )
+        .unwrap();
+    client
+        .private_key(uri("p256", "private"), auth(&pin))
+        .unwrap();
+    client.close().unwrap();
+    assert_eq!(anchor.state().unwrap(), SessionState::RoUser);
+    anchor.close().unwrap();
+    provider.finalize().unwrap();
+}

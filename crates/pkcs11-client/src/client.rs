@@ -35,6 +35,12 @@ impl<'m> Client<'m> {
             policy,
         ))
     }
+    /// Close the runtime pool and report idle/discarded session cleanup errors.
+    /// Call before releasing output or finalizing the provider when closure must
+    /// be checked. Outstanding leases must be released first. Drop is best effort.
+    pub fn close(self) -> Result<(), Error> {
+        Ok(self.pool.close()?)
+    }
     /// Application policy used for every signing operation and binding probe.
     pub fn policy(&self) -> &SigningPolicy {
         &self.policy

@@ -11,6 +11,29 @@ struct State<'m> {
     idle: Vec<Entry<'m>>,
     total: usize,
     generation: u64,
+    cleanup_error: Option<Error>,
+}
+impl State<'_> {
+    fn record_cleanup(&mut self, result: Result<(), Error>) {
+        if let Err(error) = result {
+            self.cleanup_error.get_or_insert(error);
+        }
+    }
+    fn close(mut self) -> Result<(), Error> {
+        for entry in self.idle {
+            if let Err(error) = entry.session.close() {
+                self.cleanup_error.get_or_insert(error);
+            }
+        }
+        self.cleanup_error.map_or(Ok(()), Err)
+    }
+    fn check_cleanup(&self) -> Result<(), Error> {
+        if self.cleanup_error.is_some() {
+            Err(Error::PoolCleanupFailed)
+        } else {
+            Ok(())
+        }
+    }
 }
 /// Bounded, token-scoped pool. Checkout is nonblocking and never stores a PIN.
 ///
@@ -56,6 +79,7 @@ impl<'m> SessionPool<'m> {
                 idle: vec![],
                 total: 0,
                 generation: 0,
+                cleanup_error: None,
             }),
         }
     }
@@ -70,6 +94,7 @@ impl<'m> SessionPool<'m> {
     ) -> Result<SessionLease<'_, 'm>, Error> {
         let (entry, generation) = {
             let mut state = self.state.lock().map_err(|_| Error::PoolPoisoned)?;
+            state.check_cleanup()?;
             let generation = state
                 .generation
                 .checked_add(1)
@@ -96,7 +121,10 @@ impl<'m> SessionPool<'m> {
             .as_ref()
             .is_some_and(|e| !e.session.healthy.get() || e.session.info().is_err())
         {
-            drop(lease.entry.take());
+            let closed = lease.close_entry();
+            let mut state = self.state.lock().map_err(|_| Error::PoolPoisoned)?;
+            state.record_cleanup(closed);
+            state.check_cleanup()?;
         }
         if lease.entry.is_none() {
             lease.entry = Some(Entry {
@@ -125,6 +153,33 @@ impl<'m> SessionPool<'m> {
         lease.reusable = true;
         Ok(lease)
     }
+    /// Close every idle session and report the first cleanup failure, including
+    /// one recorded when a stale or failed lease was discarded. All sessions are
+    /// attempted even after an error. No logout or operation retry is performed.
+    ///
+    /// Outstanding leases borrow this pool and must be released before closure.
+    /// Drop remains best effort when explicit closure is not used.
+    ///
+    /// ```compile_fail,E0505
+    /// use pkcs11_runtime::{Authentication, SessionPool};
+    /// fn invalid_close(pool: SessionPool<'_>) {
+    ///     let lease = pool.try_acquire(Authentication::None).unwrap();
+    ///     pool.close().unwrap();
+    ///     drop(lease);
+    /// }
+    /// ```
+    pub fn close(self) -> Result<(), Error> {
+        let (state, poisoned) = match self.state.into_inner() {
+            Ok(state) => (state, false),
+            Err(error) => (error.into_inner(), true),
+        };
+        let closed = state.close();
+        if poisoned {
+            closed.and(Err(Error::PoolPoisoned))
+        } else {
+            closed
+        }
+    }
     /// Configured maximum, counting idle, leased and opening sessions.
     pub fn maximum(&self) -> NonZeroUsize {
         self.maximum
@@ -145,6 +200,11 @@ pub struct SessionLease<'p, 'm> {
     reusable: bool,
 }
 impl<'m> SessionLease<'_, 'm> {
+    fn close_entry(&mut self) -> Result<(), Error> {
+        self.entry
+            .take()
+            .map_or(Ok(()), |entry| entry.session.close())
+    }
     /// Borrow the leased session exclusively. Objects cannot outlive this borrow.
     pub fn session(&mut self) -> &mut Session<'m> {
         &mut self.entry.as_mut().expect("live lease").session
@@ -179,9 +239,39 @@ impl Drop for SessionLease<'_, '_> {
             }
         }
         // Keep it counted until close completes; no module call under the mutex.
-        drop(self.entry.take());
-        if let Ok(mut state) = self.pool.state.lock() {
-            state.total -= 1;
-        }
+        let closed = self.close_entry();
+        let mut state = self
+            .pool
+            .state
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        state.total -= 1;
+        state.record_cleanup(closed);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn discarded_session_close_failure_blocks_checkout_and_is_not_cleared() {
+        let mut state = State {
+            idle: Vec::new(),
+            total: 0,
+            generation: 0,
+            cleanup_error: None,
+        };
+        assert!(state.check_cleanup().is_ok());
+        state.record_cleanup(Ok(()));
+        assert!(state.check_cleanup().is_ok());
+        state.record_cleanup(Err(Error::Closed));
+        state.record_cleanup(Ok(()));
+        state.record_cleanup(Err(Error::PoolPoisoned));
+        assert!(matches!(
+            state.check_cleanup(),
+            Err(Error::PoolCleanupFailed)
+        ));
+        assert!(matches!(state.close(), Err(Error::Closed)));
     }
 }
