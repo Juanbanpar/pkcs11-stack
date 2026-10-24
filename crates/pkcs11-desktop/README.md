@@ -11,7 +11,9 @@ mechanisms, then select an entry for metadata details.
 Select **Add Module**, choose a library with **Browse**, or enter its path, then
 select **Load**.
 The sidebar lists loaded modules and their tokens. Select a module for library and
-slot information, or a token for its overview and locator.
+slot information, or a token for its overview. The token header identifies the
+provider, serial number and current login role. **Show PKCS#11 locator** expands
+the technical identifier when needed.
 
 Tab and Shift+Tab move between enabled controls. Enter or Space activates buttons;
 arrows, Home and End move within navigation, resource lists, tabs and choices.
@@ -23,7 +25,9 @@ Command instead of Ctrl on macOS.
 **Appearance** offers System, Light and Dark. System follows the desktop theme
 when available and otherwise uses Light. Appearance is not saved. Resource lists
 and details appear side by side in wider windows; smaller windows show a separate
-detail view with **Back to list**. Column headings sort without reading the token.
+detail view with **Back to List**, which returns focus to the selected row.
+Column headings sort without reading the token. The object inspector shows its
+identity, actions and attributes; locators are collapsed initially.
 
 **Refresh** on the module overview re-enumerates the selected module's slots and
 tokens. Removed or replaced tokens clear their selection. **Unload** finalizes the selected module;
@@ -148,6 +152,7 @@ navigation remains available.
 
 Rust 1.88 or newer. Iced 0.14 uses `tiny-skia`, `thread-pool`, `wayland`, `advanced`
 and `linux-theme-detection`, with default features disabled. `iced_aw` enables only `badge` and `spinner`.
+`iced_fonts` enables only the Lucide icon font.
 
 ```sh
 cargo run -p pkcs11-desktop --locked
