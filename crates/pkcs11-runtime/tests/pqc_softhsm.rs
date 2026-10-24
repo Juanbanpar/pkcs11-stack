@@ -128,6 +128,18 @@ fn required_pqc_provider_operations() {
         (MlKemParameterSetType::ML_KEM_768, 1088),
         (MlKemParameterSetType::ML_KEM_1024, 1568),
     ] {
+        let public_length = match parameter {
+            MlKemParameterSetType::ML_KEM_512 => 800,
+            MlKemParameterSetType::ML_KEM_768 => 1184,
+            _ => 1568,
+        };
+        for mechanism in [MechanismType::ML_KEM_KEY_PAIR_GEN, MechanismType::ML_KEM] {
+            let info = module.get_mechanism_info(slot, mechanism).unwrap();
+            assert!(
+                (info.min_key_size()..=info.max_key_size()).contains(&public_length),
+                "ML-KEM bounds must use public-key bytes"
+            );
+        }
         let (public, private) = session
             .generate_key_pair(
                 &Mechanism::MlKemKeyPairGen,

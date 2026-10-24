@@ -66,6 +66,11 @@ decapsulation. It checks ciphertext/signature sizes and nonextractability of
 private keys and shared secrets. A one-block AES round trip proves the KEM secrets
 agree without exporting them. Missing mechanisms or entry points fail the job.
 
+The pinned SoftHSM revision reports ML-KEM private-key lengths as mechanism bounds,
+contrary to PKCS#11 3.2 sections 6.68.4/5. The build script applies a two-line source
+correction to the isolated provider. Compatibility tests check public-key byte
+bounds; runtime rejects incorrect metadata without a vendor-specific fallback.
+
 Runtime/client tests also require typed ML-DSA generation, capability checks,
 policy rejection before checkout, context authentication, signature verification,
 session recovery after mismatches, and detection of a changed parameter set under

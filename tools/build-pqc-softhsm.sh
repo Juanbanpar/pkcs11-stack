@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT OR Apache-2.0
 set -euo pipefail
+source_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 
 if [[ $# != 1 || "$1" != /* ]]; then
     echo 'Usage: build-pqc-softhsm.sh /absolute/installation/prefix' >&2
@@ -27,6 +28,9 @@ make install_sw
 
 fetch softhsm https://github.com/softhsm/SoftHSMv2.git 884cb38f3d2012a0447bd5f50dbd29c429987c41
 cd "$scratch/softhsm"
+# This revision reports ML-KEM private-key lengths. PKCS#11 3.2 sections
+# 6.68.4/5 require public-key bytes for both mechanisms' advertised bounds.
+git apply "$source_root/tools/patches/softhsm-mlkem-public-key-bounds.patch"
 sh autogen.sh
 ./configure --prefix="$prefix" --with-crypto-backend=openssl \
     --with-openssl="$prefix/openssl" --disable-gost --enable-mldsa --enable-mlkem
