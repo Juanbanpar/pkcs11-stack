@@ -66,8 +66,9 @@ verification and context authentication.
 
 Runtime and client also support ML-KEM-512/768/1024 key generation, encapsulation
 and decapsulation, with RFC 9935 public-key import/export. Raw shared secrets remain sensitive and nonextractable on the
-token, with only further derivation permitted. Protocol KDF application and CLI
-ML-KEM workflows are not implemented.
+token, with only further derivation permitted. Typed HKDF extract-and-expand
+creates nonextractable AES keys or further derivation secrets on the same token.
+CLI ML-KEM/HKDF workflows are not implemented.
 
 The TLS adapter supports server and mutual authentication with TLS 1.3 and optional
 TLS 1.2. RSA and EC P-256/P-384/P-521 work across those versions; ML-DSA
@@ -77,7 +78,7 @@ authentication requires TLS 1.3. TLS use requires verification support from the 
 RSA-OAEP encryption/decryption supports SHA-2 with a matching MGF1 digest and
 empty label. It processes one RSA block. Raw ECDH creates token-held generic
 secrets on P-256/P-384/P-521; AES key wrapping and unwrapping use RFC 3394.
-KDF application and private-key import are not implemented. Certificate parsing and binding do not validate
+Private-key import is not implemented. Certificate parsing and binding do not validate
 certificate trust; applications configure trust separately.
 
 The desktop application loads and unloads modules, enumerates slots and tokens,

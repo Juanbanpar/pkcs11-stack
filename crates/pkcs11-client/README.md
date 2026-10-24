@@ -371,7 +371,8 @@ with CKA_DERIVE on that curve, without per-operation authentication. The explici
 null KDF creates raw ECDH material as a persistent private, sensitive,
 nonextractable generic secret with derivation permission only. Raw shared secrets
 never leave the provider. Peer authentication and a subsequent KDF are the
-caller's responsibility; this API does not implement the subsequent KDF.
+caller's responsibility. Apply `derive_hkdf` separately with a supported base/hash
+length.
 
 ```no_run
 use pkcs11_client::{DeriveRequest, EcdhPeer, ManagementSession, ObjectRef, SecretKeyIdentity};
@@ -470,5 +471,48 @@ fn encapsulate(
 The caller must authenticate the peer and apply a protocol KDF. Same-length
 ciphertext corruption can succeed with a different secret through ML-KEM implicit
 rejection. Invalid lengths fail before crypto. Always-authenticate decapsulation
-and KDF application are not implemented. No operation or authentication is retried;
+is not implemented. No operation or authentication is retried;
 close the session before releasing ciphertext when cleanup must be checked.
+
+## HKDF
+
+`ManagementSession::hkdf_capabilities` inspects a selected generic/HKDF secret.
+`derive_hkdf` takes `HkdfRequest` and performs token-side extract-and-expand with
+SHA-256/384/512. The base must be sensitive, nonextractable, permit derivation
+and match the hash length. Use SHA-256 with a 32-byte ML-KEM shared secret.
+
+```no_run
+use pkcs11_client::{Authentication, DigestAlgorithm, Error, HkdfOutput,
+    HkdfRequest, ObjectRef, Pin, Pkcs11Uri, Provider, SessionMode};
+use secrecy::SecretString;
+
+fn derive_encryption_key(
+    provider: &Provider, token: &Pkcs11Uri, base: &ObjectRef, pin: &SecretString,
+    public_salt: &[u8], protocol_context: &[u8],
+) -> Result<(), Error> {
+    let mut session = provider.management(
+        token, SessionMode::ReadWrite, Authentication::User(Pin::Value(pin)),
+    )?;
+    let outcome = session.derive_hkdf(base, &HkdfRequest {
+        digest: DigestAlgorithm::Sha256,
+        salt: public_salt, info: protocol_context,
+        output: HkdfOutput::Aes256,
+        id: b"encryption-key-1", label: b"protocol encryption key",
+    });
+    session.close()?;
+    outcome
+}
+```
+
+New keys are persistent private, sensitive and nonextractable. AES outputs permit
+only encryption/decryption; `HkdfOutput::DerivationSecret` permits only further
+derivation. IDs and labels are nonempty and at most 128 bytes. Salt/context are
+public and at most 4096 bytes each. Empty salt means zero salt; empty context is
+permitted. Output length must be 1..=255 times the hash length. Existing secret IDs
+are rejected before derivation, without guaranteeing uniqueness against concurrent
+writers. No base/output values leave the token, no base is automatically deleted,
+and no retry, rollback or software fallback occurs.
+
+Peer authentication and protocol context selection remain application concerns.
+An altered ML-KEM ciphertext can produce a different derived key without an error.
+This API does not implement a classical/PQC hybrid combiner or a complete protocol.

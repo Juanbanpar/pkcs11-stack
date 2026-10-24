@@ -16,12 +16,14 @@ pub use pkcs11_runtime::RsaCipherOperation;
 mod client;
 mod error;
 mod generation;
+mod hkdf;
 mod management;
 mod ml_dsa;
 mod ml_dsa_certificate;
 mod ml_kem;
 pub use ml_dsa_certificate::{MlDsaCertificate, MlDsaIdentity, MlDsaVerifyingKey};
 pub use ml_kem::MlKemPublicKey;
+pub use pkcs11_runtime::{HkdfCapabilities, HkdfOutput, HkdfRequest};
 pub use pkcs11_runtime::{
     MlDsaCapabilities, MlDsaHedging, MlDsaParameterSet, MlDsaPublicKey, MlDsaRequest,
     MlDsaSigningPolicy,
