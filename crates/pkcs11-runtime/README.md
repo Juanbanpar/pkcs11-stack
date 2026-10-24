@@ -349,3 +349,30 @@ Unit tests cover selection, redaction and signing plans; compile-fail examples
 check module, session and object lifetimes. The SoftHSM runner provisions disposable
 tokens for discovery, authentication, signing and mutation tests. See the
 [test guide](../../tests/README.md) for provider configuration.
+
+## ML-KEM
+
+`MlKemParameterSet` selects ML-KEM-512/768/1024. `Token::ml_kem_generation_options`
+checks advertised generation flags and public-key byte bounds.
+`Session::generate_ml_kem_key_pair` creates a persistent public encapsulation key
+and a sensitive, nonextractable private decapsulation key with explicit ID/label.
+Duplicate key-pair IDs remain possible; selection must resolve exactly one object.
+
+`Session::ml_kem_capabilities` checks the selected class, parameter set, direction,
+key permission, allowed mechanisms, token flags/bounds and the PKCS#11 entry point.
+Always-authenticate decapsulation is unsupported by this single-call profile.
+The typed methods do not weaken these checks for vendor metadata errors.
+
+`encapsulate_ml_kem` returns only public ciphertext; `decapsulate_ml_kem` accepts
+that ciphertext and returns no key bytes. Both take `MlKemRequest`, with an
+expected parameter set and a new secret ID/label, and require an RW session.
+Secret identity fields are nonempty and at most 128 bytes; an existing secret ID
+is rejected before crypto. The result is a persistent private 32-byte generic
+secret with sensitive/nonextractable attributes and only derivation enabled.
+No private seed or shared-secret value is read or exported.
+
+Raw shared secrets require a protocol KDF and peer authentication before use.
+ML-KEM implicit rejection can produce a different secret for altered same-length
+ciphertext without reporting an error. Success alone does not authenticate a peer.
+There is no KDF selection, retry, rollback or software fallback. Provider failures
+invalidate the session, and even an error can leave persistent effects.

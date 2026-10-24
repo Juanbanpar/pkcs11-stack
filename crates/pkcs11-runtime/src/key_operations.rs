@@ -143,10 +143,14 @@ fn profile(
     }
     Ok(result)
 }
-fn identity_template(id: &[u8], label: &[u8], aes: bool) -> Result<Vec<Attribute>, Error> {
+pub(crate) fn validate_secret_identity(id: &[u8], label: &[u8]) -> Result<(), Error> {
     if id.is_empty() || id.len() > 128 || label.is_empty() || label.len() > 128 {
         return Err(Error::InvalidParameters("secret key identity"));
     }
+    Ok(())
+}
+fn identity_template(id: &[u8], label: &[u8], aes: bool) -> Result<Vec<Attribute>, Error> {
+    validate_secret_identity(id, label)?;
     Ok(vec![
         Attribute::Class(ObjectClass::SECRET_KEY),
         Attribute::KeyType(if aes {
@@ -178,7 +182,7 @@ impl Session<'_> {
     ) -> Result<KeyOperationProfile, Error> {
         profile(&self.resolve(key)?, operation)
     }
-    fn new_secret_template(
+    pub(crate) fn new_secret_template(
         &mut self,
         id: &[u8],
         label: &[u8],

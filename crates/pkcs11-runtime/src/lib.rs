@@ -6,12 +6,14 @@ mod administration;
 mod encryption;
 mod key_operations;
 mod ml_dsa;
+mod ml_kem;
 pub use encryption::{RsaCipherOperation, RsaOaepCapabilities};
 pub use key_operations::{EcdhDerivation, KeyOperation, KeyOperationProfile};
 pub use ml_dsa::{
     MlDsaCapabilities, MlDsaHedging, MlDsaParameterSet, MlDsaPublicKey, MlDsaRequest,
     MlDsaSigningPolicy,
 };
+pub use ml_kem::{MlKemCapabilities, MlKemOperation, MlKemParameterSet, MlKemRequest};
 mod error;
 mod module;
 mod pool;
