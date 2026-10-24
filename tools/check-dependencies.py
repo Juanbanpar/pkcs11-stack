@@ -45,6 +45,16 @@ for ident in members:
         raise SystemExit(f"TLS dependency outside adapter: {name}")
     if name != "pkcs11ctl" and {"pkcs11ctl", "clap"} & transitive:
         raise SystemExit(f"CLI dependency in a library: {name}")
+    if name == "pkcs11-desktop":
+        for dependency in visited:
+            package = packages[dependency]["name"]
+            features = set(nodes[dependency]["features"])
+            if package == "iced" and ("tokio" in features or "thread-pool" not in features):
+                raise SystemExit("Desktop must use the thread-pool executor")
+            if package in {"iced", "iced_winit", "winit"} and "x11" in features:
+                raise SystemExit(f"X11 backend enabled in {package}; Linux desktop requires Wayland")
+            if package == "iced_aw" and features != {"badge", "spinner"}:
+                raise SystemExit(f"Unexpected desktop component features: {features}")
     if name == "pkcs11-locator" and "cryptoki" in transitive:
         raise SystemExit("Locator cannot depend on cryptoki")
     production, pending = set(), [ident]
@@ -65,4 +75,4 @@ production = subprocess.check_output(
 production_names = {line.split()[0] for line in production.splitlines() if line}
 if {"ring", "aws-lc-rs", "aws-lc-sys"} & production_names:
     raise SystemExit("Adapter production dependencies must not select a software TLS provider")
-print("Workspace dependency boundaries and provider-free adapter verified")
+print("Workspace dependency boundaries, desktop features and provider-free adapter verified")

@@ -19,7 +19,7 @@ jobs:
       - name: Install desktop native dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --yes pkg-config libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev libegl1-mesa-dev
+          sudo apt-get install --yes pkg-config libxkbcommon-dev libwayland-dev libegl1-mesa-dev
       - name: Install stable Rust
         run: |
           rustup toolchain install stable --no-self-update --profile minimal --component rustfmt --component clippy
@@ -110,7 +110,7 @@ jobs:
         if: matrix.crate == 'pkcs11-desktop'
         run: |
           sudo apt-get update
-          sudo apt-get install --yes pkg-config libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev libegl1-mesa-dev
+          sudo apt-get install --yes pkg-config libxkbcommon-dev libwayland-dev libegl1-mesa-dev
       - name: Install stable Rust
         run: |
           rustup toolchain install stable --no-self-update --profile minimal
@@ -157,7 +157,7 @@ jobs:
       - name: Install desktop native dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --yes pkg-config libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev libegl1-mesa-dev
+          sudo apt-get install --yes pkg-config libxkbcommon-dev libwayland-dev libegl1-mesa-dev
       - name: Install desktop minimum Rust
         run: rustup toolchain install 1.88.0 --no-self-update --profile minimal
       - name: Check and test desktop minimum Rust
@@ -200,7 +200,7 @@ jobs:
           echo 'PKCS11_TEST_REQUIRE_RSA_OAEP_SHA2=1' >> "$GITHUB_ENV"
       - name: Install desktop native dependencies
         run: |
-          sudo apt-get install --yes pkg-config libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev libegl1-mesa-dev
+          sudo apt-get install --yes pkg-config libxkbcommon-dev libwayland-dev libegl1-mesa-dev
       - name: Isolated runtime, client, CLI, TLS and desktop workflows
         env:
           PKCS11_TEST_DESKTOP: "1"

@@ -18,7 +18,7 @@ license = "MIT OR Apache-2.0"
 publish = false
 
 [workspace.dependencies]
-iced = { version = "0.14.0", default-features = false, features = ["tiny-skia", "thread-pool", "x11", "wayland"] }
+iced = { version = "0.14.0", default-features = false, features = ["tiny-skia", "thread-pool", "wayland", "advanced", "linux-theme-detection"] }
 pkcs11-locator = { path = "crates/pkcs11-locator" }
 pkcs11-runtime = { path = "crates/pkcs11-runtime" }
 pkcs11-client = { path = "crates/pkcs11-client" }
