@@ -72,3 +72,6 @@ mkdir "$PKCS11_TLS_TEST_DIR"
 bash tools/provision-tls-softhsm.sh
 bash tools/test-examples.sh tls
 cargo test -p pkcs11-rustls-adapter --features tls12 --test softhsm --locked -- --ignored --test-threads=1
+if [[ "${PKCS11_TEST_REQUIRE_PQC:-0}" == 1 ]]; then
+    cargo test -p pkcs11-rustls-adapter --features tls12 --test ml_dsa_softhsm --locked -- --ignored --test-threads=1
+fi

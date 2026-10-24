@@ -81,8 +81,16 @@ empty messages, binary contexts, mismatches and output preservation/cleanup.
 
 `PKCS11_TEST_PQC_OPENSSL` selects an OpenSSL executable with ML-DSA support; it
 defaults to `openssl`. Missing support fails the tests. These checks do not
-establish formal algorithm validation or hardware compatibility. ML-DSA TLS
-integration is not implemented.
+establish formal algorithm validation or hardware compatibility.
+
+The TLS PQC tests use an application-selected AWS-LC provider for peer and local
+signature verification, record encryption and key exchange. All three ML-DSA
+parameter sets authenticate servers and clients with token-held keys, including
+an always-authenticate key. An ML-DSA issuer signs the certificate chain and the
+handshake negotiates X25519MLKEM768. Negative cases cover unsupported verifiers,
+policy rejection before credential acquisition, trust failures, TLS 1.2,
+exhausted pools and replacement keys. The adapter's production graph still
+selects no software crypto provider.
 
 ## Property tests and fuzzing
 

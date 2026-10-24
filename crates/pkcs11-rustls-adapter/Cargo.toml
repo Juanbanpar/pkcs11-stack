@@ -22,7 +22,7 @@ secrecy.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
-rustls = { workspace = true, features = ["ring", "tls12"] }
+rustls = { workspace = true, features = ["ring", "aws_lc_rs", "tls12"] }
 pkcs11-locator.workspace = true
 zeroize.workspace = true
 proptest.workspace = true

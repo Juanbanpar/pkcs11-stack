@@ -5,6 +5,7 @@
 mod config;
 mod credentials;
 mod encoding;
+mod ml_dsa;
 mod resolvers;
 mod schemes;
 mod signing;
