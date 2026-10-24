@@ -477,3 +477,196 @@ fn disabled_inputs_are_excluded_from_keyboard_focus() {
     ui.operate(&renderer, &mut ids);
     assert_eq!(ids.0, vec![Id::new("input-Enabled"), Id::new("continue")]);
 }
+
+fn populated_state() -> UiState {
+    use crate::backend::MetadataField;
+    let mut state = state();
+    let module = &mut state.loaded_modules[0];
+    module.path = "/usr/lib/pkcs11/vendor-pkcs11.so".into();
+    module.description = "PKCS#11 Provider".into();
+    module.slots = vec![crate::backend::SlotEntry {
+        id: 10,
+        description: "Security Token Reader".into(),
+        manufacturer: "Example Devices".into(),
+        token_present: true,
+    }];
+    let token = &mut module.tokens[0];
+    token.label = "Development Token".into();
+    token.manufacturer = "Example Devices".into();
+    token.model = "Security Token".into();
+    token.serial = "DEV-0248".into();
+    token.login = LoginState::User;
+    token.initialization.label = token.label.clone();
+    token.initialization.manufacturer = token.manufacturer.clone();
+    token.initialization.model = token.model.clone();
+    token.initialization.serial = token.serial.clone();
+    token.uri = Some("pkcs11:token=Development%20Token;serial=DEV-0248".into());
+    token.details = vec![
+        ("Initialized".into(), "true".into()),
+        ("Login required".into(), "true".into()),
+        ("USER PIN initialized".into(), "true".into()),
+        ("USER PIN locked".into(), "false".into()),
+        ("Write protected".into(), "false".into()),
+        ("Random generator".into(), "true".into()),
+    ];
+    state.objects = [
+        (3, "Signing key", pkcs11_client::ObjectClass::PRIVATE_KEY),
+        (4, "Signing key", pkcs11_client::ObjectClass::PUBLIC_KEY),
+        (
+            5,
+            "Client certificate",
+            pkcs11_client::ObjectClass::CERTIFICATE,
+        ),
+        (6, "Transport key", pkcs11_client::ObjectClass::SECRET_KEY),
+    ]
+    .into_iter()
+    .map(|(id, label, class)| {
+        let mut object = object(id, label);
+        object.class = Some(class);
+        object.uri = Some(format!(
+            "pkcs11:token=Development%20Token;serial=DEV-0248;object={};type={}",
+            label.replace(' ', "%20"),
+            match class {
+                pkcs11_client::ObjectClass::PRIVATE_KEY => "private",
+                pkcs11_client::ObjectClass::PUBLIC_KEY => "public",
+                pkcs11_client::ObjectClass::CERTIFICATE => "cert",
+                _ => "secret-key",
+            }
+        ));
+        object.fields = vec![
+            MetadataField {
+                name: "Class",
+                status: "available",
+                value: Some(class.to_string()),
+            },
+            MetadataField {
+                name: "Label",
+                status: "available",
+                value: Some(label.into()),
+            },
+            MetadataField {
+                name: "ID (hex)",
+                status: "available",
+                value: Some(format!("{id:02X}")),
+            },
+        ];
+        object
+    })
+    .collect();
+    state.objects_loaded = true;
+    state.mechanisms = vec![crate::backend::MechanismEntry {
+        id: pkcs11_client::MechanismType::SHA256_RSA_PKCS,
+        name: "CKM_SHA256_RSA_PKCS".into(),
+        identifier: "0x00000040".into(),
+        minimum: 1024,
+        maximum: 4096,
+        flags: vec!["SIGN", "VERIFY"],
+    }];
+    state.mechanisms_loaded = true;
+    state.selected_object = Some(ResourceId(3));
+    state.object_details = Some(vec![
+        MetadataField {
+            name: "Key type",
+            status: "available",
+            value: Some("CKK_RSA".into()),
+        },
+        MetadataField {
+            name: "Sign",
+            status: "available",
+            value: Some("true".into()),
+        },
+        MetadataField {
+            name: "Sensitive",
+            status: "available",
+            value: Some("true".into()),
+        },
+    ]);
+    state
+}
+
+#[test]
+fn filtering_out_a_selection_returns_the_narrow_browser_to_the_list() {
+    let mut state = populated_state();
+    state.token_page = TokenPage::Objects;
+    state.presentation.width = 900.0;
+    state.presentation.show_detail = true;
+    let mut app = App::without_worker(state);
+    let _ = app.update(Message::ObjectFilter("no matching object".into()));
+    assert!(app.state.selected_object.is_none());
+    assert!(app.state.object_details.is_none());
+    assert!(!app.state.presentation.show_detail);
+    assert!(app.state.current_operation.is_none());
+}
+
+#[test]
+fn back_to_list_restores_the_selected_rows_keyboard_focus() {
+    fn narrow() -> UiState {
+        let mut state = populated_state();
+        state.token_page = TokenPage::Objects;
+        state.presentation.width = 900.0;
+        state.presentation.show_detail = true;
+        state
+    }
+    let app = run(narrow, &["click \"Back to List\""]);
+    assert!(!app.state.presentation.show_detail);
+    assert_eq!(app.state.selected_object, Some(ResourceId(3)));
+    assert_eq!(
+        app.state.presentation.focused,
+        Some(iced::widget::Id::new("object-ResourceId(3)"))
+    );
+    assert!(app.state.current_operation.is_none());
+}
+
+#[test]
+fn a_stale_selection_cannot_open_an_empty_detail_view() {
+    let mut state = state();
+    state.token_page = TokenPage::Objects;
+    let mut app = App::without_worker(state);
+    let _ = app.update(Message::SelectObject(ResourceId(999)));
+    assert!(!app.state.presentation.show_detail);
+    assert!(app.state.selected_object.is_none());
+    assert!(app.state.current_operation.is_none());
+}
+
+#[test]
+fn refreshing_resources_closes_the_obsolete_narrow_detail_view() {
+    let mut state = populated_state();
+    state.token_page = TokenPage::Objects;
+    state.presentation.show_detail = true;
+    assert!(state.read_objects().is_some());
+    assert!(!state.presentation.show_detail);
+    assert!(state.selected_object.is_none());
+    state.cancel();
+    state.token_page = TokenPage::Mechanisms;
+    state.selected_mechanism = Some(pkcs11_client::MechanismType::SHA256_RSA_PKCS);
+    state.presentation.show_detail = true;
+    assert!(state.read_mechanisms().is_some());
+    assert!(!state.presentation.show_detail);
+    assert!(state.selected_mechanism.is_none());
+}
+
+#[test]
+fn refreshing_objects_drops_the_old_operation_form_and_rejects_late_choices() {
+    use crate::backend::{BackendCommand, BackendEvent, BackendResult, CryptoMode};
+    let mut state = populated_state();
+    state.token_page = TokenPage::Objects;
+    let BackendCommand::CryptoOptions { id, scope, .. } = state
+        .open_crypto(CryptoMode::Sign)
+        .expect("open signing form")
+    else {
+        panic!("crypto choices request");
+    };
+    assert!(state.crypto_form.is_some());
+    let refresh = state.read_objects().expect("refresh inventory").id();
+    assert!(state.crypto_form.is_none());
+    state.event(BackendEvent::Completed {
+        id,
+        result: Ok(BackendResult::CryptoOptions {
+            scope,
+            context: false,
+            options: vec![],
+        }),
+    });
+    assert!(state.crypto_form.is_none());
+    assert_eq!(state.current_operation, Some(refresh));
+}

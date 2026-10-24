@@ -374,6 +374,8 @@ impl UiState {
         let module = self.module()?.id;
         let token = self.token()?.id;
         let id = self.begin(OperationKind::Objects)?;
+        self.clear_crypto_form();
+        self.presentation.show_detail = false;
         self.objects.clear();
         self.objects_loaded = false;
         self.selected_object = None;
@@ -387,6 +389,7 @@ impl UiState {
         let module = self.module()?.id;
         let token = self.token()?.id;
         let id = self.begin(OperationKind::Mechanisms)?;
+        self.presentation.show_detail = false;
         self.mechanisms.clear();
         self.mechanisms_loaded = false;
         self.selected_mechanism = None;

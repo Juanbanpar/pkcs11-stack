@@ -587,21 +587,42 @@ impl App {
                 self.submit(command);
             }
             Message::SelectObject(object) => {
-                self.state.presentation.show_detail = true;
                 let command = self.state.select_object(object);
+                if self.state.selected_object == Some(object) {
+                    self.state.presentation.show_detail = true;
+                }
                 self.submit(command);
             }
             Message::SelectMechanism(mechanism) => {
-                self.state.presentation.show_detail = true;
                 self.state.select_mechanism(mechanism);
+                if self.state.selected_mechanism == Some(mechanism) {
+                    self.state.presentation.show_detail = true;
+                }
             }
-            Message::ObjectFilter(filter) => self.state.edit_object_filter(filter),
-            Message::MechanismFilter(filter) => self.state.edit_mechanism_filter(filter),
+            Message::ObjectFilter(filter) => {
+                self.state.edit_object_filter(filter);
+                if self.state.selected_object.is_none() {
+                    self.state.presentation.show_detail = false;
+                }
+            }
+            Message::MechanismFilter(filter) => {
+                self.state.edit_mechanism_filter(filter);
+                if self.state.selected_mechanism.is_none() {
+                    self.state.presentation.show_detail = false;
+                }
+            }
             Message::SelectModule(module) => self.state.select_module(module),
             Message::SelectToken { module, token } => self.state.select_token(module, token),
             Message::Cancel => self.state.cancel(),
             Message::Backend(event) => {
                 self.state.event(event);
+                if (self.state.token_page == TokenPage::Objects
+                    && self.state.selected_object.is_none())
+                    || (self.state.token_page == TokenPage::Mechanisms
+                        && self.state.selected_mechanism.is_none())
+                {
+                    self.state.presentation.show_detail = false;
+                }
                 if self.state.token().is_none() {
                     self.state.presentation.task = None;
                     self.state.presentation.show_detail = false;

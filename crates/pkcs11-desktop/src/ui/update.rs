@@ -147,7 +147,15 @@ impl App {
                     self.state.presentation.collapsed.insert(id.0);
                 }
             }
-            Action::BackToList if !modal => self.state.presentation.show_detail = false,
+            Action::BackToList if !modal => {
+                self.state.presentation.show_detail = false;
+                if let Some(object) = self.state.selected_object {
+                    return super::focus::focus(format!("object-{object:?}"));
+                }
+                if let Some(mechanism) = self.state.selected_mechanism {
+                    return super::focus::focus(format!("mechanism-{mechanism:?}"));
+                }
+            }
             Action::Task(task) if !modal && self.state.can_submit() => {
                 self.state.presentation.task = task;
                 // Switching task invalidates file pickers and abandons the old form.
