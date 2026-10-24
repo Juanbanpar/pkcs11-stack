@@ -44,6 +44,8 @@ fn help_and_version_need_no_module() {
         "plan",
         "bind",
         "sign",
+        "verify",
+        "random",
         "diagnose",
         "init-token",
         "init-pin",
@@ -62,6 +64,272 @@ fn help_and_version_need_no_module() {
         assert!(out.stderr.is_empty());
     }
     assert!(run(&["--version"]).status.success());
+}
+
+#[test]
+fn verifies_independent_fixtures_without_loading_a_module() {
+    use der::{Decode, Sequence, asn1::UintRef};
+    #[derive(Sequence)]
+    struct EcdsaSignature<'a> {
+        r: UintRef<'a>,
+        s: UintRef<'a>,
+    }
+    let dir = Scratch::new();
+    let fixtures =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../pkcs11-client/tests/fixtures");
+    let message = fixtures.join("message.txt");
+    for kind in ["rsa", "rsa-pss", "p256", "p384", "p521"] {
+        let (algorithm, certificate) = match kind {
+            "rsa" => ("rsa-pkcs1", "rsa"),
+            "rsa-pss" => ("rsa-pss", "rsa"),
+            _ => ("ecdsa", kind),
+        };
+        let certificate = fixtures.join(format!("{certificate}.der"));
+        for digest in ["sha256", "sha384", "sha512"] {
+            let mut signature = fixtures.join(format!("{kind}-{digest}.sig"));
+            if algorithm == "ecdsa" {
+                let encoded = std::fs::read(&signature).unwrap();
+                let decoded = EcdsaSignature::from_der(&encoded).unwrap();
+                let width = match kind {
+                    "p256" => 32,
+                    "p384" => 48,
+                    _ => 66,
+                };
+                let mut raw = vec![0; width * 2];
+                for (value, component) in [decoded.r, decoded.s].iter().zip(raw.chunks_mut(width)) {
+                    let bytes = value.as_bytes();
+                    component[width - bytes.len()..].copy_from_slice(bytes);
+                }
+                signature = dir.0.join(format!("{kind}-{digest}.raw"));
+                std::fs::write(&signature, raw).unwrap();
+            }
+            let mut args = vec![
+                "--module",
+                "/must-not-load",
+                "--format",
+                "json",
+                "verify",
+                "--certificate-file",
+                certificate.to_str().unwrap(),
+                "--signature",
+                signature.to_str().unwrap(),
+                "--algorithm",
+                algorithm,
+                "--digest",
+                digest,
+                "--input",
+                message.to_str().unwrap(),
+            ];
+            if kind == "rsa-pss" {
+                args.extend(["--mgf-digest", digest, "--salt-length", "20"]);
+            }
+            let result = run(&args);
+            assert!(
+                result.status.success(),
+                "{}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            assert!(result.stderr.is_empty());
+            let value: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
+            assert_eq!(
+                value,
+                serde_json::json!({"schema_version":1,"command":"verify",
+                "result":{"verified":true,"trust_validated":false}})
+            );
+        }
+    }
+}
+
+#[test]
+fn verification_rejects_mismatch_bad_parameters_and_oversized_inputs() {
+    let dir = Scratch::new();
+    let fixtures =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../pkcs11-client/tests/fixtures");
+    let certificate = fixtures.join("rsa.der");
+    let signature = fixtures.join("rsa-sha256.sig");
+    let input = dir.0.join("message");
+    std::fs::write(&input, b"do-not-echo-message").unwrap();
+    let args = [
+        "--format",
+        "json",
+        "verify",
+        "--certificate-file",
+        certificate.to_str().unwrap(),
+        "--signature",
+        signature.to_str().unwrap(),
+        "--algorithm",
+        "rsa-pkcs1",
+        "--digest",
+        "sha256",
+        "--input",
+        input.to_str().unwrap(),
+    ];
+    let result = run(&args);
+    assert_eq!(result.status.code(), Some(4));
+    assert!(result.stdout.is_empty());
+    assert!(!String::from_utf8_lossy(&result.stderr).contains("do-not-echo-message"));
+    let value: serde_json::Value = serde_json::from_slice(&result.stderr).unwrap();
+    assert_eq!(value["error"]["message"], "signature verification failed");
+    std::fs::write(&input, std::fs::read(fixtures.join("message.txt")).unwrap()).unwrap();
+    for (option, path) in [
+        ("--certificate-file", fixtures.join("p256.der")),
+        ("--certificate-file", input.clone()),
+        ("--signature", input.clone()),
+    ] {
+        let mut all = args.to_vec();
+        let index = all.iter().position(|&arg| arg == option).unwrap() + 1;
+        all[index] = path.to_str().unwrap();
+        let result = run(&all);
+        assert_eq!(result.status.code(), Some(4));
+        assert!(result.stdout.is_empty());
+    }
+    for extra in [
+        vec!["--input-kind", "digest"],
+        vec!["--mgf-digest", "sha256"],
+        vec!["--pin-file", "/must-not-read"],
+        vec!["--certificate", "pkcs11:token=t;object=c;type=cert"],
+        vec!["--hashing", "software"],
+    ] {
+        let mut all = args.to_vec();
+        all.extend(extra);
+        assert_eq!(run(&all).status.code(), Some(2));
+    }
+    for (option, maximum) in [
+        ("--signature", 16 * 1024),
+        ("--certificate-file", 1024 * 1024),
+        ("--input", 64 * 1024 * 1024),
+    ] {
+        let file = std::fs::File::create(&input).unwrap();
+        file.set_len(maximum + 1).unwrap();
+        let mut all = args.to_vec();
+        let index = all.iter().position(|&arg| arg == option).unwrap() + 1;
+        all[index] = input.to_str().unwrap();
+        assert_eq!(run(&all).status.code(), Some(2));
+        std::fs::write(&input, b"message").unwrap();
+    }
+}
+
+#[test]
+fn verification_accepts_stdin_and_rejects_multiple_stdin_inputs() {
+    use std::{io::Write, process::Stdio};
+    let fixtures =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../pkcs11-client/tests/fixtures");
+    let certificate = fixtures.join("rsa.der");
+    let signature = fixtures.join("rsa-sha256.sig");
+    let base = [
+        "verify",
+        "--certificate-file",
+        certificate.to_str().unwrap(),
+        "--algorithm",
+        "rsa-pkcs1",
+        "--digest",
+        "sha256",
+    ];
+    for (input, sig, bytes) in [
+        (
+            "-",
+            signature.to_str().unwrap(),
+            std::fs::read(fixtures.join("message.txt")).unwrap(),
+        ),
+        (
+            fixtures.join("message.txt").to_str().unwrap(),
+            "-",
+            std::fs::read(&signature).unwrap(),
+        ),
+    ] {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_pkcs11ctl"))
+            .args(base)
+            .args(["--input", input, "--signature", sig])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child.stdin.take().unwrap().write_all(&bytes).unwrap();
+        let result = child.wait_with_output().unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+    }
+    let mut args = base.to_vec();
+    args.extend(["--input", "-", "--signature", "-"]);
+    assert_eq!(run(&args).status.code(), Some(2));
+}
+
+#[test]
+fn random_validates_length_before_output_and_preserves_existing_files() {
+    let dir = Scratch::new();
+    let output = dir.0.join("random");
+    let args = [
+        "--module",
+        "/missing",
+        "--format",
+        "json",
+        "random",
+        "--token",
+        "pkcs11:token=t",
+        "--output",
+        output.to_str().unwrap(),
+        "--length",
+    ];
+    for length in [
+        "0",
+        "1048577",
+        "-1",
+        "not-a-number",
+        "184467440737095516160",
+    ] {
+        let mut all = args.to_vec();
+        all.push(length);
+        let result = run(&all);
+        assert_eq!(result.status.code(), Some(2));
+        assert!(result.stdout.is_empty());
+        assert!(!output.exists());
+    }
+    for length in ["1", "1048576"] {
+        let mut all = args.to_vec();
+        all.push(length);
+        assert_eq!(run(&all).status.code(), Some(5));
+        assert!(!output.exists());
+        std::fs::write(&output, b"preserve").unwrap();
+        assert_eq!(run(&all).status.code(), Some(6));
+        assert_eq!(std::fs::read(&output).unwrap(), b"preserve");
+        std::fs::remove_file(&output).unwrap();
+    }
+}
+
+#[test]
+fn provider_commands_require_a_module_before_reading_files() {
+    for arguments in [
+        vec![
+            "verify",
+            "--certificate",
+            "pkcs11:token=t;object=c;type=cert",
+            "--algorithm",
+            "rsa-pkcs1",
+            "--digest",
+            "sha256",
+            "--input",
+            "/must-not-read",
+            "--signature",
+            "/must-not-read",
+        ],
+        vec![
+            "random",
+            "--token",
+            "pkcs11:token=t",
+            "--length",
+            "32",
+            "--output",
+            "-",
+            "--pin-file",
+            "/must-not-read",
+        ],
+    ] {
+        assert_eq!(run(&arguments).status.code(), Some(2));
+    }
 }
 #[test]
 fn rejects_arguments_without_echoing_secrets() {

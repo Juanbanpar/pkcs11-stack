@@ -161,6 +161,64 @@ fn command_workflows() {
     let bad = f.path("bad.pin");
     std::fs::write(&bad, b"definitely-wrong").unwrap();
     f.fail(&["objects", "--token", token, "--pin-file", &bad], 5);
+    let random_file = f.path("random.bin");
+    let random_args = [
+        "random",
+        "--token",
+        token,
+        "--length",
+        "1048576",
+        "--output",
+        &random_file,
+        "--pin-file",
+        &f.pin,
+    ];
+    let out = f.run(&random_args);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(out.stdout.is_empty());
+    assert!(out.stderr.is_empty());
+    assert_eq!(std::fs::metadata(&random_file).unwrap().len(), 1048576);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            std::fs::metadata(&random_file)
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+    }
+    f.fail(&random_args, 6);
+    let out = f.run(&[
+        "random", "--token", token, "--length", "64", "--output", "-",
+    ]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(out.stdout.len(), 64);
+    assert!(out.stderr.is_empty());
+    let failed_random = f.path("failed-random");
+    f.fail(
+        &[
+            "random",
+            "--token",
+            "pkcs11:token=missing",
+            "--length",
+            "32",
+            "--output",
+            &failed_random,
+        ],
+        3,
+    );
+    assert!(!std::path::Path::new(&failed_random).exists());
     for (kind, id) in [
         ("rsa", "01"),
         ("p256", "02"),
@@ -419,6 +477,39 @@ fn command_workflows() {
         ],
     );
     f.fail(&args, 6); // existing output is never overwritten
+    let verified = f.ok(&[
+        "verify",
+        "--certificate",
+        cert,
+        "--algorithm",
+        "rsa-pkcs1",
+        "--digest",
+        "sha256",
+        "--input",
+        &message,
+        "--signature",
+        &signature,
+    ]);
+    assert_eq!(verified["verified"], true);
+    assert_eq!(verified["trust_validated"], false);
+    let altered = f.path("altered-message");
+    std::fs::write(&altered, b"changed message").unwrap();
+    f.fail(
+        &[
+            "verify",
+            "--certificate",
+            cert,
+            "--algorithm",
+            "rsa-pkcs1",
+            "--digest",
+            "sha256",
+            "--input",
+            &altered,
+            "--signature",
+            &signature,
+        ],
+        4,
+    );
     let prehash = f.path("sha256");
     external(
         "openssl",
@@ -469,6 +560,25 @@ fn command_workflows() {
             &message,
         ],
     );
+    f.ok(&[
+        "verify",
+        "--certificate",
+        cert,
+        "--algorithm",
+        "rsa-pss",
+        "--digest",
+        "sha256",
+        "--mgf-digest",
+        "sha256",
+        "--salt-length",
+        "20",
+        "--input-kind",
+        "digest",
+        "--input",
+        &prehash,
+        "--signature",
+        &pss,
+    ]);
     f.fail(
         &[
             "sign",

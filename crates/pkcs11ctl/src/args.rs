@@ -61,7 +61,7 @@ fn context(command: Command) -> Command {
             "Use protected path for context authentication",
         ))
 }
-fn signing(command: Command) -> Command {
+fn signature(command: Command) -> Command {
     command
         .arg(required("algorithm", "Signature family").value_parser([
             "rsa-pkcs1",
@@ -86,11 +86,13 @@ fn signing(command: Command) -> Command {
             .value_parser(["message", "digest"])
             .default_value("message"),
         )
-        .arg(
-            value("hashing", "Message hashing policy")
-                .value_parser(["token", "allow-software", "software"])
-                .default_value("token"),
-        )
+}
+fn signing(command: Command) -> Command {
+    signature(command).arg(
+        value("hashing", "Message hashing policy")
+            .value_parser(["token", "allow-software", "software"])
+            .default_value("token"),
+    )
 }
 fn mutation(command: Command) -> Command {
     command.arg(
@@ -113,7 +115,7 @@ pub(crate) fn command() -> Command {
         .arg(value("attributes", "Comma-separated class,label,id,object-id,private,sign,sensitive,extractable,always-authenticate,key-type,modulus,exponent,ec-params,ec-point,subject,issuer,serial,value")
             .default_value("class,label,id"));
     let export = Command::new("export")
-        .about("Export raw certificate/data CKA_VALUE; no trust validation")
+        .about("Export certificate/data bytes or public-key SPKI DER; no trust validation")
         .arg(required(
             "output",
             "New output file, or - for binary stdout",
@@ -139,6 +141,27 @@ pub(crate) fn command() -> Command {
     let diagnose = Command::new("diagnose")
         .about("Check bounded pool capacity, role and lease reuse")
         .arg(value("pool-size", "Number of concurrent leases, 1..=64").default_value("2"));
+    let verify = Command::new("verify")
+        .about("Verify a raw signature using a certificate; no certificate trust validation")
+        .arg(
+            value("certificate", "Token certificate URI with type=cert")
+                .required_unless_present("certificate-file"),
+        )
+        .arg(
+            value(
+                "certificate-file",
+                "X.509 DER certificate file; no module required",
+            )
+            .conflicts_with_all(["certificate", "pin-file", "protected-path", "role"]),
+        )
+        .arg(required("signature", "Raw signature file; - reads stdin"));
+    let random = Command::new("random")
+        .about("Generate bytes once using the selected token's random generator")
+        .arg(required("length", "Number of bytes, 1..=1048576"))
+        .arg(required(
+            "output",
+            "New output file, or - for raw binary stdout",
+        ));
     let init_token = Command::new("init-token")
         .about("Initialize/erase a token; destroys existing token contents")
         .arg(required("slot", "Current diagnostic slot ID"))
@@ -190,6 +213,8 @@ pub(crate) fn command() -> Command {
         ))),
         context(auth(key(bind))),
         context(auth(signing(key(sign)))),
+        auth(signature(verify)),
+        auth(token(random)),
         auth(token(diagnose)),
         mutation(init_token),
         mutation(auth(token(init_pin))),
@@ -203,7 +228,7 @@ pub(crate) fn command() -> Command {
     ];
     Command::new("pkcs11ctl")
         .version(env!("CARGO_PKG_VERSION"))
-        .about("PKCS#11 inspection, signing and administration")
+        .about("PKCS#11 inspection, signing, verification and administration")
         .subcommand_required(true)
         .arg_required_else_help(true)
         .arg(

@@ -2484,6 +2484,7 @@ name = "pkcs11ctl"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "der 0.7.10",
  "pkcs11-client",
  "pkcs11-locator",
  "secrecy",

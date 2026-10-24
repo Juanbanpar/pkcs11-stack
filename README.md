@@ -39,7 +39,7 @@ software crypto provider selection stay outside runtime.
   discover tokens and objects, pool sessions, plan signing and execute token operations.
 - [pkcs11-client](crates/pkcs11-client/README.md): look up resources, inspect and
   manage objects, sign messages, and verify key/certificate associations.
-- [pkcs11ctl](crates/pkcs11ctl/README.md): inspect modules and tokens, sign,
+- [pkcs11ctl](crates/pkcs11ctl/README.md): inspect modules and tokens, sign and verify,
   manage keys and certificates, and administer token PINs from the command line.
 - [pkcs11-rustls-adapter](crates/pkcs11-rustls-adapter/README.md): use token keys
   with rustls signing traits and server/client certificate resolvers.
@@ -53,6 +53,9 @@ RSA PKCS#1 v1.5, RSA-PSS and ECDSA signing, certificate/data import and export,
 signing-key generation, object deletion/relabeling, and token/PIN initialization
 and changes. Certificate binding verifies that a selected private key matches a
 certificate and checks each subsequent bound signature.
+
+The CLI can also verify signatures using a DER certificate file without loading a
+module, verify against a token certificate, and save token-generated random bytes.
 
 Runtime and client support pure ML-DSA-44/65/87 key generation, signing, token
 verification and public-key SPKI export. Requests use explicit parameter sets,

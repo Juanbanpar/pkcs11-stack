@@ -3,8 +3,8 @@ use crate::{inspect, support::*};
 use clap::ArgMatches;
 use pkcs11_client::{
     AttributeType, DigestAlgorithm, HashingPolicy, KeyKind, NamedCurve, Provider, PssParameters,
-    SessionMode, SignInput, SignRequest, SignatureAlgorithm, SigningPolicy, object_reference,
-    validate_token_uri,
+    RandomRequest, SessionMode, SignInput, SignRequest, SignatureAlgorithm, SigningPolicy,
+    object_reference, validate_token_uri,
 };
 use serde_json::{Value, json};
 use std::num::NonZeroUsize;
@@ -12,6 +12,7 @@ use std::num::NonZeroUsize;
 pub(crate) enum Output {
     Structured(Value),
     Binary(Vec<u8>),
+    SecretBinary(pkcs11_client::RandomBytes),
 }
 fn digest(value: &str) -> DigestAlgorithm {
     match value {
@@ -34,7 +35,8 @@ fn request<'a>(m: &ArgMatches, bytes: &'a [u8]) -> Result<SignRequest<'a>> {
     let algorithm = match need(m, "algorithm")? {
         "rsa-pkcs1" => SignatureAlgorithm::RsaPkcs1,
         "rsa-pss" => SignatureAlgorithm::RsaPss,
-        _ => SignatureAlgorithm::Ecdsa,
+        "ecdsa" => SignatureAlgorithm::Ecdsa,
+        _ => return Err(usage("expected a classical signature algorithm")),
     };
     let pss = if algorithm == SignatureAlgorithm::RsaPss {
         Some(PssParameters {
@@ -70,6 +72,9 @@ pub(crate) struct Inputs {
     pub new_pin: Option<secrecy::SecretString>,
     pub bytes: Vec<u8>,
     pub certificate_document: Option<pkcs11_client::CertificateDocument>,
+    pub verification_certificate: Option<pkcs11_client::Certificate>,
+    pub signature: Vec<u8>,
+    pub random: Option<RandomRequest>,
     pub so: bool,
 }
 impl Inputs {
@@ -80,7 +85,7 @@ impl Inputs {
         if so
             && matches!(
                 name,
-                "certificate" | "capabilities" | "plan" | "bind" | "sign" | "generate"
+                "certificate" | "capabilities" | "plan" | "bind" | "sign" | "verify" | "generate"
             )
         {
             return Err(usage("this command uses the USER role"));
@@ -101,14 +106,42 @@ impl Inputs {
         } else {
             None
         };
+        if name == "verify" && get(m, "input") == Some("-") && get(m, "signature") == Some("-") {
+            return Err(usage("only one verification input may read stdin"));
+        }
         let bytes = if let Some(path) = get(m, "input") {
-            input(path)?
+            if name == "verify" {
+                bounded_input(path, 64 * 1024 * 1024)?
+            } else {
+                input(path)?
+            }
         } else {
             vec![]
         };
-        if matches!(name, "sign" | "plan") {
+        if matches!(name, "sign" | "plan" | "verify") {
             request(m, &bytes)?;
         }
+        let signature = if name == "verify" {
+            bounded_input(need(m, "signature")?, 16 * 1024)?
+        } else {
+            vec![]
+        };
+        let verification_certificate = if let Some(path) = get(m, "certificate-file") {
+            if path == "-" {
+                return Err(usage("certificate-file requires a file path"));
+            }
+            let certificate =
+                pkcs11_client::Certificate::from_der(bounded_input(path, 1024 * 1024)?)?;
+            certificate.validate_signing_request(&request(m, &bytes)?)?;
+            Some(certificate)
+        } else {
+            None
+        };
+        let random = if name == "random" {
+            Some(RandomRequest::new(number(m, "length")?)?)
+        } else {
+            None
+        };
         let certificate_document = if name == "import" && get(m, "kind") == Some("cert") {
             Some(pkcs11_client::CertificateDocument::from_der(bytes.clone())?)
         } else {
@@ -161,9 +194,20 @@ impl Inputs {
             new_pin,
             bytes,
             certificate_document,
+            verification_certificate,
+            signature,
+            random,
             so,
         })
     }
+}
+pub(crate) fn verify(
+    certificate: &pkcs11_client::Certificate,
+    m: &ArgMatches,
+    inputs: &Inputs,
+) -> Result<Value> {
+    certificate.verify_signature(&request(m, &inputs.bytes)?, &inputs.signature)?;
+    Ok(json!({"verified":true,"trust_validated":false}))
 }
 fn expected_token(m: &ArgMatches) -> Result<pkcs11_client::Pkcs11Uri> {
     let expected = uri(m, "expected-token")?;
@@ -252,7 +296,7 @@ pub(crate) fn run(
             )?;
             json!({"initialized":true})
         }
-        "certificate" | "capabilities" | "plan" | "bind" | "sign" => {
+        "certificate" | "capabilities" | "plan" | "bind" | "sign" | "verify" => {
             return client_command(module, name, m, inputs);
         }
         _ => return management_command(module, name, m, inputs),
@@ -267,6 +311,8 @@ fn client_command(
 ) -> Result<Output> {
     let selector = if name == "certificate" {
         "object"
+    } else if name == "verify" {
+        "certificate"
     } else {
         "key"
     };
@@ -282,6 +328,14 @@ fn client_operation(
     inputs: &Inputs,
 ) -> Result<Output> {
     let auth = || inputs.credential.auth(false);
+    if name == "verify" {
+        return verify(
+            &client.certificate(uri(m, "certificate")?, auth())?,
+            m,
+            inputs,
+        )
+        .map(Output::Structured);
+    }
     if name == "certificate" {
         let cert = client.certificate(uri(m, "object")?, auth())?;
         return Ok(Output::Structured(
@@ -385,6 +439,15 @@ fn management_operation(
     inputs: &Inputs,
 ) -> Result<Output> {
     let value = match name {
+        "random" => {
+            return Ok(Output::SecretBinary(
+                session.generate_random(
+                    inputs
+                        .random
+                        .ok_or_else(|| usage("missing random request"))?,
+                )?,
+            ));
+        }
         "objects" => {
             let token_uri = session.token_uri()?;
             let mut objects = vec![];
