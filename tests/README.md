@@ -123,8 +123,38 @@ without a database or login. All test keys are volatile session objects. The
 1 and 3, including empty salt/info and changed context. HMAC comparisons verify
 derived sensitive, nonextractable keys without reading their values.
 
-This tests the native HKDF prerequisite only. Runtime/client KDF workflows and
-ML-KEM followed by HKDF on the same provider are not implemented or tested.
+This covers the native HKDF mechanism with public RFC vectors. The typed API
+requires hash-length input under the PKCS#11 profile; it is tested separately below.
+
+## Persistent ML-KEM and HKDF
+
+Build the pinned Kryoptic and OpenSSL sources, then run typed runtime/client tests:
+
+```sh
+./tools/build-kem-hkdf-provider.sh /absolute/path/to/kdf-provider
+PKCS11_TEST_KDF_MODULE=/absolute/path/to/kdf-provider/libkryoptic_pkcs11.so \
+./tools/test-kem-hkdf.sh
+```
+
+Building requires stable Rust, Git, Clang/libclang headers, a C/C++ toolchain,
+Make, Perl, pkg-config and SQLite development files. The module statically links
+the pinned OpenSSL 3.5.9. Kryoptic's source revision is pinned; its upstream Cargo
+dependencies are resolved at build time because upstream does not supply a lockfile.
+`PKCS11_TEST_KDF_OPENSSL` selects the independent OpenSSL HKDF reference command.
+
+The runner creates a temporary Kryoptic SQLite store and removes it on exit.
+Use it only with Kryoptic. No existing token store is opened or reset.
+The `kem-hkdf-provider` CI job requires both mechanisms, without skipping missing
+support. It compares SHA-256/384/512 results against OpenSSL using public
+hash-length inputs, including empty salt/context and maximum SHA-256 output.
+Tests inspect output permissions, reject unsuitable bases, wrong hash lengths,
+read-only sessions and duplicate output IDs, and check client export refusal.
+
+For ML-KEM-512/768/1024, each sender/receiver secret feeds typed HKDF-SHA256 on the
+same token. AES challenge comparisons verify matching derived keys and different
+results for altered ciphertext/context. Generic known-answer outputs are compared
+using HMAC after temporarily enabling signing on disposable test keys. No token
+secret value is read; all sessions close before the next module lifecycle.
 
 ## Property tests and fuzzing
 
