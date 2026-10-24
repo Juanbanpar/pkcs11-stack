@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
+use crate::ui::{button, text_input};
 use crate::{
     app::Message,
     backend::AdministrationKind,
@@ -6,7 +7,7 @@ use crate::{
 };
 use iced::{
     Element,
-    widget::{button, column, container, text, text_input},
+    widget::{column, container, text},
 };
 use secrecy::ExposeSecret;
 pub fn view(state: &UiState) -> Element<'_, Message> {
@@ -14,6 +15,7 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
     let Some(form) = &state.administration_form else {
         return content.into();
     };
+    content = column![].spacing(16);
     let id = form.id;
     let mut fields = column![
         text(match form.kind {
@@ -54,6 +56,7 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
                 } else {
                     "Apply PIN change"
                 })
+                .style(button::danger)
                 .on_press(Message::SubmitAdministration(id)),
             );
     } else {
@@ -116,10 +119,14 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
                 ),
             );
         }
-        fields = fields.push(text(format!("Advertised PIN byte bounds: {}–{}. The provider may impose further restrictions.", bound(form.expected.minimum_pin_length), bound(form.expected.maximum_pin_length))).size(14)).push(button("Review change…").on_press(Message::ReviewAdministration(id)));
+        fields = fields.push(text(format!("Advertised PIN byte bounds: {}–{}. The provider may impose further restrictions.", bound(form.expected.minimum_pin_length), bound(form.expected.maximum_pin_length))).size(14)).push(button("Review change…").style(button::primary).on_press(Message::ReviewAdministration(id)));
     }
     fields = fields.push(button("Cancel").on_press(Message::DismissAdministration(id)));
-    content = content.push(container(fields).padding(12).style(container::rounded_box));
+    content = content.push(
+        container(fields)
+            .padding(12)
+            .style(crate::ui::theme::surface),
+    );
     content.into()
 }
 

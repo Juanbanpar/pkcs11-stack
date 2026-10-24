@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
+use crate::ui::{button, checkbox, pick_list, text_input};
 use crate::{
     app::Message,
     backend::CryptoMode,
@@ -6,7 +7,7 @@ use crate::{
 };
 use iced::{
     Element,
-    widget::{button, checkbox, column, container, pick_list, row, text, text_input},
+    widget::{column, container, row, text},
 };
 use secrecy::ExposeSecret;
 
@@ -23,7 +24,7 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
         text(if sign { "Sign a file" } else { "Verify a signature" }).size(22),
         text(if sign { "Signs once with the selected private-key locator. No certificate association is checked." }
             else { "Verifies in software against the selected certificate's public key. Certificate trust is not checked." }).size(14),
-        pick_list(form.options.as_slice(), form.choice, move |choice| Message::CryptoChoice { id, choice }).placeholder("Signature parameters"),
+        pick_list(form.options.as_slice(), form.choice, move |choice| Message::CryptoChoice { id, choice }).placeholder("Signature parameters").enabled(enabled),
     ].spacing(10);
     if !form.loaded {
         content = content.push(text("Reading supported choices…"));
@@ -43,7 +44,7 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
         if let Some(choice) = form.choice
             && let Some((mechanism, hashing)) = choice.0.plan
         {
-            content = content.push(text(format!("Advisory plan: {mechanism:?} · hashing: {hashing:?}. Execution checks capabilities again.")).size(14));
+            content = content.push(text(format!("Advisory plan: {mechanism} · hashing: {hashing:?}. Execution checks capabilities again.")).size(14));
         }
     }
     content = content
@@ -56,7 +57,8 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
                     (enabled && form.picker.is_none()).then_some(browse(CryptoField::Input))
                 ),
             ]
-            .spacing(10),
+            .spacing(10)
+            .align_y(iced::Alignment::End),
         )
         .push(
             row![
@@ -75,7 +77,8 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
                     (enabled && form.picker.is_none()).then_some(browse(CryptoField::Signature))
                 ),
             ]
-            .spacing(10),
+            .spacing(10)
+            .align_y(iced::Alignment::End),
         );
     if sign && form.loaded && form.context_required {
         content = content.push(text("This key requires authentication for each operation."));
@@ -106,9 +109,9 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
     content = content.push(text(if sign {
         "Output uses raw RSA bytes or fixed-width ECDSA r || s, not DER. Existing files are never overwritten; a failed operation may leave an empty or partial file."
     } else { "Signature encoding must be raw RSA or fixed-width ECDSA r || s, not DER. PSS uses the displayed salt length and matching MGF1 digest." }).size(14))
-        .push(row![button(if sign { "Sign once" } else { "Verify" }).on_press_maybe((enabled && form.choice.is_some()).then_some(Message::SubmitCrypto(id))), button("Cancel").on_press(Message::DismissCrypto(id))].spacing(10));
+        .push(row![button(if sign { "Sign once" } else { "Verify" }).style(button::primary).on_press_maybe((enabled && form.choice.is_some()).then_some(Message::SubmitCrypto(id))), button("Cancel").on_press(Message::DismissCrypto(id))].spacing(10).align_y(iced::Alignment::End));
     container(content)
         .padding(12)
-        .style(container::rounded_box)
+        .style(crate::ui::theme::surface)
         .into()
 }

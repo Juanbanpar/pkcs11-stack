@@ -25,7 +25,7 @@ impl std::fmt::Display for SignatureChoice {
         Ok(())
     }
 }
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CryptoField {
     Input,
     Signature,
