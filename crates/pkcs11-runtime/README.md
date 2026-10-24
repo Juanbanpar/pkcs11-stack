@@ -381,5 +381,32 @@ No private seed or shared-secret value is read or exported.
 Raw shared secrets require a protocol KDF and peer authentication before use.
 ML-KEM implicit rejection can produce a different secret for altered same-length
 ciphertext without reporting an error. Success alone does not authenticate a peer.
-There is no KDF selection, retry, rollback or software fallback. Provider failures
+These KEM calls do not apply a KDF; use `derive_hkdf` separately. There is no
+retry, rollback or software fallback. Provider failures
 invalidate the session, and even an error can leave persistent effects.
+
+## HKDF
+
+`HkdfRequest` selects SHA-256/384/512, public salt/context, output type and a new
+secret ID/label. `Session::derive_hkdf` always runs extract-and-expand through
+CKM_HKDF_DERIVE in an RW session. An empty salt uses RFC 5869's zero salt; empty
+context is permitted. Salt and context are each bounded to 4096 bytes, and output
+is limited to 255 times the hash length.
+
+`Session::hkdf_capabilities` checks secret class, generic/HKDF key type,
+CKA_DERIVE, allowed mechanisms, sensitivity, nonextractability and the provider's
+HKDF derive support. Under PKCS#11 section 6.62.3 the base key must match the hash
+length: 32, 48 or 64 bytes. ML-KEM's 32-byte shared secret therefore uses SHA-256.
+Advertised support is advisory; provider parameter/template rejection is returned
+without retry or software fallback.
+
+Outputs are persistent private, sensitive, nonextractable keys. `HkdfOutput`
+selects AES-128/192/256 with encryption/decryption permissions, or a generic
+secret permitting only further derivation. Signing, verification, wrapping and
+unwrapping are disabled. Existing secret IDs are checked before derivation;
+the check is not a transaction against concurrent writers. No key values are
+read. Base keys remain on the token until explicitly deleted. Failures can leave
+persistent effects, and session closure must be checked when cleanup matters.
+
+Applications authenticate the peer and define salt/context within their protocol.
+HKDF does not authenticate ML-KEM ciphertexts or combine classical/PQC secrets.

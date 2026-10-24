@@ -4,10 +4,12 @@
 
 mod administration;
 mod encryption;
+mod hkdf;
 mod key_operations;
 mod ml_dsa;
 mod ml_kem;
 pub use encryption::{RsaCipherOperation, RsaOaepCapabilities};
+pub use hkdf::{HkdfCapabilities, HkdfOutput, HkdfRequest};
 pub use key_operations::{EcdhDerivation, KeyOperation, KeyOperationProfile};
 pub use ml_dsa::{
     MlDsaCapabilities, MlDsaHedging, MlDsaParameterSet, MlDsaPublicKey, MlDsaRequest,
