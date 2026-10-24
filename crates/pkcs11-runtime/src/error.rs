@@ -23,6 +23,9 @@ pub enum Error {
     /// All pool slots are currently leased or being opened.
     #[error("session pool exhausted")]
     PoolExhausted,
+    /// A session failed to close; further checkouts are blocked until pool closure.
+    #[error("session pool cleanup failed; close the pool before further use")]
+    PoolCleanupFailed,
     /// Pool synchronization was poisoned by a panic.
     #[error("session pool poisoned")]
     PoolPoisoned,

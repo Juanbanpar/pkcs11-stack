@@ -142,6 +142,10 @@ pub(crate) fn command() -> Command {
     let init_token = Command::new("init-token")
         .about("Initialize/erase a token; destroys existing token contents")
         .arg(required("slot", "Current diagnostic slot ID"))
+        .arg(required(
+            "expected-token",
+            "Exact token URI from tokens, with token/manufacturer/model/serial",
+        ))
         .arg(required("label", "Token label, at most 32 UTF-8 bytes"))
         .arg(required("so-pin-file", "SO PIN file"));
     let init_pin = Command::new("init-pin")

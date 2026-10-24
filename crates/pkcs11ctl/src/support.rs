@@ -17,6 +17,26 @@ pub(crate) struct Failure {
     pub message: String,
 }
 pub(crate) type Result<T> = std::result::Result<T, Failure>;
+pub(crate) fn finish<T>(
+    outcome: Result<T>,
+    cleanup: std::result::Result<(), pkcs11_client::Error>,
+    phase: &'static str,
+) -> Result<T> {
+    if let Err(error) = cleanup {
+        let mut message = format!("{phase} failed: {error}");
+        if let Err(primary) = outcome {
+            message.push_str(&format!("; operation failed: {}", primary.message));
+        }
+        message.push_str("; effects may have occurred; no retry was made");
+        return Err(Failure {
+            code: 5,
+            kind: "runtime",
+            message,
+        });
+    }
+    outcome
+}
+
 pub(crate) fn usage(message: &str) -> Failure {
     Failure {
         code: 2,
@@ -243,4 +263,45 @@ fn render(out: &mut impl Write, prefix: &str, value: &Value) -> std::io::Result<
         _ => writeln!(out, "{prefix}{value}")?,
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod cleanup_tests {
+    use super::*;
+
+    #[test]
+    fn cleanup_failure_takes_runtime_precedence_and_retains_both_errors() {
+        let result = finish::<()>(
+            Err(usage("invalid operation")),
+            Err(pkcs11_client::Error::ProviderInUse),
+            "session closure",
+        );
+        let error = result.expect_err("cleanup error");
+        assert_eq!(error.code, 5);
+        assert_eq!(error.kind, "runtime");
+        assert!(error.message.contains("session closure failed"));
+        assert!(
+            error
+                .message
+                .contains("provider still has live owned consumers")
+        );
+        assert!(error.message.contains("invalid operation"));
+        assert!(error.message.contains("no retry"));
+    }
+
+    #[test]
+    fn cleanup_failure_never_releases_successful_output() {
+        assert!(
+            finish(
+                Ok(vec![1, 2, 3]),
+                Err(pkcs11_client::Error::ProviderInUse),
+                "module finalization"
+            )
+            .is_err()
+        );
+        assert_eq!(finish(Ok(42), Ok(()), "session closure").ok(), Some(42));
+        let error =
+            finish::<()>(Err(usage("invalid operation")), Ok(()), "session closure").unwrap_err();
+        assert_eq!(error.code, 2);
+    }
 }

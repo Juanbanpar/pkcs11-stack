@@ -73,25 +73,72 @@ fn command_workflows() {
     f.ok(&["info"]);
     f.ok(&["slots"]);
     let tokens = f.ok(&["tokens"]);
-    let slot = tokens
+    let uninitialized = tokens
         .as_array()
         .unwrap()
         .iter()
         .find(|t| t["initialized"] == false)
-        .unwrap()["slot_id"]
-        .as_u64()
-        .unwrap()
-        .to_string();
+        .unwrap();
+    let expected = uninitialized["uri"].as_str().unwrap();
+    let slot = uninitialized["slot_id"].as_u64().unwrap().to_string();
+    f.fail(
+        &[
+            "init-token",
+            "--slot",
+            &slot,
+            "--expected-token",
+            "pkcs11:token=unexpected;manufacturer=;model=;serial=",
+            "--label",
+            "must-not-erase",
+            "--so-pin-file",
+            &f.so,
+            "--confirm",
+        ],
+        2,
+    );
+    assert!(
+        f.ok(&["tokens"])
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| entry["slot_id"] == uninitialized["slot_id"]
+                && entry["uri"] == uninitialized["uri"])
+    );
     f.ok(&[
         "init-token",
         "--slot",
         &slot,
+        "--expected-token",
+        expected,
         "--label",
         "cli-test",
         "--so-pin-file",
         &f.so,
         "--confirm",
     ]);
+    let current = f.ok(&["tokens"]);
+    let initialized = current
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|token| token["label"] == "cli-test")
+        .unwrap();
+    let initialized_slot = initialized["slot_id"].as_u64().unwrap().to_string();
+    f.fail(
+        &[
+            "init-token",
+            "--slot",
+            &initialized_slot,
+            "--expected-token",
+            expected,
+            "--label",
+            "must-not-erase",
+            "--so-pin-file",
+            &f.so,
+            "--confirm",
+        ],
+        2,
+    );
     let token = "pkcs11:token=cli-test";
     f.ok(&[
         "init-pin",
@@ -565,6 +612,32 @@ fn command_workflows() {
         "--confirm",
     ]);
     listed_empty_selectors_are_preserved(&f);
+    // The same guard supports erasure of an initialized token when its current
+    // metadata was explicitly selected, not just first-time initialization.
+    let inventory = f.ok(&["tokens"]);
+    let current = inventory
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["label"] == "cli-test")
+        .unwrap();
+    let slot = current["slot_id"].as_u64().unwrap().to_string();
+    f.ok(&[
+        "init-token",
+        "--slot",
+        &slot,
+        "--expected-token",
+        current["uri"].as_str().unwrap(),
+        "--label",
+        "cli-erased",
+        "--so-pin-file",
+        &f.so,
+        "--confirm",
+    ]);
+    assert_eq!(
+        f.ok(&["objects", "--token", "pkcs11:token=cli-erased"]),
+        serde_json::json!([])
+    );
 }
 
 fn listed_empty_selectors_are_preserved(f: &Fixture) {

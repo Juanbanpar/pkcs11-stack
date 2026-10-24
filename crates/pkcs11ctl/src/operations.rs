@@ -147,7 +147,10 @@ impl Inputs {
             }
         }
         if name == "init-token" {
-            number(m, "slot")?;
+            need(m, "slot")?
+                .parse::<u64>()
+                .map_err(|_| usage("invalid slot ID"))?;
+            expected_token(m)?;
             if need(m, "label")?.len() > 32 {
                 return Err(usage("token label exceeds 32 UTF-8 bytes"));
             }
@@ -161,6 +164,20 @@ impl Inputs {
             so,
         })
     }
+}
+fn expected_token(m: &ArgMatches) -> Result<pkcs11_client::Pkcs11Uri> {
+    let expected = uri(m, "expected-token")?;
+    if expected.path_attributes().count() != 4
+        || expected.query_names().next().is_some()
+        || ["token", "manufacturer", "model", "serial"]
+            .iter()
+            .any(|name| expected.path_attribute(name).is_none())
+    {
+        return Err(usage(
+            "--expected-token requires exactly token, manufacturer, model and serial; copy the URI from tokens",
+        ));
+    }
+    Ok(expected)
 }
 fn generation_kind(m: &ArgMatches) -> Result<KeyKind> {
     let kind = need(m, "kind")?;
@@ -211,9 +228,22 @@ pub(crate) fn run(
             json!(tokens)
         }
         "init-token" => {
-            let id = number(m, "slot")? as u64;
-            module.initialize_token(
-                id,
+            let id = need(m, "slot")?
+                .parse::<u64>()
+                .map_err(|_| usage("invalid slot ID"))?;
+            let expected = expected_token(m)?;
+            let current = module
+                .tokens()?
+                .into_iter()
+                .find(|token| token.slot_id == id)
+                .ok_or_else(|| usage("selected slot has no token; enumerate tokens again"))?;
+            if current.uri()?.to_string() != expected.to_string() {
+                return Err(usage(
+                    "token metadata does not match --expected-token; enumerate tokens again",
+                ));
+            }
+            module.initialize_token_checked(
+                &current.initialization_target(),
                 inputs
                     .new_pin
                     .as_ref()
@@ -242,6 +272,15 @@ fn client_command(
     };
     let location = token_uri(uri(m, selector)?)?;
     let client = module.client(&location, NonZeroUsize::new(1).unwrap(), policy(m))?;
+    let outcome = client_operation(&client, name, m, inputs);
+    finish(outcome, client.close(), "client session closure")
+}
+fn client_operation(
+    client: &pkcs11_client::Client<'_>,
+    name: &str,
+    m: &ArgMatches,
+    inputs: &Inputs,
+) -> Result<Output> {
     let auth = || inputs.credential.auth(false);
     if name == "certificate" {
         let cert = client.certificate(uri(m, "object")?, auth())?;
@@ -331,8 +370,20 @@ fn management_command(
         } else {
             SessionMode::ReadOnly
         },
-        inputs.credential.auth(inputs.so),
+        pkcs11_client::Authentication::None,
     )?;
+    let outcome = (|| {
+        session.authenticate(inputs.credential.auth(inputs.so))?;
+        management_operation(&mut session, name, m, inputs)
+    })();
+    finish(outcome, session.close(), "session closure")
+}
+fn management_operation(
+    session: &mut pkcs11_client::ManagementSession<'_>,
+    name: &str,
+    m: &ArgMatches,
+    inputs: &Inputs,
+) -> Result<Output> {
     let value = match name {
         "objects" => {
             let token_uri = session.token_uri()?;
@@ -362,7 +413,6 @@ fn management_command(
             } else {
                 session.export_value(&reference)?
             };
-            session.close()?;
             return Ok(Output::Binary(bytes));
         }
         "init-pin" => {
@@ -422,6 +472,5 @@ fn management_command(
         }
         _ => return Err(usage("unknown command")),
     };
-    session.close()?;
     Ok(Output::Structured(value))
 }

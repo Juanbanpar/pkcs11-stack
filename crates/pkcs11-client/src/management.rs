@@ -145,7 +145,10 @@ impl Provider {
     ) -> Result<ManagementSession<'_>, Error> {
         let token = self.module.resolve_token_uri(uri)?;
         let mut session = token.open_session(mode)?;
-        session.authenticate(authentication)?;
+        if let Err(error) = session.authenticate(authentication) {
+            session.close()?;
+            return Err(error.into());
+        }
         Ok(ManagementSession { session })
     }
     /// Open a management session that retains the existing module owner.
@@ -158,7 +161,10 @@ impl Provider {
         authentication: Authentication<'_>,
     ) -> Result<ManagementSession<'static>, Error> {
         let mut session = self.module.open_owned_session(uri, mode)?;
-        session.authenticate(authentication)?;
+        if let Err(error) = session.authenticate(authentication) {
+            session.close()?;
+            return Err(error.into());
+        }
         Ok(ManagementSession { session })
     }
     /// Exercise bounded simultaneous leases, exhaustion and reuse on a fresh pool.
@@ -171,24 +177,28 @@ impl Provider {
         authentication: impl Fn() -> Authentication<'a>,
     ) -> Result<PoolDiagnostic, Error> {
         let pool = SessionPool::new(self.module.resolve_token_uri(uri)?, mode, maximum);
-        let mut leases = Vec::new();
-        for _ in 0..maximum.get() {
-            leases.push(pool.try_acquire(authentication())?);
-        }
-        let session_state = leases[0].session().info()?.session_state();
-        let exhaustion_verified = match pool.try_acquire(Authentication::None) {
-            Err(pkcs11_runtime::Error::PoolExhausted) => true,
-            Err(error) => return Err(error.into()),
-            Ok(_) => false,
-        };
-        drop(leases);
-        pool.try_acquire(authentication())?.session().info()?;
-        Ok(PoolDiagnostic {
-            capacity: maximum.get(),
-            exhaustion_verified,
-            reuse_verified: true,
-            session_state,
-        })
+        let outcome = (|| {
+            let mut leases = Vec::new();
+            for _ in 0..maximum.get() {
+                leases.push(pool.try_acquire(authentication())?);
+            }
+            let session_state = leases[0].session().info()?.session_state();
+            let exhaustion_verified = match pool.try_acquire(Authentication::None) {
+                Err(pkcs11_runtime::Error::PoolExhausted) => true,
+                Err(error) => return Err(error.into()),
+                Ok(_) => false,
+            };
+            drop(leases);
+            pool.try_acquire(authentication())?.session().info()?;
+            Ok(PoolDiagnostic {
+                capacity: maximum.get(),
+                exhaustion_verified,
+                reuse_verified: true,
+                session_state,
+            })
+        })();
+        pool.close()?;
+        outcome
     }
     /// Initialize or erase an explicit current slot. Can destroy existing contents.
     /// Exclusive access prevents live consumers from surviving initialization.

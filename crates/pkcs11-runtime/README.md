@@ -164,7 +164,7 @@ assert_eq!(plan.hash_location(), HashLocation::Token);
 let signature = lease.session().sign(&key, &request, &policy, None)?;
 drop(lease); // healthy session becomes available to another caller
 // `discard()` before drop instead closes a suspect session.
-drop(pool); // closes all idle sessions before module finalization
+pool.close()?; // checks idle and discarded session closure before finalization
 module.finalize()?;
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
@@ -174,7 +174,14 @@ replaces stale idle sessions once, and ensures the requested login role. A match
 existing role does not validate the supplied PIN again. Failed login/open returns
 capacity. Drop returns healthy sessions and closes explicitly discarded, failed or
 panicking leases. Returned sessions are checked against the pool's module/token/mode.
-Pool poisoning is a typed error. Closing failures during Drop are best effort.
+Pool poisoning is a typed error.
+
+For checked pool shutdown, release all leases and call `SessionPool::close` before
+module finalization. It attempts every idle session close and reports failures,
+including a failure recorded when a stale or failed lease was discarded. A failed
+close blocks further checkouts with `PoolCleanupFailed`; it does not trigger an
+operation retry or token-wide logout. Dropping a pool remains best effort.
+
 A failed signing/search operation, failed metadata read or failed identity check
 invalidates the session for further operations, including discovery and login.
 Such calls return `Error::Closed`; explicit close still attempts cleanup. Ordinary
