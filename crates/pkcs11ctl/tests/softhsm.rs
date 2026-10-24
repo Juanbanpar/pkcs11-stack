@@ -21,11 +21,7 @@ impl Fixture {
     }
     fn ok(&self, args: &[&str]) -> Value {
         let out = self.run(args);
-        assert!(
-            out.status.success(),
-            "{args:?}: {}",
-            String::from_utf8_lossy(&out.stderr)
-        );
+        assert!(out.status.success(), "CLI command failed: {}", out.status);
         assert!(out.stderr.is_empty());
         let value: Value = serde_json::from_slice(&out.stdout).unwrap();
         assert_eq!(value["schema_version"], 1);
@@ -37,8 +33,8 @@ impl Fixture {
         assert_eq!(
             out.status.code(),
             Some(code),
-            "{args:?}: {}",
-            String::from_utf8_lossy(&out.stderr)
+            "CLI command failed: {}",
+            out.status
         );
         assert!(out.stdout.is_empty());
         let value: Value = serde_json::from_slice(&out.stderr).unwrap();
@@ -53,8 +49,8 @@ fn external(program: &str, args: &[&str]) {
     let out = Command::new(program).args(args).output().unwrap();
     assert!(
         out.status.success(),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
+        "external command failed: {}",
+        out.status
     );
 }
 #[test]
@@ -176,8 +172,8 @@ fn command_workflows() {
     let out = f.run(&random_args);
     assert!(
         out.status.success(),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
+        "external command failed: {}",
+        out.status
     );
     assert!(out.stdout.is_empty());
     assert!(out.stderr.is_empty());
@@ -200,8 +196,8 @@ fn command_workflows() {
     ]);
     assert!(
         out.status.success(),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
+        "external command failed: {}",
+        out.status
     );
     assert_eq!(out.stdout.len(), 64);
     assert!(out.stderr.is_empty());
@@ -353,8 +349,8 @@ fn command_workflows() {
     let out = f.run(&["export", "--object", ed_uri, "--output", &exported]);
     assert!(
         out.status.success(),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
+        "external command failed: {}",
+        out.status
     );
     assert!(out.stdout.is_empty());
     assert_eq!(
@@ -460,8 +456,8 @@ fn command_workflows() {
     let out = f.run(&args);
     assert!(
         out.status.success(),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
+        "external command failed: {}",
+        out.status
     );
     assert!(out.stdout.is_empty());
     external(
@@ -539,8 +535,8 @@ fn command_workflows() {
     ]);
     assert!(
         out.status.success(),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
+        "external command failed: {}",
+        out.status
     );
     external(
         "openssl",
@@ -626,8 +622,8 @@ fn command_workflows() {
     ]);
     assert!(
         out.status.success(),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
+        "external command failed: {}",
+        out.status
     );
     assert_eq!(out.stdout.len(), 132);
     let always = "pkcs11:token=client-test;object=always;type=private";
@@ -668,8 +664,8 @@ fn command_workflows() {
     ]);
     assert!(
         out.status.success(),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
+        "external command failed: {}",
+        out.status
     );
     assert_eq!(out.stdout.len(), 256);
     // USER and SO changes each execute exactly once; subsequent login verifies state.

@@ -23,11 +23,7 @@ impl Fixture {
     }
     fn ok(&self, args: &[&str]) -> Value {
         let out = self.run(args);
-        assert!(
-            out.status.success(),
-            "{args:?}: {}",
-            String::from_utf8_lossy(&out.stderr)
-        );
+        assert!(out.status.success(), "CLI command failed: {}", out.status);
         assert!(out.stderr.is_empty());
         if out.stdout.is_empty() {
             return Value::Null;
@@ -42,8 +38,8 @@ impl Fixture {
         assert_eq!(
             out.status.code(),
             Some(code),
-            "{args:?}: {}",
-            String::from_utf8_lossy(&out.stderr)
+            "CLI command failed: {}",
+            out.status
         );
         assert!(out.stdout.is_empty());
         let value: Value = serde_json::from_slice(&out.stderr).unwrap();
@@ -58,8 +54,8 @@ fn openssl(args: &[&str]) {
         .unwrap();
     assert!(
         out.status.success(),
-        "{args:?}: {}",
-        String::from_utf8_lossy(&out.stderr)
+        "OpenSSL command failed: {}",
+        out.status
     );
 }
 

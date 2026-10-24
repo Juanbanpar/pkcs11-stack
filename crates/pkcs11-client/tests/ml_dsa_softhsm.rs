@@ -13,8 +13,8 @@ fn openssl(args: &[&str]) {
     let output = Command::new(binary).args(args).output().unwrap();
     assert!(
         output.status.success(),
-        "{args:?}: {}",
-        String::from_utf8_lossy(&output.stderr)
+        "OpenSSL command failed: {}",
+        output.status
     );
 }
 
