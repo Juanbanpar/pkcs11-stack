@@ -53,6 +53,84 @@ Callers using `Pin::Value` also depend on `secrecy` 0.10. `Pin::ProtectedPath` i
 available when supported by the token. Always-authenticate keys need a separate
 `Some(Pin::Value(&pin))` or protected-path input to each binding/signing call.
 
+## ML-DSA
+
+The client exposes pure ML-DSA-44/65/87 with a separate `MlDsaRequest` and explicit
+`MlDsaSigningPolicy`. The classical digest-based `SigningPolicy` does not govern
+these calls. Requests select the expected parameter set, original message, context
+(0 through 255 bytes), and required/preferred/deterministic hedging. Required hedging
+fails if the token cannot supply randomness; there is no software fallback.
+
+Use `Provider::ml_dsa_generation_options` for advisory generation choices and
+`ManagementSession::generate_ml_dsa_key_pair` to create persistent nonextractable
+keys in an RW session. Both pooled clients and management sessions expose
+`ml_dsa_capabilities`, `sign_ml_dsa`, `verify_ml_dsa` and `export_ml_dsa_public_key`.
+Public export returns RFC 9881 SPKI DER with absent algorithm parameters.
+
+```no_run
+use pkcs11_client::{
+    Authentication, MlDsaHedging, MlDsaParameterSet, MlDsaRequest,
+    MlDsaSigningPolicy, Pin, Provider, SigningPolicy,
+};
+use secrecy::SecretString;
+use std::num::NonZeroUsize;
+
+let provider = Provider::load("/absolute/path/to/trusted-pkcs11.so")?;
+let client = provider.client(&"pkcs11:serial=123".parse()?,
+    NonZeroUsize::new(1).unwrap(), SigningPolicy::default())?;
+// Obtain this from the application's secret source.
+let pin = SecretString::from("example-only");
+let key = client.private_key("pkcs11:serial=123;id=%01;type=private".parse()?,
+    Authentication::User(Pin::Value(&pin)))?;
+let certificate = client.ml_dsa_certificate(
+    "pkcs11:serial=123;id=%02;type=cert".parse()?,
+    Authentication::User(Pin::Value(&pin)))?;
+let policy = MlDsaSigningPolicy::default();
+let identity = client.bind_ml_dsa_identity(key, certificate, &policy,
+    Authentication::User(Pin::Value(&pin)), None)?;
+let request = MlDsaRequest {
+    parameter_set: MlDsaParameterSet::MlDsa65,
+    message: b"application message",
+    context: b"application-v1",
+    hedging: MlDsaHedging::Required,
+};
+let outcome = client.sign_ml_dsa_identity(&identity, &request, &policy,
+    Authentication::User(Pin::Value(&pin)), None);
+let closed = client.close();
+let finalized = provider.finalize();
+closed?;
+finalized?;
+let signature = outcome?;
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+The example requires an existing ML-DSA-65 key and matching certificate, without
+always-authenticate. Their selectors can use different IDs and labels.
+For always-authenticate keys, supply a separate context PIN to each signing call.
+Policy/context validation precedes pool checkout; capabilities and handles are
+rediscovered for execution. `verify_ml_dsa` runs on the token and maps a mismatch to
+`Error::SignatureMismatch`.
+
+`MlDsaVerifyingKey` verifies in software from raw public bytes or exact RFC 9881
+SPKI DER, without a module or login. `MlDsaCertificate` retains exact X.509 DER and
+a verifier; it requires absent public-key algorithm parameters and byte-aligned,
+correctly sized public keys. Both verify the original message and context, reject
+noncanonical signatures, and report `SignatureMismatch` for malformed or incorrect
+signatures. Verification does not interpret the request's hedging choice.
+
+`bind_ml_dsa_identity` signs a fixed domain-separated probe with required hedging
+and verifies it in software before constructing an `MlDsaIdentity`.
+`sign_ml_dsa_identity` verifies every subsequent signature against that retained
+certificate before returning bytes, detecting replacement keys even under the
+same selector and parameter set. Verification failures discard the lease, with
+no operation retry. Use explicit client/session closure before releasing output
+when cleanup errors must be reported.
+
+Certificate parsing, binding and message verification do not check issuer
+signatures, chains, validity, usage, revocation or hostnames. Applications own
+those trust decisions. The existing `Certificate` and `Identity` types support
+RSA/EC; ML-DSA uses its own certificate, identity and request types.
+
 ## Ownership and policy
 
 Prefer `Provider::load` and `Provider::client` for application construction. The

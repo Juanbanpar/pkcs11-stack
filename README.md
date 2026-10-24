@@ -54,6 +54,12 @@ signing-key generation, object deletion/relabeling, and token/PIN initialization
 and changes. Certificate binding verifies that a selected private key matches a
 certificate and checks each subsequent bound signature.
 
+Runtime and client support pure ML-DSA-44/65/87 key generation, signing, token
+verification and public-key SPKI export. Requests use explicit parameter sets,
+contexts and hedging choices. The client also verifies signatures in software
+and binds token private keys to ML-DSA certificates, checking each subsequent
+bound signature. ML-DSA CLI commands and TLS integration are not implemented.
+
 The TLS adapter supports server and mutual authentication with TLS 1.3 and optional
 TLS 1.2. Supported signing keys are RSA and EC P-256/P-384/P-521; TLS use also
 requires verification support from the application's crypto provider. See the

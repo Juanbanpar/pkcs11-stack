@@ -17,6 +17,13 @@ mod client;
 mod error;
 mod generation;
 mod management;
+mod ml_dsa;
+mod ml_dsa_certificate;
+pub use ml_dsa_certificate::{MlDsaCertificate, MlDsaIdentity, MlDsaVerifyingKey};
+pub use pkcs11_runtime::{
+    MlDsaCapabilities, MlDsaHedging, MlDsaParameterSet, MlDsaPublicKey, MlDsaRequest,
+    MlDsaSigningPolicy,
+};
 mod object_locator;
 mod public_export;
 mod random;

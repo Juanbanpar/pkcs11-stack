@@ -9,6 +9,9 @@ python3 tools/check-dependencies.py
 
 Tests cover URI parsing and redaction, selection ambiguity, ownership, signing
 plans, certificate verification, CLI input/output, and TLS signature encoding.
+ML-DSA software tests use public OpenSSL fixtures without a provider. They cover
+message/context mismatches, malformed SPKI/certificates and repeated-hint signature
+encodings, including the regression described by GHSA-5x2r-hc65-25f9.
 Compile-fail examples check that modules, sessions and objects cannot be used
 outside their owner lifetimes.
 
@@ -47,6 +50,7 @@ then run the classical workflows and the required PQC tests:
 ```sh
 bash tools/build-pqc-softhsm.sh /absolute/path/to/softhsm-pqc
 PKCS11_TEST_REQUIRE_PQC=1 \
+PKCS11_TEST_PQC_OPENSSL=/absolute/path/to/softhsm-pqc/openssl/bin/openssl \
 PKCS11_TEST_MODULE=/absolute/path/to/softhsm-pqc/lib/softhsm/libsofthsm2.so \
 SOFTHSM2_UTIL=/absolute/path/to/softhsm-pqc/bin/softhsm2-util \
 ./tools/test-softhsm.sh
@@ -62,7 +66,20 @@ decapsulation. It checks ciphertext/signature sizes and nonextractability of
 private keys and shared secrets. A one-block AES round trip proves the KEM secrets
 agree without exporting them. Missing mechanisms or entry points fail the job.
 
-These checks do not establish formal algorithm validation or hardware compatibility.
+Runtime/client tests also require typed ML-DSA generation, capability checks,
+policy rejection before checkout, context authentication, signature verification,
+session recovery after mismatches, and detection of a changed parameter set under
+a reused selector. Certificate binding verifies a probe and each subsequent
+signature in software, rejects wrong certificates, and detects replacement keys
+even when the selector and parameter set are unchanged. Software verification
+also covers empty messages and 255-byte binary contexts. Exported SPKI keys and
+token signatures are verified through the pinned OpenSSL command-line tool,
+including always-authenticate keys.
+
+`PKCS11_TEST_PQC_OPENSSL` selects an OpenSSL executable with ML-DSA support; it
+defaults to `openssl`. Missing support fails the tests. These checks do not
+establish formal algorithm validation or hardware compatibility. ML-DSA TLS
+integration is not implemented.
 
 ## Property tests and fuzzing
 
