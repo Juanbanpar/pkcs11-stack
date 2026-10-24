@@ -64,6 +64,11 @@ and binds token private keys to ML-DSA certificates, checking each subsequent
 bound signature. The CLI exposes these workflows, including offline certificate
 verification and context authentication.
 
+Runtime and client also support ML-KEM-512/768/1024 key generation, encapsulation
+and decapsulation. Raw shared secrets remain sensitive and nonextractable on the
+token, with only further derivation permitted. Protocol KDF application and CLI
+ML-KEM workflows are not implemented.
+
 The TLS adapter supports server and mutual authentication with TLS 1.3 and optional
 TLS 1.2. RSA and EC P-256/P-384/P-521 work across those versions; ML-DSA
 authentication requires TLS 1.3. TLS use requires verification support from the application's crypto provider. See the

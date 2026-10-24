@@ -422,3 +422,44 @@ cargo test -p pkcs11-client --locked
 
 Unit tests use independent OpenSSL-generated certificates and signatures. SoftHSM
 tests exercise management, signing, association checks and key replacement.
+
+## ML-KEM
+
+The client exposes ML-KEM-512/768/1024 through scoped management sessions.
+`Provider::ml_kem_generation_options` reports advertised choices;
+`ManagementSession::generate_ml_kem_key_pair` creates a persistent pair, and
+`ml_kem_capabilities` checks the selected direction without performing crypto.
+Private decapsulation keys remain sensitive and nonextractable.
+
+`encapsulate_ml_kem` returns public ciphertext and creates a persistent token-held
+raw shared secret under the `MlKemRequest` ID/label. `decapsulate_ml_kem` retains
+the corresponding secret under a different explicit identity. Both require RW
+mode, rediscover capabilities, check the expected parameter set and reject an
+existing secret ID. The 32-byte private generic secrets permit only derivation;
+public export helpers reject them. No runtime session or object handle is exposed.
+
+```no_run
+use pkcs11_client::{Authentication, Error, MlKemParameterSet, MlKemRequest,
+    Pin, Pkcs11Uri, Provider, PublicKeyRef, SessionMode};
+use secrecy::SecretString;
+
+fn encapsulate(
+    provider: &Provider, token: &Pkcs11Uri, key: &PublicKeyRef, pin: &SecretString,
+) -> Result<Vec<u8>, Error> {
+    let mut session = provider.management(
+        token, SessionMode::ReadWrite, Authentication::User(Pin::Value(pin)),
+    )?;
+    let outcome = session.encapsulate_ml_kem(key, &MlKemRequest {
+        parameter_set: MlKemParameterSet::MlKem768,
+        id: b"exchange-1", label: b"raw ML-KEM secret",
+    });
+    session.close()?;
+    outcome
+}
+```
+
+The caller must authenticate the peer and apply a protocol KDF. Same-length
+ciphertext corruption can succeed with a different secret through ML-KEM implicit
+rejection. Invalid lengths fail before crypto. Always-authenticate decapsulation
+and KDF application are not implemented. No operation or authentication is retried;
+close the session before releasing ciphertext when cleanup must be checked.

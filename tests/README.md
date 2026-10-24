@@ -71,6 +71,13 @@ contrary to PKCS#11 3.2 sections 6.68.4/5. The build script applies a two-line s
 correction to the isolated provider. Compatibility tests check public-key byte
 bounds; runtime rejects incorrect metadata without a vendor-specific fallback.
 
+Typed ML-KEM tests cover all parameter sets, key permissions, allowed mechanisms,
+read-only sessions, duplicate secret IDs, expected-parameter checks and ciphertext
+lengths. HMAC challenges compare full token-held secrets without extracting them,
+including the different secret produced for altered same-length ciphertext.
+Client tests cover persistent secret inspection/deletion, export refusal, explicit
+session closure and semantic error categories.
+
 Runtime/client tests also require typed ML-DSA generation, capability checks,
 policy rejection before checkout, context authentication, signature verification,
 session recovery after mismatches, and detection of a changed parameter set under
