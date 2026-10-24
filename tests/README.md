@@ -107,6 +107,25 @@ policy rejection before credential acquisition, trust failures, TLS 1.2,
 exhausted pools and replacement keys. The adapter's production graph still
 selects no software crypto provider.
 
+## HKDF provider compatibility
+
+Install NSS softoken (`libnss3` on Debian/Ubuntu, `nss-softokn` on Fedora), then run:
+
+```sh
+./tools/test-hkdf.sh
+# Override the module location when needed:
+PKCS11_TEST_HKDF_MODULE=/absolute/path/to/libsoftokn3.so ./tools/test-hkdf.sh
+```
+
+The runner uses a temporary working directory and ordinary NSS initialization
+without a database or login. All test keys are volatile session objects. The
+`hkdf-provider` CI job requires CKM_HKDF_DERIVE and checks RFC 5869 SHA-256 cases
+1 and 3, including empty salt/info and changed context. HMAC comparisons verify
+derived sensitive, nonextractable keys without reading their values.
+
+This tests the native HKDF prerequisite only. Runtime/client KDF workflows and
+ML-KEM followed by HKDF on the same provider are not implemented or tested.
+
 ## Property tests and fuzzing
 
 Increase the case count or choose a seed to reproduce a property failure:

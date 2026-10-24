@@ -231,3 +231,16 @@ jobs:
           PKCS11_TEST_MODULE: ${{ runner.temp }}/softhsm-pqc/lib/softhsm/libsofthsm2.so
           SOFTHSM2_UTIL: ${{ runner.temp }}/softhsm-pqc/bin/softhsm2-util
         run: ./tools/test-softhsm.sh
+
+  hkdf-provider:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install stable Rust and NSS softoken
+        run: |
+          rustup toolchain install stable --no-self-update --profile minimal
+          rustup default stable
+          sudo apt-get update
+          sudo apt-get install --yes libnss3
+      - name: Check RFC 5869 with nonextractable session keys
+        run: ./tools/test-hkdf.sh
