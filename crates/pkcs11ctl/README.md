@@ -39,7 +39,7 @@ for current discovery and explicit initialization.
 | `bind --key URI --certificate URI` | One signature proving explicit key/certificate association |
 | `sign --key URI [--certificate URI] ...` | Generic signing, or binding followed by verified signing |
 | `diagnose --token URI --pool-size N` | Bounded lease capacity/exhaustion/reuse and session role |
-| `init-token --slot ID --label LABEL --so-pin-file PATH --confirm` | Initialize or erase a token |
+| `init-token --slot ID --expected-token URI --label LABEL --so-pin-file PATH --confirm` | Initialize or erase a token |
 | `init-pin --token URI --role so --pin-file PATH --new-pin-file PATH --confirm` | Initialize/reset USER PIN |
 | `set-pin --token URI --pin-file PATH --new-pin-file PATH --confirm` | Change the authenticated USER/SO PIN |
 | `generate --token URI --kind KIND --id HEX --label LABEL --confirm` | Persistent sensitive, nonextractable signing key pair |
@@ -127,8 +127,17 @@ an error means no signature or mutation occurred.
 
 Every mutation requires `--confirm` and executes once without automatic rollback
 or retry. `init-token` can destroy all objects and takes an explicit current slot
-ID. Runtime requires exclusive access to the module for initialization, so no
-borrowed token/session can survive it. Token labels are at most 32 UTF-8 bytes.
+ID and requires `--expected-token URI`. Copy the selected entry's complete URI
+from `tokens`; it must include `token`, `manufacturer`, `model` and `serial`, with
+explicit empty values where reported. Other attributes and queries are rejected.
+The CLI compares these criteria against the selected slot, then the client
+rechecks the captured token metadata immediately before initialization. This
+requirement also applies to previously uninitialized tokens.
+
+Metadata is not physical device identity: an identical replacement or a swap
+after the check cannot be detected. Arrange exclusive physical access when erasing.
+Runtime requires exclusive module ownership, so no borrowed token/session can
+survive initialization. Token labels are at most 32 UTF-8 bytes.
 
 `generate` supports `rsa`, `p256`, `p384` and `p521`. RSA defaults to 2048 bits;
 `--bits` accepts multiples of eight from 2048 to 16384, subject to provider bounds.

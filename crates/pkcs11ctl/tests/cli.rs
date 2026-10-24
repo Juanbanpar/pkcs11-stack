@@ -248,3 +248,50 @@ fn typed_selectors_are_rejected_before_loading_module() {
         assert_eq!(error["error"]["kind"], "input");
     }
 }
+
+#[test]
+fn token_erasure_requires_complete_expected_identity_before_loading() {
+    let dir = Scratch::new();
+    let pin = dir.0.join("so.pin");
+    std::fs::write(&pin, b"public-fixture-pin").unwrap();
+    let base = [
+        "--module",
+        "/missing",
+        "--format",
+        "json",
+        "init-token",
+        "--slot",
+        "0",
+        "--label",
+        "new-label",
+        "--so-pin-file",
+        pin.to_str().unwrap(),
+        "--confirm",
+    ];
+    let result = run(&base);
+    assert_eq!(result.status.code(), Some(2));
+    for uri in [
+        "pkcs11:",
+        "pkcs11:token=only-label",
+        "pkcs11:token=t;manufacturer=m;model=x",
+        "pkcs11:token=t;manufacturer=m;model=x;serial=s;slot-id=0",
+        "pkcs11:token=t;manufacturer=m;model=x;serial=s;object=k",
+        "pkcs11:token=t;manufacturer=m;model=x;serial=s?pin-value=redaction-canary",
+    ] {
+        let mut args = base.to_vec();
+        args.extend(["--expected-token", uri]);
+        let result = run(&args);
+        assert_eq!(result.status.code(), Some(2));
+        assert!(result.stdout.is_empty());
+        assert!(!String::from_utf8_lossy(&result.stderr).contains("redaction-canary"));
+    }
+    for uri in [
+        "pkcs11:token=;manufacturer=;model=;serial=",
+        "pkcs11:token=t;manufacturer=m;model=x;serial=s",
+    ] {
+        let mut args = base.to_vec();
+        args.extend(["--expected-token", uri]);
+        // A complete expectation passes validation and reaches module loading.
+        assert_eq!(run(&args).status.code(), Some(5));
+    }
+}
