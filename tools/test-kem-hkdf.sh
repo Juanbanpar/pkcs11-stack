@@ -30,3 +30,4 @@ cargo test -p pkcs11-runtime --test hybrid_persistent --locked -- cli_derived_ke
 
 cargo test -p pkcs11-runtime --test aes_gcm_provider --locked -- --ignored --test-threads=1
 cargo test -p pkcs11-client --test aes_gcm_provider --locked -- --ignored --test-threads=1
+cargo test -p pkcs11ctl --test aes_gcm --locked -- --ignored --test-threads=1

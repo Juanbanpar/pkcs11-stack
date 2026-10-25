@@ -42,6 +42,8 @@ for current discovery and explicit initialization.
 | `sign --key URI [--certificate URI] ...` | Generic signing, or binding followed by verified signing |
 | `verify --certificate-file PATH ...` or `verify --certificate URI ...` | Software verification against a certificate public key |
 | `random --token URI --length N --output PATH` | Token-generated random bytes |
+| `aes-gcm-capabilities --object URI --operation encrypt\|decrypt` | Current AES key permissions and provider support |
+| `encrypt-aes-gcm`, `decrypt-aes-gcm` | Bounded authenticated encryption/decryption; explicit nonce and optional AAD file |
 | `diagnose --token URI --pool-size N` | Bounded lease capacity/exhaustion/reuse and session role |
 | `init-token --slot ID --expected-token URI --label LABEL --so-pin-file PATH --confirm` | Initialize or erase a token |
 | `init-pin --token URI --role so --pin-file PATH --new-pin-file PATH --confirm` | Initialize/reset USER PIN |
@@ -313,8 +315,8 @@ uninterpreted. `--id` maps to CKA_ID for certificates/keys and CKA_OBJECT_ID for
 select data objects by their label. Imported objects are persistent and public.
 
 Raw certificate export and inspection work independently of client key support.
-Arbitrary JSON templates, private/secret-key import/export, wrapping, encryption,
-decryption, raw ECDH derivation and vendor-specific administration are not implemented.
+Arbitrary JSON templates, private/secret-key import/export, wrapping, RSA-OAEP,
+raw ECDH derivation and vendor-specific administration are not implemented.
 Runtime exposes generic creation/update templates for library callers. Attribute
 updates may partially succeed before a provider reports failure; runtime marks
 that session unusable and does not attempt rollback.
@@ -341,6 +343,38 @@ attributes use the explicit status/value contract above; no private object handl
 is exposed. `diagnose` opens up to 64 simultaneous exclusive leases, verifies pool
 exhaustion, releases them and verifies reuse. It is not a performance benchmark or
 hardware fault-injection test.
+
+## AES-GCM files
+
+Use `encrypt-aes-gcm` or `decrypt-aes-gcm` with an AES `--object` URI containing
+`type=secret-key`, exactly 24 hexadecimal nonce digits, `--input` and `--output`.
+`--aad-file` is optional; omit it for empty AAD. The file cannot read stdin.
+`--input -` reads stdin and `--output -` writes raw binary stdout, including with
+`--format json`. File and provider errors use stderr without plaintext bytes.
+
+```sh
+# NONCE_HEX must be a nonce not previously used with this key.
+pkcs11ctl --module /path/to/module.so encrypt-aes-gcm \
+  --object 'pkcs11:serial=123;id=%31;type=secret-key' --nonce "$NONCE_HEX" \
+  --aad-file context.bin --input message.bin --output ciphertext.bin --pin-file user.pin
+pkcs11ctl --module /path/to/module.so decrypt-aes-gcm \
+  --object 'pkcs11:serial=123;id=%31;type=secret-key' --nonce "$NONCE_HEX" \
+  --aad-file context.bin --input ciphertext.bin --output recovered.bin --pin-file user.pin
+```
+
+The format is ciphertext followed by a full 16-byte tag, without a nonce, AAD or
+header. Keep nonce and AAD for decryption. Plaintext is limited to 16 MiB; AAD to
+1 MiB. Empty plaintext is supported; ciphertext must contain at least a full tag.
+Generated encryption keys and HKDF AES outputs work; wrapping-only keys do not.
+Use `aes-gcm-capabilities` for advisory size/permission checks without encryption.
+
+Callers ensure nonce uniqueness per key across applications, restarts and copies
+of key material. No nonce is generated or tracked; an encryption error does not
+authorize reusing it. There is no retry or software fallback. Authenticated
+decryption and checked session/module closure precede plaintext output. Output
+files are created with mode 0600 on Unix and never overwritten; incomplete files
+are removed on failure. Input/plaintext buffers zeroize on drop. cryptoki cannot
+guarantee wiping its temporary buffers after a failed provider call.
 
 ## Testing
 

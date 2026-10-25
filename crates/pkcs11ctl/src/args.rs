@@ -302,6 +302,13 @@ pub(crate) fn command() -> Command {
     let set_label = Command::new("set-label")
         .about("Relabel exactly one object")
         .arg(required("label", "New label"));
+    let gcm = |name, help| {
+        auth(object(Command::new(name).about(help)
+        .arg(required("nonce", "Exactly 24 hex digits; encryption requires a unique nonce per key, also after errors"))
+        .arg(value("aad-file", "Additional authenticated data file, at most 1 MiB; omitted means empty; no stdin"))
+        .arg(required("input", "Input file; - reads stdin; ciphertext includes the full 16-byte tag"))
+        .arg(required("output", "New output file, or - for binary stdout; nonce/AAD are not included"))))
+    };
     let commands = [
         Command::new("info").about("Inspect the loaded library"),
         Command::new("slots").about("List diagnostic slot IDs"),
@@ -329,6 +336,22 @@ pub(crate) fn command() -> Command {
         context(auth(signing(key(sign)))),
         auth(signature(verify)),
         auth(token(random)),
+        gcm(
+            "encrypt-aes-gcm",
+            "Encrypt at most 16 MiB once; output is ciphertext followed by a full tag",
+        ),
+        gcm(
+            "decrypt-aes-gcm",
+            "Authenticate/decrypt AES-GCM once; no output before authentication and checked closure",
+        ),
+        auth(object(
+            Command::new("aes-gcm-capabilities")
+                .about("Inspect current AES-GCM key permissions and provider support")
+                .arg(
+                    required("operation", "Requested direction")
+                        .value_parser(["encrypt", "decrypt"]),
+                ),
+        )),
         auth(object(
             Command::new("kem-capabilities")
                 .about("Inspect current ML-KEM parameters and direction permissions")

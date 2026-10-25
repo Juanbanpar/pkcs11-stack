@@ -63,7 +63,7 @@ if [[ "${PKCS11_TEST_DESKTOP:-0}" == 1 ]]; then
 fi
 bash tools/test-examples.sh client
 cargo test -p pkcs11-client --test softhsm --test administration_softhsm --test generation_softhsm --test aes_gcm_provider --locked -- --ignored --test-threads=1
-cargo test -p pkcs11ctl --test softhsm --locked -- --ignored --test-threads=1
+cargo test -p pkcs11ctl --test softhsm --test aes_gcm --locked -- --ignored --test-threads=1
 if [[ "${PKCS11_TEST_REQUIRE_PQC:-0}" == 1 ]]; then
     cargo test -p pkcs11ctl --test ml_dsa_softhsm --locked -- --ignored --test-threads=1
 fi

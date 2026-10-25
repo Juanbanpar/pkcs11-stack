@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-use crate::{generation, inspect, key_establishment, ml_dsa, support::*};
+use crate::{aes_gcm, generation, inspect, key_establishment, ml_dsa, support::*};
 use clap::ArgMatches;
 use pkcs11_client::{
     AttributeType, DigestAlgorithm, HashingPolicy, Provider, PssParameters, RandomRequest,
@@ -71,6 +71,7 @@ pub(crate) enum VerificationCertificate {
 }
 // Validate non-provider inputs and load files before initializing a library or logging in.
 pub(crate) struct Inputs {
+    pub aes_gcm: Option<aes_gcm::Inputs>,
     pub credential: Credential,
     pub context: Credential,
     pub new_pin: Option<secrecy::SecretString>,
@@ -101,7 +102,8 @@ impl Inputs {
         let context = Credential::load(m, "context-pin-file", "context-protected-path")?;
         let so = get(m, "role") == Some("so");
         if so
-            && (key_establishment::selected(name)
+            && (aes_gcm::selected(name)
+                || key_establishment::selected(name)
                 || matches!(
                     name,
                     "certificate"
@@ -134,7 +136,10 @@ impl Inputs {
         if name == "verify" && get(m, "input") == Some("-") && get(m, "signature") == Some("-") {
             return Err(usage("only one verification input may read stdin"));
         }
-        let bytes = if let Some(path) = get(m, "input") {
+        let aes_gcm = aes_gcm::Inputs::load(name, m)?;
+        let bytes = if aes_gcm::selected(name) {
+            vec![]
+        } else if let Some(path) = get(m, "input") {
             if let Some(limit) = key_establishment::input_limit(name, m)? {
                 bounded_input(path, limit)?
             } else if name == "verify" || ml_dsa {
@@ -237,6 +242,7 @@ impl Inputs {
         }
         let establishment = key_establishment::Inputs::load(name, m, &bytes)?;
         Ok(Self {
+            aes_gcm,
             establishment,
             credential,
             context,
@@ -485,6 +491,9 @@ fn management_operation(
     m: &ArgMatches,
     inputs: &Inputs,
 ) -> Result<Output> {
+    if aes_gcm::selected(name) {
+        return aes_gcm::operation(session, name, m, inputs.aes_gcm.as_ref());
+    }
     if key_establishment::selected(name) {
         return key_establishment::operation(session, name, m, inputs);
     }

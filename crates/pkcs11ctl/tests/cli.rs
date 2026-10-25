@@ -58,6 +58,9 @@ fn help_and_version_need_no_module() {
         "set-pin",
         "generate",
         "generation-options",
+        "aes-gcm-capabilities",
+        "encrypt-aes-gcm",
+        "decrypt-aes-gcm",
         "import",
         "set-label",
         "delete",
@@ -1129,4 +1132,85 @@ fn typed_generation_rejects_invalid_options_before_loading_a_provider() {
         let error: serde_json::Value = serde_json::from_slice(&out.stderr).unwrap();
         assert_eq!(error["error"]["kind"], "input");
     }
+}
+
+#[test]
+fn aes_gcm_preflight_rejects_invalid_parameters_before_provider_or_output() {
+    let dir = Scratch::new();
+    let input = dir.0.join("input");
+    std::fs::write(&input, [0; 15]).unwrap();
+    let output = dir.0.join("output");
+    for (command, nonce, object, extra) in [
+        (
+            "encrypt-aes-gcm",
+            "00",
+            "pkcs11:token=x;object=k;type=secret-key",
+            vec![],
+        ),
+        (
+            "encrypt-aes-gcm",
+            "zzzzzzzzzzzzzzzzzzzzzzzz",
+            "pkcs11:token=x;object=k;type=secret-key",
+            vec![],
+        ),
+        (
+            "encrypt-aes-gcm",
+            "000000000000000000000000",
+            "pkcs11:token=x;object=k;type=private",
+            vec![],
+        ),
+        (
+            "encrypt-aes-gcm",
+            "000000000000000000000000",
+            "pkcs11:token=x;object=k;type=secret-key",
+            vec!["--aad-file", "-"],
+        ),
+        (
+            "decrypt-aes-gcm",
+            "000000000000000000000000",
+            "pkcs11:token=x;object=k;type=secret-key",
+            vec![],
+        ),
+    ] {
+        let mut args = vec![
+            "--module",
+            "/missing",
+            "--format",
+            "json",
+            command,
+            "--object",
+            object,
+            "--nonce",
+            nonce,
+            "--input",
+            input.to_str().unwrap(),
+            "--output",
+            output.to_str().unwrap(),
+        ];
+        args.extend(extra);
+        let out = run(&args);
+        assert_eq!(out.status.code(), Some(2));
+        assert!(out.stdout.is_empty());
+        assert!(!output.exists());
+    }
+    let oversized = dir.0.join("oversized");
+    std::fs::File::create(&oversized)
+        .unwrap()
+        .set_len(pkcs11_client::AES_GCM_MAXIMUM_PLAINTEXT as u64 + 1)
+        .unwrap();
+    let out = run(&[
+        "--module",
+        "/missing",
+        "encrypt-aes-gcm",
+        "--object",
+        "pkcs11:token=x;object=k;type=secret-key",
+        "--nonce",
+        "000000000000000000000000",
+        "--input",
+        oversized.to_str().unwrap(),
+        "--output",
+        output.to_str().unwrap(),
+    ]);
+    assert_eq!(out.status.code(), Some(2));
+    assert!(!output.exists());
 }
