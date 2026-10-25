@@ -68,11 +68,17 @@ Runtime and client also support ML-KEM-512/768/1024 key generation, encapsulatio
 and decapsulation, with RFC 9935 public-key import/export. Raw shared secrets remain sensitive and nonextractable on the
 token, with only further derivation permitted. Typed HKDF extract-and-expand
 creates nonextractable AES keys or further derivation secrets on the same token.
-CLI ML-KEM/HKDF workflows are not implemented.
+The CLI exposes ML-KEM generation, public-key exchange, encapsulation,
+decapsulation and HKDF derivation. A P-256 || ML-KEM-768 application combiner
+derives token-held keys using HKDF-SHA512; callers supply authenticated component
+secrets and protocol context. It does not define a wire protocol.
 
 The TLS adapter supports server and mutual authentication with TLS 1.3 and optional
 TLS 1.2. RSA and EC P-256/P-384/P-521 work across those versions; ML-DSA
-authentication requires TLS 1.3. TLS use requires verification support from the application's crypto provider. See the
+authentication requires TLS 1.3. An optional hybrid-only provider policy requires
+X25519MLKEM768 and prevents classical key-exchange fallback. TLS key exchange
+and its key schedule run in the application's crypto provider; signing keys stay
+on the token. TLS use requires verification support from that provider. See the
 [signing and TLS examples](docs/examples.md) for runnable programs.
 
 RSA-OAEP encryption/decryption supports SHA-2 with a matching MGF1 digest and

@@ -128,7 +128,7 @@ requires hash-length input under the PKCS#11 profile; it is tested separately be
 
 ## Persistent ML-KEM and HKDF
 
-Build the pinned Kryoptic and OpenSSL sources, then run typed runtime/client tests:
+Build the pinned Kryoptic and OpenSSL sources, then run runtime/client/CLI tests:
 
 ```sh
 ./tools/build-kem-hkdf-provider.sh /absolute/path/to/kdf-provider
@@ -155,6 +155,14 @@ same token. AES challenge comparisons verify matching derived keys and different
 results for altered ciphertext/context. Generic known-answer outputs are compared
 using HMAC after temporarily enabling signing on disposable test keys. No token
 secret value is read; all sessions close before the next module lifecycle.
+
+The same provider also requires P-256 ECDH, concatenation and HKDF-SHA512 for
+application hybrid derivation. Tests compare independent peers, reversed component
+order, changed context and public known-answer inputs; inspect output permissions;
+reject unsuitable inputs; and check that temporary combined secrets are destroyed.
+CLI tests exchange RFC 9935 public keys, persist public ciphertext, derive matching
+keys and preserve existing output files. A separate native lifecycle verifies CLI
+key agreement using AES challenges.
 
 ## Property tests and fuzzing
 

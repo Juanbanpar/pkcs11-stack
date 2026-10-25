@@ -384,3 +384,24 @@ fn token_hybrid_construction_and_policy() {
     session.close().unwrap();
     module.finalize().unwrap();
 }
+#[test]
+#[ignore = "runs after CLI derivation in tools/test-kem-hkdf.sh"]
+fn cli_derived_keys_match() {
+    let (module, session) = native();
+    for index in 0..3 {
+        assert_eq!(
+            encrypted(&session, &[0xD3, index, 0]),
+            encrypted(&session, &[0xD3, index, 1])
+        );
+    }
+    assert_eq!(
+        encrypted(&session, &[0xD4, 0]),
+        encrypted(&session, &[0xD4, 1])
+    );
+    assert_ne!(
+        encrypted(&session, &[0xD4, 0]),
+        encrypted(&session, &[0xD4, 2])
+    );
+    session.close().unwrap();
+    module.finalize().unwrap();
+}

@@ -132,6 +132,58 @@ fn mutation(command: Command) -> Command {
         .required(true),
     )
 }
+fn kem_parameter(command: Command) -> Command {
+    command.arg(
+        required("parameter-set", "Expected ML-KEM parameter set").value_parser([
+            "ml-kem-512",
+            "ml-kem-768",
+            "ml-kem-1024",
+        ]),
+    )
+}
+fn hkdf_digest(command: Command) -> Command {
+    command.arg(
+        required("digest", "HKDF hash; base key must match its output length")
+            .value_parser(["sha256", "sha384", "sha512"]),
+    )
+}
+fn hkdf_options(command: Command) -> Command {
+    hkdf_digest(command)
+        .arg(
+            required("kind", "Output key type and permissions").value_parser([
+                "aes128",
+                "aes192",
+                "aes256",
+                "derivation-secret",
+            ]),
+        )
+        .arg(
+            value("length", "Generic derivation-secret length in bytes")
+                .required_if_eq("kind", "derivation-secret"),
+        )
+        .arg(value(
+            "salt-file",
+            "Public salt file, at most 4096 bytes; omitted means zero salt",
+        ))
+        .arg(value(
+            "info-file",
+            "Public protocol context file, at most 4096 bytes; omitted means empty",
+        ))
+}
+fn hybrid_options(command: Command) -> Command {
+    hkdf_options(command)
+        .mut_arg("digest", |arg| {
+            arg.value_parser(["sha512"])
+                .help("Hybrid combiner hash: sha512")
+        })
+        .mut_arg("salt-file", |arg| {
+            arg.help("Public salt file, at most 128 bytes; omitted means zero salt")
+        })
+        .mut_arg("info-file", |arg| {
+            arg.required(true)
+                .help("Nonempty public protocol context file, at most 4096 bytes")
+        })
+}
 fn named(command: Command) -> Command {
     command
         .arg(required("label", "Object label"))
@@ -145,6 +197,11 @@ pub(crate) fn command() -> Command {
             .default_value("class,label,id"));
     let export = Command::new("export")
         .about("Export certificate/data bytes or public-key SPKI DER; no trust validation")
+        .arg(
+            value("key-family", "Public-key algorithm family")
+                .value_parser(["classical", "ml-dsa", "ml-kem"])
+                .default_value("classical"),
+        )
         .arg(required(
             "output",
             "New output file, or - for binary stdout",
@@ -209,7 +266,7 @@ pub(crate) fn command() -> Command {
         .about("Change authenticated role's host PIN once")
         .arg(required("new-pin-file", "New PIN file"));
     let generate = Command::new("generate")
-        .about("Generate a persistent nonextractable signing key pair")
+        .about("Generate a persistent nonextractable signing or ML-KEM key pair")
         .arg(required("kind", "Key kind").value_parser([
             "rsa",
             "p256",
@@ -218,6 +275,9 @@ pub(crate) fn command() -> Command {
             "ml-dsa-44",
             "ml-dsa-65",
             "ml-dsa-87",
+            "ml-kem-512",
+            "ml-kem-768",
+            "ml-kem-1024",
         ]))
         .arg(value("bits", "RSA modulus size; RSA only"))
         .arg(flag(
@@ -225,8 +285,8 @@ pub(crate) fn command() -> Command {
             "Require per-signature context authentication",
         ));
     let import = Command::new("import")
-        .about("Import public certificate DER or data bytes")
-        .arg(required("kind", "Object kind").value_parser(["cert", "data"]))
+        .about("Import public certificate DER, ML-KEM SPKI DER or data bytes")
+        .arg(required("kind", "Object kind").value_parser(["cert", "data", "ml-kem"]))
         .arg(required("input", "Input file; - reads stdin"));
     let set_label = Command::new("set-label")
         .about("Relabel exactly one object")
@@ -240,7 +300,7 @@ pub(crate) fn command() -> Command {
             Command::new("objects").about("List persistent objects, without secret values"),
         )),
         auth(object(inspect)),
-        auth(object(key_family(export))),
+        auth(object(export)),
         auth(object(key_family(
             Command::new("certificate").about("Parse a supported certificate through client"),
         ))),
@@ -254,6 +314,43 @@ pub(crate) fn command() -> Command {
         context(auth(signing(key(sign)))),
         auth(signature(verify)),
         auth(token(random)),
+        auth(object(
+            Command::new("kem-capabilities")
+                .about("Inspect current ML-KEM parameters and direction permissions")
+                .arg(
+                    required("operation", "Requested ML-KEM direction")
+                        .value_parser(["encapsulate", "decapsulate"]),
+                ),
+        )),
+        mutation(auth(named(kem_parameter(object(
+            Command::new("encapsulate")
+                .about("Create a token-held ML-KEM secret and write public ciphertext")
+                .arg(required(
+                    "output",
+                    "New ciphertext file, or - for binary stdout",
+                )),
+        ))))),
+        mutation(auth(named(kem_parameter(object(
+            Command::new("decapsulate")
+                .about("Decapsulate public ciphertext into a persistent token secret")
+                .arg(required("input", "Ciphertext file; - reads stdin")),
+        ))))),
+        auth(hkdf_digest(object(
+            Command::new("hkdf-capabilities")
+                .about("Inspect a sensitive, nonextractable HKDF base secret"),
+        ))),
+        mutation(auth(named(hkdf_options(object(
+            Command::new("derive-hkdf")
+                .about("Derive a persistent nonextractable token key using HKDF"),
+        ))))),
+        mutation(auth(named(hybrid_options(object(
+            Command::new("derive-hybrid")
+                .about("Combine P-256 and ML-KEM-768 secrets on-token, then apply HKDF-SHA512")
+                .arg(required(
+                    "post-quantum",
+                    "ML-KEM-768 raw secret URI with type=secret-key",
+                )),
+        ))))),
         auth(token(diagnose)),
         mutation(init_token),
         mutation(auth(token(init_pin))),

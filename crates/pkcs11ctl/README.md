@@ -172,6 +172,67 @@ Always-authenticate keys use the separate context PIN options described above,
 including two authentications for bound signing. Certificate verification is
 available offline or against a token certificate and establishes no issuer trust.
 
+## ML-KEM and key derivation
+
+`generate --kind ml-kem-512|ml-kem-768|ml-kem-1024` creates a persistent public
+encapsulation key and a private, sensitive, nonextractable decapsulation key.
+Use `export --key-family ml-kem` and `import --kind ml-kem` for RFC 9935 public
+SPKI DER. Private-key import/export is unavailable. `--bits` and
+`--always-authenticate` do not apply to ML-KEM generation.
+
+```sh
+pkcs11ctl --module /path/to/module.so encapsulate \
+  --object 'pkcs11:serial=123;id=%01;type=public' \
+  --parameter-set ml-kem-768 --id 0200 --label sender-secret \
+  --pin-file /run/user/1000/token.pin --output ciphertext.bin --confirm
+pkcs11ctl --module /path/to/module.so decapsulate \
+  --object 'pkcs11:serial=456;id=%01;type=private' \
+  --parameter-set ml-kem-768 --id 0201 --label recipient-secret \
+  --pin-file /run/user/1000/token.pin --input ciphertext.bin --confirm
+pkcs11ctl --module /path/to/module.so derive-hkdf \
+  --object 'pkcs11:serial=123;id=%02%00;type=secret-key' \
+  --digest sha256 --kind aes256 --id 03 --label application-key \
+  --salt-file public-salt.bin --info-file protocol-context.bin \
+  --pin-file /run/user/1000/token.pin --confirm
+```
+
+Run each command against its corresponding peer's module and token. Encapsulation
+writes only public ciphertext, using exclusive output-file creation or binary
+stdout. Decapsulation checks exact ciphertext length before loading a module.
+Both store a private, sensitive, nonextractable 32-byte generic secret with only
+derivation enabled. They require new secret IDs; existing IDs are rejected.
+`kem-capabilities --object URI --operation encapsulate|decapsulate` reports the
+selected key profile without creating a secret.
+
+`hkdf-capabilities --object URI --digest sha256|sha384|sha512` checks the base-key
+profile. `derive-hkdf` runs token-side extract-and-expand; the generic/HKDF base
+must be sensitive, nonextractable, permit derivation and match the hash length.
+ML-KEM secrets use SHA-256. `--kind aes128|aes192|aes256` creates encryption/decryption
+keys; `--kind derivation-secret --length N` creates a generic derivation key.
+Outputs remain private, sensitive and nonextractable. Salt/context files contain
+public bytes and are bounded to 4096 bytes each. Omitted salt means zero salt;
+omitted context is allowed for single-input HKDF. File paths must not be `-`.
+
+`derive-hybrid --object CLASSICAL --post-quantum PQ --digest sha512` combines a
+P-256 ECDH secret followed by an ML-KEM-768 secret using token-side concatenation
+and HKDF-SHA512. Other output/identity options match `derive-hkdf`. Both inputs
+must be distinct 32-byte sensitive, nonextractable generic secrets permitting
+derivation and concatenation. Salt is limited to 128 bytes and `--info-file` must
+supply nonempty protocol context. The temporary combined secret is destroyed
+before return; inputs remain until explicitly deleted.
+
+The caller authenticates peers and establishes component origin, independence,
+ordering and protocol context. Metadata cannot prove provenance. This command is
+an application combiner, not a hybrid KEM wire protocol, X-Wing or TLS key schedule.
+ML-KEM implicit rejection can produce a different secret for altered ciphertext
+without an error; successful decapsulation does not authenticate the sender.
+
+All mutations above require `--confirm` and an RW session. USER authentication
+uses `--pin-file` or `--protected-path` where supported. No secret values are read
+or exported, and no software fallback or retry occurs. Provider/cleanup failure
+can leave persistent effects; inspect and remove unwanted objects explicitly.
+Output is released only after checked session and module cleanup.
+
 ## Verification and random bytes
 
 ```sh
@@ -218,7 +279,7 @@ after the check cannot be detected. Arrange exclusive physical access when erasi
 Runtime requires exclusive module ownership, so no borrowed token/session can
 survive initialization. Token labels are at most 32 UTF-8 bytes.
 
-`generate` supports `rsa`, `p256`, `p384`, `p521` and the ML-DSA kinds above.
+`generate` supports `rsa`, `p256`, `p384`, `p521`, ML-DSA and ML-KEM kinds.
 RSA defaults to 2048 bits;
 `--bits` accepts multiples of eight from 2048 to 16384, subject to provider bounds.
 `--always-authenticate` sets the private key's context-authentication requirement.
@@ -234,7 +295,7 @@ select data objects by their label. Imported objects are persistent and public.
 
 Raw certificate export and inspection work independently of client key support.
 Arbitrary JSON templates, private/secret-key import/export, wrapping, encryption,
-decryption, derivation and vendor-specific administration are not implemented.
+decryption, raw ECDH derivation and vendor-specific administration are not implemented.
 Runtime exposes generic creation/update templates for library callers. Attribute
 updates may partially succeed before a provider reports failure; runtime marks
 that session unusable and does not attempt rollback.
@@ -273,3 +334,5 @@ Unit tests check argument validation, independent verification fixtures, redacti
 output preservation and exit codes. SoftHSM tests exercise inspection, signing,
 verification, random generation and administration commands. The required PQC
 provider lane also tests ML-DSA CLI workflows and OpenSSL interoperability.
+`tools/test-kem-hkdf.sh` tests ML-KEM, HKDF and hybrid CLI workflows on a disposable
+Kryoptic token; see the [test guide](../../tests/README.md#persistent-ml-kem-and-hkdf).

@@ -46,6 +46,12 @@ fn help_and_version_need_no_module() {
         "sign",
         "verify",
         "random",
+        "kem-capabilities",
+        "encapsulate",
+        "decapsulate",
+        "hkdf-capabilities",
+        "derive-hkdf",
+        "derive-hybrid",
         "diagnose",
         "init-token",
         "init-pin",
@@ -726,4 +732,349 @@ fn ml_dsa_options_fail_before_provider_and_output_creation() {
         Some(2)
     );
     assert!(!output.exists());
+}
+
+#[test]
+fn key_establishment_rejects_invalid_options_before_loading() {
+    let dir = Scratch::new();
+    let public = "pkcs11:token=test;id=%01;type=public";
+    let private = "pkcs11:token=test;id=%01;type=private";
+    let base = "pkcs11:token=test;id=%02;type=secret-key";
+    let output = dir.0.join("ciphertext");
+    let output = output.to_str().unwrap();
+    for kind in ["ml-kem-512", "ml-kem-768", "ml-kem-1024"] {
+        for extra in [vec!["--bits", "2048"], vec!["--always-authenticate"]] {
+            let mut args = vec![
+                "--module",
+                "/must-not-load",
+                "--format",
+                "json",
+                "generate",
+                "--token",
+                "pkcs11:token=test",
+                "--kind",
+                kind,
+                "--id",
+                "01",
+                "--label",
+                "recipient",
+                "--confirm",
+            ];
+            args.extend(extra);
+            let result = run(&args);
+            assert_eq!(result.status.code(), Some(2));
+            assert!(result.stdout.is_empty());
+        }
+    }
+    let cases = [
+        vec![
+            "encapsulate",
+            "--object",
+            public,
+            "--parameter-set",
+            "ml-kem-512",
+            "--id",
+            "02",
+            "--label",
+            "sender",
+            "--output",
+            output,
+        ],
+        vec![
+            "encapsulate",
+            "--object",
+            private,
+            "--parameter-set",
+            "ml-kem-512",
+            "--id",
+            "02",
+            "--label",
+            "sender",
+            "--output",
+            output,
+            "--confirm",
+        ],
+        vec![
+            "derive-hkdf",
+            "--object",
+            public,
+            "--digest",
+            "sha256",
+            "--kind",
+            "aes256",
+            "--id",
+            "03",
+            "--label",
+            "derived",
+            "--confirm",
+        ],
+        vec![
+            "derive-hkdf",
+            "--object",
+            base,
+            "--digest",
+            "sha256",
+            "--kind",
+            "aes256",
+            "--length",
+            "32",
+            "--id",
+            "03",
+            "--label",
+            "derived",
+            "--confirm",
+        ],
+        vec![
+            "derive-hkdf",
+            "--object",
+            base,
+            "--digest",
+            "sha256",
+            "--kind",
+            "derivation-secret",
+            "--length",
+            "0",
+            "--id",
+            "03",
+            "--label",
+            "derived",
+            "--confirm",
+        ],
+        vec![
+            "derive-hkdf",
+            "--object",
+            base,
+            "--digest",
+            "sha256",
+            "--kind",
+            "derivation-secret",
+            "--length",
+            "8161",
+            "--id",
+            "03",
+            "--label",
+            "derived",
+            "--confirm",
+        ],
+        vec![
+            "derive-hkdf",
+            "--object",
+            base,
+            "--digest",
+            "sha256",
+            "--kind",
+            "derivation-secret",
+            "--id",
+            "03",
+            "--label",
+            "derived",
+            "--confirm",
+        ],
+        vec![
+            "derive-hkdf",
+            "--object",
+            base,
+            "--digest",
+            "sha256",
+            "--kind",
+            "aes256",
+            "--salt-file",
+            "-",
+            "--id",
+            "03",
+            "--label",
+            "derived",
+            "--confirm",
+        ],
+        vec![
+            "export",
+            "--key-family",
+            "ml-kem",
+            "--object",
+            private,
+            "--output",
+            output,
+        ],
+        vec![
+            "kem-capabilities",
+            "--object",
+            private,
+            "--operation",
+            "encapsulate",
+        ],
+        vec![
+            "hkdf-capabilities",
+            "--object",
+            public,
+            "--digest",
+            "sha256",
+        ],
+        vec![
+            "encapsulate",
+            "--object",
+            public,
+            "--parameter-set",
+            "ml-kem-512",
+            "--id",
+            "02",
+            "--label",
+            "sender",
+            "--output",
+            output,
+            "--role",
+            "so",
+            "--confirm",
+        ],
+    ];
+    for args in cases {
+        let mut invocation = vec!["--module", "/must-not-load", "--format", "json"];
+        invocation.extend(args);
+        let result = run(&invocation);
+        assert_eq!(result.status.code(), Some(2));
+        assert!(result.stdout.is_empty());
+        assert!(!std::path::Path::new(output).exists());
+    }
+}
+#[test]
+fn key_establishment_bounds_files_and_preserves_outputs() {
+    let dir = Scratch::new();
+    let input = dir.0.join("input");
+    let input = input.to_str().unwrap();
+    let output = dir.0.join("ciphertext");
+    let output = output.to_str().unwrap();
+    for length in [0, 1, 767, 769] {
+        std::fs::write(input, vec![0; length]).unwrap();
+        let result = run(&[
+            "--module",
+            "/must-not-load",
+            "decapsulate",
+            "--object",
+            "pkcs11:token=test;id=%01;type=private",
+            "--parameter-set",
+            "ml-kem-512",
+            "--input",
+            input,
+            "--id",
+            "02",
+            "--label",
+            "receiver",
+            "--confirm",
+        ]);
+        assert_eq!(result.status.code(), Some(2));
+    }
+    std::fs::write(input, vec![0; 4097]).unwrap();
+    for flag in ["--salt-file", "--info-file"] {
+        assert_eq!(
+            run(&[
+                "--module",
+                "/must-not-load",
+                "derive-hkdf",
+                "--object",
+                "pkcs11:token=test;id=%02;type=secret-key",
+                "--digest",
+                "sha256",
+                "--kind",
+                "aes256",
+                flag,
+                input,
+                "--id",
+                "03",
+                "--label",
+                "derived",
+                "--confirm"
+            ])
+            .status
+            .code(),
+            Some(2)
+        );
+    }
+    std::fs::write(input, b"invalid SPKI").unwrap();
+    assert_eq!(
+        run(&[
+            "--module",
+            "/must-not-load",
+            "import",
+            "--token",
+            "pkcs11:token=test",
+            "--kind",
+            "ml-kem",
+            "--input",
+            input,
+            "--id",
+            "01",
+            "--label",
+            "peer",
+            "--confirm"
+        ])
+        .status
+        .code(),
+        Some(4)
+    );
+    let args = [
+        "--module",
+        "/must-not-load",
+        "encapsulate",
+        "--object",
+        "pkcs11:token=test;id=%01;type=public",
+        "--parameter-set",
+        "ml-kem-512",
+        "--id",
+        "02",
+        "--label",
+        "sender",
+        "--output",
+        output,
+        "--confirm",
+    ];
+    assert_eq!(run(&args).status.code(), Some(5));
+    assert!(!std::path::Path::new(output).exists());
+    std::fs::write(output, b"existing output").unwrap();
+    assert_eq!(run(&args).status.code(), Some(6));
+    assert_eq!(std::fs::read(output).unwrap(), b"existing output");
+}
+
+#[test]
+fn hybrid_validation_precedes_module_loading() {
+    let dir = Scratch::new();
+    let info = dir.0.join("info");
+    let salt = dir.0.join("salt");
+    std::fs::write(&info, b"protocol v1").unwrap();
+    std::fs::write(&salt, [0; 129]).unwrap();
+    for extra in [
+        vec![],
+        vec!["--digest", "sha256", "--info-file", info.to_str().unwrap()],
+        vec![
+            "--digest",
+            "sha512",
+            "--info-file",
+            info.to_str().unwrap(),
+            "--salt-file",
+            salt.to_str().unwrap(),
+        ],
+    ] {
+        let mut args = vec![
+            "--module",
+            "/must-not-load",
+            "--format",
+            "json",
+            "derive-hybrid",
+            "--object",
+            "pkcs11:token=test;id=%01;type=secret-key",
+            "--post-quantum",
+            "pkcs11:token=test;id=%02;type=secret-key",
+            "--kind",
+            "aes256",
+            "--id",
+            "03",
+            "--label",
+            "hybrid",
+            "--confirm",
+        ];
+        args.extend(extra);
+        let result = run(&args);
+        assert_eq!(result.status.code(), Some(2));
+        assert!(result.stdout.is_empty());
+        let error: serde_json::Value = serde_json::from_slice(&result.stderr).unwrap();
+        assert_eq!(error["error"]["kind"], "input");
+    }
 }

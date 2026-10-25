@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-use crate::{inspect, ml_dsa, support::*};
+use crate::{inspect, key_establishment, ml_dsa, support::*};
 use clap::ArgMatches;
 use pkcs11_client::{
     AttributeType, DigestAlgorithm, HashingPolicy, KeyKind, NamedCurve, Provider, PssParameters,
@@ -14,7 +14,7 @@ pub(crate) enum Output {
     Binary(Vec<u8>),
     SecretBinary(pkcs11_client::RandomBytes),
 }
-fn digest(value: &str) -> DigestAlgorithm {
+pub(crate) fn digest(value: &str) -> DigestAlgorithm {
     match value {
         "sha256" => DigestAlgorithm::Sha256,
         "sha384" => DigestAlgorithm::Sha384,
@@ -81,6 +81,7 @@ pub(crate) struct Inputs {
     pub signature: Vec<u8>,
     pub random: Option<RandomRequest>,
     pub so: bool,
+    pub establishment: key_establishment::Inputs,
 }
 impl Inputs {
     pub fn load(name: &str, m: &ArgMatches) -> Result<Self> {
@@ -100,10 +101,17 @@ impl Inputs {
         let context = Credential::load(m, "context-pin-file", "context-protected-path")?;
         let so = get(m, "role") == Some("so");
         if so
-            && matches!(
-                name,
-                "certificate" | "capabilities" | "plan" | "bind" | "sign" | "verify" | "generate"
-            )
+            && (key_establishment::selected(name)
+                || matches!(
+                    name,
+                    "certificate"
+                        | "capabilities"
+                        | "plan"
+                        | "bind"
+                        | "sign"
+                        | "verify"
+                        | "generate"
+                ))
         {
             return Err(usage("this command uses the USER role"));
         }
@@ -127,7 +135,9 @@ impl Inputs {
             return Err(usage("only one verification input may read stdin"));
         }
         let bytes = if let Some(path) = get(m, "input") {
-            if name == "verify" || ml_dsa {
+            if let Some(limit) = key_establishment::input_limit(name, m)? {
+                bounded_input(path, limit)?
+            } else if name == "verify" || ml_dsa {
                 bounded_input(path, 64 * 1024 * 1024)?
             } else {
                 input(path)?
@@ -188,7 +198,11 @@ impl Inputs {
             unhex(id)?;
         }
         if name == "generate" {
-            if ml_dsa::parameter(get(m, "kind")).is_some() {
+            let ml_kem = key_establishment::parameter(get(m, "kind")).is_some();
+            if ml_kem && flag(m, "always-authenticate") {
+                return Err(usage("ML-KEM does not support always-authenticate"));
+            }
+            if ml_kem || ml_dsa::parameter(get(m, "kind")).is_some() {
                 if get(m, "bits").is_some() {
                     return Err(usage("--bits applies only to RSA"));
                 }
@@ -204,7 +218,7 @@ impl Inputs {
                 inspect::attribute_type(n)?;
             }
         }
-        for selector in ["token", "object", "key", "certificate"] {
+        for selector in ["token", "object", "key", "certificate", "post-quantum"] {
             if get(m, selector).is_some() {
                 let parsed = uri(m, selector)?;
                 if selector == "key" && parsed.path_attribute("type") != Some(b"private") {
@@ -231,7 +245,9 @@ impl Inputs {
                 return Err(usage("token label exceeds 32 UTF-8 bytes"));
             }
         }
+        let establishment = key_establishment::Inputs::load(name, m, &bytes)?;
         Ok(Self {
+            establishment,
             credential,
             context,
             new_pin,
@@ -452,7 +468,7 @@ fn management_command(
         for entry in module.mechanisms(&location)? {
             let mechanism = entry.mechanism;
             let info = entry.info;
-            items.push(json!({"name":format!("{mechanism:?}"),"min_key_size":info.min_key_size(),"max_key_size":info.max_key_size(),"sign":info.sign(),"verify":info.verify(),"encrypt":info.encrypt(),"decrypt":info.decrypt(),"generate":info.generate(),"generate_key_pair":info.generate_key_pair(),"wrap":info.wrap(),"unwrap":info.unwrap(),"derive":info.derive(),"hardware":info.hardware()}));
+            items.push(json!({"name":format!("{mechanism:?}"),"min_key_size":info.min_key_size(),"max_key_size":info.max_key_size(),"sign":info.sign(),"verify":info.verify(),"encrypt":info.encrypt(),"decrypt":info.decrypt(),"generate":info.generate(),"generate_key_pair":info.generate_key_pair(),"wrap":info.wrap(),"unwrap":info.unwrap(),"derive":info.derive(),"encapsulate":info.encapsulate(),"decapsulate":info.decapsulate(),"hardware":info.hardware()}));
         }
         return Ok(Output::Structured(json!(items)));
     }
@@ -472,10 +488,11 @@ fn management_command(
             json!({"capacity":diagnostic.capacity,"exhaustion_verified":diagnostic.exhaustion_verified,"reuse_verified":diagnostic.reuse_verified,"session_state":format!("{:?}",diagnostic.session_state)}),
         ));
     }
-    let mutation = matches!(
-        name,
-        "init-pin" | "set-pin" | "generate" | "import" | "delete" | "set-label"
-    );
+    let mutation = key_establishment::mutation(name)
+        || matches!(
+            name,
+            "init-pin" | "set-pin" | "generate" | "import" | "delete" | "set-label"
+        );
     let mut session = module.management(
         &location,
         if mutation || inputs.so {
@@ -497,6 +514,9 @@ fn management_operation(
     m: &ArgMatches,
     inputs: &Inputs,
 ) -> Result<Output> {
+    if key_establishment::selected(name) {
+        return key_establishment::operation(session, name, m, inputs);
+    }
     let value = match name {
         "random" => {
             return Ok(Output::SecretBinary(
@@ -530,7 +550,11 @@ fn management_operation(
         }
         "export" => {
             let reference = object_reference(uri(m, "object")?)?;
-            let bytes = if ml_dsa::selected(m) {
+            let bytes = if get(m, "key-family") == Some("ml-kem") {
+                let key = pkcs11_client::PublicKeyRef::new(uri(m, "object")?)
+                    .map_err(pkcs11_client::Error::from)?;
+                session.export_ml_kem_public_key(&key)?
+            } else if ml_dsa::selected(m) {
                 let key = pkcs11_client::PublicKeyRef::new(uri(m, "object")?)
                     .map_err(pkcs11_client::Error::from)?;
                 session.export_ml_dsa_public_key(&key)?
@@ -562,7 +586,10 @@ fn management_operation(
         }
         "generate" => {
             let id = unhex(need(m, "id")?)?;
-            let key = if let Some(parameter) = ml_dsa::parameter(get(m, "kind")) {
+            let key = if let Some(parameter) = key_establishment::parameter(get(m, "kind")) {
+                session.generate_ml_kem_key_pair(parameter, &id, need(m, "label")?.as_bytes())?;
+                key_establishment::key_info(parameter)
+            } else if let Some(parameter) = ml_dsa::parameter(get(m, "kind")) {
                 session.generate_ml_dsa_key_pair(
                     parameter,
                     &id,
@@ -584,7 +611,17 @@ fn management_operation(
         }
         "import" => {
             let id = unhex(need(m, "id")?)?;
-            if need(m, "kind")? == "cert" {
+            if need(m, "kind")? == "ml-kem" {
+                session.import_ml_kem_public_key(
+                    inputs
+                        .establishment
+                        .public_key
+                        .as_ref()
+                        .ok_or_else(|| usage("missing ML-KEM public key"))?,
+                    &id,
+                    need(m, "label")?.as_bytes(),
+                )?;
+            } else if need(m, "kind")? == "cert" {
                 session.import_certificate(
                     inputs
                         .certificate_document
