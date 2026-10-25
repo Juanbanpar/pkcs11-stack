@@ -266,9 +266,15 @@ pub(crate) fn command() -> Command {
         .about("Change authenticated role's host PIN once")
         .arg(required("new-pin-file", "New PIN file"));
     let generate = Command::new("generate")
-        .about("Generate a persistent nonextractable signing or ML-KEM key pair")
+        .about("Generate persistent nonextractable signing, ECDH, ML-KEM or AES keys")
         .arg(required("kind", "Key kind").value_parser([
             "rsa",
+            "ecdh-p256",
+            "ecdh-p384",
+            "ecdh-p521",
+            "aes128",
+            "aes192",
+            "aes256",
             "p256",
             "p384",
             "p521",
@@ -280,6 +286,11 @@ pub(crate) fn command() -> Command {
             "ml-kem-1024",
         ]))
         .arg(value("bits", "RSA modulus size; RSA only"))
+        .arg(
+            value("purpose", "Required AES permissions")
+                .value_parser(["encryption", "wrapping"])
+                .required_if_eq_any([("kind", "aes128"), ("kind", "aes192"), ("kind", "aes256")]),
+        )
         .arg(flag(
             "always-authenticate",
             "Require per-signature context authentication",
@@ -296,6 +307,10 @@ pub(crate) fn command() -> Command {
         Command::new("slots").about("List diagnostic slot IDs"),
         Command::new("tokens").about("List tokens and stable token URIs"),
         token(Command::new("mechanisms").about("List advertised mechanisms")),
+        token(
+            Command::new("generation-options")
+                .about("List advisory key generation choices; no login or generation"),
+        ),
         auth(token(
             Command::new("objects").about("List persistent objects, without secret values"),
         )),

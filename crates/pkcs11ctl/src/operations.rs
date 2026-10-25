@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-use crate::{inspect, key_establishment, ml_dsa, support::*};
+use crate::{generation, inspect, key_establishment, ml_dsa, support::*};
 use clap::ArgMatches;
 use pkcs11_client::{
-    AttributeType, DigestAlgorithm, HashingPolicy, KeyKind, NamedCurve, Provider, PssParameters,
-    RandomRequest, SessionMode, SignInput, SignRequest, SignatureAlgorithm, SigningPolicy,
-    object_reference, validate_token_uri,
+    AttributeType, DigestAlgorithm, HashingPolicy, Provider, PssParameters, RandomRequest,
+    SessionMode, SignInput, SignRequest, SignatureAlgorithm, SigningPolicy, object_reference,
+    validate_token_uri,
 };
 use serde_json::{Value, json};
 use std::num::NonZeroUsize;
@@ -198,17 +198,7 @@ impl Inputs {
             unhex(id)?;
         }
         if name == "generate" {
-            let ml_kem = key_establishment::parameter(get(m, "kind")).is_some();
-            if ml_kem && flag(m, "always-authenticate") {
-                return Err(usage("ML-KEM does not support always-authenticate"));
-            }
-            if ml_kem || ml_dsa::parameter(get(m, "kind")).is_some() {
-                if get(m, "bits").is_some() {
-                    return Err(usage("--bits applies only to RSA"));
-                }
-            } else {
-                generation_kind(m)?;
-            }
+            generation::validate(m)?;
         }
         if name == "diagnose" && !(1..=64).contains(&number(m, "pool-size")?) {
             return Err(usage("pool size must be 1..=64"));
@@ -292,28 +282,6 @@ fn expected_token(m: &ArgMatches) -> Result<pkcs11_client::Pkcs11Uri> {
         ));
     }
     Ok(expected)
-}
-fn generation_kind(m: &ArgMatches) -> Result<KeyKind> {
-    let kind = need(m, "kind")?;
-    if kind != "rsa" && get(m, "bits").is_some() {
-        return Err(usage("--bits applies only to RSA"));
-    }
-    Ok(match kind {
-        "rsa" => {
-            let bits = if get(m, "bits").is_some() {
-                number(m, "bits")?
-            } else {
-                2048
-            };
-            if !(2048..=16384).contains(&bits) || bits % 8 != 0 {
-                return Err(usage("RSA size must be 2048..=16384 and divisible by 8"));
-            }
-            KeyKind::Rsa { bits }
-        }
-        "p256" => KeyKind::Ec(NamedCurve::P256),
-        "p384" => KeyKind::Ec(NamedCurve::P384),
-        _ => KeyKind::Ec(NamedCurve::P521),
-    })
 }
 pub(crate) fn run(
     module: &mut Provider,
@@ -463,6 +431,9 @@ fn management_command(
     } else {
         token_uri(uri(m, "object")?)?
     };
+    if name == "generation-options" {
+        return generation::options(module, m).map(Output::Structured);
+    }
     if name == "mechanisms" {
         let mut items = vec![];
         for entry in module.mechanisms(&location)? {
@@ -584,31 +555,7 @@ fn management_operation(
             )?;
             json!({"pin_changed":true})
         }
-        "generate" => {
-            let id = unhex(need(m, "id")?)?;
-            let key = if let Some(parameter) = key_establishment::parameter(get(m, "kind")) {
-                session.generate_ml_kem_key_pair(parameter, &id, need(m, "label")?.as_bytes())?;
-                key_establishment::key_info(parameter)
-            } else if let Some(parameter) = ml_dsa::parameter(get(m, "kind")) {
-                session.generate_ml_dsa_key_pair(
-                    parameter,
-                    &id,
-                    need(m, "label")?.as_bytes(),
-                    flag(m, "always-authenticate"),
-                )?;
-                ml_dsa::key_info(parameter)
-            } else {
-                let kind = generation_kind(m)?;
-                session.generate_signing_key_pair(
-                    kind,
-                    &id,
-                    need(m, "label")?.as_bytes(),
-                    flag(m, "always-authenticate"),
-                )?;
-                inspect::key_kind(kind)
-            };
-            json!({"generated":true,"key":key,"id_hex":hex(&id),"label":need(m,"label")?,"extractable":false})
-        }
+        "generate" => generation::generate(session, m)?,
         "import" => {
             let id = unhex(need(m, "id")?)?;
             if need(m, "kind")? == "ml-kem" {

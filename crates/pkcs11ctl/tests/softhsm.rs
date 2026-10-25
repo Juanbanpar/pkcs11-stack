@@ -793,3 +793,123 @@ fn listed_empty_selectors_are_preserved(f: &Fixture) {
         "pkcs11:token=cli-test;object=review-other;type=cert",
     ]);
 }
+
+#[test]
+#[ignore = "requires tools/test-softhsm.sh disposable store"]
+fn typed_generation_permissions_and_public_export() {
+    assert_eq!(std::env::var("PKCS11_TEST_ISOLATED").as_deref(), Ok("1"));
+    let root = PathBuf::from(std::env::var_os("PKCS11_CLIENT_TEST_DIR").unwrap());
+    let f = Fixture {
+        module: std::env::var("PKCS11_TEST_MODULE").unwrap(),
+        pin: root.join("generation-user.pin").to_str().unwrap().into(),
+        so: String::new(),
+        root,
+    };
+    std::fs::write(&f.pin, b"12345678\n").unwrap();
+    let token = "pkcs11:token=client-test";
+    let options = f.ok(&["generation-options", "--token", token]);
+    assert_eq!(options["advisory"], true);
+    assert_eq!(
+        options["ecdh"],
+        serde_json::json!(["ecdh-p256", "ecdh-p384", "ecdh-p521"])
+    );
+    assert_eq!(
+        options["aes"],
+        serde_json::json!(["aes128", "aes192", "aes256"])
+    );
+    for (index, kind) in ["ecdh-p256", "ecdh-p384", "ecdh-p521"]
+        .into_iter()
+        .enumerate()
+    {
+        let id = format!("a8{index:02x}");
+        let args = [
+            "generate",
+            "--token",
+            token,
+            "--kind",
+            kind,
+            "--id",
+            &id,
+            "--label",
+            "CLI ECDH",
+            "--pin-file",
+            &f.pin,
+            "--confirm",
+        ];
+        let generated = f.ok(&args);
+        assert_eq!(generated["key"]["algorithm"], "ec");
+        assert_eq!(generated["key"]["purpose"], "derivation");
+        f.fail(&args, 2);
+        let private = format!("{token};id=%A8%{index:02X};type=private");
+        let attrs = f.ok(&[
+            "inspect",
+            "--object",
+            &private,
+            "--attributes",
+            "sign,sensitive,extractable",
+            "--pin-file",
+            &f.pin,
+        ]);
+        assert_eq!(attrs["sign"]["value"], false);
+        assert_eq!(attrs["sensitive"]["value"], true);
+        assert_eq!(attrs["extractable"]["value"], false);
+        let public = format!("{token};id=%A8%{index:02X};type=public");
+        let path = f.path(&format!("{kind}.der"));
+        let exported = f.run(&["export", "--object", &public, "--output", &path]);
+        assert!(exported.status.success());
+        assert!(exported.stdout.is_empty());
+        pkcs11_client::EcdhPeer::from_spki_der(&std::fs::read(path).unwrap()).unwrap();
+    }
+    for (index, kind) in ["aes128", "aes192", "aes256"].into_iter().enumerate() {
+        for (purpose_index, purpose) in ["encryption", "wrapping"].into_iter().enumerate() {
+            let id = format!("a9{index:02x}{purpose_index:02x}");
+            let args = [
+                "generate",
+                "--token",
+                token,
+                "--kind",
+                kind,
+                "--purpose",
+                purpose,
+                "--id",
+                &id,
+                "--label",
+                "CLI AES",
+                "--pin-file",
+                &f.pin,
+                "--confirm",
+            ];
+            let generated = f.ok(&args);
+            assert_eq!(generated["key"]["algorithm"], "aes");
+            assert_eq!(generated["key"]["purpose"], purpose);
+            assert_eq!(generated["extractable"], false);
+            f.fail(&args, 2);
+            let secret = format!("{token};id=%A9%{index:02X}%{purpose_index:02X};type=secret-key");
+            let attrs = f.ok(&[
+                "inspect",
+                "--object",
+                &secret,
+                "--attributes",
+                "sensitive,extractable",
+                "--pin-file",
+                &f.pin,
+            ]);
+            assert_eq!(attrs["sensitive"]["value"], true);
+            assert_eq!(attrs["extractable"]["value"], false);
+            let forbidden = f.path(&format!("forbidden-{id}"));
+            f.fail(
+                &[
+                    "export",
+                    "--object",
+                    &secret,
+                    "--output",
+                    &forbidden,
+                    "--pin-file",
+                    &f.pin,
+                ],
+                2,
+            );
+            assert!(!std::path::Path::new(&forbidden).exists());
+        }
+    }
+}

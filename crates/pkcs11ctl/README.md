@@ -31,6 +31,7 @@ for current discovery and explicit initialization.
 | --- | --- |
 | `info`, `slots`, `tokens` | Library, slot and token metadata; tokens include stable URI criteria |
 | `mechanisms --token URI` | Advertised flags and provider key-size bounds |
+| `generation-options --token URI` | Advisory signing, ECDH, AES and PQC generation choices; no login |
 | `objects --token URI` | Persistent object summaries; no secret values |
 | `inspect --object URI` | Unique object's attributes, defaulting to class/label/ID |
 | `export --object URI --output PATH` | Raw certificate/data CKA_VALUE or public-key SPKI DER |
@@ -45,7 +46,7 @@ for current discovery and explicit initialization.
 | `init-token --slot ID --expected-token URI --label LABEL --so-pin-file PATH --confirm` | Initialize or erase a token |
 | `init-pin --token URI --role so --pin-file PATH --new-pin-file PATH --confirm` | Initialize/reset USER PIN |
 | `set-pin --token URI --pin-file PATH --new-pin-file PATH --confirm` | Change the authenticated USER/SO PIN |
-| `generate --token URI --kind KIND --id HEX --label LABEL --confirm` | Persistent sensitive, nonextractable signing key pair |
+| `generate --token URI --kind KIND --id HEX --label LABEL --confirm` | Persistent nonextractable signing/ECDH/ML-KEM pair or AES key |
 | `import --token URI --kind cert\|data --id HEX --label LABEL --input PATH --confirm` | Public certificate or data import |
 | `set-label --object URI --label LABEL --confirm` | Relabel exactly one object |
 | `delete --object URI --confirm` | Delete exactly one object |
@@ -279,13 +280,31 @@ after the check cannot be detected. Arrange exclusive physical access when erasi
 Runtime requires exclusive module ownership, so no borrowed token/session can
 survive initialization. Token labels are at most 32 UTF-8 bytes.
 
-`generate` supports `rsa`, `p256`, `p384`, `p521`, ML-DSA and ML-KEM kinds.
-RSA defaults to 2048 bits;
-`--bits` accepts multiples of eight from 2048 to 16384, subject to provider bounds.
-`--always-authenticate` sets the private key's context-authentication requirement.
-Both objects are persistent and share the explicit binary ID and label. The private
-key is sensitive and nonextractable. Duplicate IDs/labels are possible and can make
-later selectors ambiguous; the command does not overwrite an existing key.
+`generate` supports `rsa`, `p256`, `p384`, `p521`, ML-DSA and ML-KEM kinds,
+plus `ecdh-p256`, `ecdh-p384`, `ecdh-p521` and `aes128`, `aes192`, `aes256`.
+RSA defaults to 2048 bits; `--bits` accepts multiples of eight from 2048 to 16384,
+subject to provider bounds. Existing `p256`/`p384`/`p521` kinds create signing
+pairs. ECDH private keys permit only derivation. AES requires
+`--purpose encryption` (encryption/decryption) or `--purpose wrapping`
+(wrapping/unwrapping); other permissions are disabled. `--always-authenticate`
+applies only to signing keys. `--purpose` applies only to AES and `--bits` only
+to RSA; invalid combinations fail before loading a provider.
+
+```sh
+pkcs11ctl --module /path/to/module.so generation-options --token 'pkcs11:serial=123'
+pkcs11ctl --module /path/to/module.so generate --token 'pkcs11:serial=123' \
+  --kind ecdh-p256 --id 31 --label agreement --pin-file user.pin --confirm
+pkcs11ctl --module /path/to/module.so generate --token 'pkcs11:serial=123' \
+  --kind aes256 --purpose wrapping --id 32 --label wrapper --pin-file user.pin --confirm
+```
+
+Choices describe generation only, not later operation support or template
+acceptance. No private/secret values are returned. Generated objects persist;
+private/secret keys are sensitive and nonextractable. ECDH and AES require ID/label
+fields of 1–128 bytes, rejecting existing public/private IDs for ECDH or secret
+IDs for AES. Checks do not ensure uniqueness against concurrent writers. Existing
+signing and PQC generation can create duplicate IDs/labels. Generation does not
+overwrite existing objects and has no retry or rollback.
 
 Certificate import accepts exact X.509 DER, including algorithms unsupported for
 client signing. The client parses subject/issuer/serial metadata for the runtime

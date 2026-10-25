@@ -57,6 +57,7 @@ fn help_and_version_need_no_module() {
         "init-pin",
         "set-pin",
         "generate",
+        "generation-options",
         "import",
         "set-label",
         "delete",
@@ -1075,6 +1076,57 @@ fn hybrid_validation_precedes_module_loading() {
         assert_eq!(result.status.code(), Some(2));
         assert!(result.stdout.is_empty());
         let error: serde_json::Value = serde_json::from_slice(&result.stderr).unwrap();
+        assert_eq!(error["error"]["kind"], "input");
+    }
+}
+
+#[test]
+fn typed_generation_rejects_invalid_options_before_loading_a_provider() {
+    let long = "x".repeat(129);
+    let long_id = "AA".repeat(129);
+    for (kind, id, label, extra) in [
+        ("ecdh-p256", "01", "key", vec!["--always-authenticate"]),
+        ("ecdh-p384", "01", "key", vec!["--bits", "2048"]),
+        ("ecdh-p521", "01", "key", vec!["--purpose", "wrapping"]),
+        ("ecdh-p256", "01", long.as_str(), vec![]),
+        ("ecdh-p256", long_id.as_str(), "key", vec![]),
+        ("aes128", "01", "key", vec![]),
+        (
+            "aes192",
+            "01",
+            "key",
+            vec!["--purpose", "wrapping", "--always-authenticate"],
+        ),
+        (
+            "aes256",
+            "01",
+            "key",
+            vec!["--purpose", "encryption", "--bits", "256"],
+        ),
+        ("aes256", "01", long.as_str(), vec!["--purpose", "wrapping"]),
+        ("p256", "01", "key", vec!["--purpose", "encryption"]),
+    ] {
+        let mut args = vec![
+            "--module",
+            "/missing",
+            "--format",
+            "json",
+            "generate",
+            "--token",
+            "pkcs11:token=x",
+            "--kind",
+            kind,
+            "--id",
+            id,
+            "--label",
+            label,
+            "--confirm",
+        ];
+        args.extend(extra);
+        let out = run(&args);
+        assert_eq!(out.status.code(), Some(2), "{kind}");
+        assert!(out.stdout.is_empty());
+        let error: serde_json::Value = serde_json::from_slice(&out.stderr).unwrap();
         assert_eq!(error["error"]["kind"], "input");
     }
 }

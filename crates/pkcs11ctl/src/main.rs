@@ -2,6 +2,7 @@
 #![forbid(unsafe_code)]
 //! PKCS#11 command-line workflows over the client library.
 mod args;
+mod generation;
 mod inspect;
 mod key_establishment;
 mod ml_dsa;
