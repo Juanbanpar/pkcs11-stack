@@ -29,9 +29,54 @@ pub fn server_config_builder(
     ServerConfig::builder_with_provider(Arc::new(provider)).with_protocol_versions(versions)
 }
 
+/// Clone an application provider with only X25519MLKEM768 and TLS 1.3 suites.
+/// Returns an error when the provider lacks the hybrid group or TLS 1.3 suites.
+/// Use the returned provider with TLS 1.3 for both peers to prevent classical fallback.
+/// No software provider is selected, installed or added. Key exchange and the TLS
+/// key schedule run in the supplied provider; token-backed signing is independent.
+pub fn hybrid_tls13_provider(
+    provider: &CryptoProvider,
+) -> Result<Arc<CryptoProvider>, crate::Error> {
+    let mut selected = provider.clone();
+    selected
+        .kx_groups
+        .retain(|group| group.name() == rustls::NamedGroup::X25519MLKEM768);
+    selected
+        .cipher_suites
+        .retain(|suite| suite.version().version == rustls::ProtocolVersion::TLSv1_3);
+    if selected.kx_groups.is_empty() || selected.cipher_suites.is_empty() {
+        return Err(crate::Error::HybridKeyExchangeUnavailable);
+    }
+    Ok(Arc::new(selected))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn hybrid_policy_requires_provider_support_and_leaves_the_source_unchanged() {
+        let classical = rustls::crypto::ring::default_provider();
+        assert!(matches!(
+            hybrid_tls13_provider(&classical),
+            Err(crate::Error::HybridKeyExchangeUnavailable)
+        ));
+        let provider = rustls::crypto::aws_lc_rs::default_provider();
+        let count = provider.kx_groups.len();
+        let selected = hybrid_tls13_provider(&provider).unwrap();
+        assert!(
+            selected
+                .kx_groups
+                .iter()
+                .all(|group| group.name() == rustls::NamedGroup::X25519MLKEM768)
+        );
+        assert_eq!(selected.kx_groups.len(), 1);
+        assert_eq!(provider.kx_groups.len(), count);
+        assert!(server_config_builder(selected.clone(), &[&rustls::version::TLS12]).is_err());
+        assert!(server_config_builder(selected, &[&rustls::version::TLS13]).is_ok());
+        let mut no_suites = provider;
+        no_suites.cipher_suites.clear();
+        assert!(hybrid_tls13_provider(&no_suites).is_err());
+    }
     #[test]
     fn rejects_empty_or_incompatible_versions_without_mutating_provider() {
         let mut provider = rustls::crypto::ring::default_provider();

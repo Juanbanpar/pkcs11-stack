@@ -299,9 +299,7 @@ fn token_ml_dsa_tls13_authentication_and_hybrid_exchange() {
         .unwrap(),
     );
     let provider = Arc::new(rustls::crypto::aws_lc_rs::default_provider());
-    let mut hybrid = (*provider).clone();
-    hybrid.kx_groups = vec![rustls::crypto::aws_lc_rs::kx_group::X25519MLKEM768];
-    let hybrid = Arc::new(hybrid);
+    let hybrid = pkcs11_rustls_adapter::hybrid_tls13_provider(&provider).unwrap();
     for (index, parameter) in parameters.into_iter().enumerate() {
         let chain = vec![
             certificate(&root.join(format!("{index}.der"))),
@@ -378,6 +376,28 @@ fn token_ml_dsa_tls13_authentication_and_hybrid_exchange() {
         let signer = bundle.key.choose_scheme(&[scheme]).unwrap();
         assert_eq!(signer.scheme(), scheme);
         assert_eq!(calls.load(Ordering::SeqCst), 1);
+        let (hybrid_client, hybrid_server) = configs(
+            hybrid.clone(),
+            credential.clone(),
+            certificate(&ca),
+            false,
+            true,
+            &rustls::version::TLS13,
+        );
+        let mut classical = (*provider).clone();
+        classical.kx_groups = vec![rustls::crypto::aws_lc_rs::kx_group::X25519];
+        let (classical_client, classical_server) = configs(
+            Arc::new(classical),
+            credential.clone(),
+            certificate(&ca),
+            false,
+            true,
+            &rustls::version::TLS13,
+        );
+        let before = calls.load(Ordering::SeqCst);
+        assert!(handshake((classical_client, hybrid_server), false, false).is_err());
+        assert!(handshake((hybrid_client, classical_server), false, false).is_err());
+        assert_eq!(calls.load(Ordering::SeqCst), before);
         for mutual in [false, true] {
             let before = calls.load(Ordering::SeqCst);
             handshake(

@@ -146,8 +146,28 @@ the adapter does not prehash it. Required hedging has no deterministic fallback.
 Always-authenticate keys use the credential source's separate context PIN.
 
 ML-DSA authentication and hybrid key exchange are separate choices. Configure
-X25519MLKEM768 through the application's provider when needed; the adapter does
-not perform TLS key exchange on the token or change group preferences.
+`hybrid_tls13_provider(&provider)` clones the application's provider, retaining
+only X25519MLKEM768 and TLS 1.3 cipher suites. It fails when either is unavailable.
+Use the returned provider in both client and server builders with TLS 1.3:
+
+```no_run
+# fn configure(application_provider: &rustls::crypto::CryptoProvider) -> Result<(), Box<dyn std::error::Error>> {
+let provider = pkcs11_rustls_adapter::hybrid_tls13_provider(application_provider)?;
+let client = rustls::ClientConfig::builder_with_provider(provider.clone())
+    .with_protocol_versions(&[&rustls::version::TLS13])?;
+let server = pkcs11_rustls_adapter::server_config_builder(
+    provider, &[&rustls::version::TLS13],
+)?;
+# let _ = (client, server);
+# Ok(())
+# }
+```
+
+Continue configuring trust, resolvers and authentication as usual. Peers offering
+only classical groups cannot negotiate. The source provider is unchanged and no
+global provider is installed. TLS key exchange and its key schedule execute in
+the supplied provider, not on the token. This policy is independent of the
+runtime/client application combiner.
 
 ## Examples and tests
 
@@ -171,6 +191,7 @@ credentials require a provider that does.
 The required PQC lane tests all ML-DSA parameter sets with token-backed server and
 mutual TLS 1.3 authentication, an ML-DSA certificate issuer and X25519MLKEM768
 key exchange. It also covers always-authenticate keys, missing provider support,
-policy rejection before credentials, trust failure, TLS 1.2 rejection, pool
+policy rejection before credentials, classical-only peer rejection in both
+directions, trust failure, TLS 1.2 rejection, pool
 exhaustion and key replacement. Run it with the provider configuration in the
 [workspace test instructions](../../tests/README.md#pqc-provider-compatibility).
