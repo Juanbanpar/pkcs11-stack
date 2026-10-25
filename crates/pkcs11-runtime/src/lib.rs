@@ -3,6 +3,11 @@
 #![doc = include_str!("../README.md")]
 
 mod administration;
+mod aes_gcm;
+pub use aes_gcm::{
+    AES_GCM_MAXIMUM_AAD, AES_GCM_MAXIMUM_PLAINTEXT, AES_GCM_NONCE_LENGTH, AES_GCM_TAG_LENGTH,
+    AesGcmCapabilities, AesGcmDecryptRequest, AesGcmEncryptRequest, AesGcmOperation,
+};
 mod encryption;
 mod generation;
 pub use generation::{AesKeyPurpose, AesKeyRequest, AesKeySize, EcdhKeyPairRequest};

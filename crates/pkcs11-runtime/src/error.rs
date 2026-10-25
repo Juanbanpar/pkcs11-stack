@@ -28,6 +28,9 @@ pub enum Error {
     /// Provider returned an output length inconsistent with the RSA modulus/profile.
     #[error("invalid RSA OAEP output length")]
     InvalidCiphertext,
+    /// Key class, length, permissions or provider disallows this AES-GCM profile.
+    #[error("AES GCM operation unsupported for this key or provider")]
+    UnsupportedAesGcm,
     /// The token does not advertise its own random generator.
     #[error("token random generator unavailable")]
     RandomUnavailable,

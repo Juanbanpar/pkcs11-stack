@@ -250,6 +250,36 @@ Per-operation-authentication decryption keys are rejected before init. Successfu
 plaintext is redacted and zeroizing, but cryptoki's transient buffers from failed
 provider calls cannot currently be guaranteed zeroized.
 
+## AES-GCM encryption
+
+`Session::encrypt_aes_gcm` and `decrypt_aes_gcm` use CKM_AES_GCM with a supplied
+12-byte nonce and full 16-byte tag. Output/input is ciphertext followed by the tag;
+the nonce and AAD are separate. This fixed profile follows
+[PKCS#11 AES-GCM](https://docs.oasis-open.org/pkcs11/pkcs11-spec/v3.2/pkcs11-spec-v3.2.pdf)
+and [NIST SP 800-38D](https://csrc.nist.gov/pubs/sp/800/38/d/final).
+`AesGcmEncryptRequest` and `AesGcmDecryptRequest` borrow their inputs and redact
+all buffers in Debug. Plaintext is bounded to 16 MiB and AAD to 1 MiB; empty
+plaintext/AAD are permitted. Ciphertext includes exactly 16 tag bytes.
+
+The caller must ensure nonce uniqueness per key across writers and restarts,
+including equivalent copies of a key. No nonce is generated, persisted or tracked.
+An error does not authorize reusing a nonce. There is no retry, multipart plaintext
+release, software fallback or envelope format. Applications store and authenticate
+their protocol context and manage key lifetimes.
+
+`aes_gcm_capabilities` checks secret/AES class and type, 16/24/32-byte length,
+direction permission, allowed mechanisms, provider flags/bounds and native init
+and single-part entry points. Execution rechecks these constraints. Both RO and RW
+sessions are supported. Generated encryption keys and HKDF AES outputs qualify;
+wrapping-only keys and raw generic secrets do not. No key values are read.
+
+Decryption returns redacted, zeroizing plaintext only after provider success and
+exact-length checks. Tag, AAD, nonce or ciphertext corruption returns no plaintext.
+Provider errors/unwinds or malformed outputs invalidate the session; request
+validation and policy rejection precede crypto. cryptoki's transient buffers from
+failed calls cannot be guaranteed zeroized. Check explicit session closure before
+releasing output. Testing does not establish formal algorithm validation.
+
 ## ECDH and AES key generation
 
 `Token::ecdh_generation_options` reports P-256/P-384/P-521 generation choices;
