@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-#[cfg(test)]
-use crate::backend::SyntheticOutcome;
 use crate::backend::{
     BackendCommand, BackendError, BackendEvent, BackendResult, LoginRole, LoginState,
-    MechanismEntry, MetadataField, ModuleEntry, ObjectEntry, RequestId, ResourceId, SecretInput,
+    MechanismEntry, ModuleEntry, ObjectDetails, ObjectEntry, RequestId, ResourceId, SecretInput,
     TokenEntry,
 };
+#[cfg(test)]
+use crate::backend::{MetadataField, SyntheticOutcome};
 use pkcs11_client::MechanismType;
 use secrecy::SecretString;
 use std::path::PathBuf;
@@ -120,7 +120,7 @@ pub struct UiState {
     pub mechanisms: Vec<MechanismEntry>,
     pub object_filter: String,
     pub mechanism_filter: String,
-    pub object_details: Option<Vec<MetadataField>>,
+    pub object_details: Option<ObjectDetails>,
     pub selected_mechanism: Option<MechanismType>,
     pub objects_loaded: bool,
     pub mechanisms_loaded: bool,
@@ -769,8 +769,8 @@ impl UiState {
                         self.mechanisms_loaded = true;
                         None
                     }
-                    Ok(BackendResult::ObjectDetails { fields, .. }) => {
-                        self.object_details = Some(fields);
+                    Ok(BackendResult::ObjectDetails { details, .. }) => {
+                        self.object_details = Some(details);
                         None
                     }
                     #[cfg(test)]

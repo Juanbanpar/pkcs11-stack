@@ -98,7 +98,11 @@ fn software_token_objects_mechanisms_and_scoped_detail_reads() {
     next_request += 1;
     match block_on(events.next()).unwrap() {
         BackendEvent::Completed {
-            result: Ok(BackendResult::ObjectDetails { fields, .. }),
+            result:
+                Ok(BackendResult::ObjectDetails {
+                    details: super::ObjectDetails { fields, .. },
+                    ..
+                }),
             ..
         } => {
             assert!(fields.iter().any(|field| field.name == "Private" && field.value.as_deref() == Some("false")));
@@ -658,7 +662,11 @@ fn software_token_authentication_visibility_roles_and_cleanup() {
         object: private,
     }) {
         BackendEvent::Completed {
-            result: Ok(BackendResult::ObjectDetails { fields, .. }),
+            result:
+                Ok(BackendResult::ObjectDetails {
+                    details: super::ObjectDetails { fields, .. },
+                    ..
+                }),
             ..
         } => {
             assert!(

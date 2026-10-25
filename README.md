@@ -101,12 +101,12 @@ details. USER/SO login and logout support host PINs and token-protected
 authentication paths. Refresh updates inventories and clears stale selections.
 The GUI also generates RSA/EC and ML-DSA signing pairs, ML-KEM pairs, ECDH pairs
 and AES keys, imports DER certificates, confirms
-object deletion, exports public objects, signs files and verifies signatures
-against selected certificates. It can also save bytes from a token's random
+object deletion, exports public objects, signs files with RSA/EC or ML-DSA keys,
+and verifies RSA/EC signatures against selected certificates. It can also save bytes from a token's random
 generator, encrypt/decrypt AES-GCM files or small RSA-OAEP payloads, derive ECDH secrets, and
 wrap/unwrap AES keys with permitted keys. Administration supports confirmed token
 initialization, USER PIN initialization/reset, and USER/SO PIN changes with host PINs.
-ML-DSA signing and KEM operations remain available through the libraries and CLI.
+KEM operations and ML-DSA verification remain available through the libraries and CLI.
 
 ## Development
 

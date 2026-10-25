@@ -19,8 +19,8 @@ pub use cipher::{AesGcmFiles, CipherJob, CipherParameters};
 mod management;
 mod random;
 pub use authentication::{LoginRole, LoginState, SecretInput};
-pub use browse::{MechanismEntry, MetadataField, ObjectEntry};
-pub use crypto::{CryptoJob, CryptoMode, CryptoScope, SignatureOption};
+pub use browse::{MechanismEntry, MetadataField, ObjectDetails, ObjectEntry};
+pub use crypto::{CryptoJob, CryptoMode, CryptoScope, SignatureOption, SignatureProfile};
 pub use management::{GenerationKind, ManagementAction};
 
 /// Never reused during an application's lifetime, including after cancellation.
@@ -284,7 +284,7 @@ pub enum BackendResult {
         module: ResourceId,
         token: ResourceId,
         object: ResourceId,
-        fields: Vec<MetadataField>,
+        details: ObjectDetails,
     },
     Modules {
         modules: Vec<ModuleEntry>,
@@ -311,6 +311,7 @@ pub enum BackendError {
     RandomLength,
     SigningUnavailable,
     SignatureChoice,
+    MlDsaContext,
     ContextRequired,
     CryptoRead,
     SignatureMismatch,
@@ -380,6 +381,7 @@ impl BackendError {
             Self::SignatureChoice => {
                 "Select a currently permitted signature choice and input/output files."
             }
+            Self::MlDsaContext => "ML-DSA context must contain at most 255 UTF-8 bytes.",
             Self::ContextRequired => {
                 "This key requires a per-operation PIN or protected authentication path."
             }
@@ -871,12 +873,12 @@ impl Registry {
             } => {
                 return BackendEvent::Completed {
                     id,
-                    result: self.inspect(module, token, object).map(|fields| {
+                    result: self.inspect(module, token, object).map(|details| {
                         BackendResult::ObjectDetails {
                             module,
                             token,
                             object,
-                            fields,
+                            details,
                         }
                     }),
                 };

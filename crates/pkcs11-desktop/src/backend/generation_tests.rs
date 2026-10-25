@@ -85,7 +85,7 @@ fn software_token_typed_generation_permissions_and_use() {
             ObjectClass::SECRET_KEY
         };
         let key = object(&list, &label, class);
-        let fields = registry.inspect(module, token, key).unwrap();
+        let fields = registry.inspect(module, token, key).unwrap().fields;
         for (name, enabled) in [
             ("Private", true),
             ("Sensitive", true),
@@ -321,8 +321,8 @@ fn software_token_pqc_generation_uses_advertised_choices_and_private_permissions
         let private = object(&list, &label, ObjectClass::PRIVATE_KEY);
         let public = object(&list, &label, ObjectClass::PUBLIC_KEY);
         assert_eq!(list.iter().filter(|entry| entry.label == label).count(), 2);
-        let private_fields = registry.inspect(module, token, private).unwrap();
-        let public_fields = registry.inspect(module, token, public).unwrap();
+        let private_fields = registry.inspect(module, token, private).unwrap().fields;
+        let public_fields = registry.inspect(module, token, public).unwrap().fields;
         let signing = matches!(kind, GenerationKind::MlDsa(_));
         for (fields, name, enabled) in [
             (&private_fields, "Persistent", true),

@@ -429,7 +429,7 @@ mod integration_tests {
         ] {
             let listed = objects(registry.manage(module, token, generation(kind)), None);
             let private = object_id(&listed, "desktop-key", ObjectClass::PRIVATE_KEY);
-            let fields = registry.inspect(module, token, private).unwrap();
+            let fields = registry.inspect(module, token, private).unwrap().fields;
             assert!(
                 fields.iter().any(
                     |field| field.name == "Sensitive" && field.value.as_deref() == Some("true")

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use super::*;
 use crate::backend::{CryptoMode, CryptoScope, KeyJob};
-use pkcs11_client::{KeyOperationProfile, ObjectClass};
+use pkcs11_client::{KeyOperationProfile, KeyType, ObjectClass};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum KeyField {
     Input,
@@ -46,9 +46,13 @@ impl UiState {
                 !object.ambiguous
                     && object.uri.is_some()
                     && match mode {
-                        CryptoMode::Derive => object.class == Some(ObjectClass::PRIVATE_KEY),
+                        CryptoMode::Derive => {
+                            object.class == Some(ObjectClass::PRIVATE_KEY)
+                                && self.object_key_type() == Some(KeyType::EC)
+                        }
                         CryptoMode::Wrap | CryptoMode::Unwrap => {
                             object.class == Some(ObjectClass::SECRET_KEY)
+                                && self.object_key_type() == Some(KeyType::AES)
                         }
                         _ => false,
                     }

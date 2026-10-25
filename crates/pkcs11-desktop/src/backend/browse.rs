@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use super::{BackendError, Registry, ResourceId};
 use pkcs11_client::{
-    Attribute, AttributeInfo, AttributeRead, AttributeType, Authentication, ManagementSession,
-    MechanismType, ObjectClass, Pkcs11Uri, SessionMode,
+    Attribute, AttributeInfo, AttributeRead, AttributeType, Authentication, KeyType,
+    ManagementSession, MechanismType, ObjectClass, Pkcs11Uri, SessionMode,
 };
 
 #[derive(Clone, Debug)]
@@ -10,6 +10,12 @@ pub struct MetadataField {
     pub name: &'static str,
     pub status: &'static str,
     pub value: Option<String>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct ObjectDetails {
+    pub fields: Vec<MetadataField>,
+    pub key_type: Option<KeyType>,
 }
 
 #[derive(Clone, Debug)]
@@ -84,6 +90,12 @@ fn values(reads: &[AttributeRead]) -> impl Iterator<Item = &Attribute> {
                 .iter()
                 .filter(move |value| value.attribute_type() == kind)
         })
+}
+pub(super) fn key_type(reads: &[AttributeRead]) -> Option<KeyType> {
+    values(reads).find_map(|value| match value {
+        Attribute::KeyType(kind) => Some(*kind),
+        _ => None,
+    })
 }
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02X}")).collect()
@@ -319,7 +331,7 @@ impl Registry {
         module: ResourceId,
         token: ResourceId,
         object: ResourceId,
-    ) -> Result<Vec<MetadataField>, BackendError> {
+    ) -> Result<ObjectDetails, BackendError> {
         let (index, uri) = self.location(module, token)?;
         let (reference, class) = self.reference(module, token, object)?;
         let attributes = detail_attributes(class);
@@ -334,11 +346,14 @@ impl Registry {
                         &attributes.iter().map(|(kind, _)| *kind).collect::<Vec<_>>(),
                     )
                     .map_err(|e| BackendError::from(&e))?;
-                Ok(reads
-                    .iter()
-                    .zip(attributes)
-                    .map(|(read, (_, name))| field(read, name))
-                    .collect())
+                Ok(ObjectDetails {
+                    key_type: key_type(&reads),
+                    fields: reads
+                        .iter()
+                        .zip(attributes)
+                        .map(|(read, (_, name))| field(read, name))
+                        .collect(),
+                })
             },
         )
     }

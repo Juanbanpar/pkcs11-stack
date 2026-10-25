@@ -36,11 +36,14 @@ fn details_result(object: u64, value: &str) -> BackendResult {
         module: ResourceId(1),
         token: ResourceId(2),
         object: ResourceId(object),
-        fields: vec![MetadataField {
-            name: "Key type",
-            status: "available",
-            value: Some(value.into()),
-        }],
+        details: ObjectDetails {
+            key_type: Some(pkcs11_client::KeyType::RSA),
+            fields: vec![MetadataField {
+                name: "Key type",
+                status: "available",
+                value: Some(value.into()),
+            }],
+        },
     }
 }
 #[test]
@@ -87,7 +90,9 @@ fn object_details_are_lazy_and_latest_selection_wins() {
     state.event(complete(a, details_result(4, "A")));
     assert_eq!(state.selected_object, Some(ResourceId(5)));
     assert_eq!(
-        state.object_details.as_ref().unwrap()[0].value.as_deref(),
+        state.object_details.as_ref().unwrap().fields[0]
+            .value
+            .as_deref(),
         Some("B")
     );
     state.show_page(TokenPage::Overview);
@@ -626,7 +631,7 @@ fn logout_clears_private_metadata_and_cannot_be_cancelled() {
     state.loaded_modules[0].tokens[0].login = LoginState::User;
     state.objects = vec![object_entry(4, "private")];
     state.selected_object = Some(ResourceId(4));
-    state.object_details = Some(Vec::new());
+    state.object_details = Some(crate::backend::ObjectDetails::default());
     let id = state.logout().unwrap().id();
     assert!(state.objects.is_empty());
     assert!(state.object_details.is_none());
@@ -758,11 +763,14 @@ fn late_file_picker_and_management_results_cannot_restore_an_old_token() {
     state.token_page = TokenPage::Objects;
     state.objects = vec![object_entry(4, "public")];
     state.selected_object = Some(ResourceId(4));
-    state.object_details = Some(vec![MetadataField {
-        name: "Private",
-        status: "available",
-        value: Some("false".into()),
-    }]);
+    state.object_details = Some(crate::backend::ObjectDetails {
+        key_type: Some(pkcs11_client::KeyType::RSA),
+        fields: vec![MetadataField {
+            name: "Private",
+            status: "available",
+            value: Some("false".into()),
+        }],
+    });
     let (picker, _) = state.begin_object_file(true).unwrap();
     let operation = state
         .object_file_picked(picker, Some(PathBuf::from("new.der")))
@@ -791,11 +799,14 @@ fn private_or_ambiguous_objects_never_offer_export_and_import_validation_is_loca
     entry.class = Some(pkcs11_client::ObjectClass::PRIVATE_KEY);
     state.objects = vec![entry];
     state.selected_object = Some(ResourceId(4));
-    state.object_details = Some(vec![MetadataField {
-        name: "Private",
-        status: "available",
-        value: Some("false".into()),
-    }]);
+    state.object_details = Some(crate::backend::ObjectDetails {
+        key_type: Some(pkcs11_client::KeyType::RSA),
+        fields: vec![MetadataField {
+            name: "Private",
+            status: "available",
+            value: Some("false".into()),
+        }],
+    });
     assert!(!state.can_export());
     state.objects[0].class = Some(pkcs11_client::ObjectClass::DATA);
     state.objects[0].ambiguous = true;
@@ -803,7 +814,7 @@ fn private_or_ambiguous_objects_never_offer_export_and_import_validation_is_loca
     state.request_delete();
     assert!(state.dialog.is_none());
     state.objects[0].ambiguous = false;
-    state.object_details.as_mut().unwrap()[0].value = Some("true".into());
+    state.object_details.as_mut().unwrap().fields[0].value = Some("true".into());
     assert!(!state.can_export());
     state.show_page(TokenPage::Operations);
     state.management.certificate_id = "01".into();
@@ -826,18 +837,21 @@ fn pqc_public_export_picker_is_scoped_to_the_selected_object_without_login() {
         state.token_page = TokenPage::Objects;
         state.objects = vec![object_entry(4, "PQC public key"), object_entry(5, "other")];
         state.selected_object = Some(ResourceId(4));
-        state.object_details = Some(vec![
-            MetadataField {
-                name: "Key type",
-                status: "available",
-                value: Some(family.into()),
-            },
-            MetadataField {
-                name: "Private",
-                status: "available",
-                value: Some("false".into()),
-            },
-        ]);
+        state.object_details = Some(crate::backend::ObjectDetails {
+            key_type: Some(pkcs11_client::KeyType::RSA),
+            fields: vec![
+                MetadataField {
+                    name: "Key type",
+                    status: "available",
+                    value: Some(family.into()),
+                },
+                MetadataField {
+                    name: "Private",
+                    status: "available",
+                    value: Some("false".into()),
+                },
+            ],
+        });
         assert_eq!(state.token().unwrap().login, LoginState::Public);
         assert!(state.can_export());
         let (picker, _) = state.begin_object_file(true).unwrap();
@@ -878,11 +892,13 @@ fn crypto_state(
             scope,
             context: mode == CryptoMode::Sign,
             options: vec![SignatureOption {
-                parameters: pkcs11_client::SignatureParameters {
-                    algorithm: pkcs11_client::SignatureAlgorithm::RsaPkcs1,
-                    digest: pkcs11_client::DigestAlgorithm::Sha256,
-                    pss: None,
-                },
+                parameters: crate::backend::SignatureProfile::Classical(
+                    pkcs11_client::SignatureParameters {
+                        algorithm: pkcs11_client::SignatureAlgorithm::RsaPkcs1,
+                        digest: pkcs11_client::DigestAlgorithm::Sha256,
+                        pss: None,
+                    },
+                ),
                 plan: None,
             }],
         },
@@ -1012,6 +1028,222 @@ fn ambiguous_or_wrong_class_objects_do_not_open_crypto_forms() {
     state.objects[0].class = Some(pkcs11_client::ObjectClass::PUBLIC_KEY);
     assert!(state.open_crypto(CryptoMode::Sign).is_none());
     assert!(state.open_crypto(CryptoMode::Verify).is_none());
+}
+
+#[test]
+fn key_actions_follow_typed_metadata_instead_of_labels_or_formatted_fields() {
+    use crate::backend::CryptoMode::*;
+    use pkcs11_client::{KeyType as K, ObjectClass as C};
+    for (class, kind, sign, encrypt, decrypt, derive, wrap) in [
+        (
+            C::PRIVATE_KEY,
+            Some(K::RSA),
+            true,
+            false,
+            true,
+            false,
+            false,
+        ),
+        (C::PRIVATE_KEY, Some(K::EC), true, false, false, true, false),
+        (
+            C::PRIVATE_KEY,
+            Some(K::ML_DSA),
+            true,
+            false,
+            false,
+            false,
+            false,
+        ),
+        (
+            C::PRIVATE_KEY,
+            Some(K::ML_KEM),
+            false,
+            false,
+            false,
+            false,
+            false,
+        ),
+        (
+            C::PUBLIC_KEY,
+            Some(K::RSA),
+            false,
+            true,
+            false,
+            false,
+            false,
+        ),
+        (
+            C::PUBLIC_KEY,
+            Some(K::ML_DSA),
+            false,
+            false,
+            false,
+            false,
+            false,
+        ),
+        (
+            C::PUBLIC_KEY,
+            Some(K::ML_KEM),
+            false,
+            false,
+            false,
+            false,
+            false,
+        ),
+        (
+            C::PUBLIC_KEY,
+            Some(K::EC),
+            false,
+            false,
+            false,
+            false,
+            false,
+        ),
+        (C::SECRET_KEY, Some(K::AES), false, true, true, false, true),
+        (
+            C::SECRET_KEY,
+            Some(K::GENERIC_SECRET),
+            false,
+            false,
+            false,
+            false,
+            false,
+        ),
+        (C::PRIVATE_KEY, None, false, false, false, false, false),
+    ] {
+        let mut state = managing();
+        state.token_page = TokenPage::Objects;
+        let mut object = object_entry(4, "RSA label is not a key type");
+        object.class = Some(class);
+        state.objects = vec![object];
+        state.selected_object = Some(ResourceId(4));
+        state.object_details = Some(ObjectDetails {
+            key_type: kind,
+            fields: vec![MetadataField {
+                name: "Key type",
+                status: "available",
+                value: Some("CKK_RSA".into()),
+            }],
+        });
+        assert_eq!(state.can_open_crypto(Sign), sign, "{class:?} {kind:?}");
+        assert_eq!(state.can_open_cipher(Encrypt), encrypt);
+        assert_eq!(state.can_open_cipher(Decrypt), decrypt);
+        assert_eq!(state.can_open_key_operation(Derive), derive);
+        assert_eq!(state.can_open_key_operation(Wrap), wrap);
+        assert_eq!(state.can_open_key_operation(Unwrap), wrap);
+        state.object_details = None;
+        assert!(!state.can_open_crypto(Sign));
+        assert!(!state.can_open_cipher(Encrypt));
+        assert!(!state.can_open_key_operation(Derive));
+    }
+}
+
+fn ml_dsa_state() -> (UiState, RequestId, crate::backend::CryptoScope) {
+    use crate::backend::{CryptoMode, SignatureOption, SignatureProfile};
+    let (mut state, old, _) = crypto_state(CryptoMode::Sign);
+    state.dismiss_crypto(old);
+    state.object_details.as_mut().unwrap().key_type = Some(pkcs11_client::KeyType::ML_DSA);
+    let BackendCommand::CryptoOptions { id, scope, .. } =
+        state.open_crypto(CryptoMode::Sign).unwrap()
+    else {
+        panic!("choices")
+    };
+    state.event(complete(
+        id,
+        BackendResult::CryptoOptions {
+            scope,
+            context: true,
+            options: vec![SignatureOption {
+                parameters: SignatureProfile::MlDsa(pkcs11_client::MlDsaParameterSet::MlDsa65),
+                plan: None,
+            }],
+        },
+    ));
+    (state, id, scope)
+}
+
+#[test]
+fn ml_dsa_context_counts_utf8_bytes_and_submission_moves_the_pin_once() {
+    use crate::backend::SignatureProfile;
+    use secrecy::ExposeSecret;
+    let (mut state, id, _) = ml_dsa_state();
+    assert!(state.crypto_policy(id, true).is_none());
+    assert!(!state.crypto_form.as_ref().unwrap().software_hashing);
+    assert!(
+        state
+            .crypto_picker(id, CryptoField::DomainContext)
+            .is_none()
+    );
+    state.crypto_edit(id, CryptoField::Input, "message".into());
+    state.crypto_edit(id, CryptoField::Signature, "signature".into());
+    state.crypto_edit(id, CryptoField::DomainContext, "é".repeat(128));
+    state.crypto_pin(id, "ml-dsa-secret-canary".into());
+    assert!(state.submit_crypto(id).is_none());
+    assert_eq!(
+        state.notification,
+        Some(Notification::Error(BackendError::MlDsaContext))
+    );
+    assert!(
+        state
+            .crypto_form
+            .as_ref()
+            .unwrap()
+            .pin
+            .expose_secret()
+            .is_empty()
+    );
+    let domain = format!("{}a", "é".repeat(127));
+    state.crypto_edit(id, CryptoField::DomainContext, domain.clone());
+    state.crypto_pin(id, "ml-dsa-secret-canary".into());
+    let BackendCommand::Crypto { job, .. } = state.submit_crypto(id).unwrap() else {
+        panic!("sign")
+    };
+    assert_eq!(
+        job.parameters,
+        SignatureProfile::MlDsa(pkcs11_client::MlDsaParameterSet::MlDsa65)
+    );
+    assert_eq!(job.domain_context, domain.as_bytes());
+    assert!(!job.software_hashing);
+    assert!(
+        matches!(job.context, Some(SecretInput::Value(ref pin)) if pin.expose_secret() == "ml-dsa-secret-canary")
+    );
+    assert!(state.crypto_form.is_none());
+    assert!(!state.can_cancel());
+}
+
+#[test]
+fn stale_ml_dsa_metadata_and_choices_cannot_change_the_selected_key() {
+    use crate::backend::SignatureProfile;
+    let (mut state, id, scope) = ml_dsa_state();
+    state.crypto_edit(id, CryptoField::DomainContext, "old domain".into());
+    state.crypto_pin(id, "ml-dsa-secret-canary".into());
+    state.select_token(ResourceId(1), ResourceId(3));
+    state.event(complete(
+        id,
+        BackendResult::CryptoOptions {
+            scope,
+            context: true,
+            options: vec![crate::backend::SignatureOption {
+                parameters: SignatureProfile::MlDsa(pkcs11_client::MlDsaParameterSet::MlDsa65),
+                plan: None,
+            }],
+        },
+    ));
+    state.event(complete(
+        id,
+        BackendResult::ObjectDetails {
+            module: scope.module,
+            token: scope.token,
+            object: scope.object,
+            details: ObjectDetails {
+                fields: Vec::new(),
+                key_type: Some(pkcs11_client::KeyType::ML_DSA),
+            },
+        },
+    ));
+    assert!(state.crypto_form.is_none());
+    assert!(state.object_details.is_none());
+    assert!(state.object_key_type().is_none());
 }
 
 #[cfg(unix)]
@@ -1149,7 +1381,8 @@ fn cipher_state(
         pkcs11_client::ObjectClass::PRIVATE_KEY
     });
     state.event(complete(list, objects_result(2, vec![object])));
-    state.select_object(ResourceId(4));
+    let inspect = state.select_object(ResourceId(4)).unwrap().id();
+    state.event(complete(inspect, details_result(4, "RSA")));
     let BackendCommand::CryptoOptions { id, scope, .. } = state.open_cipher(mode).unwrap() else {
         panic!("cipher options");
     };
@@ -1269,7 +1502,8 @@ fn failed_cipher_choice_loading_stops_and_clears_on_form_changes() {
     assert!(state.cipher_form.as_ref().unwrap().loaded);
     assert!(state.cipher_form.as_ref().unwrap().choices.is_empty());
     assert!(state.current_operation.is_none());
-    state.select_object(ResourceId(4));
+    let inspect = state.select_object(ResourceId(4)).unwrap().id();
+    state.event(complete(inspect, details_result(4, "RSA")));
     state.objects[0].class = Some(pkcs11_client::ObjectClass::PRIVATE_KEY);
     state.open_crypto(crate::backend::CryptoMode::Sign);
     assert!(state.cipher_form.is_none());
@@ -1284,6 +1518,11 @@ fn key_state(
         pkcs11_client::ObjectClass::PRIVATE_KEY
     } else {
         pkcs11_client::ObjectClass::SECRET_KEY
+    });
+    state.object_details.as_mut().unwrap().key_type = Some(if mode == CryptoMode::Derive {
+        pkcs11_client::KeyType::EC
+    } else {
+        pkcs11_client::KeyType::AES
     });
     let mut target = object_entry(5, "target");
     target.class = Some(pkcs11_client::ObjectClass::SECRET_KEY);
@@ -1735,6 +1974,7 @@ fn aes_cipher_state() -> (UiState, RequestId, crate::backend::CryptoScope) {
     let (mut state, id, _) = cipher_state(CryptoMode::Encrypt);
     state.dismiss_cipher(id);
     state.objects[0].class = Some(pkcs11_client::ObjectClass::SECRET_KEY);
+    state.object_details.as_mut().unwrap().key_type = Some(pkcs11_client::KeyType::AES);
     let BackendCommand::CryptoOptions { id, scope, .. } =
         state.open_cipher(CryptoMode::Encrypt).unwrap()
     else {

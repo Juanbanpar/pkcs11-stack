@@ -133,7 +133,7 @@ fn software_token_derivation_wrapping_unwrapping_permissions_and_failures() {
         None,
     );
     let unwrapped = object(&objects, "unwrapped", ObjectClass::SECRET_KEY);
-    let fields = registry.inspect(module, token, unwrapped).unwrap();
+    let fields = registry.inspect(module, token, unwrapped).unwrap().fields;
     for (name, value) in [
         ("Sensitive", "true"),
         ("Extractable", "false"),
@@ -272,7 +272,7 @@ fn software_token_derivation_wrapping_unwrapping_permissions_and_failures() {
             None,
         );
         let created = object(&objects, "shared-secret", ObjectClass::SECRET_KEY);
-        let fields = registry.inspect(module, token, created).unwrap();
+        let fields = registry.inspect(module, token, created).unwrap().fields;
         for (name, value) in [
             ("Sensitive", "true"),
             ("Extractable", "false"),

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use super::*;
 use crate::backend::{AesGcmFiles, CipherJob, CipherParameters, CryptoMode, CryptoScope};
-use pkcs11_client::{DigestAlgorithm, ObjectClass};
+use pkcs11_client::{DigestAlgorithm, KeyType, ObjectClass};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CipherChoice(pub CipherParameters);
 impl std::fmt::Display for CipherChoice {
@@ -50,16 +50,19 @@ impl UiState {
                     && entry.uri.is_some()
                     && match mode {
                         CryptoMode::Encrypt => {
-                            entry.class == Some(ObjectClass::PUBLIC_KEY)
+                            (entry.class == Some(ObjectClass::PUBLIC_KEY)
+                                && self.object_key_type() == Some(KeyType::RSA))
                                 || (entry.class == Some(ObjectClass::SECRET_KEY)
+                                    && self.object_key_type() == Some(KeyType::AES)
                                     && self
                                         .token()
                                         .is_some_and(|token| token.login == LoginState::User))
                         }
                         CryptoMode::Decrypt => {
                             matches!(
-                                entry.class,
-                                Some(ObjectClass::PRIVATE_KEY | ObjectClass::SECRET_KEY)
+                                (entry.class, self.object_key_type()),
+                                (Some(ObjectClass::PRIVATE_KEY), Some(KeyType::RSA))
+                                    | (Some(ObjectClass::SECRET_KEY), Some(KeyType::AES))
                             ) && self
                                 .token()
                                 .is_some_and(|token| token.login == LoginState::User)

@@ -576,23 +576,26 @@ fn populated_state() -> UiState {
     }];
     state.mechanisms_loaded = true;
     state.selected_object = Some(ResourceId(3));
-    state.object_details = Some(vec![
-        MetadataField {
-            name: "Key type",
-            status: "available",
-            value: Some("CKK_RSA".into()),
-        },
-        MetadataField {
-            name: "Sign",
-            status: "available",
-            value: Some("true".into()),
-        },
-        MetadataField {
-            name: "Sensitive",
-            status: "available",
-            value: Some("true".into()),
-        },
-    ]);
+    state.object_details = Some(crate::backend::ObjectDetails {
+        key_type: Some(pkcs11_client::KeyType::RSA),
+        fields: vec![
+            MetadataField {
+                name: "Key type",
+                status: "available",
+                value: Some("CKK_RSA".into()),
+            },
+            MetadataField {
+                name: "Sign",
+                status: "available",
+                value: Some("true".into()),
+            },
+            MetadataField {
+                name: "Sensitive",
+                status: "available",
+                value: Some("true".into()),
+            },
+        ],
+    });
     state
 }
 
@@ -686,11 +689,13 @@ fn workflow_screens_render_without_a_provider() {
             scope,
             context: false,
             options: vec![SignatureOption {
-                parameters: pkcs11_client::SignatureParameters {
-                    algorithm: pkcs11_client::SignatureAlgorithm::RsaPkcs1,
-                    digest: pkcs11_client::DigestAlgorithm::Sha256,
-                    pss: None,
-                },
+                parameters: crate::backend::SignatureProfile::Classical(
+                    pkcs11_client::SignatureParameters {
+                        algorithm: pkcs11_client::SignatureAlgorithm::RsaPkcs1,
+                        digest: pkcs11_client::DigestAlgorithm::Sha256,
+                        pss: None,
+                    },
+                ),
                 plan: Some((
                     pkcs11_client::MechanismType::SHA256_RSA_PKCS,
                     pkcs11_client::HashLocation::Token,
@@ -813,11 +818,14 @@ fn identity_read_failures_remain_distinguishable_in_the_inspector() {
 #[test]
 fn text_attributes_are_displayed_verbatim() {
     let mut state = populated_state();
-    state.object_details = Some(vec![crate::backend::MetadataField {
-        name: "Application",
-        status: "available",
-        value: Some("true".into()),
-    }]);
+    state.object_details = Some(crate::backend::ObjectDetails {
+        key_type: Some(pkcs11_client::KeyType::RSA),
+        fields: vec![crate::backend::MetadataField {
+            name: "Application",
+            status: "available",
+            value: Some("true".into()),
+        }],
+    });
     let mut ui = iced_test::simulator(crate::views::object::detail(&state));
     assert!(ui.find("true").is_ok());
     assert!(ui.find("Yes").is_err());
@@ -1018,18 +1026,25 @@ fn pqc_public_export_is_keyboard_accessible_without_login() {
         state.token_page = TokenPage::Objects;
         state.selected_object = Some(ResourceId(4));
         state.objects[1].label = format!("{family} public key");
-        state.object_details = Some(vec![
-            crate::backend::MetadataField {
-                name: "Key type",
-                status: "available",
-                value: Some(family.into()),
-            },
-            crate::backend::MetadataField {
-                name: "Private",
-                status: "available",
-                value: Some("false".into()),
-            },
-        ]);
+        state.object_details = Some(crate::backend::ObjectDetails {
+            key_type: Some(if family == "CKK_ML_DSA" {
+                pkcs11_client::KeyType::ML_DSA
+            } else {
+                pkcs11_client::KeyType::ML_KEM
+            }),
+            fields: vec![
+                crate::backend::MetadataField {
+                    name: "Key type",
+                    status: "available",
+                    value: Some(family.into()),
+                },
+                crate::backend::MetadataField {
+                    name: "Private",
+                    status: "available",
+                    value: Some("false".into()),
+                },
+            ],
+        });
         state
     }
     fn ml_dsa() -> UiState {
@@ -1056,6 +1071,106 @@ fn pqc_public_export_is_keyboard_accessible_without_login() {
 }
 
 #[test]
+fn ml_dsa_signing_form_accepts_utf8_context_and_disallows_classical_hashing() {
+    fn signing() -> UiState {
+        use crate::backend::{
+            BackendCommand, BackendEvent, BackendResult, CryptoMode, SignatureOption,
+            SignatureProfile,
+        };
+        let mut state = populated_state();
+        state.token_page = TokenPage::Objects;
+        state.object_details.as_mut().unwrap().key_type = Some(pkcs11_client::KeyType::ML_DSA);
+        state.object_details.as_mut().unwrap().fields[0].value = Some("CKK_ML_DSA".into());
+        let BackendCommand::CryptoOptions { id, scope, .. } =
+            state.open_crypto(CryptoMode::Sign).unwrap()
+        else {
+            panic!("ML-DSA choices")
+        };
+        state.event(BackendEvent::Completed {
+            id,
+            result: Ok(BackendResult::CryptoOptions {
+                scope,
+                context: true,
+                options: vec![SignatureOption {
+                    parameters: SignatureProfile::MlDsa(pkcs11_client::MlDsaParameterSet::MlDsa65),
+                    plan: None,
+                }],
+            }),
+        });
+        state
+    }
+    let mut app = run_focused(
+        signing,
+        &["type \"domain-é\""],
+        Some("input-ML-DSA domain context (UTF-8, 0–255 bytes)"),
+    );
+    let form = app.state.crypto_form.as_ref().unwrap();
+    assert_eq!(form.domain_context, "domain-é");
+    let id = form.id;
+    let _ = app.update(Message::CryptoPolicy { id, software: true });
+    assert!(!app.state.crypto_form.as_ref().unwrap().software_hashing);
+    assert!(app.state.current_operation.is_none());
+    for dark in [false, true] {
+        render_screen(&app.state, "sign-ml-dsa", 1060, 900, dark);
+    }
+    let _ = app.update(Message::DismissCrypto(id));
+    assert!(app.state.crypto_form.is_none());
+}
+
+#[test]
+fn object_views_show_only_actions_for_the_observed_key_type() {
+    use iced::advanced::widget::{Id, Operation, operation::Focusable};
+    use pkcs11_client::KeyType as K;
+    struct Ids(Vec<Id>);
+    impl Operation for Ids {
+        fn traverse(&mut self, operate: &mut dyn FnMut(&mut dyn Operation)) {
+            operate(self);
+        }
+        fn focusable(&mut self, id: Option<&Id>, _: iced::Rectangle, _: &mut dyn Focusable) {
+            self.0.extend(id.cloned());
+        }
+    }
+    for (object, kind, expected) in [
+        (3, Some(K::RSA), vec!["Sign", "Decrypt"]),
+        (3, Some(K::EC), vec!["Sign", "Derive"]),
+        (3, Some(K::ML_DSA), vec!["Sign"]),
+        (3, Some(K::ML_KEM), vec![]),
+        (4, Some(K::RSA), vec!["Encrypt"]),
+        (4, Some(K::EC), vec![]),
+        (4, Some(K::ML_DSA), vec![]),
+        (4, Some(K::ML_KEM), vec![]),
+        (
+            6,
+            Some(K::AES),
+            vec!["Encrypt", "Decrypt", "Wrap", "Unwrap"],
+        ),
+        (6, Some(K::GENERIC_SECRET), vec![]),
+        (3, None, vec![]),
+    ] {
+        let mut state = populated_state();
+        state.token_page = TokenPage::Objects;
+        state.selected_object = Some(ResourceId(object));
+        state.object_details.as_mut().unwrap().key_type = kind;
+        let mut renderer = iced::Renderer::new(iced::Font::DEFAULT, iced::Pixels(16.0));
+        let mut ui = iced_test::runtime::UserInterface::build(
+            crate::views::main::view(&state),
+            Size::new(1060.0, 900.0),
+            iced_test::runtime::user_interface::Cache::default(),
+            &mut renderer,
+        );
+        let mut ids = Ids(Vec::new());
+        ui.operate(&renderer, &mut ids);
+        for action in ["Sign", "Encrypt", "Decrypt", "Derive", "Wrap", "Unwrap"] {
+            assert_eq!(
+                ids.0.contains(&Id::from(format!("crypto-{action}"))),
+                expected.contains(&action),
+                "{object} {kind:?} {action}"
+            );
+        }
+    }
+}
+
+#[test]
 fn aes_gcm_file_form_accepts_nonce_and_aad_without_running_crypto() {
     fn gcm() -> UiState {
         use crate::backend::{
@@ -1067,6 +1182,10 @@ fn aes_gcm_file_form_accepts_nonce_and_aad_without_running_crypto() {
         let mut key = object(4, "AES encryption key");
         key.class = Some(pkcs11_client::ObjectClass::SECRET_KEY);
         key.uri = Some("pkcs11:serial=A;id=%04;type=secret-key".into());
+        state.object_details = Some(crate::backend::ObjectDetails {
+            fields: Vec::new(),
+            key_type: Some(pkcs11_client::KeyType::AES),
+        });
         state.objects = vec![key];
         state.selected_object = Some(ResourceId(4));
         let BackendCommand::CryptoOptions { id, scope, .. } =

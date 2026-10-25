@@ -86,8 +86,8 @@ bytes. Existing public/private IDs are rejected for ECDH pairs, and secret IDs f
 AES, without a uniqueness guarantee against concurrent writers. Signing pairs
 and ML-KEM pairs permit duplicate IDs; ambiguous selectors are rejected. Key
 pairs share their ID and label. ML-KEM does not permit per-operation PIN
-authentication. Use `pkcs11ctl` for ML-DSA signing and KEM operations; those
-workflows are not yet exposed in the desktop.
+authentication. Use `pkcs11ctl` for KEM operations; those workflows are not yet
+exposed in the desktop.
 
 Certificate import accepts one X.509 DER file up to 16 MiB and an explicit label/ID.
 It parses certificate metadata without establishing trust or binding the
@@ -108,12 +108,31 @@ failure that might have partial effects. Labels can collide, and existing signin
 generation permits duplicate IDs; ambiguous selectors are rejected. Mutation commands
 and export finish before another operation can start; navigation remains available.
 
+Key actions follow the key type read with the selected object's attributes:
+RSA offers signing and OAEP, EC offers signing and ECDH, ML-DSA offers signing,
+and AES offers GCM and wrapping. ML-KEM and generic secret keys do not offer those
+actions. Permissions and provider capabilities are checked again in the worker.
+
 To sign a file, log in as USER and select an unambiguous private key on **Objects**.
-Choose **Sign file**, select a client-provided SHA-2 signature choice, and provide
+For RSA/EC, choose **Sign file**, select a client-provided SHA-2 signature choice, and provide
 a message file and a new signature output path. Token hashing is required by
 default; **Allow software hashing** permits a fallback planned before signing.
 The displayed mechanism and hashing location are advisory and checked again at
 execution. PSS choices use a matching MGF1 digest and digest-length salt.
+
+For ML-DSA-44/65/87, **Sign file** uses the observed parameter set and the original
+message, up to 16 MiB, including an empty file. Pure ML-DSA requires fresh token
+randomness and has no prehash, deterministic or software-hashing fallback. An
+optional domain context accepts up to 255 UTF-8 bytes; this is separate from the
+per-operation PIN. Always-authenticate keys use the same one-attempt PIN or
+protected-path form as classical signing. Protected-path behavior requires a
+supporting token and has not been tested with hardware.
+
+The output is a raw ML-DSA signature. Keep the domain context with the message for
+verification: the signature file contains no context or metadata. Existing files
+are never overwritten. The worker checks session closure before writing the
+signature; a failed signing operation may leave an empty file. Use `pkcs11ctl`
+for ML-DSA verification; desktop certificate verification currently supports RSA/EC.
 
 Keys with CKA_ALWAYS_AUTHENTICATE require a per-operation PIN or supported
 protected authentication path. This credential is cleared on submission,

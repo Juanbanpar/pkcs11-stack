@@ -257,6 +257,7 @@ impl UiState {
             })
             && self.object_details.as_ref().is_some_and(|fields| {
                 fields
+                    .fields
                     .iter()
                     .any(|field| field.name == "Private" && field.value.as_deref() == Some("false"))
             })

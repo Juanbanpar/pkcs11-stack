@@ -4,8 +4,9 @@ use super::{
     browse::read_session,
 };
 use pkcs11_client::{
-    Certificate, HashLocation, HashingPolicy, MechanismType, ObjectClass, Pin, PrivateKeyRef,
-    SessionState, SignInput, SignatureParameters, SigningPolicy,
+    AttributeType, Certificate, HashLocation, HashingPolicy, KeyType, ManagementSession,
+    MechanismType, MlDsaHedging, MlDsaParameterSet, MlDsaRequest, MlDsaSigningPolicy, ObjectClass,
+    Pin, PrivateKeyRef, SessionState, SignInput, SignatureParameters, SigningPolicy,
 };
 use std::{
     fs::File,
@@ -31,14 +32,20 @@ pub struct CryptoScope {
     pub mode: CryptoMode,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SignatureProfile {
+    Classical(SignatureParameters),
+    MlDsa(MlDsaParameterSet),
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SignatureOption {
-    pub parameters: SignatureParameters,
+    pub parameters: SignatureProfile,
     pub plan: Option<(MechanismType, HashLocation)>,
 }
 // Contains a one-shot context credential; never formatted or returned to the UI.
 pub struct CryptoJob {
-    pub parameters: SignatureParameters,
+    pub parameters: SignatureProfile,
     pub software_hashing: bool,
+    pub domain_context: Vec<u8>,
     pub input: PathBuf,
     pub signature: PathBuf,
     pub context: Option<SecretInput>,
@@ -64,6 +71,56 @@ fn read_bounded(path: &Path, maximum: u64) -> Result<Vec<u8>, BackendError> {
         return Err(BackendError::CryptoRead);
     }
     Ok(bytes)
+}
+fn signing_options(
+    session: &mut ManagementSession<'_>,
+    key: &PrivateKeyRef,
+    software: bool,
+) -> Result<(Vec<SignatureOption>, bool), BackendError> {
+    let reads = session
+        .inspect(key.as_object_ref(), &[AttributeType::KeyType])
+        .map_err(|e| BackendError::from(&e))?;
+    match super::browse::key_type(&reads) {
+        Some(KeyType::ML_DSA) => {
+            if software {
+                return Err(BackendError::SignatureChoice);
+            }
+            let caps = session
+                .ml_dsa_capabilities(key)
+                .map_err(|e| BackendError::from(&e))?;
+            if !caps.can_sign
+                || !MlDsaSigningPolicy::default()
+                    .parameter_sets
+                    .contains(&caps.parameter_set)
+            {
+                return Err(BackendError::SigningUnavailable);
+            }
+            Ok((
+                vec![SignatureOption {
+                    parameters: SignatureProfile::MlDsa(caps.parameter_set),
+                    plan: None,
+                }],
+                caps.always_authenticate,
+            ))
+        }
+        Some(KeyType::RSA | KeyType::EC) => {
+            let options = session
+                .signing_options(key, &policy(software))
+                .map_err(|e| BackendError::from(&e))?;
+            Ok((
+                options
+                    .choices
+                    .into_iter()
+                    .map(|choice| SignatureOption {
+                        parameters: SignatureProfile::Classical(choice.parameters),
+                        plan: Some((choice.mechanism, choice.hashing)),
+                    })
+                    .collect(),
+                options.always_authenticate,
+            ))
+        }
+        _ => Err(BackendError::SigningUnavailable),
+    }
 }
 impl Registry {
     fn signing_location(
@@ -129,30 +186,16 @@ impl Registry {
             CryptoMode::Sign => {
                 let (index, uri, key) = self.signing_location(scope)?;
                 let module = &self.modules[index];
-                let options =
-                    read_session(module, &uri, module.read_mode(scope.token)?, |session| {
-                        session
-                            .signing_options(&key, &policy(software_hashing))
-                            .map_err(|e| BackendError::from(&e))
-                    })?;
-                (
-                    options
-                        .choices
-                        .into_iter()
-                        .map(|choice| SignatureOption {
-                            parameters: choice.parameters,
-                            plan: Some((choice.mechanism, choice.hashing)),
-                        })
-                        .collect(),
-                    options.always_authenticate,
-                )
+                read_session(module, &uri, module.read_mode(scope.token)?, |session| {
+                    signing_options(session, &key, software_hashing)
+                })?
             }
             CryptoMode::Verify => (
                 self.verification_certificate(scope)?
                     .verification_options()
                     .into_iter()
                     .map(|parameters| SignatureOption {
-                        parameters,
+                        parameters: SignatureProfile::Classical(parameters),
                         plan: None,
                     })
                     .collect(),
@@ -166,6 +209,25 @@ impl Registry {
         })
     }
     fn sign_file(&self, scope: CryptoScope, job: CryptoJob) -> Result<(), BackendError> {
+        match job.parameters {
+            SignatureProfile::MlDsa(parameter_set) => {
+                MlDsaRequest {
+                    parameter_set,
+                    message: &[],
+                    context: &job.domain_context,
+                    hedging: MlDsaHedging::Required,
+                }
+                .validate()
+                .map_err(|_| BackendError::MlDsaContext)?;
+                if job.software_hashing {
+                    return Err(BackendError::SignatureChoice);
+                }
+            }
+            SignatureProfile::Classical(_) if !job.domain_context.is_empty() => {
+                return Err(BackendError::SignatureChoice);
+            }
+            _ => {}
+        }
         let (index, uri, key) = self.signing_location(scope)?;
         let module = &self.modules[index];
         let token = module
@@ -179,23 +241,20 @@ impl Registry {
         }
         let input = read_bounded(&job.input, 16 * 1024 * 1024)?;
         let signature = read_session(module, &uri, module.read_mode(scope.token)?, |session| {
-            let policy = policy(job.software_hashing);
-            let options = session
-                .signing_options(&key, &policy)
-                .map_err(|e| BackendError::from(&e))?;
+            let (options, always_authenticate) =
+                signing_options(session, &key, job.software_hashing)?;
             if !options
-                .choices
                 .iter()
                 .any(|choice| choice.parameters == job.parameters)
             {
                 return Err(BackendError::SignatureChoice);
             }
-            if options.always_authenticate && job.context.is_none() {
+            if always_authenticate && job.context.is_none() {
                 return Err(BackendError::ContextRequired);
             }
             // Reserve the path only after validating choices, before signing.
             let output = super::management::create_output(&job.signature)?;
-            let context = if options.always_authenticate {
+            let context = if always_authenticate {
                 job.context.as_ref().map(|pin| match pin {
                     SecretInput::Value(pin) => Pin::Value(pin),
                     SecretInput::ProtectedPath => Pin::ProtectedPath,
@@ -203,14 +262,26 @@ impl Registry {
             } else {
                 None
             };
-            let signature = session
-                .sign(
+            let signature = match job.parameters {
+                SignatureProfile::Classical(parameters) => session.sign(
                     &key,
-                    &job.parameters.request(SignInput::Message(&input)),
-                    &policy,
+                    &parameters.request(SignInput::Message(&input)),
+                    &policy(job.software_hashing),
                     context,
-                )
-                .map_err(|e| BackendError::from(&e))?;
+                ),
+                SignatureProfile::MlDsa(parameter_set) => session.sign_ml_dsa(
+                    &key,
+                    &MlDsaRequest {
+                        parameter_set,
+                        message: &input,
+                        context: &job.domain_context,
+                        hedging: MlDsaHedging::Required,
+                    },
+                    &MlDsaSigningPolicy::default(),
+                    context,
+                ),
+            }
+            .map_err(|e| BackendError::from(&e))?;
             Ok((signature, output))
         });
         drop(job.context);
@@ -226,19 +297,25 @@ impl Registry {
         job: CryptoJob,
     ) -> Result<BackendResult, BackendError> {
         if scope.mode == CryptoMode::Verify {
+            let SignatureProfile::Classical(parameters) = job.parameters else {
+                return Err(BackendError::SignatureChoice);
+            };
+            if !job.domain_context.is_empty() {
+                return Err(BackendError::SignatureChoice);
+            }
             let certificate = self.verification_certificate(scope)?;
             let input = read_bounded(&job.input, 16 * 1024 * 1024)?;
             let signature = read_bounded(&job.signature, 16 * 1024)?;
             certificate
-                .verify_signature(
-                    &job.parameters.request(SignInput::Message(&input)),
-                    &signature,
-                )
+                .verify_signature(&parameters.request(SignInput::Message(&input)), &signature)
                 .map_err(|error| match error {
                     pkcs11_client::Error::SignatureMismatch => BackendError::SignatureMismatch,
                     other => BackendError::from(&other),
                 })?;
             return Ok(BackendResult::Verified { scope });
+        }
+        if scope.mode != CryptoMode::Sign {
+            return Err(BackendError::SignatureChoice);
         }
         let operation = self.sign_file(scope, job);
         Ok(self.finish_crypto(scope, operation))
@@ -275,6 +352,9 @@ impl Registry {
     }
 }
 
+#[cfg(test)]
+#[path = "ml_dsa_tests.rs"]
+mod ml_dsa_tests;
 #[cfg(test)]
 #[path = "crypto_tests.rs"]
 mod tests;

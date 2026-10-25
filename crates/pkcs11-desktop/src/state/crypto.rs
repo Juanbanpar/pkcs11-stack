@@ -1,13 +1,27 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use super::*;
-use crate::backend::{CryptoJob, CryptoMode, CryptoScope, SignatureOption};
-use pkcs11_client::{DigestAlgorithm, ObjectClass, SignatureAlgorithm};
+use crate::backend::{CryptoJob, CryptoMode, CryptoScope, SignatureOption, SignatureProfile};
+use pkcs11_client::{DigestAlgorithm, KeyType, ObjectClass, SignatureAlgorithm};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SignatureChoice(pub SignatureOption);
 impl std::fmt::Display for SignatureChoice {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let parameters = self.0.parameters;
+        let parameters = match parameters {
+            SignatureProfile::Classical(parameters) => parameters,
+            SignatureProfile::MlDsa(parameter) => {
+                return write!(
+                    f,
+                    "ML-DSA-{} / pure message",
+                    match parameter {
+                        pkcs11_client::MlDsaParameterSet::MlDsa44 => 44,
+                        pkcs11_client::MlDsaParameterSet::MlDsa65 => 65,
+                        pkcs11_client::MlDsaParameterSet::MlDsa87 => 87,
+                    }
+                );
+            }
+        };
         let family = match parameters.algorithm {
             SignatureAlgorithm::RsaPkcs1 => "RSA PKCS#1 v1.5",
             SignatureAlgorithm::RsaPss => "RSA PSS",
@@ -29,6 +43,7 @@ impl std::fmt::Display for SignatureChoice {
 pub enum CryptoField {
     Input,
     Signature,
+    DomainContext,
 }
 pub struct CryptoForm {
     pub id: RequestId,
@@ -37,6 +52,7 @@ pub struct CryptoForm {
     pub choice: Option<SignatureChoice>,
     pub loaded: bool,
     pub software_hashing: bool,
+    pub domain_context: String,
     pub context_required: bool,
     pub protected_path: bool,
     pub pin: SecretString,
@@ -47,6 +63,9 @@ pub struct CryptoForm {
     pub picker: Option<(RequestId, CryptoField)>,
 }
 impl UiState {
+    pub fn object_key_type(&self) -> Option<KeyType> {
+        self.object_details.as_ref()?.key_type
+    }
     pub(super) fn clear_crypto_form(&mut self) {
         self.cipher_form = None;
         self.key_form = None;
@@ -70,6 +89,10 @@ impl UiState {
                     && match mode {
                         CryptoMode::Sign => {
                             object.class == Some(ObjectClass::PRIVATE_KEY)
+                                && matches!(
+                                    self.object_key_type(),
+                                    Some(KeyType::RSA | KeyType::EC | KeyType::ML_DSA)
+                                )
                                 && self
                                     .token()
                                     .is_some_and(|token| token.login == LoginState::User)
@@ -100,6 +123,7 @@ impl UiState {
             choice: None,
             loaded: false,
             software_hashing: false,
+            domain_context: String::new(),
             context_required: false,
             protected_path,
             pin: SecretString::default(),
@@ -121,7 +145,14 @@ impl UiState {
         software_hashing: bool,
     ) -> Option<BackendCommand> {
         let form = self.crypto_form.as_ref()?;
-        if form.id != form_id || form.scope.mode != CryptoMode::Sign || !self.can_submit() {
+        if form.id != form_id
+            || form.scope.mode != CryptoMode::Sign
+            || !self.can_submit()
+            || self.object_key_type() == Some(KeyType::ML_DSA)
+            || form
+                .choice
+                .is_some_and(|choice| matches!(choice.0.parameters, SignatureProfile::MlDsa(_)))
+        {
             return None;
         }
         let scope = form.scope;
@@ -132,6 +163,8 @@ impl UiState {
         form.options.clear();
         form.choice = None;
         form.loaded = false;
+        form.pin = SecretString::default();
+        form.context_required = false;
         Some(BackendCommand::CryptoOptions {
             id,
             scope,
@@ -191,6 +224,14 @@ impl UiState {
         if !self.crypto_form.as_ref().is_some_and(|form| form.id == id) {
             return;
         }
+        if field == CryptoField::DomainContext
+            && !self.crypto_form.as_ref().is_some_and(|form| {
+                form.choice
+                    .is_some_and(|choice| matches!(choice.0.parameters, SignatureProfile::MlDsa(_)))
+            })
+        {
+            return;
+        }
         self.invalidate_verification();
         if let Some(form) = &mut self.crypto_form
             && form.id == id
@@ -205,6 +246,7 @@ impl UiState {
                     form.signature = value;
                     form.picked_signature = None;
                 }
+                CryptoField::DomainContext => form.domain_context = value,
             }
         }
     }
@@ -214,7 +256,11 @@ impl UiState {
         field: CryptoField,
     ) -> Option<(RequestId, bool)> {
         let form = self.crypto_form.as_ref()?;
-        if !self.can_submit() || form.id != form_id || form.picker.is_some() {
+        if !self.can_submit()
+            || form.id != form_id
+            || form.picker.is_some()
+            || field == CryptoField::DomainContext
+        {
             return None;
         }
         let save = field == CryptoField::Signature && form.scope.mode == CryptoMode::Sign;
@@ -242,6 +288,7 @@ impl UiState {
                         form.signature = path.to_string_lossy().into_owned();
                         form.picked_signature = Some(path);
                     }
+                    CryptoField::DomainContext => {}
                 }
             }
         }
@@ -268,12 +315,26 @@ impl UiState {
                 .choice
                 .is_some_and(|choice| form.options.contains(&choice))
             || !form.loaded
+            || (form.software_hashing
+                && form.choice.is_some_and(|choice| {
+                    matches!(choice.0.parameters, SignatureProfile::MlDsa(_))
+                }))
         {
             self.notification = Some(Notification::Error(BackendError::SignatureChoice));
             self.crypto_form.as_mut()?.pin = SecretString::default();
             return None;
         }
         let form = self.crypto_form.take()?;
+        if matches!(form.choice?.0.parameters, SignatureProfile::MlDsa(_))
+            && form.domain_context.len() > 255
+        {
+            self.notification = Some(Notification::Error(BackendError::MlDsaContext));
+            self.crypto_form = Some(CryptoForm {
+                pin: SecretString::default(),
+                ..form
+            });
+            return None;
+        }
         let context = form.context_required.then_some(if form.protected_path {
             SecretInput::ProtectedPath
         } else {
@@ -282,6 +343,7 @@ impl UiState {
         let job = CryptoJob {
             parameters: form.choice?.0.parameters,
             software_hashing: form.software_hashing,
+            domain_context: form.domain_context.as_bytes().to_vec(),
             input: form
                 .picked_input
                 .clone()
