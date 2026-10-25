@@ -337,6 +337,61 @@ do not authorize retries.
 Runnable [signing examples](../../docs/examples.md) demonstrate `Provider::client`,
 generic signing, binding and explicit shutdown with PIN files and raw stdout output.
 
+## ECDH and AES key generation
+
+`Provider::generation_capabilities` collects classical signing, ECDH, AES, ML-DSA
+and ML-KEM generation choices for frontends. Missing mechanisms produce empty
+lists; metadata errors propagate. Choices describe generation only and are not an
+atomic snapshot or a guarantee of subsequent operation support. Generation
+rechecks the selected token before calling the provider.
+
+`generate_ecdh_key_pair` creates a public EC key and a sensitive, nonextractable
+private key permitting only derivation, on P-256/P-384/P-521. Export the public
+key with `export_public` for peer exchange; authenticate that exchange separately.
+`generate_aes_key` creates a private, sensitive, nonextractable AES-128/192/256
+key. Choose `Encryption` for encryption/decryption, or `Wrapping` for
+wrapping/unwrapping. Other operation permissions are disabled.
+
+```no_run
+use pkcs11_client::{
+    AesKeyPurpose, AesKeyRequest, AesKeySize, Authentication,
+    EcdhKeyPairRequest, NamedCurve, Pin, Provider, SessionMode,
+};
+use secrecy::SecretString;
+
+let provider = Provider::load("/absolute/path/to/trusted-pkcs11.so")?;
+let token = "pkcs11:serial=123".parse()?;
+let choices = provider.generation_capabilities(&token)?;
+assert!(choices.ecdh.contains(&NamedCurve::P256));
+assert!(choices.aes.contains(&AesKeySize::Bits256));
+// Obtain this from the application's secret source.
+let pin = SecretString::from("example-only");
+let mut session = provider.management(&token, SessionMode::ReadWrite,
+    Authentication::User(Pin::Value(&pin)))?;
+let generated = (|| {
+    session.generate_ecdh_key_pair(&EcdhKeyPairRequest {
+        curve: NamedCurve::P256, id: b"ecdh-1", label: b"agreement key",
+    })?;
+    session.generate_aes_key(&AesKeyRequest {
+        size: AesKeySize::Bits256, purpose: AesKeyPurpose::Wrapping,
+        id: b"wrap-1", label: b"wrapping key",
+    })
+})();
+let closed = session.close();
+let finalized = provider.finalize();
+closed?;
+finalized?;
+generated?;
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+Both requests require nonempty ID/label fields of at most 128 bytes. Existing
+public/private IDs are rejected for ECDH pairs, and secret IDs for AES. These
+checks do not ensure uniqueness against concurrent writers. There is no retry,
+rollback or software fallback; failures may leave persistent objects. A wrapping
+key does not make nonextractable targets exportable. Existing signing-generation
+APIs retain their signing-only behavior.
+
 ## RSA-OAEP encryption
 
 `ManagementSession::oaep_options` checks a selected key's class, permissions,

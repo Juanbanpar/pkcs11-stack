@@ -84,6 +84,9 @@ on the token. TLS use requires verification support from that provider. See the
 RSA-OAEP encryption/decryption supports SHA-2 with a matching MGF1 digest and
 empty label. It processes one RSA block. Raw ECDH creates token-held generic
 secrets on P-256/P-384/P-521; AES key wrapping and unwrapping use RFC 3394.
+Runtime and client generate derivation-only EC pairs and AES keys restricted to
+encryption/decryption or wrapping/unwrapping. A shared client capability query
+reports generation choices. These APIs are not yet exposed in the CLI or GUI.
 Private-key import is not implemented. Certificate parsing and binding do not validate
 certificate trust; applications configure trust separately.
 

@@ -27,7 +27,10 @@ The runner creates temporary token storage and removes it on exit. It provisions
 nonextractable RSA/EC keys, runs the ignored integration tests and
 [signing/TLS examples](../docs/examples.md), and verifies signatures independently
 with OpenSSL. It covers authentication, object mutations, pool recovery, key
-replacement, and server/mutual TLS. Use this runner only with SoftHSM, never an
+replacement, and server/mutual TLS. Generation tests check all three ECDH curves
+and AES sizes, permissions, duplicate identities, public export and rejected secret
+export. ECDH agreement, AES encryption and RFC 3394 round trips verify generated
+key use without exporting private material. Use this runner only with SoftHSM, never an
 existing token store or a hardware module.
 
 For another SoftHSM installation:

@@ -16,6 +16,9 @@ pub use pkcs11_runtime::RsaCipherOperation;
 mod client;
 mod error;
 mod generation;
+pub use generation::{
+    AesKeyPurpose, AesKeyRequest, AesKeySize, EcdhKeyPairRequest, GenerationCapabilities,
+};
 mod hkdf;
 mod management;
 mod ml_dsa;
