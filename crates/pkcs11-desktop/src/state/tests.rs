@@ -669,7 +669,7 @@ fn managing() -> UiState {
 fn generation_choices_are_scoped_and_invalid_forms_do_not_enqueue_mutations() {
     let mut state = managing();
     let request = state.show_page(TokenPage::Operations).unwrap().id();
-    let kind = pkcs11_client::KeyKind::Rsa { bits: 2048 };
+    let kind = crate::backend::GenerationKind::Signing(pkcs11_client::KeyKind::Rsa { bits: 2048 });
     state.event(complete(
         request,
         BackendResult::Capabilities {
@@ -1574,4 +1574,39 @@ fn stale_cleanup_inventory_preserves_other_modules_and_newer_work() {
     ));
     assert_eq!(state.loaded_modules.len(), 1);
     assert_eq!(state.objects[0].label, "current");
+}
+
+#[test]
+fn non_signing_generation_rejects_stale_authentication_and_bounds_before_enqueue() {
+    use crate::backend::GenerationKind;
+    use pkcs11_client::{AesKeyPurpose, AesKeySize, NamedCurve};
+    for kind in [
+        GenerationKind::Ecdh(NamedCurve::P384),
+        GenerationKind::Aes(AesKeySize::Bits256, AesKeyPurpose::Wrapping),
+    ] {
+        let mut state = managing();
+        state.management.always_authenticate = true;
+        let request = state.show_page(TokenPage::Operations).unwrap().id();
+        state.event(complete(
+            request,
+            BackendResult::Capabilities {
+                module: ResourceId(1),
+                token: ResourceId(2),
+                keys: vec![kind],
+            },
+        ));
+        assert!(!state.management.always_authenticate);
+        state.management.key_id = "01".into();
+        state.management.key_label = "x".repeat(129);
+        assert!(state.generate().is_none());
+        state.management.key_label = "key".into();
+        state.management.always_authenticate = true;
+        assert!(state.generate().is_none());
+        state.management.always_authenticate = false;
+        let request = state.generate().unwrap();
+        assert!(
+            matches!(request, BackendCommand::Manage { action: crate::backend::ManagementAction::Generate { kind: actual, always_authenticate: false, .. }, .. } if actual == kind)
+        );
+        assert!(!state.can_cancel());
+    }
 }

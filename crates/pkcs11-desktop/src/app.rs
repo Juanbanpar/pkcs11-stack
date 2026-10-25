@@ -525,10 +525,19 @@ impl App {
             Message::GenerationKey(key) => {
                 if self.state.can_submit() && self.state.management.keys.contains(&key) {
                     self.state.management.key = Some(key);
+                    if !key.0.supports_context_authentication() {
+                        self.state.management.always_authenticate = false;
+                    }
                 }
             }
             Message::AlwaysAuthenticate(value) => {
-                if self.state.can_submit() {
+                if self.state.can_submit()
+                    && self
+                        .state
+                        .management
+                        .key
+                        .is_some_and(|key| key.0.supports_context_authentication())
+                {
                     self.state.management.always_authenticate = value;
                 }
             }

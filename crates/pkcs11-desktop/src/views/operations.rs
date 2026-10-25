@@ -18,7 +18,7 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
     let enabled = state.can_manage();
     let edit = |field, value| Message::ManagementEdit { field, value };
     let hint = if enabled {
-        "New objects persist on the token. Labels and IDs can collide with existing objects."
+        "New objects persist on the token. Choose a label and hexadecimal ID."
     } else {
         "Log in as USER on a writable token to generate keys, import certificates or delete objects."
     };
@@ -43,8 +43,8 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
             muted("Create objects here. For signing or other key operations, select an object."),
             components::task_card(
                 lucide::key(),
-                "Generate Signing Key Pair",
-                "Create RSA or EC signing keys; the private key stays on the token.",
+                "Generate Key",
+                "Create signing keys, ECDH pairs or AES keys with explicit permissions.",
                 requirement,
                 state
                     .can_submit()
@@ -79,17 +79,22 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
     };
     let form: Element<'_, Message> = match task {
         ManagementTask::Generate => column![
-        text("Generate signing key pair").size(22).font(EMPHASIS),
+        text("Generate key").size(22).font(EMPHASIS),
         muted(hint),
         row![pick_list(state.management.keys.as_slice(), state.management.key, Message::GenerationKey).placeholder("Key type").enabled(enabled),
             button("Refresh choices").on_press_maybe(state.can_submit().then_some(Message::ReadCapabilities))].spacing(10),
         text(choices).size(14),
         text_input("Key label", &state.management.key_label).on_input_maybe(enabled.then_some(move |value| edit(ManagementField::KeyLabel, value))),
         text_input("Key ID (hexadecimal bytes)", &state.management.key_id).on_input_maybe(enabled.then_some(move |value| edit(ManagementField::KeyId, value))),
-        checkbox(state.management.always_authenticate).label("Require authentication for every private-key operation")
-            .on_toggle_maybe(enabled.then_some(Message::AlwaysAuthenticate)),
-        text("Private keys are sensitive and nonextractable; the public key shares the label and ID.").size(14),
-        button("Generate pair").style(button::primary).on_press_maybe((enabled && state.management.key.is_some()).then_some(Message::Generate)),
+        checkbox(state.management.always_authenticate).label("Require authentication for every signature")
+            .on_toggle_maybe((enabled && state.management.key.is_some_and(|key| key.0.supports_context_authentication())).then_some(Message::AlwaysAuthenticate)),
+        text(match state.management.key.map(|key| key.0) {
+            Some(crate::backend::GenerationKind::Ecdh(_)) => "Derivation-only EC pair. The private key is sensitive and nonextractable. ID and label: 1–128 bytes each.",
+            Some(crate::backend::GenerationKind::Aes(_, pkcs11_client::AesKeyPurpose::Encryption)) => "Private, sensitive, nonextractable AES key for encryption/decryption only. ID and label: 1–128 bytes each.",
+            Some(crate::backend::GenerationKind::Aes(_, pkcs11_client::AesKeyPurpose::Wrapping)) => "Private, sensitive, nonextractable AES key for wrapping/unwrapping only. Targets must permit export. ID and label: 1–128 bytes each.",
+            _ => "Signing pair. The private key is sensitive and nonextractable; the public key shares its label and ID.",
+        }).size(14),
+        button("Generate key").style(button::primary).on_press_maybe((enabled && state.management.key.is_some()).then_some(Message::Generate)),
         ].spacing(12).into(),
         ManagementTask::Import => column![text("Import X.509 certificate").size(22).font(EMPHASIS), muted(hint),
         row![text_input("DER certificate file", &state.management.certificate_path).on_input_maybe(enabled.then_some(move |value| edit(ManagementField::CertificatePath, value))),

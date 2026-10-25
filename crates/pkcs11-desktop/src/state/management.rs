@@ -1,19 +1,36 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use super::*;
-use crate::backend::ManagementAction;
-use pkcs11_client::{KeyKind, NamedCurve, ObjectClass};
+use crate::backend::{GenerationKind, ManagementAction};
+use pkcs11_client::{AesKeyPurpose, KeyKind, NamedCurve, ObjectClass};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct KeyChoice(pub KeyKind);
+pub struct KeyChoice(pub GenerationKind);
 impl std::fmt::Display for KeyChoice {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.0 {
-            KeyKind::Rsa { bits } => write!(f, "RSA {bits}"),
-            KeyKind::Ec(curve) => f.write_str(match curve {
-                NamedCurve::P256 => "EC P-256",
-                NamedCurve::P384 => "EC P-384",
-                NamedCurve::P521 => "EC P-521",
-            }),
+            GenerationKind::Signing(KeyKind::Rsa { bits }) => write!(f, "RSA {bits} — signing"),
+            GenerationKind::Signing(KeyKind::Ec(curve)) | GenerationKind::Ecdh(curve) => {
+                let purpose = if matches!(self.0, GenerationKind::Ecdh(_)) {
+                    "ECDH"
+                } else {
+                    "signing"
+                };
+                let curve = match curve {
+                    NamedCurve::P256 => "P-256",
+                    NamedCurve::P384 => "P-384",
+                    NamedCurve::P521 => "P-521",
+                };
+                write!(f, "EC {curve} — {purpose}")
+            }
+            GenerationKind::Aes(size, purpose) => write!(
+                f,
+                "AES {} — {}",
+                size.length() * 8,
+                match purpose {
+                    AesKeyPurpose::Encryption => "encryption/decryption",
+                    AesKeyPurpose::Wrapping => "wrapping/unwrapping",
+                }
+            ),
         }
     }
 }
@@ -111,9 +128,22 @@ impl UiState {
             self.notification = Some(Notification::Error(BackendError::InvalidForm));
             return None;
         }
+        let id = id.unwrap();
+        if key
+            .0
+            .validate(
+                &id,
+                self.management.key_label.as_bytes(),
+                self.management.always_authenticate,
+            )
+            .is_err()
+        {
+            self.notification = Some(Notification::Error(BackendError::InvalidForm));
+            return None;
+        }
         let action = ManagementAction::Generate {
             kind: key.0,
-            id: id.unwrap(),
+            id,
             label: self.management.key_label.as_bytes().to_vec(),
             always_authenticate: self.management.always_authenticate,
         };

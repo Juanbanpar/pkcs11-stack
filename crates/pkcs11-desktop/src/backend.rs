@@ -21,7 +21,7 @@ mod random;
 pub use authentication::{LoginRole, LoginState, SecretInput};
 pub use browse::{MechanismEntry, MetadataField, ObjectEntry};
 pub use crypto::{CryptoJob, CryptoMode, CryptoScope, SignatureOption};
-pub use management::ManagementAction;
+pub use management::{GenerationKind, ManagementAction};
 
 /// Never reused during an application's lifetime, including after cancellation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -261,7 +261,7 @@ pub enum BackendResult {
     Capabilities {
         module: ResourceId,
         token: ResourceId,
-        keys: Vec<pkcs11_client::KeyKind>,
+        keys: Vec<GenerationKind>,
     },
     Managed {
         module: ResourceId,
@@ -965,3 +965,6 @@ fn run(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod generation_tests;

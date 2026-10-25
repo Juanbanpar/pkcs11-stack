@@ -30,8 +30,10 @@ with OpenSSL. It covers authentication, object mutations, pool recovery, key
 replacement, and server/mutual TLS. Generation tests check all three ECDH curves
 and AES sizes, permissions, duplicate identities, public export and rejected secret
 export. ECDH agreement, AES encryption and RFC 3394 round trips verify generated
-key use without exporting private material. Use this runner only with SoftHSM, never an
-existing token store or a hardware module.
+key use without exporting private material. CLI and desktop tests cover the new
+generation choices, rejected option combinations, permissions and export rules.
+Desktop tests also exercise generated ECDH and wrapping keys through the worker.
+Use this runner only with SoftHSM, never an existing token store or a hardware module.
 
 For another SoftHSM installation:
 

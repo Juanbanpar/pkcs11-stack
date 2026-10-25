@@ -698,6 +698,13 @@ impl UiState {
                     Ok(BackendResult::Capabilities { keys, .. }) => {
                         self.management.keys = keys.into_iter().map(KeyChoice).collect();
                         self.management.key = self.management.keys.first().copied();
+                        if !self
+                            .management
+                            .key
+                            .is_some_and(|key| key.0.supports_context_authentication())
+                        {
+                            self.management.always_authenticate = false;
+                        }
                         self.management.capabilities_loaded = true;
                         None
                     }

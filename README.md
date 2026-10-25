@@ -86,7 +86,8 @@ empty label. It processes one RSA block. Raw ECDH creates token-held generic
 secrets on P-256/P-384/P-521; AES key wrapping and unwrapping use RFC 3394.
 Runtime and client generate derivation-only EC pairs and AES keys restricted to
 encryption/decryption or wrapping/unwrapping. A shared client capability query
-reports generation choices. These APIs are not yet exposed in the CLI or GUI.
+reports generation choices for the CLI and GUI. Both expose ECDH and AES
+generation with explicit purposes.
 Private-key import is not implemented. Certificate parsing and binding do not validate
 certificate trust; applications configure trust separately.
 
@@ -94,7 +95,7 @@ The desktop application loads and unloads modules, enumerates slots and tokens,
 and browses visible objects and advertised mechanisms with filters and metadata
 details. USER/SO login and logout support host PINs and token-protected
 authentication paths. Refresh updates inventories and clears stale selections.
-The GUI also generates signing key pairs, imports DER certificates, confirms
+The GUI also generates signing/ECDH pairs and AES keys, imports DER certificates, confirms
 object deletion, exports public objects, signs files and verifies signatures
 against selected certificates. It can also save bytes from a token's random
 generator, encrypt/decrypt small RSA-OAEP payloads, derive ECDH secrets, and

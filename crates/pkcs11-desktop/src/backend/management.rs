@@ -1,15 +1,50 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use super::{BackendError, BackendResult, Registry, ResourceId, browse::read_session};
-use pkcs11_client::{Authentication, CertificateDocument, KeyKind, SessionMode, SessionState};
+use pkcs11_client::{
+    AesKeyPurpose, AesKeyRequest, AesKeySize, Authentication, CertificateDocument,
+    EcdhKeyPairRequest, KeyKind, NamedCurve, SessionMode, SessionState,
+};
+
 use std::{
     fs::{File, OpenOptions},
     io::{Read, Write},
     path::{Path, PathBuf},
 };
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GenerationKind {
+    Signing(KeyKind),
+    Ecdh(NamedCurve),
+    Aes(AesKeySize, AesKeyPurpose),
+}
+impl GenerationKind {
+    pub fn supports_context_authentication(self) -> bool {
+        matches!(self, Self::Signing(_))
+    }
+    pub fn validate(self, id: &[u8], label: &[u8], context: bool) -> Result<(), BackendError> {
+        let valid = match self {
+            Self::Signing(_) => !id.is_empty() && !label.is_empty(),
+            Self::Ecdh(curve) => {
+                !context && EcdhKeyPairRequest { curve, id, label }.validate().is_ok()
+            }
+            Self::Aes(size, purpose) => {
+                !context
+                    && AesKeyRequest {
+                        size,
+                        purpose,
+                        id,
+                        label,
+                    }
+                    .validate()
+                    .is_ok()
+            }
+        };
+        valid.then_some(()).ok_or(BackendError::InvalidForm)
+    }
+}
 pub enum ManagementAction {
     Generate {
-        kind: KeyKind,
+        kind: GenerationKind,
         id: Vec<u8>,
         label: Vec<u8>,
         always_authenticate: bool,
@@ -60,12 +95,22 @@ impl Registry {
         &self,
         module: ResourceId,
         token: ResourceId,
-    ) -> Result<Vec<KeyKind>, BackendError> {
+    ) -> Result<Vec<GenerationKind>, BackendError> {
         let (index, uri) = self.location(module, token)?;
-        self.modules[index]
+        let choices = self.modules[index]
             .provider
-            .generation_options(&uri)
-            .map_err(|e| BackendError::from(&e))
+            .generation_capabilities(&uri)
+            .map_err(|e| BackendError::from(&e))?;
+        Ok(choices
+            .signing
+            .into_iter()
+            .map(GenerationKind::Signing)
+            .chain(choices.ecdh.into_iter().map(GenerationKind::Ecdh))
+            .chain(choices.aes.into_iter().flat_map(|size| {
+                [AesKeyPurpose::Encryption, AesKeyPurpose::Wrapping]
+                    .map(|purpose| GenerationKind::Aes(size, purpose))
+            }))
+            .collect())
     }
     fn management_action(
         &mut self,
@@ -128,10 +173,30 @@ impl Registry {
                     label,
                     always_authenticate,
                 } => {
-                    if id.is_empty() || label.is_empty() {
-                        return Err(BackendError::InvalidForm);
+                    kind.validate(&id, &label, always_authenticate)?;
+                    match kind {
+                        GenerationKind::Signing(kind) => session.generate_signing_key_pair(
+                            kind,
+                            &id,
+                            &label,
+                            always_authenticate,
+                        ),
+                        GenerationKind::Ecdh(curve) => {
+                            session.generate_ecdh_key_pair(&EcdhKeyPairRequest {
+                                curve,
+                                id: &id,
+                                label: &label,
+                            })
+                        }
+                        GenerationKind::Aes(size, purpose) => {
+                            session.generate_aes_key(&AesKeyRequest {
+                                size,
+                                purpose,
+                                id: &id,
+                                label: &label,
+                            })
+                        }
                     }
-                    session.generate_signing_key_pair(kind, &id, &label, always_authenticate)
                 }
                 ManagementAction::ImportCertificate { id, label, .. } => {
                     if id.is_empty() || label.is_empty() {
@@ -291,10 +356,12 @@ mod integration_tests {
             })
             .expect("public fixture token");
         let choices = registry.capabilities(module, token).unwrap();
-        assert!(choices.contains(&KeyKind::Rsa { bits: 2048 }));
-        assert!(choices.contains(&KeyKind::Ec(pkcs11_client::NamedCurve::P256)));
+        assert!(choices.contains(&GenerationKind::Signing(KeyKind::Rsa { bits: 2048 })));
+        assert!(choices.contains(&GenerationKind::Signing(KeyKind::Ec(
+            pkcs11_client::NamedCurve::P256
+        ))));
         let generation = |kind| ManagementAction::Generate {
-            kind,
+            kind: GenerationKind::Signing(kind),
             id: vec![0xEE],
             label: b"desktop-key".to_vec(),
             always_authenticate: false,

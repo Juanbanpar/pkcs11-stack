@@ -321,8 +321,12 @@ fn choice_keyboard_navigation_selects_typed_client_parameters() {
         state.presentation.task = Some(ManagementTask::Generate);
         state.management.capabilities_loaded = true;
         state.management.keys = vec![
-            crate::state::KeyChoice(pkcs11_client::KeyKind::Rsa { bits: 2048 }),
-            crate::state::KeyChoice(pkcs11_client::KeyKind::Rsa { bits: 4096 }),
+            crate::state::KeyChoice(crate::backend::GenerationKind::Signing(
+                pkcs11_client::KeyKind::Rsa { bits: 2048 },
+            )),
+            crate::state::KeyChoice(crate::backend::GenerationKind::Signing(
+                pkcs11_client::KeyKind::Rsa { bits: 4096 },
+            )),
         ];
         state
     }
@@ -332,9 +336,9 @@ fn choice_keyboard_navigation_selects_typed_client_parameters() {
     );
     assert_eq!(
         app.state.management.key,
-        Some(crate::state::KeyChoice(pkcs11_client::KeyKind::Rsa {
-            bits: 4096
-        }))
+        Some(crate::state::KeyChoice(
+            crate::backend::GenerationKind::Signing(pkcs11_client::KeyKind::Rsa { bits: 4096 })
+        ))
     );
     assert!(app.state.presentation.choice.is_none());
     assert_eq!(
@@ -909,4 +913,44 @@ fn refreshing_objects_drops_the_old_operation_form_and_rejects_late_choices() {
     });
     assert!(state.crypto_form.is_none());
     assert_eq!(state.current_operation, Some(refresh));
+}
+
+#[test]
+fn selecting_aes_clears_signing_authentication_and_disables_its_control() {
+    use crate::backend::GenerationKind;
+    use crate::state::KeyChoice;
+    use pkcs11_client::{AesKeyPurpose, AesKeySize, KeyKind};
+    fn generation() -> UiState {
+        let mut state = state();
+        state.loaded_modules[0].tokens[0].login = LoginState::User;
+        state.token_page = TokenPage::Operations;
+        state.presentation.task = Some(ManagementTask::Generate);
+        let signing = KeyChoice(GenerationKind::Signing(KeyKind::Rsa { bits: 2048 }));
+        let aes = KeyChoice(GenerationKind::Aes(
+            AesKeySize::Bits256,
+            AesKeyPurpose::Wrapping,
+        ));
+        state.management.keys = vec![signing, aes];
+        state.management.key = Some(signing);
+        state.management.always_authenticate = true;
+        state
+    }
+    let app = run(
+        generation,
+        &[
+            "click \"RSA 2048 — signing\"",
+            "type tab",
+            "type enter",
+            "click \"Require authentication for every signature\"",
+        ],
+    );
+    assert!(matches!(
+        app.state.management.key,
+        Some(KeyChoice(GenerationKind::Aes(_, _)))
+    ));
+    assert!(!app.state.management.always_authenticate);
+    assert!(app.state.current_operation.is_none());
+    for dark in [false, true] {
+        render_screen(&app.state, "generate-aes", 900, 600, dark);
+    }
 }

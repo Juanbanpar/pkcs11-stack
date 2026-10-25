@@ -258,7 +258,9 @@ fn software_token_signing_verification_context_and_file_failures() {
                 module,
                 token,
                 crate::backend::ManagementAction::Generate {
-                    kind: pkcs11_client::KeyKind::Ec(pkcs11_client::NamedCurve::P256),
+                    kind: crate::backend::GenerationKind::Signing(pkcs11_client::KeyKind::Ec(
+                        pkcs11_client::NamedCurve::P256,
+                    )),
                     id: vec![0xE8],
                     label: b"desktop-ambiguous".to_vec(),
                     always_authenticate: false,
