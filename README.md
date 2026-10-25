@@ -88,6 +88,9 @@ Runtime and client generate derivation-only EC pairs and AES keys restricted to
 encryption/decryption or wrapping/unwrapping. A shared client capability query
 reports generation choices for the CLI and GUI. Both expose ECDH and AES
 generation with explicit purposes.
+Runtime and client also expose AES-GCM with 12-byte caller-managed nonces, full
+16-byte tags and authenticated, zeroizing plaintext output. This is a bounded
+single-part API; CLI/GUI AES-GCM workflows are not yet implemented.
 Private-key import is not implemented. Certificate parsing and binding do not validate
 certificate trust; applications configure trust separately.
 

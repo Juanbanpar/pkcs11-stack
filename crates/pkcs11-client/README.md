@@ -392,6 +392,51 @@ rollback or software fallback; failures may leave persistent objects. A wrapping
 key does not make nonextractable targets exportable. Existing signing-generation
 APIs retain their signing-only behavior.
 
+## AES-GCM encryption
+
+`ManagementSession::aes_gcm_capabilities` checks an AES secret key's current size,
+permissions, allowed mechanisms and native provider support. `encrypt_aes_gcm`
+and `decrypt_aes_gcm` accept typed requests with a 12-byte nonce, AAD and borrowed
+input. The tag is always 16 bytes and follows the ciphertext. The methods work in
+RO sessions with the required login state; execution rechecks capabilities.
+Encryption keys created by `generate_aes_key` or HKDF can be used directly.
+Wrapping-only keys and raw shared secrets are rejected.
+
+```no_run
+use pkcs11_client::{
+    AesGcmDecryptRequest, AesGcmEncryptRequest, Authentication, Error,
+    ObjectRef, Pkcs11Uri, Plaintext, Provider, SessionMode,
+};
+
+// The caller supplies a nonce not previously used with this key, including after restart.
+fn round_trip(provider: &Provider, token: &Pkcs11Uri, key: &ObjectRef,
+    request: &AesGcmEncryptRequest<'_>, auth: Authentication<'_>) -> Result<Plaintext, Error> {
+    let mut session = provider.management(token, SessionMode::ReadOnly, auth)?;
+    let outcome = (|| {
+        let ciphertext = session.encrypt_aes_gcm(key, request)?;
+        session.decrypt_aes_gcm(key, &AesGcmDecryptRequest {
+            nonce: request.nonce, aad: request.aad, ciphertext: &ciphertext,
+        })
+    })();
+    let closed = session.close();
+    closed?;
+    outcome
+}
+```
+
+Plaintext is limited to 16 MiB and AAD to 1 MiB. Empty input/AAD are supported;
+decryption requires at least the full tag. Successful plaintext zeroizes on drop
+and its Debug is redacted. Authentication failures return no plaintext and make
+the session unusable; native error context is retained. Preflight rejection does
+not itself invalidate the session. cryptoki's transient failed buffers cannot be
+guaranteed zeroized.
+
+Callers manage nonce uniqueness per key across writers, restarts and copies of key
+material. No nonce generation/tracking, retry, software fallback, streaming or file
+format is provided. Keep the nonce, AAD and protocol context with the ciphertext;
+an error does not authorize nonce reuse. These APIs are not yet exposed by the CLI
+or desktop.
+
 ## RSA-OAEP encryption
 
 `ManagementSession::oaep_options` checks a selected key's class, permissions,

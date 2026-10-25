@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! Client-only selectors and typed requests against a disposable Kryoptic token.
 use pkcs11_client::{
-    Attribute, AttributeType, Authentication, DigestAlgorithm, ErrorKind, HkdfOutput, HkdfRequest,
-    MlKemParameterSet, MlKemRequest, ObjectRef, Pin, PrivateKeyRef, Provider, PublicKeyRef,
-    SessionMode,
+    AesGcmDecryptRequest, AesGcmEncryptRequest, Attribute, AttributeType, Authentication,
+    DigestAlgorithm, ErrorKind, HkdfOutput, HkdfRequest, MlKemParameterSet, MlKemRequest,
+    ObjectRef, Pin, PrivateKeyRef, Provider, PublicKeyRef, SessionMode,
 };
-use secrecy::SecretString;
+use secrecy::{ExposeSecret, SecretString};
 
 fn reference(id: &[u8], kind: &str) -> ObjectRef {
     let id: String = id.iter().map(|byte| format!("%{byte:02X}")).collect();
@@ -71,6 +71,7 @@ fn client_ml_kem_to_hkdf_permissions_errors_and_cleanup() {
                 &ciphertext,
             )
             .unwrap();
+        let mut encrypted = None;
         for direction in 0..=1 {
             let base = reference(&[0xC1, index as u8, direction], "secret-key");
             assert_eq!(
@@ -143,6 +144,33 @@ fn client_ml_kem_to_hkdf_permissions_errors_and_cleanup() {
             }
             assert!(session.export_public(&derived).is_err());
             assert!(session.export_value(&derived).is_err());
+            if direction == 0 {
+                encrypted = Some(
+                    session
+                        .encrypt_aes_gcm(
+                            &derived,
+                            &AesGcmEncryptRequest {
+                                nonce: &[0x73; 12],
+                                aad: b"client key exchange v1",
+                                plaintext: b"client KEM HKDF GCM canary",
+                            },
+                        )
+                        .unwrap(),
+                );
+            } else {
+                let plaintext = session
+                    .decrypt_aes_gcm(
+                        &derived,
+                        &AesGcmDecryptRequest {
+                            nonce: &[0x73; 12],
+                            aad: b"client key exchange v1",
+                            ciphertext: encrypted.as_ref().unwrap(),
+                        },
+                    )
+                    .unwrap();
+                assert_eq!(plaintext.expose_secret(), b"client KEM HKDF GCM canary");
+                assert!(!format!("{plaintext:?}").contains("canary"));
+            }
             session.delete(&derived).unwrap();
             session.delete(&base).unwrap();
         }
@@ -185,6 +213,27 @@ fn client_ml_kem_to_hkdf_permissions_errors_and_cleanup() {
     );
     let derived = reference(&[0xF8], "secret-key");
     assert!(session.export_value(&derived).is_err());
+    let ciphertext = session
+        .encrypt_aes_gcm(
+            &derived,
+            &AesGcmEncryptRequest {
+                nonce: &[0x74; 12],
+                aad: b"hybrid transcript",
+                plaintext: b"hybrid GCM canary",
+            },
+        )
+        .unwrap();
+    let plaintext = session
+        .decrypt_aes_gcm(
+            &derived,
+            &AesGcmDecryptRequest {
+                nonce: &[0x74; 12],
+                aad: b"hybrid transcript",
+                ciphertext: &ciphertext,
+            },
+        )
+        .unwrap();
+    assert_eq!(plaintext.expose_secret(), b"hybrid GCM canary");
     session.delete(&derived).unwrap();
     session.close().unwrap();
     let mut ro = provider

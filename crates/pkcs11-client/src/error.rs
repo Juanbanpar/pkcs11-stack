@@ -81,7 +81,9 @@ impl Error {
                 | Runtime::ProtectedPathUnavailable
                 | Runtime::ReadWriteRequired
                 | Runtime::RandomUnavailable => ErrorKind::Policy,
-                Runtime::UnsupportedCipher | Runtime::UnsupportedKeyOperation => ErrorKind::Policy,
+                Runtime::UnsupportedCipher
+                | Runtime::UnsupportedKeyOperation
+                | Runtime::UnsupportedAesGcm => ErrorKind::Policy,
                 _ => ErrorKind::Runtime,
             },
             _ => ErrorKind::Client,

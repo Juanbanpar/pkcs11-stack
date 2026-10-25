@@ -169,6 +169,20 @@ CLI tests exchange RFC 9935 public keys, persist public ciphertext, derive match
 keys and preserve existing output files. A separate native lifecycle verifies CLI
 key agreement using AES challenges.
 
+## AES-GCM provider compatibility
+
+The SoftHSM and Kryoptic runners require AES-GCM with a 96-bit nonce and 128-bit
+tag. Runtime fixtures select 12 NIST CAVP known-answer vectors across AES-128/192/256,
+including empty input/AAD and non-block-aligned messages. Tests reject changes to
+nonce, AAD, ciphertext and tag, and verify failed-session invalidation without
+returning plaintext. They also cover RO execution, permissions, allowed mechanisms,
+wrong key classes/types, generated keys and request/output redaction.
+
+Client tests cover typed requests, bounded preflight, private export refusal and
+checked closure. Kryoptic additionally exercises ML-KEM → HKDF → AES-GCM for all
+three KEM parameter sets and an application hybrid-derived AES key. These tests do
+not constitute algorithm validation.
+
 ## Dependency advisories
 
 CI audits both lockfiles with cargo-audit 0.22.2. Run from the repository root:
