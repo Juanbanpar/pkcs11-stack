@@ -250,6 +250,28 @@ Per-operation-authentication decryption keys are rejected before init. Successfu
 plaintext is redacted and zeroizing, but cryptoki's transient buffers from failed
 provider calls cannot currently be guaranteed zeroized.
 
+## ECDH and AES key generation
+
+`Token::ecdh_generation_options` reports P-256/P-384/P-521 generation choices;
+`Token::aes_generation_options` reports AES-128/192/256 sizes. Both check native
+entry points, advertised generation flags and bounds. EC bounds are in bits;
+AES bounds and CKA_VALUE_LEN are in bytes. Choices do not guarantee template
+acceptance or later operation support.
+
+RW sessions accept `EcdhKeyPairRequest` through `generate_ecdh_key_pair` and
+`AesKeyRequest` through `generate_aes_key`. The EC public key is public; its
+private key is sensitive, nonextractable and derivation-only, with per-operation
+authentication disabled. AES keys are private, sensitive and nonextractable.
+`AesKeyPurpose::Encryption` permits encryption/decryption only; `Wrapping`
+permits wrapping/unwrapping only. No key values are read or returned.
+
+Both requests require nonempty ID/label fields of at most 128 bytes. Generation
+rechecks capabilities and rejects existing persistent public/private IDs for EC
+pairs or secret IDs for AES, without a uniqueness guarantee against concurrent
+writers. Provider failures invalidate the session and can leave persistent effects;
+there is no retry or rollback. Check session closure. The signing-generation API
+continues to create signing-only keys.
+
 ## Derivation and key transfer
 
 `Session::key_operation_profile` validates current key class, usage permissions,

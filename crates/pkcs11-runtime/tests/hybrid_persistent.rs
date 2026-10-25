@@ -7,9 +7,9 @@ use cryptoki::{
     session::{Session as NativeSession, UserType},
 };
 use pkcs11_runtime::{
-    Attribute, AttributeType, Authentication, DigestAlgorithm, EcdhDerivation, Error, HkdfOutput,
-    HkdfRequest, MechanismType, MlKemParameterSet, MlKemRequest, Module, NamedCurve, ObjectClass,
-    ObjectRef, Pin, PrivateKeyRef, PublicKeyRef, SessionMode,
+    Attribute, AttributeType, Authentication, DigestAlgorithm, EcdhDerivation, EcdhKeyPairRequest,
+    Error, HkdfOutput, HkdfRequest, MechanismType, MlKemParameterSet, MlKemRequest, Module,
+    NamedCurve, ObjectClass, ObjectRef, Pin, PrivateKeyRef, PublicKeyRef, SessionMode,
 };
 use secrecy::SecretString;
 
@@ -86,42 +86,6 @@ fn encrypted(session: &NativeSession, id: &[u8]) -> Vec<u8> {
 #[test]
 #[ignore = "requires tools/test-kem-hkdf.sh disposable Kryoptic store"]
 fn token_hybrid_construction_and_policy() {
-    // Generate independent classical peers using a separate native lifecycle.
-    let (native_module, native_session) = native();
-    let mut peers = vec![];
-    for index in 0..2 {
-        let (public, _) = native_session
-            .generate_key_pair(
-                &Mechanism::EccKeyPairGen,
-                &[
-                    Attribute::Token(true),
-                    Attribute::Id(vec![0xF0, index]),
-                    Attribute::EcParams(vec![6, 8, 0x2A, 0x86, 0x48, 0xCE, 0x3D, 3, 1, 7]),
-                ],
-                &[
-                    Attribute::Token(true),
-                    Attribute::Id(vec![0xF0, index]),
-                    Attribute::Private(true),
-                    Attribute::Sensitive(true),
-                    Attribute::Extractable(false),
-                    Attribute::Derive(true),
-                    Attribute::Sign(false),
-                    Attribute::AlwaysAuthenticate(false),
-                ],
-            )
-            .unwrap();
-        let attrs = native_session
-            .get_attributes(public, &[AttributeType::EcPoint])
-            .unwrap();
-        let Attribute::EcPoint(point) = &attrs[0] else {
-            panic!("missing EC point")
-        };
-        assert_eq!(&point[..3], &[4, 65, 4]);
-        assert_eq!(point.len(), 67);
-        peers.push(point[2..].to_vec());
-    }
-    native_session.close().unwrap();
-    native_module.finalize().unwrap();
     let module = Module::load(path()).unwrap();
     let token = module
         .resolve_token_uri(&"pkcs11:token=kdf-test".parse().unwrap())
@@ -132,6 +96,24 @@ fn token_hybrid_construction_and_policy() {
             "12345678",
         ))))
         .unwrap();
+    let mut peers = vec![];
+    for index in 0..2 {
+        let (public, _) = session
+            .generate_ecdh_key_pair(&EcdhKeyPairRequest {
+                curve: NamedCurve::P256,
+                id: &[0xF0, index],
+                label: b"hybrid agreement peer",
+            })
+            .unwrap();
+        let attrs = public.read_attributes(&[AttributeType::EcPoint]).unwrap();
+        let [Attribute::EcPoint(point)] = attrs.expose_values() else {
+            panic!("missing public point")
+        };
+        let point = point.strip_prefix(&[4, 65]).unwrap();
+        assert_eq!(point.len(), 65);
+        assert_eq!(point[0], 4);
+        peers.push(point.to_vec());
+    }
     for index in 0..2 {
         session
             .derive_ecdh_secret(

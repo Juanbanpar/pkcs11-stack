@@ -57,7 +57,7 @@ bash tools/provision-client-softhsm.sh
 if [[ "${PKCS11_TEST_REQUIRE_PQC:-0}" == 1 ]]; then
     cargo test -p pkcs11-client --test ml_dsa_softhsm --test ml_kem_softhsm --locked -- --ignored --test-threads=1
 fi
-cargo test -p pkcs11-runtime --test key_operations_softhsm --locked -- --ignored --test-threads=1
+cargo test -p pkcs11-runtime --test key_operations_softhsm --test generation_softhsm --locked -- --ignored --test-threads=1
 if [[ "${PKCS11_TEST_DESKTOP:-0}" == 1 ]]; then
     cargo test -p pkcs11-desktop --locked -- --ignored --test-threads=1
 fi

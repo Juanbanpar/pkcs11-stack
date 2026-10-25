@@ -4,6 +4,8 @@
 
 mod administration;
 mod encryption;
+mod generation;
+pub use generation::{AesKeyPurpose, AesKeyRequest, AesKeySize, EcdhKeyPairRequest};
 mod hkdf;
 mod hybrid;
 mod key_operations;
