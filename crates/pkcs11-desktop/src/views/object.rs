@@ -118,6 +118,24 @@ pub fn detail(state: &UiState) -> Element<'_, Message> {
         Some(ObjectClass::SECRET_KEY) => {
             actions = actions
                 .push(
+                    button("Encrypt AES-GCM…")
+                        .width(Length::Fill)
+                        .on_press_maybe(
+                            state
+                                .can_open_cipher(CryptoMode::Encrypt)
+                                .then_some(Message::OpenCipher(CryptoMode::Encrypt)),
+                        ),
+                )
+                .push(
+                    button("Decrypt AES-GCM…")
+                        .width(Length::Fill)
+                        .on_press_maybe(
+                            state
+                                .can_open_cipher(CryptoMode::Decrypt)
+                                .then_some(Message::OpenCipher(CryptoMode::Decrypt)),
+                        ),
+                )
+                .push(
                     button("Wrap AES key…").width(Length::Fill).on_press_maybe(
                         state
                             .can_open_key_operation(CryptoMode::Wrap)

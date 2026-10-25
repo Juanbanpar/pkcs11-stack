@@ -1,12 +1,18 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use super::*;
-use crate::backend::{CipherJob, CryptoMode, CryptoScope};
-use pkcs11_client::{DigestAlgorithm, OaepChoice, ObjectClass};
+use crate::backend::{AesGcmFiles, CipherJob, CipherParameters, CryptoMode, CryptoScope};
+use pkcs11_client::{DigestAlgorithm, ObjectClass};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct CipherChoice(pub OaepChoice);
+pub struct CipherChoice(pub CipherParameters);
 impl std::fmt::Display for CipherChoice {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self.0.digest {
+        let choice = match self.0 {
+            CipherParameters::AesGcm(caps) => {
+                return write!(f, "AES-{} GCM / 128-bit tag", caps.key_size.length() * 8);
+            }
+            CipherParameters::Oaep(choice) => choice,
+        };
+        f.write_str(match choice.digest {
             DigestAlgorithm::Sha256 => "RSA-OAEP / SHA-256",
             DigestAlgorithm::Sha384 => "RSA-OAEP / SHA-384",
             DigestAlgorithm::Sha512 => "RSA-OAEP / SHA-512",
@@ -17,6 +23,8 @@ impl std::fmt::Display for CipherChoice {
 pub enum CipherField {
     Input,
     Output,
+    Nonce,
+    Aad,
 }
 pub struct CipherForm {
     pub id: RequestId,
@@ -26,6 +34,9 @@ pub struct CipherForm {
     pub loaded: bool,
     pub input: String,
     pub output: String,
+    pub nonce: String,
+    pub aad: String,
+    picked_aad: Option<PathBuf>,
     picked_input: Option<PathBuf>,
     picked_output: Option<PathBuf>,
     pub picker: Option<(RequestId, CipherField)>,
@@ -38,12 +49,20 @@ impl UiState {
                 !entry.ambiguous
                     && entry.uri.is_some()
                     && match mode {
-                        CryptoMode::Encrypt => entry.class == Some(ObjectClass::PUBLIC_KEY),
+                        CryptoMode::Encrypt => {
+                            entry.class == Some(ObjectClass::PUBLIC_KEY)
+                                || (entry.class == Some(ObjectClass::SECRET_KEY)
+                                    && self
+                                        .token()
+                                        .is_some_and(|token| token.login == LoginState::User))
+                        }
                         CryptoMode::Decrypt => {
-                            entry.class == Some(ObjectClass::PRIVATE_KEY)
-                                && self
-                                    .token()
-                                    .is_some_and(|token| token.login == LoginState::User)
+                            matches!(
+                                entry.class,
+                                Some(ObjectClass::PRIVATE_KEY | ObjectClass::SECRET_KEY)
+                            ) && self
+                                .token()
+                                .is_some_and(|token| token.login == LoginState::User)
                         }
                         _ => false,
                     }
@@ -69,6 +88,9 @@ impl UiState {
             loaded: false,
             input: String::new(),
             output: String::new(),
+            nonce: String::new(),
+            aad: String::new(),
+            picked_aad: None,
             picked_input: None,
             picked_output: None,
             picker: None,
@@ -87,6 +109,11 @@ impl UiState {
             && form.id == id
         {
             match field {
+                CipherField::Nonce => form.nonce = value,
+                CipherField::Aad => {
+                    form.aad = value;
+                    form.picked_aad = None;
+                }
                 CipherField::Input => {
                     form.input = value;
                     form.picked_input = None;
@@ -116,6 +143,9 @@ impl UiState {
         field: CipherField,
     ) -> Option<(RequestId, bool)> {
         let form = self.cipher_form.as_ref()?;
+        if matches!(field, CipherField::Nonce) {
+            return None;
+        }
         if !self.can_submit() || form.id != id || form.picker.is_some() {
             return None;
         }
@@ -134,6 +164,11 @@ impl UiState {
             form.picker = None;
             if let Some(path) = path {
                 match field {
+                    CipherField::Nonce => {}
+                    CipherField::Aad => {
+                        form.aad = path.to_string_lossy().into_owned();
+                        form.picked_aad = Some(path);
+                    }
                     CipherField::Input => {
                         form.input = path.to_string_lossy().into_owned();
                         form.picked_input = Some(path);
@@ -172,8 +207,28 @@ impl UiState {
             self.notification = Some(Notification::Error(BackendError::CipherInput));
             return None;
         }
+        let aes_gcm = if matches!(form.choice?.0, CipherParameters::AesGcm(_)) {
+            let nonce = (form.nonce.len() == 24)
+                .then(|| management::identifier(&form.nonce))
+                .flatten()
+                .and_then(|bytes| bytes.try_into().ok());
+            let Some(nonce) = nonce else {
+                self.notification = Some(Notification::Error(BackendError::CipherInput));
+                return None;
+            };
+            Some(AesGcmFiles {
+                nonce,
+                aad: form
+                    .picked_aad
+                    .clone()
+                    .or_else(|| (!form.aad.is_empty()).then(|| PathBuf::from(&form.aad))),
+            })
+        } else {
+            None
+        };
         let form = self.cipher_form.take()?;
         let job = CipherJob {
+            aes_gcm,
             choice: form.choice?.0,
             input: form
                 .picked_input

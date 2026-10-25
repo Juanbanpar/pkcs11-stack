@@ -434,8 +434,8 @@ guaranteed zeroized.
 Callers manage nonce uniqueness per key across writers, restarts and copies of key
 material. No nonce generation/tracking, retry, software fallback, streaming or file
 format is provided. Keep the nonce, AAD and protocol context with the ciphertext;
-an error does not authorize nonce reuse. These APIs are not yet exposed by the CLI
-or desktop.
+an error does not authorize nonce reuse. The CLI and desktop expose the same raw
+ciphertext/tag profile with an explicit nonce and optional AAD file.
 
 ## RSA-OAEP encryption
 

@@ -87,8 +87,16 @@ async fn settle<P: Program + 'static>(
     panic!("UI event stream disconnected");
 }
 fn run(initial: fn() -> UiState, steps: &[&str]) -> App {
+    run_focused(initial, steps, None)
+}
+fn run_focused(initial: fn() -> UiState, steps: &[&str], focus: Option<&'static str>) -> App {
     let program = iced::application(
-        move || App::without_worker(initial()),
+        move || {
+            (
+                App::without_worker(initial()),
+                focus.map_or_else(iced::Task::none, crate::ui::focus::focus),
+            )
+        },
         App::update,
         App::view,
     )
@@ -952,5 +960,55 @@ fn selecting_aes_clears_signing_authentication_and_disables_its_control() {
     assert!(app.state.current_operation.is_none());
     for dark in [false, true] {
         render_screen(&app.state, "generate-aes", 900, 600, dark);
+    }
+}
+
+#[test]
+fn aes_gcm_file_form_accepts_nonce_and_aad_without_running_crypto() {
+    fn gcm() -> UiState {
+        use crate::backend::{
+            BackendCommand, BackendEvent, BackendResult, CipherParameters, CryptoMode,
+        };
+        let mut state = state();
+        state.loaded_modules[0].tokens[0].login = LoginState::User;
+        state.token_page = TokenPage::Objects;
+        let mut key = object(4, "AES encryption key");
+        key.class = Some(pkcs11_client::ObjectClass::SECRET_KEY);
+        key.uri = Some("pkcs11:serial=A;id=%04;type=secret-key".into());
+        state.objects = vec![key];
+        state.selected_object = Some(ResourceId(4));
+        let BackendCommand::CryptoOptions { id, scope, .. } =
+            state.open_cipher(CryptoMode::Encrypt).unwrap()
+        else {
+            panic!("options")
+        };
+        state.event(BackendEvent::Completed {
+            id,
+            result: Ok(BackendResult::CipherOptions {
+                scope,
+                choices: vec![CipherParameters::AesGcm(
+                    pkcs11_client::AesGcmCapabilities {
+                        key_size: pkcs11_client::AesKeySize::Bits256,
+                    },
+                )],
+            }),
+        });
+        state
+    }
+    let app = run_focused(
+        gcm,
+        &[
+            "type \"0102030405060708090a0b0c\"",
+            "type tab",
+            "type \"context.bin\"",
+        ],
+        Some("input-Nonce (24 hexadecimal digits)"),
+    );
+    let form = app.state.cipher_form.as_ref().unwrap();
+    assert_eq!(form.nonce, "0102030405060708090a0b0c");
+    assert_eq!(form.aad, "context.bin");
+    assert!(app.state.current_operation.is_none());
+    for dark in [false, true] {
+        render_screen(&app.state, "aes-gcm-encrypt", 1060, 720, dark);
     }
 }

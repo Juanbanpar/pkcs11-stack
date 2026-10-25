@@ -846,7 +846,7 @@ impl UiState {
             match self.operation_kind {
                 Some(OperationKind::Administer) => "Applying token administration once…",
                 Some(OperationKind::KeyOperation) => "Executing token key operation once…",
-                Some(OperationKind::Cipher) => "Executing RSA OAEP once and saving output…",
+                Some(OperationKind::Cipher) => "Executing cipher once and saving output…",
                 Some(OperationKind::Random) => "Generating token random bytes and saving them…",
                 Some(OperationKind::CryptoOptions) => "Reading permitted crypto choices…",
                 Some(OperationKind::Sign) => "Signing once and saving the signature…",

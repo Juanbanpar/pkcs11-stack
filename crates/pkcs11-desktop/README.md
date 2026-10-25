@@ -125,6 +125,26 @@ Message files are limited to 16 MiB and signature inputs to 16 KiB. RSA signatur
 use raw modulus-width bytes; EC signatures use fixed-width `r || s`, not ASN.1 DER.
 File contents, signature bytes and credentials remain on the worker.
 
+For AES-GCM, log in as USER and select an AES secret key on **Objects**. Choose
+**Encrypt AES-GCM** or **Decrypt AES-GCM**. Supply exactly 24 hexadecimal nonce
+digits, an input file, a new output path and, optionally, an AAD file. The worker
+checks key permissions and provider support again before execution. Wrapping-only
+keys cannot encrypt/decrypt.
+
+Output/input is raw ciphertext followed by a full 16-byte tag. Nonce and AAD are
+separate: retain them for decryption. Plaintext is limited to 16 MiB and AAD to
+1 MiB; empty files and absent AAD are supported. Nonces must never repeat for the
+same key, including across applications, restarts and copies of key material.
+After an encryption error, use a new nonce. This interface does not generate or
+track nonces and does not define a file envelope.
+
+Decryption writes no plaintext before successful authentication and checked
+session closure. Altered nonce, AAD, ciphertext or tag fails. Existing output files
+are preserved; failures can leave an empty output, or a partial file after a write
+error. Input and plaintext use zeroizing storage on the worker. Parameter forms
+clear after submission or navigation, and stale capability/picker results are
+ignored. Operations are not retried.
+
 On **Objects**, select a public RSA key and choose **Encrypt RSA OAEP**, or log in
 as USER and select a private RSA key for **Decrypt RSA OAEP**. Client-provided
 choices display SHA-2 digest and byte limits. OAEP uses a matching MGF1 digest and
@@ -251,7 +271,7 @@ the worker off the UI thread.
 
 Tests cover state transitions, stale responses, picker results, backend errors,
 shutdown, lazy details, ambiguous objects, metadata redaction and isolated SoftHSM
-module/object/mechanism, USER/SO authentication, object management, signing/verification, RSA-OAEP, ECDH and RFC 3394 workflows:
+module/object/mechanism, USER/SO authentication, object management, signing/verification, AES-GCM, RSA-OAEP, ECDH and RFC 3394 workflows:
 
 ```sh
 PKCS11_TEST_DESKTOP=1 ./tools/test-softhsm.sh

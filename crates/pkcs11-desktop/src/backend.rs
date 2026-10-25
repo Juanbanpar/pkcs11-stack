@@ -15,7 +15,7 @@ mod cipher;
 mod key_operations;
 pub use key_operations::KeyJob;
 mod crypto;
-pub use cipher::CipherJob;
+pub use cipher::{AesGcmFiles, CipherJob, CipherParameters};
 mod management;
 mod random;
 pub use authentication::{LoginRole, LoginState, SecretInput};
@@ -245,7 +245,7 @@ pub enum BackendResult {
     },
     CipherOptions {
         scope: CryptoScope,
-        choices: Vec<pkcs11_client::OaepChoice>,
+        choices: Vec<CipherParameters>,
     },
     RandomWritten {
         length: usize,
@@ -363,10 +363,10 @@ impl BackendError {
                 "The provider rejected these OAEP digest parameters. No digest downgrade or fallback was attempted."
             }
             Self::CipherUnavailable => {
-                "Select a permitted RSA public key to encrypt, or a permitted private key after USER login to decrypt. Per-operation-authentication decryption is unsupported."
+                "Select a permitted RSA key or an AES secret key. AES and private-key operations require USER login. Per-operation-authentication RSA decryption is unsupported."
             }
             Self::CipherInput => {
-                "Provide input and a new output path within the selected OAEP byte limits. Ciphertext must match the displayed RSA width."
+                "Provide valid cipher parameters, bounded input, optional AAD and a new output path. AES-GCM requires a 24-digit hexadecimal nonce and a full tag."
             }
             Self::RandomUnavailable => {
                 "Select an initialized token that advertises a random generator."
@@ -968,3 +968,6 @@ mod tests;
 
 #[cfg(test)]
 mod generation_tests;
+
+#[cfg(test)]
+mod gcm_tests;

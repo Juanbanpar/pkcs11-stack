@@ -1124,11 +1124,13 @@ fn cipher_state(
         id,
         BackendResult::CipherOptions {
             scope,
-            choices: vec![pkcs11_client::OaepChoice {
-                digest: pkcs11_client::DigestAlgorithm::Sha256,
-                maximum_plaintext: 190,
-                ciphertext_length: 256,
-            }],
+            choices: vec![crate::backend::CipherParameters::Oaep(
+                pkcs11_client::OaepChoice {
+                    digest: pkcs11_client::DigestAlgorithm::Sha256,
+                    maximum_plaintext: 190,
+                    ciphertext_length: 256,
+                },
+            )],
         },
     ));
     (state, id, scope)
@@ -1149,7 +1151,9 @@ fn cipher_forms_validate_and_submit_once_without_restoring_a_navigated_token() {
     };
     assert_eq!(actual, scope);
     assert_eq!(job.input, PathBuf::from("cipher.bin"));
-    assert_eq!(job.choice.maximum_plaintext, 190);
+    assert!(
+        matches!(job.choice,crate::backend::CipherParameters::Oaep(choice) if choice.maximum_plaintext == 190)
+    );
     assert!(state.cipher_form.is_none());
     assert!(!state.can_cancel());
     assert!(!state.can_submit());
@@ -1609,4 +1613,87 @@ fn non_signing_generation_rejects_stale_authentication_and_bounds_before_enqueue
         );
         assert!(!state.can_cancel());
     }
+}
+
+fn aes_cipher_state() -> (UiState, RequestId, crate::backend::CryptoScope) {
+    use crate::backend::{CipherParameters, CryptoMode};
+    let (mut state, id, _) = cipher_state(CryptoMode::Encrypt);
+    state.dismiss_cipher(id);
+    state.objects[0].class = Some(pkcs11_client::ObjectClass::SECRET_KEY);
+    let BackendCommand::CryptoOptions { id, scope, .. } =
+        state.open_cipher(CryptoMode::Encrypt).unwrap()
+    else {
+        panic!("options")
+    };
+    state.event(complete(
+        id,
+        BackendResult::CipherOptions {
+            scope,
+            choices: vec![CipherParameters::AesGcm(
+                pkcs11_client::AesGcmCapabilities {
+                    key_size: pkcs11_client::AesKeySize::Bits256,
+                },
+            )],
+        },
+    ));
+    (state, id, scope)
+}
+#[test]
+fn aes_gcm_forms_validate_nonce_and_clear_parameters_after_submission() {
+    let (mut state, id, scope) = aes_cipher_state();
+    state.cipher_edit(id, CipherField::Input, "plain".into());
+    state.cipher_edit(id, CipherField::Output, "encrypted".into());
+    for nonce in [
+        "",
+        "00",
+        "zzzzzzzzzzzzzzzzzzzzzzzz",
+        " 010101010101010101010101 ",
+    ] {
+        state.cipher_edit(id, CipherField::Nonce, nonce.into());
+        assert!(state.submit_cipher(id).is_none());
+    }
+    assert!(state.cipher_picker(id, CipherField::Nonce).is_none());
+    let (picker, save) = state.cipher_picker(id, CipherField::Aad).unwrap();
+    assert!(!save);
+    state.cipher_picked(picker, Some(PathBuf::from("context")));
+    state.cipher_edit(id, CipherField::Nonce, "010101010101010101010101".into());
+    let BackendCommand::Cipher {
+        job, scope: actual, ..
+    } = state.submit_cipher(id).unwrap()
+    else {
+        panic!("cipher")
+    };
+    assert_eq!(actual, scope);
+    let gcm = job.aes_gcm.unwrap();
+    assert_eq!(gcm.nonce, [1; 12]);
+    assert_eq!(gcm.aad, Some("context".into()));
+    assert!(state.cipher_form.is_none());
+    assert!(!state.can_cancel());
+}
+#[test]
+fn aes_gcm_forms_reject_late_choices_and_aad_pickers_after_navigation() {
+    let (mut state, id, scope) = aes_cipher_state();
+    let (picker, _) = state.cipher_picker(id, CipherField::Aad).unwrap();
+    state.cipher_edit(id, CipherField::Nonce, "010101010101010101010101".into());
+    state.select_token(ResourceId(1), ResourceId(3));
+    state.cipher_picked(picker, Some("obsolete-context".into()));
+    assert!(state.cipher_form.is_none());
+    state.event(complete(
+        id,
+        BackendResult::CipherOptions {
+            scope,
+            choices: vec![],
+        },
+    ));
+    assert!(state.cipher_form.is_none());
+    assert!(state.submit_cipher(id).is_none());
+}
+
+#[test]
+fn aes_gcm_secret_key_operations_require_user_login() {
+    let (mut state, id, _) = aes_cipher_state();
+    state.loaded_modules[0].tokens[0].login = LoginState::Public;
+    assert!(!state.can_open_cipher(crate::backend::CryptoMode::Encrypt));
+    assert!(!state.can_open_cipher(crate::backend::CryptoMode::Decrypt));
+    assert!(state.submit_cipher(id).is_none());
 }

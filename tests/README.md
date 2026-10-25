@@ -179,7 +179,10 @@ returning plaintext. They also cover RO execution, permissions, allowed mechanis
 wrong key classes/types, generated keys and request/output redaction.
 
 Client tests cover typed requests, bounded preflight, private export refusal and
-checked closure. Kryoptic additionally exercises ML-KEM → HKDF → AES-GCM for all
+checked closure. CLI and desktop file tests cover explicit nonce/AAD parameters,
+raw-format round trips, tampered inputs, empty messages, output preservation and
+no plaintext release on authentication failure. Desktop forms reject stale
+choices/pickers and clear parameters on submission or navigation. Kryoptic additionally exercises ML-KEM → HKDF → AES-GCM for all
 three KEM parameter sets and an application hybrid-derived AES key. These tests do
 not constitute algorithm validation.
 

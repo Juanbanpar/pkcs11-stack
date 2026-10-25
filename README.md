@@ -88,9 +88,10 @@ Runtime and client generate derivation-only EC pairs and AES keys restricted to
 encryption/decryption or wrapping/unwrapping. A shared client capability query
 reports generation choices for the CLI and GUI. Both expose ECDH and AES
 generation with explicit purposes.
-Runtime and client also expose AES-GCM with 12-byte caller-managed nonces, full
-16-byte tags and authenticated, zeroizing plaintext output. This is a bounded
-single-part API; CLI/GUI AES-GCM workflows are not yet implemented.
+AES-GCM is available through the libraries, CLI and desktop with 12-byte
+caller-managed nonces, full 16-byte tags and authenticated, zeroizing plaintext
+output. File workflows use raw ciphertext followed by the tag, with a separate
+nonce and optional AAD file. Plaintext is limited to 16 MiB.
 Private-key import is not implemented. Certificate parsing and binding do not validate
 certificate trust; applications configure trust separately.
 
@@ -101,7 +102,7 @@ authentication paths. Refresh updates inventories and clears stale selections.
 The GUI also generates signing/ECDH pairs and AES keys, imports DER certificates, confirms
 object deletion, exports public objects, signs files and verifies signatures
 against selected certificates. It can also save bytes from a token's random
-generator, encrypt/decrypt small RSA-OAEP payloads, derive ECDH secrets, and
+generator, encrypt/decrypt AES-GCM files or small RSA-OAEP payloads, derive ECDH secrets, and
 wrap/unwrap AES keys with permitted keys. Administration supports confirmed token
 initialization, USER PIN initialization/reset, and USER/SO PIN changes with host PINs.
 
