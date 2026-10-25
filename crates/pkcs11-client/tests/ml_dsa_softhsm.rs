@@ -77,6 +77,18 @@ fn client_ml_dsa_signing_binding_and_public_export() {
         )
         .unwrap();
         let der = management.export_ml_dsa_public_key(&key).unwrap();
+        assert_eq!(management.export_public(key.as_object_ref()).unwrap(), der);
+        assert!(management.export_classical_public_key(&key).is_err());
+        let private = pkcs11_client::object_reference(
+            format!("pkcs11:token=pqc-test;id=%C1%{index:02X};type=private")
+                .parse()
+                .unwrap(),
+        )
+        .unwrap();
+        assert!(matches!(
+            management.export_public(&private),
+            Err(Error::UnsupportedExport)
+        ));
         let der_path = root.join(format!("mldsa-{index}.der"));
         let pem_path = root.join(format!("mldsa-{index}.pem"));
         let cert_path = root.join(format!("mldsa-{index}.cert.der"));

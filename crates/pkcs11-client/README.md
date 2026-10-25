@@ -258,9 +258,13 @@ generation API keeps its full RSA range and requires a nonempty ID.
 
 `export_public` exports public certificate/data values and supported public keys.
 It rejects CKA_PRIVATE objects and private/secret key classes before reading values.
-RSA and named EC public attributes are validated and encoded as SubjectPublicKeyInfo
-DER; incomplete or invalid attributes fail. `export_value` retains its explicit
-raw certificate/data export behavior.
+The observed key type selects RSA, named EC, ML-DSA or ML-KEM SubjectPublicKeyInfo
+DER encoding. ML-DSA and ML-KEM use their typed export helpers and require valid
+parameter sets and public-key bytes. Unknown types and incomplete or invalid
+attributes fail without trying another encoder. Export does not authenticate a
+peer or establish certificate trust. `export_classical_public_key` restricts
+export to RSA and named EC keys; the typed PQC helpers retain their family checks.
+`export_value` retains its explicit raw certificate/data export behavior.
 
 `objects` reads only caller-requested attributes of persistent objects visible to
 the session. `inspect` reports available, unavailable, sensitive or unsupported

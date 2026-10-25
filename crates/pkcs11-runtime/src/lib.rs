@@ -41,7 +41,7 @@ pub use session::{AttributeValues, Authentication, Object, ObjectRef, Pin, Sessi
 pub use cryptoki::{
     context::Info as LibraryInfo,
     mechanism::{MechanismInfo, MechanismType},
-    object::{Attribute, AttributeInfo, AttributeType, CertificateType, ObjectClass},
+    object::{Attribute, AttributeInfo, AttributeType, CertificateType, KeyType, ObjectClass},
     session::{SessionInfo, SessionState},
     slot::{Slot, SlotInfo, TokenInfo},
 };

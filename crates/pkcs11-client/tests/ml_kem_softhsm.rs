@@ -90,6 +90,12 @@ fn client_ml_kem_generation_and_shared_secret_lifecycle() {
             ErrorKind::Policy
         );
         let der = session.export_ml_kem_public_key(&public).unwrap();
+        assert_eq!(session.export_public(public.as_object_ref()).unwrap(), der);
+        assert!(session.export_classical_public_key(&public).is_err());
+        assert!(matches!(
+            session.export_public(private.as_object_ref()),
+            Err(Error::UnsupportedExport)
+        ));
         let peer = MlKemPublicKey::from_spki_der(&der).unwrap();
         assert_eq!(peer.parameter_set(), parameter);
         assert_eq!(peer.to_spki_der().unwrap(), der);

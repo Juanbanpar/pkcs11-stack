@@ -539,7 +539,9 @@ fn management_operation(
                     .map_err(pkcs11_client::Error::from)?;
                 session.export_ml_dsa_public_key(&key)?
             } else if reference.uri().path_attribute("type") == Some(b"public") {
-                session.export_public(&reference)?
+                let key = pkcs11_client::PublicKeyRef::new(uri(m, "object")?)
+                    .map_err(pkcs11_client::Error::from)?;
+                session.export_classical_public_key(&key)?
             } else {
                 session.export_value(&reference)?
             };

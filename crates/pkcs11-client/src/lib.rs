@@ -53,7 +53,7 @@ pub use object_locator::object_locator;
 pub use pkcs11_locator::Pkcs11Uri;
 pub use pkcs11_runtime::{
     Attribute, AttributeInfo, AttributeType, AttributeValues, Authentication, CertificateRef,
-    DigestAlgorithm, HashLocation, HashingPolicy, KeyCapabilities, KeyKind, LibraryInfo,
+    DigestAlgorithm, HashLocation, HashingPolicy, KeyCapabilities, KeyKind, KeyType, LibraryInfo,
     MechanismInfo, MechanismType, Module, NamedCurve, ObjectClass, ObjectRef, Pin, PrivateKeyRef,
     PssParameters, PublicKeyMetadata, PublicKeyRef, SessionMode, SessionPool, SessionState,
     SignInput, SignPlan, SignRequest, SignatureAlgorithm, SigningMechanism, SigningPolicy,
