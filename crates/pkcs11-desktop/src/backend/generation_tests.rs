@@ -222,3 +222,160 @@ fn software_token_typed_generation_permissions_and_use() {
     registry.close().unwrap();
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+#[ignore = "requires tools/test-softhsm.sh; PQC execution required with PKCS11_TEST_REQUIRE_PQC=1"]
+fn software_token_pqc_generation_uses_advertised_choices_and_private_permissions() {
+    use pkcs11_client::{
+        Authentication, MlDsaParameterSet, MlKemOperation, MlKemParameterSet, PrivateKeyRef,
+        SessionMode,
+    };
+    assert_eq!(std::env::var("PKCS11_TEST_ISOLATED").as_deref(), Ok("1"));
+    let mut registry = Registry::default();
+    let module = registry
+        .load(&PathBuf::from(
+            std::env::var_os("PKCS11_TEST_MODULE").unwrap(),
+        ))
+        .unwrap();
+    let token = registry.modules[0]
+        .entry
+        .tokens
+        .iter()
+        .find(|entry| entry.label == "client-test")
+        .unwrap()
+        .id;
+    let choices = registry.capabilities(module, token).unwrap();
+    let (_, uri) = registry.location(module, token).unwrap();
+    let advertised = registry.modules[0]
+        .provider
+        .generation_capabilities(&uri)
+        .unwrap();
+    let pqc: Vec<_> = choices
+        .into_iter()
+        .filter(|kind| matches!(kind, GenerationKind::MlDsa(_) | GenerationKind::MlKem(_)))
+        .collect();
+    assert_eq!(
+        pqc,
+        advertised
+            .ml_dsa
+            .into_iter()
+            .map(GenerationKind::MlDsa)
+            .chain(advertised.ml_kem.into_iter().map(GenerationKind::MlKem))
+            .collect::<Vec<_>>()
+    );
+    if std::env::var("PKCS11_TEST_REQUIRE_PQC").as_deref() == Ok("1") {
+        assert_eq!(
+            pqc,
+            vec![
+                GenerationKind::MlDsa(MlDsaParameterSet::MlDsa44),
+                GenerationKind::MlDsa(MlDsaParameterSet::MlDsa65),
+                GenerationKind::MlDsa(MlDsaParameterSet::MlDsa87),
+                GenerationKind::MlKem(MlKemParameterSet::MlKem512),
+                GenerationKind::MlKem(MlKemParameterSet::MlKem768),
+                GenerationKind::MlKem(MlKemParameterSet::MlKem1024),
+            ]
+        );
+    }
+    for (index, &kind) in pqc.iter().enumerate() {
+        let label = format!("desktop-pqc-{index}");
+        let list = objects(
+            registry.manage(
+                module,
+                token,
+                ManagementAction::Generate {
+                    kind,
+                    id: vec![0xD7, 0x50, 0x51, index as u8],
+                    label: label.as_bytes().to_vec(),
+                    always_authenticate: false,
+                },
+            ),
+            Some(BackendError::ManagementUnavailable),
+        );
+        assert!(list.iter().all(|entry| entry.label != label));
+    }
+    registry
+        .login(
+            module,
+            token,
+            LoginRole::User,
+            SecretInput::Value("12345678".into()),
+        )
+        .unwrap();
+    for (index, &kind) in pqc.iter().enumerate() {
+        let label = format!("desktop-pqc-{index}");
+        let context = matches!(kind, GenerationKind::MlDsa(MlDsaParameterSet::MlDsa65));
+        let action = |always_authenticate| ManagementAction::Generate {
+            kind,
+            id: vec![0xD7, 0x50, 0x51, index as u8],
+            label: label.as_bytes().to_vec(),
+            always_authenticate,
+        };
+        if matches!(kind, GenerationKind::MlKem(_)) {
+            let list = objects(
+                registry.manage(module, token, action(true)),
+                Some(BackendError::InvalidForm),
+            );
+            assert!(list.iter().all(|entry| entry.label != label));
+        }
+        let list = objects(registry.manage(module, token, action(context)), None);
+        let private = object(&list, &label, ObjectClass::PRIVATE_KEY);
+        let public = object(&list, &label, ObjectClass::PUBLIC_KEY);
+        assert_eq!(list.iter().filter(|entry| entry.label == label).count(), 2);
+        let private_fields = registry.inspect(module, token, private).unwrap();
+        let public_fields = registry.inspect(module, token, public).unwrap();
+        let signing = matches!(kind, GenerationKind::MlDsa(_));
+        for (fields, name, enabled) in [
+            (&private_fields, "Persistent", true),
+            (&private_fields, "Private", true),
+            (&private_fields, "Sensitive", true),
+            (&private_fields, "Extractable", false),
+            (&private_fields, "Always authenticate", context),
+            (&public_fields, "Private", false),
+            (&public_fields, "Persistent", true),
+            (
+                &private_fields,
+                if signing { "Sign" } else { "Decapsulate" },
+                true,
+            ),
+            (
+                &public_fields,
+                if signing { "Verify" } else { "Encapsulate" },
+                true,
+            ),
+        ] {
+            assert!(
+                fields.iter().any(|field| field.name == name
+                    && field.value.as_deref() == Some(if enabled { "true" } else { "false" })),
+                "{kind:?}: {name}"
+            );
+        }
+        let (reference, _) = registry.reference(module, token, private).unwrap();
+        let mut session = registry.modules[0]
+            .provider
+            .management(&uri, SessionMode::ReadOnly, Authentication::None)
+            .unwrap();
+        match kind {
+            GenerationKind::MlDsa(parameter) => {
+                let key = PrivateKeyRef::new(reference.uri().to_string().parse().unwrap()).unwrap();
+                let capabilities = session.ml_dsa_capabilities(&key).unwrap();
+                assert_eq!(capabilities.parameter_set, parameter);
+                assert_eq!(capabilities.always_authenticate, context);
+            }
+            GenerationKind::MlKem(parameter) => {
+                let capabilities = session
+                    .ml_kem_capabilities(&reference, MlKemOperation::Decapsulate)
+                    .unwrap();
+                assert_eq!(capabilities.parameter_set, parameter);
+            }
+            _ => unreachable!(),
+        }
+        session.close().unwrap();
+        let list = registry.objects(module, token).unwrap();
+        assert_eq!(
+            registry.inspect(module, token, private).unwrap_err(),
+            BackendError::UnknownObject
+        );
+        assert!(list.iter().any(|entry| entry.label == label));
+    }
+    registry.close().unwrap();
+}

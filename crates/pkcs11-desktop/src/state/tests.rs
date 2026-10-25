@@ -1615,6 +1615,88 @@ fn non_signing_generation_rejects_stale_authentication_and_bounds_before_enqueue
     }
 }
 
+#[test]
+fn pqc_generation_checks_identity_and_authentication_before_enqueue() {
+    use crate::backend::{GenerationKind, ManagementAction};
+    use pkcs11_client::{MlDsaParameterSet, MlKemParameterSet};
+    for kind in [
+        GenerationKind::MlDsa(MlDsaParameterSet::MlDsa44),
+        GenerationKind::MlDsa(MlDsaParameterSet::MlDsa65),
+        GenerationKind::MlDsa(MlDsaParameterSet::MlDsa87),
+        GenerationKind::MlKem(MlKemParameterSet::MlKem512),
+        GenerationKind::MlKem(MlKemParameterSet::MlKem768),
+        GenerationKind::MlKem(MlKemParameterSet::MlKem1024),
+    ] {
+        let mut state = managing();
+        let request = state.show_page(TokenPage::Operations).unwrap().id();
+        state.event(complete(
+            request,
+            BackendResult::Capabilities {
+                module: ResourceId(1),
+                token: ResourceId(2),
+                keys: vec![kind],
+            },
+        ));
+        state.management.key_id = "01".into();
+        assert!(state.generate().is_none());
+        state.management.key_label = "PQC key".into();
+        state.management.key_id = "zz".into();
+        assert!(state.generate().is_none());
+        state.management.key_id = "01".into();
+        state.management.always_authenticate = true;
+        if !kind.supports_context_authentication() {
+            assert!(state.generate().is_none());
+            state.management.always_authenticate = false;
+        }
+        state.loaded_modules[0].tokens[0].login = LoginState::SecurityOfficer;
+        assert!(state.generate().is_none());
+        state.loaded_modules[0].tokens[0].login = LoginState::User;
+        state.loaded_modules[0].tokens[0].write_protected = true;
+        assert!(state.generate().is_none());
+        state.loaded_modules[0].tokens[0].write_protected = false;
+        let command = state.generate().unwrap();
+        assert!(matches!(command, BackendCommand::Manage {
+            action: ManagementAction::Generate { kind: selected, id, label, always_authenticate }, ..
+        } if selected == kind && id == [1] && label == b"PQC key"
+            && always_authenticate == kind.supports_context_authentication()));
+        assert!(state.management.key_label.is_empty());
+        assert!(state.management.key_id.is_empty());
+        assert!(!state.can_cancel());
+    }
+}
+
+#[test]
+fn late_pqc_choices_cannot_replace_refreshed_classical_choices() {
+    use crate::backend::GenerationKind;
+    let mut state = managing();
+    let old = state.show_page(TokenPage::Operations).unwrap().id();
+    state.cancel();
+    let fresh = state.read_capabilities().unwrap().id();
+    let classical = GenerationKind::Signing(pkcs11_client::KeyKind::Rsa { bits: 2048 });
+    state.event(complete(
+        fresh,
+        BackendResult::Capabilities {
+            module: ResourceId(1),
+            token: ResourceId(2),
+            keys: vec![classical],
+        },
+    ));
+    state.event(complete(
+        old,
+        BackendResult::Capabilities {
+            module: ResourceId(1),
+            token: ResourceId(2),
+            keys: vec![GenerationKind::MlKem(
+                pkcs11_client::MlKemParameterSet::MlKem768,
+            )],
+        },
+    ));
+    assert_eq!(
+        state.management.keys,
+        vec![crate::state::KeyChoice(classical)]
+    );
+}
+
 fn aes_cipher_state() -> (UiState, RequestId, crate::backend::CryptoScope) {
     use crate::backend::{CipherParameters, CryptoMode};
     let (mut state, id, _) = cipher_state(CryptoMode::Encrypt);

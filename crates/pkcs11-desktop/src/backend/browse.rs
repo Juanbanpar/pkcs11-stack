@@ -109,6 +109,8 @@ fn public_value(value: &Attribute) -> Option<String> {
         | Attribute::WrapWithTrusted(value)
         | Attribute::Trusted(value)
         | Attribute::Derive(value)
+        | Attribute::Encapsulate(value)
+        | Attribute::Decapsulate(value)
         | Attribute::Sensitive(value)
         | Attribute::Extractable(value)
         | Attribute::AlwaysAuthenticate(value) => value.to_string(),
@@ -149,6 +151,8 @@ fn detail_attributes(class: Option<ObjectClass>) -> Vec<(AttributeType, &'static
                 (A::Wrap, "Wrap"),
                 (A::Unwrap, "Unwrap"),
                 (A::Derive, "Derive"),
+                (A::Encapsulate, "Encapsulate"),
+                (A::Decapsulate, "Decapsulate"),
             ]);
             if class == Some(ObjectClass::SECRET_KEY) {
                 types.extend([
@@ -411,26 +415,21 @@ mod tests {
             ObjectClass::SECRET_KEY,
         ] {
             let types = detail_attributes(Some(class));
-            assert!(
-                types.len()
-                    <= if class == ObjectClass::SECRET_KEY {
-                        15
-                    } else {
-                        14
-                    }
-            );
+            assert!(types.len() <= 17);
             assert!(!types.iter().any(|(kind, _)| {
                 [
                     AttributeType::Value,
                     AttributeType::PrivateExponent,
                     AttributeType::Prime1,
                     AttributeType::Prime2,
+                    AttributeType::Seed,
                 ]
                 .contains(kind)
             }));
         }
         assert!(public_value(&Attribute::Value(b"secret-canary".to_vec())).is_none());
         assert!(public_value(&Attribute::PrivateExponent(b"secret-canary".to_vec())).is_none());
+        assert!(public_value(&Attribute::Seed(b"secret-canary".to_vec())).is_none());
         for (status, expected) in [
             (AttributeInfo::Sensitive, "sensitive"),
             (AttributeInfo::TypeInvalid, "unsupported"),

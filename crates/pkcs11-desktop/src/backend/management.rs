@@ -2,7 +2,8 @@
 use super::{BackendError, BackendResult, Registry, ResourceId, browse::read_session};
 use pkcs11_client::{
     AesKeyPurpose, AesKeyRequest, AesKeySize, Authentication, CertificateDocument,
-    EcdhKeyPairRequest, KeyKind, NamedCurve, SessionMode, SessionState,
+    EcdhKeyPairRequest, KeyKind, MlDsaParameterSet, MlKemParameterSet, NamedCurve, SessionMode,
+    SessionState,
 };
 
 use std::{
@@ -14,16 +15,19 @@ use std::{
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GenerationKind {
     Signing(KeyKind),
+    MlDsa(MlDsaParameterSet),
+    MlKem(MlKemParameterSet),
     Ecdh(NamedCurve),
     Aes(AesKeySize, AesKeyPurpose),
 }
 impl GenerationKind {
     pub fn supports_context_authentication(self) -> bool {
-        matches!(self, Self::Signing(_))
+        matches!(self, Self::Signing(_) | Self::MlDsa(_))
     }
     pub fn validate(self, id: &[u8], label: &[u8], context: bool) -> Result<(), BackendError> {
         let valid = match self {
-            Self::Signing(_) => !id.is_empty() && !label.is_empty(),
+            Self::Signing(_) | Self::MlDsa(_) => !id.is_empty() && !label.is_empty(),
+            Self::MlKem(_) => !context && !id.is_empty() && !label.is_empty(),
             Self::Ecdh(curve) => {
                 !context && EcdhKeyPairRequest { curve, id, label }.validate().is_ok()
             }
@@ -105,6 +109,8 @@ impl Registry {
             .signing
             .into_iter()
             .map(GenerationKind::Signing)
+            .chain(choices.ml_dsa.into_iter().map(GenerationKind::MlDsa))
+            .chain(choices.ml_kem.into_iter().map(GenerationKind::MlKem))
             .chain(choices.ecdh.into_iter().map(GenerationKind::Ecdh))
             .chain(choices.aes.into_iter().flat_map(|size| {
                 [AesKeyPurpose::Encryption, AesKeyPurpose::Wrapping]
@@ -181,6 +187,15 @@ impl Registry {
                             &label,
                             always_authenticate,
                         ),
+                        GenerationKind::MlDsa(parameter) => session.generate_ml_dsa_key_pair(
+                            parameter,
+                            &id,
+                            &label,
+                            always_authenticate,
+                        ),
+                        GenerationKind::MlKem(parameter) => {
+                            session.generate_ml_kem_key_pair(parameter, &id, &label)
+                        }
                         GenerationKind::Ecdh(curve) => {
                             session.generate_ecdh_key_pair(&EcdhKeyPairRequest {
                                 curve,

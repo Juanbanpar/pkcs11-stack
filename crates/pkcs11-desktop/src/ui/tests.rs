@@ -964,6 +964,53 @@ fn selecting_aes_clears_signing_authentication_and_disables_its_control() {
 }
 
 #[test]
+fn selecting_ml_kem_clears_ml_dsa_authentication_and_disables_its_control() {
+    use crate::backend::GenerationKind;
+    use crate::state::KeyChoice;
+    use pkcs11_client::{MlDsaParameterSet, MlKemParameterSet};
+    fn generation() -> UiState {
+        let mut state = state();
+        state.loaded_modules[0].tokens[0].login = LoginState::User;
+        state.token_page = TokenPage::Operations;
+        state.presentation.task = Some(ManagementTask::Generate);
+        let signing = KeyChoice(GenerationKind::MlDsa(MlDsaParameterSet::MlDsa65));
+        let kem = KeyChoice(GenerationKind::MlKem(MlKemParameterSet::MlKem768));
+        state.management.keys = vec![signing, kem];
+        state.management.key = Some(signing);
+        state
+    }
+    let app = run(
+        generation,
+        &["click \"Require authentication for every signature\""],
+    );
+    assert!(app.state.management.always_authenticate);
+    for dark in [false, true] {
+        render_screen(&app.state, "generate-ml-dsa", 900, 600, dark);
+    }
+    let app = run(
+        generation,
+        &[
+            "click \"Require authentication for every signature\"",
+            "click \"ML-DSA-65 — signing\"",
+            "type tab",
+            "type enter",
+            "click \"Require authentication for every signature\"",
+        ],
+    );
+    assert_eq!(
+        app.state.management.key,
+        Some(KeyChoice(GenerationKind::MlKem(
+            MlKemParameterSet::MlKem768
+        )))
+    );
+    assert!(!app.state.management.always_authenticate);
+    assert!(app.state.current_operation.is_none());
+    for dark in [false, true] {
+        render_screen(&app.state, "generate-ml-kem", 900, 600, dark);
+    }
+}
+
+#[test]
 fn aes_gcm_file_form_accepts_nonce_and_aad_without_running_crypto() {
     fn gcm() -> UiState {
         use crate::backend::{

@@ -71,9 +71,11 @@ loaded only after an explicit Load action; paths are not saved or loaded on star
 Use **Operations** to choose a key generation, certificate import or random
 generation task. Each task opens its own form. Key generation and certificate
 import require USER login on a writable token. Generation uses the client's shared
-capability query to offer RSA/EC signing pairs, P-256/P-384/P-521 ECDH pairs and
-AES-128/192/256 keys. Each choice names its purpose. ECDH private keys permit only
-derivation; AES keys permit either encryption/decryption or wrapping/unwrapping.
+capability query to offer RSA/EC and ML-DSA-44/65/87 signing pairs,
+ML-KEM-512/768/1024 encapsulation/decapsulation pairs, P-256/P-384/P-521 ECDH pairs
+and AES-128/192/256 keys. Unsupported choices are omitted. Each choice names its
+purpose. ECDH private keys permit only derivation; AES keys permit either
+encryption/decryption or wrapping/unwrapping.
 Private and secret keys are sensitive and nonextractable. Per-signature
 authentication is available only for signing keys and clears when another purpose
 is selected. A provider may reject an advertised choice or template; operations
@@ -82,7 +84,10 @@ are never retried automatically.
 Supply a label and hexadecimal ID. ECDH/AES identity fields each require 1–128
 bytes. Existing public/private IDs are rejected for ECDH pairs, and secret IDs for
 AES, without a uniqueness guarantee against concurrent writers. Signing pairs
-retain their existing identity behavior. Key pairs share their ID and label.
+and ML-KEM pairs permit duplicate IDs; ambiguous selectors are rejected. Key
+pairs share their ID and label. ML-KEM does not permit per-operation PIN
+authentication. Use `pkcs11ctl` for ML-DSA signing, KEM operations and PQC public
+export; those workflows are not yet exposed in the desktop.
 
 Certificate import accepts one X.509 DER file up to 16 MiB and an explicit label/ID.
 It parses certificate metadata without establishing trust or binding the
@@ -276,6 +281,9 @@ module/object/mechanism, USER/SO authentication, object management, signing/veri
 ```sh
 PKCS11_TEST_DESKTOP=1 ./tools/test-softhsm.sh
 ```
+
+The required PQC provider CI job also runs desktop generation tests for all six
+ML-DSA/ML-KEM parameter sets, private-key permissions and authentication settings.
 
 ## License
 

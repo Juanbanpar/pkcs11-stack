@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use super::*;
 use crate::backend::{GenerationKind, ManagementAction};
-use pkcs11_client::{AesKeyPurpose, KeyKind, NamedCurve, ObjectClass};
+use pkcs11_client::{
+    AesKeyPurpose, KeyKind, MlDsaParameterSet, MlKemParameterSet, NamedCurve, ObjectClass,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct KeyChoice(pub GenerationKind);
@@ -9,6 +11,24 @@ impl std::fmt::Display for KeyChoice {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.0 {
             GenerationKind::Signing(KeyKind::Rsa { bits }) => write!(f, "RSA {bits} — signing"),
+            GenerationKind::MlDsa(parameter) => write!(
+                f,
+                "ML-DSA-{} — signing",
+                match parameter {
+                    MlDsaParameterSet::MlDsa44 => 44,
+                    MlDsaParameterSet::MlDsa65 => 65,
+                    MlDsaParameterSet::MlDsa87 => 87,
+                }
+            ),
+            GenerationKind::MlKem(parameter) => write!(
+                f,
+                "ML-KEM-{} — encapsulation/decapsulation",
+                match parameter {
+                    MlKemParameterSet::MlKem512 => 512,
+                    MlKemParameterSet::MlKem768 => 768,
+                    MlKemParameterSet::MlKem1024 => 1024,
+                }
+            ),
             GenerationKind::Signing(KeyKind::Ec(curve)) | GenerationKind::Ecdh(curve) => {
                 let purpose = if matches!(self.0, GenerationKind::Ecdh(_)) {
                     "ECDH"
