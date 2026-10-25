@@ -193,9 +193,13 @@ pub fn detail(state: &UiState) -> Element<'_, Message> {
     ) {
         management = management.push(
             button("Export public object…")
+                .id("export-public-object")
                 .width(Length::Fill)
                 .on_press_maybe(state.can_export().then_some(Message::ExportObject)),
         );
+        management = management.push(muted(
+            "Public keys use SPKI DER; certificate and data objects keep their original bytes.",
+        ));
         if !state.can_export() {
             management = management.push(muted(
                 "Export requires attributes confirming that this is a public object.",

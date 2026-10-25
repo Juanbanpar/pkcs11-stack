@@ -86,8 +86,8 @@ bytes. Existing public/private IDs are rejected for ECDH pairs, and secret IDs f
 AES, without a uniqueness guarantee against concurrent writers. Signing pairs
 and ML-KEM pairs permit duplicate IDs; ambiguous selectors are rejected. Key
 pairs share their ID and label. ML-KEM does not permit per-operation PIN
-authentication. Use `pkcs11ctl` for ML-DSA signing, KEM operations and PQC public
-export; those workflows are not yet exposed in the desktop.
+authentication. Use `pkcs11ctl` for ML-DSA signing and KEM operations; those
+workflows are not yet exposed in the desktop.
 
 Certificate import accepts one X.509 DER file up to 16 MiB and an explicit label/ID.
 It parses certificate metadata without establishing trust or binding the
@@ -96,8 +96,10 @@ certificate to a key. PEM, bundles and private-key import are not supported.
 On **Objects**, select an unambiguous object and use **Delete object**. Confirm the
 shown locator to permanently delete that single object. Related keys and
 certificates are kept. **Export public object** saves public certificate/data
-values, or RSA/P-256/P-384/P-521 public keys as SPKI DER. Private objects and
-private/secret key classes cannot be exported. Export creates a new file and
+values, or RSA, P-256/P-384/P-521, ML-DSA-44/65/87 and ML-KEM-512/768/1024 public
+keys as SPKI DER. The client selects the encoder from token metadata and validates
+the public key. Public export does not require login or authenticate a peer.
+Private objects and private/secret key classes cannot be exported. Export creates a new file and
 never overwrites one; a write failure can leave a partial file. On Unix, new
 export files are created with permissions 0600.
 
@@ -283,7 +285,9 @@ PKCS11_TEST_DESKTOP=1 ./tools/test-softhsm.sh
 ```
 
 The required PQC provider CI job also runs desktop generation tests for all six
-ML-DSA/ML-KEM parameter sets, private-key permissions and authentication settings.
+ML-DSA/ML-KEM parameter sets, private-key permissions, authentication settings and
+public export without login. Export tests also reject private keys and stale
+object IDs, preserve existing files and check Unix file permissions.
 
 ## License
 

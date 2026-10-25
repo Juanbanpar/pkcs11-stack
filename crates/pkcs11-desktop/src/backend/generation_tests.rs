@@ -379,3 +379,170 @@ fn software_token_pqc_generation_uses_advertised_choices_and_private_permissions
     }
     registry.close().unwrap();
 }
+
+#[test]
+#[ignore = "requires tools/test-softhsm.sh; PQC execution required with PKCS11_TEST_REQUIRE_PQC=1"]
+fn software_token_pqc_public_export_without_login_preserves_files_and_rejects_private_keys() {
+    use pkcs11_client::{
+        Authentication, MlDsaVerifyingKey, MlKemPublicKey, PublicKeyRef, SessionMode,
+    };
+    assert_eq!(std::env::var("PKCS11_TEST_ISOLATED").as_deref(), Ok("1"));
+    let root = PathBuf::from(std::env::var_os("PKCS11_CLIENT_TEST_DIR").unwrap())
+        .join("desktop-pqc-export");
+    std::fs::create_dir(&root).unwrap();
+    let mut registry = Registry::default();
+    let module = registry
+        .load(&PathBuf::from(
+            std::env::var_os("PKCS11_TEST_MODULE").unwrap(),
+        ))
+        .unwrap();
+    let token = registry.modules[0]
+        .entry
+        .tokens
+        .iter()
+        .find(|entry| entry.label == "client-test")
+        .unwrap()
+        .id;
+    let kinds: Vec<_> = registry
+        .capabilities(module, token)
+        .unwrap()
+        .into_iter()
+        .filter(|kind| matches!(kind, GenerationKind::MlDsa(_) | GenerationKind::MlKem(_)))
+        .collect();
+    if std::env::var("PKCS11_TEST_REQUIRE_PQC").as_deref() == Ok("1") {
+        assert_eq!(kinds.len(), 6);
+    }
+    registry
+        .login(
+            module,
+            token,
+            LoginRole::User,
+            SecretInput::Value("12345678".into()),
+        )
+        .unwrap();
+    for (index, &kind) in kinds.iter().enumerate() {
+        let label = format!("desktop-export-{index}");
+        let list = objects(
+            registry.manage(
+                module,
+                token,
+                ManagementAction::Generate {
+                    kind,
+                    id: vec![0xD7, 0x50, 0x52, index as u8],
+                    label: label.as_bytes().to_vec(),
+                    always_authenticate: false,
+                },
+            ),
+            None,
+        );
+        let path = root.join(format!("private-{index}.der"));
+        objects(
+            registry.manage(
+                module,
+                token,
+                ManagementAction::Export {
+                    object: object(&list, &label, ObjectClass::PRIVATE_KEY),
+                    path: path.clone(),
+                },
+            ),
+            Some(BackendError::ExportUnavailable),
+        );
+        assert!(!path.exists());
+    }
+    registry.logout(module, token).unwrap();
+    assert_eq!(
+        registry.modules[0]
+            .entry
+            .tokens
+            .iter()
+            .find(|entry| entry.id == token)
+            .unwrap()
+            .login,
+        LoginState::Public
+    );
+    for (index, &kind) in kinds.iter().enumerate() {
+        let label = format!("desktop-export-{index}");
+        let list = registry.objects(module, token).unwrap();
+        let public = object(&list, &label, ObjectClass::PUBLIC_KEY);
+        let (reference, _) = registry.reference(module, token, public).unwrap();
+        let key = PublicKeyRef::new(reference.uri().to_string().parse().unwrap()).unwrap();
+        let (_, uri) = registry.location(module, token).unwrap();
+        let mut session = registry.modules[0]
+            .provider
+            .management(&uri, SessionMode::ReadOnly, Authentication::None)
+            .unwrap();
+        assert_eq!(
+            session.state().unwrap(),
+            pkcs11_client::SessionState::RoPublic
+        );
+        let expected = match kind {
+            GenerationKind::MlDsa(_) => session.export_ml_dsa_public_key(&key),
+            GenerationKind::MlKem(_) => session.export_ml_kem_public_key(&key),
+            _ => unreachable!(),
+        }
+        .unwrap();
+        session.close().unwrap();
+        let path = root.join(format!("public-{index}.der"));
+        objects(
+            registry.manage(
+                module,
+                token,
+                ManagementAction::Export {
+                    object: public,
+                    path: path.clone(),
+                },
+            ),
+            None,
+        );
+        let der = std::fs::read(&path).unwrap();
+        assert_eq!(der, expected);
+        match kind {
+            GenerationKind::MlDsa(parameter) => assert_eq!(
+                MlDsaVerifyingKey::from_spki_der(&der)
+                    .unwrap()
+                    .parameter_set(),
+                parameter
+            ),
+            GenerationKind::MlKem(parameter) => assert_eq!(
+                MlKemPublicKey::from_spki_der(&der).unwrap().parameter_set(),
+                parameter
+            ),
+            _ => unreachable!(),
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+        }
+        let stale = root.join(format!("stale-{index}.der"));
+        let list = objects(
+            registry.manage(
+                module,
+                token,
+                ManagementAction::Export {
+                    object: public,
+                    path: stale.clone(),
+                },
+            ),
+            Some(BackendError::UnknownObject),
+        );
+        assert!(!stale.exists());
+        objects(
+            registry.manage(
+                module,
+                token,
+                ManagementAction::Export {
+                    object: object(&list, &label, ObjectClass::PUBLIC_KEY),
+                    path: path.clone(),
+                },
+            ),
+            Some(BackendError::FileWrite),
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), der);
+    }
+    registry.close().unwrap();
+    std::fs::remove_dir_all(root).unwrap();
+}

@@ -1011,6 +1011,51 @@ fn selecting_ml_kem_clears_ml_dsa_authentication_and_disables_its_control() {
 }
 
 #[test]
+fn pqc_public_export_is_keyboard_accessible_without_login() {
+    fn public(family: &str) -> UiState {
+        let mut state = populated_state();
+        state.loaded_modules[0].tokens[0].login = LoginState::Public;
+        state.token_page = TokenPage::Objects;
+        state.selected_object = Some(ResourceId(4));
+        state.objects[1].label = format!("{family} public key");
+        state.object_details = Some(vec![
+            crate::backend::MetadataField {
+                name: "Key type",
+                status: "available",
+                value: Some(family.into()),
+            },
+            crate::backend::MetadataField {
+                name: "Private",
+                status: "available",
+                value: Some("false".into()),
+            },
+        ]);
+        state
+    }
+    fn ml_dsa() -> UiState {
+        public("CKK_ML_DSA")
+    }
+    fn ml_kem() -> UiState {
+        public("CKK_ML_KEM")
+    }
+    for (initial, name) in [
+        (ml_dsa as fn() -> UiState, "ml-dsa-public-export"),
+        (ml_kem as fn() -> UiState, "ml-kem-public-export"),
+    ] {
+        let app = run_focused(initial, &[], Some("export-public-object"));
+        assert!(app.state.can_export());
+        assert_eq!(
+            app.state.presentation.focused,
+            Some(iced::widget::Id::new("export-public-object"))
+        );
+        assert!(app.state.current_operation.is_none());
+        for dark in [false, true] {
+            render_screen(&app.state, name, 1060, 900, dark);
+        }
+    }
+}
+
+#[test]
 fn aes_gcm_file_form_accepts_nonce_and_aad_without_running_crypto() {
     fn gcm() -> UiState {
         use crate::backend::{

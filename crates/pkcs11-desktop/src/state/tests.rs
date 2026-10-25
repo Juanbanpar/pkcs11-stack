@@ -819,6 +819,39 @@ fn private_or_ambiguous_objects_never_offer_export_and_import_validation_is_loca
     ));
 }
 
+#[test]
+fn pqc_public_export_picker_is_scoped_to_the_selected_object_without_login() {
+    for family in ["CKK_ML_DSA", "CKK_ML_KEM"] {
+        let mut state = browsing();
+        state.token_page = TokenPage::Objects;
+        state.objects = vec![object_entry(4, "PQC public key"), object_entry(5, "other")];
+        state.selected_object = Some(ResourceId(4));
+        state.object_details = Some(vec![
+            MetadataField {
+                name: "Key type",
+                status: "available",
+                value: Some(family.into()),
+            },
+            MetadataField {
+                name: "Private",
+                status: "available",
+                value: Some("false".into()),
+            },
+        ]);
+        assert_eq!(state.token().unwrap().login, LoginState::Public);
+        assert!(state.can_export());
+        let (picker, _) = state.begin_object_file(true).unwrap();
+        state.select_object(ResourceId(5));
+        assert!(
+            state
+                .object_file_picked(picker, Some(PathBuf::from("obsolete.der")))
+                .is_none()
+        );
+        assert_eq!(state.selected_object, Some(ResourceId(5)));
+        assert!(!state.can_export());
+    }
+}
+
 fn crypto_state(
     mode: crate::backend::CryptoMode,
 ) -> (UiState, RequestId, crate::backend::CryptoScope) {
