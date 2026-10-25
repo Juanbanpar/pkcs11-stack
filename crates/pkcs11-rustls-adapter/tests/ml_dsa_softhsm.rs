@@ -12,7 +12,9 @@ use pkcs11_rustls_adapter::{
 };
 use rustls::{
     ClientConfig, ClientConnection, NamedGroup, RootCertStore, ServerConfig, ServerConnection,
-    SignatureScheme, crypto::CryptoProvider,
+    SignatureScheme,
+    client::{ClientSessionMemoryCache, ClientSessionStore, Resumption},
+    crypto::CryptoProvider,
 };
 use rustls_pki_types::{CertificateDer, ServerName};
 use secrecy::SecretString;
@@ -417,6 +419,55 @@ fn token_ml_dsa_tls13_authentication_and_hybrid_exchange() {
                 calls.load(Ordering::SeqCst) - before,
                 if mutual { 2 } else { 1 }
             );
+        }
+        if index == 0 {
+            // An unauthenticated classical peer must not poison later key-share hints.
+            let mut preferred = (*provider).clone();
+            preferred.kx_groups = vec![
+                rustls::crypto::aws_lc_rs::kx_group::X25519MLKEM768,
+                rustls::crypto::aws_lc_rs::kx_group::X25519,
+            ];
+            let preferred = Arc::new(preferred);
+            let cache = Arc::new(ClientSessionMemoryCache::new(4));
+            let name = ServerName::try_from("localhost").unwrap();
+            let (mut untrusted, _) = configs(
+                preferred.clone(),
+                credential.clone(),
+                certificate(&ca),
+                false,
+                false,
+                &rustls::version::TLS13,
+            );
+            Arc::make_mut(&mut untrusted).resumption = Resumption::store(cache.clone());
+            let mut classical = (*provider).clone();
+            classical.kx_groups = vec![rustls::crypto::aws_lc_rs::kx_group::X25519];
+            let (_, server) = configs(
+                Arc::new(classical),
+                credential.clone(),
+                certificate(&ca),
+                false,
+                true,
+                &rustls::version::TLS13,
+            );
+            assert!(matches!(
+                handshake((untrusted, server), false, false),
+                Err(rustls::Error::InvalidCertificate(
+                    rustls::CertificateError::UnknownIssuer
+                ))
+            ));
+            assert_eq!(cache.kx_hint(&name), None);
+
+            let (mut trusted, server) = configs(
+                preferred.clone(),
+                credential.clone(),
+                certificate(&ca),
+                false,
+                true,
+                &rustls::version::TLS13,
+            );
+            Arc::make_mut(&mut trusted).resumption = Resumption::store(cache.clone());
+            handshake((trusted, server), false, true).unwrap();
+            assert_eq!(cache.kx_hint(&name), Some(NamedGroup::X25519MLKEM768));
         }
         assert!(
             handshake(

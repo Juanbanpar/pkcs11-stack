@@ -24,9 +24,9 @@ pkcs11-runtime = { path = "crates/pkcs11-runtime" }
 pkcs11-client = { path = "crates/pkcs11-client" }
 serde_json = "1.0"
 cryptoki = "0.12.1"
-rustls = { version = "0.23.45", default-features = false, features = ["std"] }
+rustls = { version = "0.23.46", default-features = false, features = ["std"] }
 rustls-pki-types = "1.15.1"
-rustls-webpki = { version = "0.103.15", default-features = false, features = ["std"] }
+rustls-webpki = { version = "0.103.16", default-features = false, features = ["std"] }
 secrecy = "0.10.3"
 zeroize = "1.9.0"
 sha2 = "0.10.9"
