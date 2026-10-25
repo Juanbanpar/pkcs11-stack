@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: MIT OR Apache-2.0
+[advisories]
+ignore = [
+    # rsa: client uses RsaPublicKey for verification and SPKI export only.
+    # Private-key operations execute through PKCS#11, not this crate.
+    "RUSTSEC-2023-0071",
+    # crypto-bigint 0.5: reached through RustCrypto EC verification and public
+    # point validation only. The fixed 0.7 series requires an upstream migration.
+    "RUSTSEC-2026-0387",
+    # ctutils: reached through ML-DSA public-key decoding and verification only.
+    # Reassess when the client MSRV permits the fixed 0.4.4 (Rust 1.87).
+    "RUSTSEC-2026-0385",
+]
+
+[output]
+quiet = false
+# Keep upstream maintenance notices visible without suppressing their advisories.
+deny = ["unsound", "yanked"]

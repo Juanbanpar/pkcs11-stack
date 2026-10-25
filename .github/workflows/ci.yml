@@ -12,6 +12,20 @@ env:
   PROPTEST_RNG_SEED: "20260927"
 
 jobs:
+  dependency-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install stable Rust
+        run: |
+          rustup toolchain install stable --no-self-update --profile minimal
+          rustup default stable
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --version 0.22.2 --locked
+      - name: Audit workspace and fuzz lockfiles
+        run: |
+          cargo audit --file Cargo.lock
+          cargo audit --file fuzz/Cargo.lock
   quality:
     runs-on: ubuntu-latest
     steps:

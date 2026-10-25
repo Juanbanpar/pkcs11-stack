@@ -164,6 +164,23 @@ CLI tests exchange RFC 9935 public keys, persist public ciphertext, derive match
 keys and preserve existing output files. A separate native lifecycle verifies CLI
 key agreement using AES challenges.
 
+## Dependency advisories
+
+CI audits both lockfiles with cargo-audit 0.22.2. Run from the repository root:
+
+```sh
+cargo install cargo-audit --version 0.22.2 --locked
+cargo audit --file Cargo.lock
+cargo audit --file fuzz/Cargo.lock
+```
+
+Vulnerabilities, unsoundness notices and yanked packages fail the check.
+Unmaintained-package notices remain visible as warnings. The repository's
+[Cargo audit configuration](../.cargo/audit.toml) lists advisory-specific exceptions
+for software public-key verification/parsing paths. Reassess these exceptions
+before adding software private-key operations or changing the affected dependency
+families. Token-side private-key operations remain in the provider's scope.
+
 ## Property tests and fuzzing
 
 Increase the case count or choose a seed to reproduce a property failure:
