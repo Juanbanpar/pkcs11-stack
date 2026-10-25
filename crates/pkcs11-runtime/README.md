@@ -410,3 +410,28 @@ persistent effects, and session closure must be checked when cleanup matters.
 
 Applications authenticate the peer and define salt/context within their protocol.
 HKDF does not authenticate ML-KEM ciphertexts or combine classical/PQC secrets.
+
+## Application hybrid derivation
+
+`Session::derive_hybrid_hkdf` combines a P-256 ECDH secret followed by an
+ML-KEM-768 secret, then applies HKDF-SHA512 on the same token. This uses the
+classical || auxiliary construction described by
+[NIST SP 800-56C Rev. 2](https://doi.org/10.6028/NIST.SP.800-56Cr2).
+It defines neither a wire protocol nor the X-Wing or TLS key schedule.
+
+Both selectors must resolve to distinct 32-byte generic secrets with derivation
+permission, sensitive/nonextractable attributes and permission for
+CKM_CONCATENATE_BASE_AND_KEY. Metadata cannot prove their origin: the caller must
+establish component provenance, independent generation and authenticated peers.
+Use ECDH and ML-KEM outputs from the same protocol exchange, with agreed ordering.
+
+Pass `HkdfRequest` with SHA-512, public salt of at most 128 bytes and nonempty
+context of at most 4096 bytes. The protocol must bind identities, algorithm choices,
+roles and the exchange transcript as appropriate. Output profiles, duplicate-ID
+checks and persistent effects follow `derive_hkdf`.
+
+The concatenated 64-byte input is a private, sensitive, nonextractable session
+object destroyed before return. Cleanup failure invalidates the session and takes
+precedence over derivation success/failure; a persistent output may already exist.
+No base is deleted, no value is read, and there is no retry or software fallback.
+This implementation does not establish formal algorithm validation.

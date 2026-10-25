@@ -149,6 +149,43 @@ fn client_ml_kem_to_hkdf_permissions_errors_and_cleanup() {
         session.delete(private.as_object_ref()).unwrap();
         session.delete(public.as_object_ref()).unwrap();
     }
+    let classical = reference(&[0xF1, 0], "secret-key");
+    let pq = reference(&[0xF3, 0], "secret-key");
+    let hybrid = HkdfRequest {
+        digest: DigestAlgorithm::Sha512,
+        salt: b"client salt",
+        info: b"client hybrid protocol v1",
+        output: HkdfOutput::Aes256,
+        id: &[0xF8],
+        label: b"client hybrid key",
+    };
+    assert_eq!(
+        session
+            .derive_hybrid_hkdf(
+                &classical,
+                &pq,
+                &HkdfRequest {
+                    digest: DigestAlgorithm::Sha256,
+                    ..hybrid
+                }
+            )
+            .unwrap_err()
+            .kind(),
+        ErrorKind::Input
+    );
+    session
+        .derive_hybrid_hkdf(&classical, &pq, &hybrid)
+        .unwrap();
+    assert_eq!(
+        session
+            .derive_hybrid_hkdf(&classical, &pq, &hybrid)
+            .unwrap_err()
+            .kind(),
+        ErrorKind::Input
+    );
+    let derived = reference(&[0xF8], "secret-key");
+    assert!(session.export_value(&derived).is_err());
+    session.delete(&derived).unwrap();
     session.close().unwrap();
     let mut ro = provider
         .management(

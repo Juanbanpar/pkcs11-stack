@@ -87,10 +87,7 @@ pub struct HkdfCapabilities {
     /// Observed base-key length, equal to the hash length under PKCS#11's profile.
     pub input_length: usize,
 }
-fn capabilities(
-    object: &Object<'_, '_>,
-    digest: DigestAlgorithm,
-) -> Result<HkdfCapabilities, Error> {
+pub(crate) fn secret_length(object: &Object<'_, '_>) -> Result<usize, Error> {
     for (kind, expected) in [
         (
             AttributeType::Class,
@@ -114,19 +111,18 @@ fn capabilities(
         Some(Attribute::ValueLen(length)) => usize::from(length),
         _ => return Err(Error::MissingMetadata("HKDF base-key length")),
     };
+    Ok(input_length)
+}
+fn capabilities(
+    object: &Object<'_, '_>,
+    digest: DigestAlgorithm,
+) -> Result<HkdfCapabilities, Error> {
+    let input_length = secret_length(object)?;
     // PKCS#11 3.2 section 6.62.3 restricts secret-key input to the hash length.
     if input_length != digest.output_len() {
         return Err(Error::UnsupportedKeyOperation);
     }
-    match attribute(object, AttributeType::AllowedMechanisms, false)? {
-        Some(Attribute::AllowedMechanisms(allowed))
-            if !allowed.is_empty() && !allowed.contains(&MechanismType::HKDF_DERIVE) =>
-        {
-            return Err(Error::UnsupportedKeyOperation);
-        }
-        Some(Attribute::AllowedMechanisms(_)) | None => (),
-        _ => return Err(Error::MissingMetadata("CKA_ALLOWED_MECHANISMS")),
-    }
+    permits(object, MechanismType::HKDF_DERIVE)?;
     let token = object.session.token();
     if !token.module.raw()?.is_fn_supported(Function::DeriveKey)
         || !token.mechanisms()?.contains(&MechanismType::HKDF_DERIVE)
@@ -138,6 +134,18 @@ fn capabilities(
         digest,
         input_length,
     })
+}
+pub(crate) fn permits(object: &Object<'_, '_>, mechanism: MechanismType) -> Result<(), Error> {
+    match attribute(object, AttributeType::AllowedMechanisms, false)? {
+        Some(Attribute::AllowedMechanisms(allowed))
+            if !allowed.is_empty() && !allowed.contains(&mechanism) =>
+        {
+            return Err(Error::UnsupportedKeyOperation);
+        }
+        Some(Attribute::AllowedMechanisms(_)) | None => (),
+        _ => return Err(Error::MissingMetadata("CKA_ALLOWED_MECHANISMS")),
+    }
+    Ok(())
 }
 impl Session<'_> {
     /// Inspect a unique sensitive, nonextractable generic/HKDF secret without reading its value.

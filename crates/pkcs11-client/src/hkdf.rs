@@ -24,4 +24,23 @@ impl ManagementSession<'_> {
     ) -> Result<(), Error> {
         Ok(self.session.derive_hkdf(base, request)?)
     }
+    /// Combine distinct P-256 and ML-KEM-768 token secrets using classical || PQ,
+    /// then run HKDF-SHA512. Both selected inputs must be sensitive, nonextractable
+    /// 32-byte generic secrets permitting derivation. The caller establishes their
+    /// origin, independence and peer trust; metadata cannot prove provenance.
+    /// Public salt is at most 128 bytes and protocol context must be nonempty.
+    /// The concatenation is temporary; only the requested output persists.
+    /// This is an application combiner, not X-Wing or the TLS key schedule.
+    /// No values are read, no base is deleted, and no retry or rollback occurs.
+    /// Check session closure on every result; cleanup failure takes precedence.
+    pub fn derive_hybrid_hkdf(
+        &mut self,
+        classical: &ObjectRef,
+        post_quantum: &ObjectRef,
+        request: &HkdfRequest<'_>,
+    ) -> Result<(), Error> {
+        Ok(self
+            .session
+            .derive_hybrid_hkdf(classical, post_quantum, request)?)
+    }
 }

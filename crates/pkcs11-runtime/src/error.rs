@@ -8,6 +8,14 @@ pub enum Error {
     /// A supplied signature does not verify; no provider failure is implied.
     #[error("signature verification failed")]
     SignatureMismatch,
+    /// Destruction of a temporary hybrid secret failed; the session is unusable.
+    #[error("temporary hybrid secret cleanup failed: {cleanup}")]
+    HybridCleanup {
+        /// Original derivation failure, retained without formatting upstream Debug.
+        primary: Option<cryptoki::error::Error>,
+        /// Cleanup error takes precedence over any derivation result.
+        cleanup: cryptoki::error::Error,
+    },
     /// Provider returned an output inconsistent with the selected key operation.
     #[error("invalid key operation output")]
     InvalidKeyOutput,
@@ -171,6 +179,22 @@ mod tests {
         let nul = std::ffi::CString::new(b"canary\0secret".to_vec()).unwrap_err();
         let error = backend("conversion", cryptoki::error::Error::NulError(nul));
         assert!(!format!("{error:?}").contains(&format!("{:?}", b"canary\0secret".to_vec())));
+    }
+    #[test]
+    fn hybrid_cleanup_does_not_debug_upstream_buffers() {
+        let nul = || {
+            cryptoki::error::Error::NulError(
+                std::ffi::CString::new(b"canary\0secret".to_vec()).unwrap_err(),
+            )
+        };
+        let error = Error::HybridCleanup {
+            primary: Some(nul()),
+            cleanup: nul(),
+        };
+        for text in [error.to_string(), format!("{error:?}")] {
+            assert!(!text.contains("canary"));
+            assert!(!text.contains("[99, 97, 110"));
+        }
     }
     #[test]
     fn oaep_parameter_rejection_classification_is_specific_to_init() {

@@ -5,6 +5,7 @@
 mod administration;
 mod encryption;
 mod hkdf;
+mod hybrid;
 mod key_operations;
 mod ml_dsa;
 mod ml_kem;

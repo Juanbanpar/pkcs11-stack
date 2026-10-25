@@ -515,4 +515,23 @@ and no retry, rollback or software fallback occurs.
 
 Peer authentication and protocol context selection remain application concerns.
 An altered ML-KEM ciphertext can produce a different derived key without an error.
-This API does not implement a classical/PQC hybrid combiner or a complete protocol.
+`derive_hkdf` accepts one input; the hybrid combiner below accepts two.
+
+## Application hybrid derivation
+
+`ManagementSession::derive_hybrid_hkdf(classical, post_quantum, request)` combines
+P-256 ECDH and ML-KEM-768 token secrets in that order, then runs HKDF-SHA512.
+Use the same management-session lifecycle as the HKDF example above, with two
+distinct 32-byte sensitive, nonextractable generic secrets permitting derivation.
+Set `request.digest` to SHA-512, supply public salt of at most 128 bytes and a
+nonempty protocol context of at most 4096 bytes. Output permissions remain the same.
+
+The caller establishes the origin and independence of both components,
+authenticates peers and binds context to the protocol exchange. Key metadata cannot
+prove provenance. The temporary concatenation is destroyed before return; close the
+session on success and failure, and account for possible persistent output when
+cleanup fails. Inputs are not deleted and values never leave the token.
+
+This is an application combiner, not a complete hybrid KEM wire protocol, X-Wing
+or the TLS key schedule. See the [runtime contract](../pkcs11-runtime/README.md#application-hybrid-derivation)
+for construction and failure semantics.
