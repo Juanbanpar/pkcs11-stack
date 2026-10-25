@@ -1223,3 +1223,57 @@ fn aes_gcm_file_form_accepts_nonce_and_aad_without_running_crypto() {
         render_screen(&app.state, "aes-gcm-encrypt", 1060, 720, dark);
     }
 }
+
+#[test]
+fn ml_dsa_verification_form_accepts_context_without_authentication() {
+    fn verification() -> UiState {
+        use crate::backend::{
+            BackendCommand, BackendEvent, BackendResult, CryptoMode, SignatureOption,
+            SignatureProfile,
+        };
+        let mut state = populated_state();
+        state.token_page = TokenPage::Objects;
+        state.selected_object = Some(ResourceId(5));
+        state.object_details.as_mut().unwrap().key_type = None;
+        state.loaded_modules[0].tokens[0].login = LoginState::Public;
+        let BackendCommand::CryptoOptions { id, scope, .. } =
+            state.open_crypto(CryptoMode::Verify).unwrap()
+        else {
+            panic!("verification choices")
+        };
+        state.event(BackendEvent::Completed {
+            id,
+            result: Ok(BackendResult::CryptoOptions {
+                scope,
+                context: false,
+                options: vec![SignatureOption {
+                    parameters: SignatureProfile::MlDsa(pkcs11_client::MlDsaParameterSet::MlDsa87),
+                    plan: None,
+                }],
+            }),
+        });
+        state
+    }
+    let mut app = run_focused(
+        verification,
+        &["type \"domain-é\""],
+        Some("input-ML-DSA domain context (UTF-8, 0–255 bytes)"),
+    );
+    let form = app.state.crypto_form.as_ref().unwrap();
+    assert_eq!(form.domain_context, "domain-é");
+    assert!(!form.context_required);
+    let id = form.id;
+    let _ = app.update(Message::CryptoPin {
+        id,
+        pin: "ignored-secret-canary".into(),
+    });
+    assert!(
+        secrecy::ExposeSecret::expose_secret(&app.state.crypto_form.as_ref().unwrap().pin)
+            .is_empty()
+    );
+    for dark in [false, true] {
+        render_screen(&app.state, "verify-ml-dsa", 1060, 900, dark);
+    }
+    let _ = app.update(Message::DismissCrypto(id));
+    assert!(app.state.crypto_form.is_none());
+}

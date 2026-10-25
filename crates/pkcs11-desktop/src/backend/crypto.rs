@@ -5,8 +5,9 @@ use super::{
 };
 use pkcs11_client::{
     AttributeType, Certificate, HashLocation, HashingPolicy, KeyType, ManagementSession,
-    MechanismType, MlDsaHedging, MlDsaParameterSet, MlDsaRequest, MlDsaSigningPolicy, ObjectClass,
-    Pin, PrivateKeyRef, SessionState, SignInput, SignatureParameters, SigningPolicy,
+    MechanismType, MlDsaCertificate, MlDsaHedging, MlDsaParameterSet, MlDsaRequest,
+    MlDsaSigningPolicy, ObjectClass, Pin, PrivateKeyRef, SessionState, SignInput,
+    SignatureParameters, SigningPolicy,
 };
 use std::{
     fs::File,
@@ -71,6 +72,83 @@ fn read_bounded(path: &Path, maximum: u64) -> Result<Vec<u8>, BackendError> {
         return Err(BackendError::CryptoRead);
     }
     Ok(bytes)
+}
+enum VerificationCertificate {
+    Classical(Certificate),
+    MlDsa(MlDsaCertificate),
+}
+impl VerificationCertificate {
+    fn from_der(der: Vec<u8>) -> Result<Self, BackendError> {
+        match Certificate::from_der(der.clone()) {
+            Ok(certificate) => Ok(Self::Classical(certificate)),
+            // Only an unsupported key algorithm permits trying the ML-DSA parser.
+            // Malformed classical certificates retain their original error.
+            Err(pkcs11_client::Error::UnsupportedCertificateKey) => MlDsaCertificate::from_der(der)
+                .map(Self::MlDsa)
+                .map_err(|e| BackendError::from(&e)),
+            Err(error) => Err(BackendError::from(&error)),
+        }
+    }
+    fn options(&self) -> Vec<SignatureOption> {
+        let parameters = match self {
+            Self::Classical(certificate) => certificate
+                .verification_options()
+                .into_iter()
+                .map(SignatureProfile::Classical)
+                .collect(),
+            Self::MlDsa(certificate) => vec![SignatureProfile::MlDsa(certificate.parameter_set())],
+        };
+        parameters
+            .into_iter()
+            .map(|parameters| SignatureOption {
+                parameters,
+                plan: None,
+            })
+            .collect()
+    }
+    fn verify(&self, job: CryptoJob) -> Result<(), BackendError> {
+        if job.context.is_some()
+            || !self
+                .options()
+                .iter()
+                .any(|option| option.parameters == job.parameters)
+        {
+            return Err(BackendError::SignatureChoice);
+        }
+        match job.parameters {
+            SignatureProfile::MlDsa(_) if job.software_hashing => {
+                return Err(BackendError::SignatureChoice);
+            }
+            SignatureProfile::MlDsa(_) if job.domain_context.len() > 255 => {
+                return Err(BackendError::MlDsaContext);
+            }
+            SignatureProfile::Classical(_) if !job.domain_context.is_empty() => {
+                return Err(BackendError::SignatureChoice);
+            }
+            _ => {}
+        }
+        let input = read_bounded(&job.input, 16 * 1024 * 1024)?;
+        let signature = read_bounded(&job.signature, 16 * 1024)?;
+        let result = match (self, job.parameters) {
+            (Self::Classical(certificate), SignatureProfile::Classical(parameters)) => certificate
+                .verify_signature(&parameters.request(SignInput::Message(&input)), &signature),
+            (Self::MlDsa(certificate), SignatureProfile::MlDsa(parameter_set)) => certificate
+                .verify_signature(
+                    &MlDsaRequest {
+                        parameter_set,
+                        message: &input,
+                        context: &job.domain_context,
+                        hedging: MlDsaHedging::Preferred,
+                    },
+                    &signature,
+                ),
+            _ => return Err(BackendError::SignatureChoice),
+        };
+        result.map_err(|error| match error {
+            pkcs11_client::Error::SignatureMismatch => BackendError::SignatureMismatch,
+            other => BackendError::from(&other),
+        })
+    }
 }
 fn signing_options(
     session: &mut ManagementSession<'_>,
@@ -159,7 +237,10 @@ impl Registry {
             PrivateKeyRef::new(uri_key).map_err(|_| BackendError::SigningUnavailable)?,
         ))
     }
-    fn verification_certificate(&self, scope: CryptoScope) -> Result<Certificate, BackendError> {
+    fn verification_certificate(
+        &self,
+        scope: CryptoScope,
+    ) -> Result<VerificationCertificate, BackendError> {
         let (index, uri) = self.location(scope.module, scope.token)?;
         let (reference, class) = self.reference(scope.module, scope.token, scope.object)?;
         if class != Some(ObjectClass::CERTIFICATE) {
@@ -171,7 +252,7 @@ impl Registry {
                 .export_value(&reference)
                 .map_err(|e| BackendError::from(&e))
         })?;
-        Certificate::from_der(der).map_err(|e| BackendError::from(&e))
+        VerificationCertificate::from_der(der)
     }
     pub(super) fn crypto_options(
         &self,
@@ -190,17 +271,7 @@ impl Registry {
                     signing_options(session, &key, software_hashing)
                 })?
             }
-            CryptoMode::Verify => (
-                self.verification_certificate(scope)?
-                    .verification_options()
-                    .into_iter()
-                    .map(|parameters| SignatureOption {
-                        parameters: SignatureProfile::Classical(parameters),
-                        plan: None,
-                    })
-                    .collect(),
-                false,
-            ),
+            CryptoMode::Verify => (self.verification_certificate(scope)?.options(), false),
         };
         Ok(BackendResult::CryptoOptions {
             scope,
@@ -297,21 +368,7 @@ impl Registry {
         job: CryptoJob,
     ) -> Result<BackendResult, BackendError> {
         if scope.mode == CryptoMode::Verify {
-            let SignatureProfile::Classical(parameters) = job.parameters else {
-                return Err(BackendError::SignatureChoice);
-            };
-            if !job.domain_context.is_empty() {
-                return Err(BackendError::SignatureChoice);
-            }
-            let certificate = self.verification_certificate(scope)?;
-            let input = read_bounded(&job.input, 16 * 1024 * 1024)?;
-            let signature = read_bounded(&job.signature, 16 * 1024)?;
-            certificate
-                .verify_signature(&parameters.request(SignInput::Message(&input)), &signature)
-                .map_err(|error| match error {
-                    pkcs11_client::Error::SignatureMismatch => BackendError::SignatureMismatch,
-                    other => BackendError::from(&other),
-                })?;
+            self.verification_certificate(scope)?.verify(job)?;
             return Ok(BackendResult::Verified { scope });
         }
         if scope.mode != CryptoMode::Sign {
@@ -358,3 +415,6 @@ mod ml_dsa_tests;
 #[cfg(test)]
 #[path = "crypto_tests.rs"]
 mod tests;
+#[cfg(test)]
+#[path = "verification_tests.rs"]
+mod verification_tests;

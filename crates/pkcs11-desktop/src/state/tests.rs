@@ -1138,21 +1138,21 @@ fn key_actions_follow_typed_metadata_instead_of_labels_or_formatted_fields() {
     }
 }
 
-fn ml_dsa_state() -> (UiState, RequestId, crate::backend::CryptoScope) {
+fn ml_dsa_state(
+    mode: crate::backend::CryptoMode,
+) -> (UiState, RequestId, crate::backend::CryptoScope) {
     use crate::backend::{CryptoMode, SignatureOption, SignatureProfile};
-    let (mut state, old, _) = crypto_state(CryptoMode::Sign);
+    let (mut state, old, _) = crypto_state(mode);
     state.dismiss_crypto(old);
     state.object_details.as_mut().unwrap().key_type = Some(pkcs11_client::KeyType::ML_DSA);
-    let BackendCommand::CryptoOptions { id, scope, .. } =
-        state.open_crypto(CryptoMode::Sign).unwrap()
-    else {
+    let BackendCommand::CryptoOptions { id, scope, .. } = state.open_crypto(mode).unwrap() else {
         panic!("choices")
     };
     state.event(complete(
         id,
         BackendResult::CryptoOptions {
             scope,
-            context: true,
+            context: mode == CryptoMode::Sign,
             options: vec![SignatureOption {
                 parameters: SignatureProfile::MlDsa(pkcs11_client::MlDsaParameterSet::MlDsa65),
                 plan: None,
@@ -1166,7 +1166,7 @@ fn ml_dsa_state() -> (UiState, RequestId, crate::backend::CryptoScope) {
 fn ml_dsa_context_counts_utf8_bytes_and_submission_moves_the_pin_once() {
     use crate::backend::SignatureProfile;
     use secrecy::ExposeSecret;
-    let (mut state, id, _) = ml_dsa_state();
+    let (mut state, id, _) = ml_dsa_state(crate::backend::CryptoMode::Sign);
     assert!(state.crypto_policy(id, true).is_none());
     assert!(!state.crypto_form.as_ref().unwrap().software_hashing);
     assert!(
@@ -1214,7 +1214,7 @@ fn ml_dsa_context_counts_utf8_bytes_and_submission_moves_the_pin_once() {
 #[test]
 fn stale_ml_dsa_metadata_and_choices_cannot_change_the_selected_key() {
     use crate::backend::SignatureProfile;
-    let (mut state, id, scope) = ml_dsa_state();
+    let (mut state, id, scope) = ml_dsa_state(crate::backend::CryptoMode::Sign);
     state.crypto_edit(id, CryptoField::DomainContext, "old domain".into());
     state.crypto_pin(id, "ml-dsa-secret-canary".into());
     state.select_token(ResourceId(1), ResourceId(3));
@@ -2051,4 +2051,45 @@ fn aes_gcm_secret_key_operations_require_user_login() {
     assert!(!state.can_open_cipher(crate::backend::CryptoMode::Encrypt));
     assert!(!state.can_open_cipher(crate::backend::CryptoMode::Decrypt));
     assert!(state.submit_cipher(id).is_none());
+}
+
+#[test]
+fn ml_dsa_verification_context_edits_cancel_stale_success_without_authentication() {
+    use crate::backend::CryptoMode;
+    let (mut state, id, scope) = ml_dsa_state(CryptoMode::Verify);
+    state.loaded_modules[0].tokens[0].login = LoginState::Public;
+    state.crypto_edit(id, CryptoField::Input, "message".into());
+    state.crypto_edit(id, CryptoField::Signature, "signature".into());
+    state.crypto_edit(id, CryptoField::DomainContext, "é".repeat(128));
+    assert!(state.submit_crypto(id).is_none());
+    assert_eq!(
+        state.notification,
+        Some(Notification::Error(BackendError::MlDsaContext))
+    );
+    let context = format!("{}a", "é".repeat(127));
+    state.crypto_edit(id, CryptoField::DomainContext, context.clone());
+    state.crypto_pin(id, "ignored-verification-pin".into());
+    let BackendCommand::Crypto {
+        id: pending, job, ..
+    } = state.submit_crypto(id).unwrap()
+    else {
+        panic!("verification")
+    };
+    assert_eq!(job.domain_context, context.as_bytes());
+    assert!(job.context.is_none());
+    assert!(!job.software_hashing);
+    assert!(state.crypto_form.is_some());
+    state.crypto_edit(id, CryptoField::DomainContext, "changed".into());
+    state.event(complete(pending, BackendResult::Verified { scope }));
+    assert_ne!(state.notification, Some(Notification::SignatureVerified));
+    let current = state.submit_crypto(id).unwrap().id();
+    state.event(complete(current, BackendResult::Verified { scope }));
+    assert_eq!(state.notification, Some(Notification::SignatureVerified));
+    state.crypto_edit(id, CryptoField::DomainContext, String::new());
+    assert!(state.notification.is_none());
+    let current = state.submit_crypto(id).unwrap().id();
+    state.select_token(ResourceId(1), ResourceId(3));
+    state.event(complete(current, BackendResult::Verified { scope }));
+    assert!(state.crypto_form.is_none());
+    assert_ne!(state.notification, Some(Notification::SignatureVerified));
 }

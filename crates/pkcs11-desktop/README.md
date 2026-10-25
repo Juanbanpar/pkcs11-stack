@@ -131,8 +131,7 @@ supporting token and has not been tested with hardware.
 The output is a raw ML-DSA signature. Keep the domain context with the message for
 verification: the signature file contains no context or metadata. Existing files
 are never overwritten. The worker checks session closure before writing the
-signature; a failed signing operation may leave an empty file. Use `pkcs11ctl`
-for ML-DSA verification; desktop certificate verification currently supports RSA/EC.
+signature; a failed signing operation may leave an empty file.
 
 Keys with CKA_ALWAYS_AUTHENTICATE require a per-operation PIN or supported
 protected authentication path. This credential is cleared on submission,
@@ -143,9 +142,14 @@ a failed signature or write can leave an empty or partial file. Signing refreshe
 token status and object inventories, including after authentication failures.
 
 Select a supported certificate and choose **Verify signature** to check a message
-and signature in software using its public key. Verification does not establish
+and signature in software using its RSA/EC or ML-DSA public key. ML-DSA uses the
+parameter set encoded in the certificate and the original message, with the exact
+domain context used for signing (empty unless one was supplied). No login,
+per-operation PIN or token verification mechanism is required for a visible public
+certificate. Both input files are read without modification. Verification does not establish
 certificate trust or prove association with a token key. Editing the form or
-changing selection invalidates pending verification results.
+changing selection invalidates pending verification results, including changes to
+the ML-DSA domain context.
 
 Message files are limited to 16 MiB and signature inputs to 16 KiB. RSA signatures
 use raw modulus-width bytes; EC signatures use fixed-width `r || s`, not ASN.1 DER.
