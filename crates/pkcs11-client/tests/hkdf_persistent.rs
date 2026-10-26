@@ -88,6 +88,44 @@ fn client_ml_kem_to_hkdf_permissions_errors_and_cleanup() {
                     .kind(),
                 ErrorKind::Policy
             );
+            let options = session.hkdf_options(&base).unwrap();
+            assert_eq!(options.len(), 1);
+            assert_eq!(options[0].digest, DigestAlgorithm::Sha256);
+            for (case, length, expected) in [
+                (0, 48, Some(DigestAlgorithm::Sha384)),
+                (1, 64, Some(DigestAlgorithm::Sha512)),
+                (2, 42, None),
+            ] {
+                let id = [0xC3, index as u8, direction, case];
+                session
+                    .derive_hkdf(
+                        &base,
+                        &HkdfRequest {
+                            digest: DigestAlgorithm::Sha256,
+                            salt: b"",
+                            info: b"client capability discovery",
+                            output: HkdfOutput::DerivationSecret { length },
+                            id: &id,
+                            label: b"client HKDF base",
+                        },
+                    )
+                    .unwrap();
+                let choices = session.hkdf_options(&reference(&id, "secret-key")).unwrap();
+                assert_eq!(
+                    choices
+                        .iter()
+                        .map(|choice| choice.digest)
+                        .collect::<Vec<_>>(),
+                    expected.into_iter().collect::<Vec<_>>()
+                );
+            }
+            assert_eq!(
+                session
+                    .hkdf_options(&reference(&[0xC3, 0xFF], "secret-key"))
+                    .unwrap_err()
+                    .kind(),
+                ErrorKind::Selection
+            );
             let id = [0xC2, index as u8, direction];
             let request = HkdfRequest {
                 digest: DigestAlgorithm::Sha256,

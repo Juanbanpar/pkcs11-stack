@@ -580,7 +580,11 @@ close the session before releasing ciphertext when cleanup must be checked.
 
 ## HKDF
 
-`ManagementSession::hkdf_capabilities` inspects a selected generic/HKDF secret.
+`ManagementSession::hkdf_options` discovers permitted SHA-2 profiles for a selected
+generic/HKDF secret without deriving or reading key values. The hash-length base
+requirement permits at most one digest. Unsupported profiles are omitted;
+selection and provider failures propagate. `hkdf_capabilities` checks an explicit
+digest, which is useful when the protocol already specifies one.
 `derive_hkdf` takes `HkdfRequest` and performs token-side extract-and-expand with
 SHA-256/384/512. The base must be sensitive, nonextractable, permit derivation
 and match the hash length. Use SHA-256 with a 32-byte ML-KEM shared secret.

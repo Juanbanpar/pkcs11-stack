@@ -2,6 +2,25 @@
 use crate::{DigestAlgorithm, Error, HkdfCapabilities, HkdfRequest, ManagementSession, ObjectRef};
 
 impl ManagementSession<'_> {
+    /// Discover SHA-2 HKDF profiles permitted by the selected base and provider.
+    /// At most one digest matches the PKCS#11 hash-length base-key requirement.
+    /// Unsupported profiles are omitted; selection and provider failures propagate.
+    /// This reads capabilities only and never derives or reads a key value.
+    pub fn hkdf_options(&mut self, base: &ObjectRef) -> Result<Vec<HkdfCapabilities>, Error> {
+        let mut choices = Vec::new();
+        for digest in [
+            DigestAlgorithm::Sha256,
+            DigestAlgorithm::Sha384,
+            DigestAlgorithm::Sha512,
+        ] {
+            match self.hkdf_capabilities(base, digest) {
+                Ok(capabilities) => choices.push(capabilities),
+                Err(error) if error.kind() == crate::ErrorKind::Policy => {}
+                Err(error) => return Err(error),
+            }
+        }
+        Ok(choices)
+    }
     /// Inspect the selected base key and HKDF mechanism without deriving.
     /// The sensitive, nonextractable generic/HKDF base must match the hash length.
     pub fn hkdf_capabilities(
