@@ -10,7 +10,9 @@ pub use aes_gcm::{
 };
 mod encryption;
 mod generation;
-pub use generation::{AesKeyPurpose, AesKeyRequest, AesKeySize, EcdhKeyPairRequest};
+pub use generation::{
+    AesKeyPurpose, AesKeyRequest, AesKeySize, EcdhKeyPairRequest, RsaEncryptionKeyPairRequest,
+};
 mod hkdf;
 mod hybrid;
 mod key_operations;

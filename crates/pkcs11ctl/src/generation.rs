@@ -3,7 +3,7 @@ use crate::{inspect, key_establishment, ml_dsa, support::*};
 use clap::ArgMatches;
 use pkcs11_client::{
     AesKeyPurpose, AesKeyRequest, AesKeySize, EcdhKeyPairRequest, KeyKind, ManagementSession,
-    NamedCurve, Provider,
+    NamedCurve, Provider, RsaEncryptionKeyPairRequest,
 };
 use serde_json::{Value, json};
 
@@ -61,10 +61,15 @@ pub(crate) fn validate(m: &ArgMatches) -> Result<()> {
         || aes(kind).is_some()
         || key_establishment::parameter(Some(kind)).is_some();
     if non_signing && flag(m, "always-authenticate") {
-        return Err(usage("always-authenticate applies only to signing keys"));
+        return Err(usage(
+            "always-authenticate applies only to signing or RSA encryption keys",
+        ));
     }
-    if aes(kind).is_none() && get(m, "purpose").is_some() {
-        return Err(usage("--purpose applies only to AES"));
+    if aes(kind).is_none() && kind != "rsa" && get(m, "purpose").is_some() {
+        return Err(usage("--purpose applies only to AES or RSA"));
+    }
+    if kind == "rsa" && !matches!(get(m, "purpose"), None | Some("signing" | "encryption")) {
+        return Err(usage("RSA purpose must be signing or encryption"));
     }
     if let Some(curve) = curve(kind) {
         EcdhKeyPairRequest {
@@ -86,7 +91,20 @@ pub(crate) fn validate(m: &ArgMatches) -> Result<()> {
     } else if key_establishment::parameter(Some(kind)).is_none()
         && ml_dsa::parameter(Some(kind)).is_none()
     {
-        signing(m)?;
+        let key = signing(m)?;
+        if kind == "rsa" && get(m, "purpose") == Some("encryption") {
+            let KeyKind::Rsa { bits } = key else {
+                unreachable!();
+            };
+            RsaEncryptionKeyPairRequest {
+                bits,
+                id: &id,
+                label,
+                always_authenticate: flag(m, "always-authenticate"),
+            }
+            .validate()
+            .map_err(pkcs11_client::Error::from)?;
+        }
     }
     Ok(())
 }
@@ -119,8 +137,23 @@ pub(crate) fn generate(session: &mut ManagementSession<'_>, m: &ArgMatches) -> R
         ml_dsa::key_info(parameter)
     } else {
         let kind = signing(m)?;
-        session.generate_signing_key_pair(kind, &id, label, flag(m, "always-authenticate"))?;
-        inspect::key_kind(kind)
+        if get(m, "purpose") == Some("encryption") {
+            let KeyKind::Rsa { bits } = kind else {
+                return Err(usage("RSA encryption purpose requires an RSA key"));
+            };
+            session.generate_rsa_encryption_key_pair(&RsaEncryptionKeyPairRequest {
+                bits,
+                id: &id,
+                label,
+                always_authenticate: flag(m, "always-authenticate"),
+            })?;
+            let mut metadata = inspect::key_kind(kind);
+            metadata["purpose"] = json!("encryption");
+            metadata
+        } else {
+            session.generate_signing_key_pair(kind, &id, label, flag(m, "always-authenticate"))?;
+            inspect::key_kind(kind)
+        }
     };
     Ok(
         json!({"generated":true,"key":key,"id_hex":hex(&id),"label":need(m,"label")?,"extractable":false}),
@@ -131,6 +164,7 @@ pub(crate) fn options(provider: &Provider, m: &ArgMatches) -> Result<Value> {
     Ok(json!({
         "advisory":true,
         "signing":options.signing.into_iter().map(inspect::key_kind).collect::<Vec<_>>(),
+        "rsa_encryption":options.rsa_encryption,
         "ecdh":options.ecdh.into_iter().map(|curve| match curve {
             NamedCurve::P256=>"ecdh-p256", NamedCurve::P384=>"ecdh-p384", NamedCurve::P521=>"ecdh-p521"
         }).collect::<Vec<_>>(),

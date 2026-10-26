@@ -71,6 +71,87 @@ fn command_workflows() {
     assert_eq!(info["interface"]["legacy"], true);
     assert!(f.ok(&["info"])["interface"]["version"].is_string());
     f.ok(&["slots"]);
+    let generated = f.ok(&[
+        "generate",
+        "--token",
+        "pkcs11:token=client-test",
+        "--kind",
+        "rsa",
+        "--purpose",
+        "encryption",
+        "--bits",
+        "2048",
+        "--id",
+        "D9E1",
+        "--label",
+        "cli-encryption-purpose",
+        "--always-authenticate",
+        "--pin-file",
+        &f.pin,
+        "--confirm",
+    ]);
+    assert_eq!(generated["key"]["purpose"], "encryption");
+    let choices = f.ok(&["generation-options", "--token", "pkcs11:token=client-test"]);
+    assert!(
+        choices["rsa_encryption"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|bits| bits == 2048)
+    );
+    let private = "pkcs11:token=client-test;id=%D9%E1;type=private";
+    let attrs = f.ok(&[
+        "inspect",
+        "--object",
+        private,
+        "--attributes",
+        "sign,sensitive,extractable,always-authenticate",
+        "--pin-file",
+        &f.pin,
+    ]);
+    assert_eq!(attrs["sign"]["value"], false);
+    assert_eq!(attrs["sensitive"]["value"], true);
+    assert_eq!(attrs["extractable"]["value"], false);
+    assert_eq!(attrs["always-authenticate"]["value"], true);
+    if std::env::var("PKCS11_TEST_REQUIRE_RSA_OAEP_SHA2").as_deref() == Ok("1") {
+        let message = f.path("generated-rsa-message");
+        let ciphertext = f.path("generated-rsa-ciphertext");
+        let recovered = f.path("generated-rsa-recovered");
+        std::fs::write(&message, b"generated RSA encryption purpose").unwrap();
+        let result = f.run(&[
+            "encrypt-rsa-oaep",
+            "--object",
+            "pkcs11:token=client-test;id=%D9%E1;type=public",
+            "--digest",
+            "sha256",
+            "--input",
+            &message,
+            "--output",
+            &ciphertext,
+        ]);
+        assert!(result.status.success());
+        let result = f.run(&[
+            "decrypt-rsa-oaep",
+            "--object",
+            private,
+            "--digest",
+            "sha256",
+            "--input",
+            &ciphertext,
+            "--output",
+            &recovered,
+            "--pin-file",
+            &f.pin,
+            "--context-pin-file",
+            &f.pin,
+        ]);
+        assert!(result.status.success());
+        assert_eq!(
+            std::fs::read(message).unwrap(),
+            std::fs::read(recovered).unwrap()
+        );
+    }
+
     if std::env::var("PKCS11_TEST_REQUIRE_RSA_OAEP_SHA2").as_deref() == Ok("1") {
         let message = f.path("oaep-message");
         std::fs::write(&message, b"OAEP context-authentication CLI regression").unwrap();

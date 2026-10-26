@@ -117,7 +117,7 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
         text(choices).size(14),
         text_input("Key label", &state.management.key_label).on_input_maybe(enabled.then_some(move |value| edit(ManagementField::KeyLabel, value))),
         text_input("Key ID (hexadecimal bytes)", &state.management.key_id).on_input_maybe(enabled.then_some(move |value| edit(ManagementField::KeyId, value))),
-        checkbox(state.management.always_authenticate).label("Require authentication for every signature")
+        checkbox(state.management.always_authenticate).label("Require authentication for every private-key operation")
             .on_toggle_maybe((enabled && state.management.key.is_some_and(|key| key.0.supports_context_authentication())).then_some(Message::AlwaysAuthenticate)),
         text(match state.management.key.map(|key| key.0) {
             Some(crate::backend::GenerationKind::MlDsa(_)) => "ML-DSA signing pair. The private key is sensitive and nonextractable. Select the private key on Objects to sign a file, or the public key to export it.",

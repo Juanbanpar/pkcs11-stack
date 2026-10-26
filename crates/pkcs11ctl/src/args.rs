@@ -266,7 +266,7 @@ pub(crate) fn command() -> Command {
         .about("Change authenticated role's host PIN once")
         .arg(required("new-pin-file", "New PIN file"));
     let generate = Command::new("generate")
-        .about("Generate persistent nonextractable signing, ECDH, ML-KEM or AES keys")
+        .about("Generate persistent nonextractable signing, encryption, derivation or KEM keys")
         .arg(required("kind", "Key kind").value_parser([
             "rsa",
             "ecdh-p256",
@@ -287,13 +287,20 @@ pub(crate) fn command() -> Command {
         ]))
         .arg(value("bits", "RSA modulus size; RSA only"))
         .arg(
-            value("purpose", "Required AES permissions")
-                .value_parser(["encryption", "wrapping"])
-                .required_if_eq_any([("kind", "aes128"), ("kind", "aes192"), ("kind", "aes256")]),
+            value(
+                "purpose",
+                "AES encryption/wrapping or RSA signing/encryption",
+            )
+            .value_parser(["signing", "encryption", "wrapping"])
+            .required_if_eq_any([
+                ("kind", "aes128"),
+                ("kind", "aes192"),
+                ("kind", "aes256"),
+            ]),
         )
         .arg(flag(
             "always-authenticate",
-            "Require per-signature context authentication",
+            "Require context authentication for each private-key operation",
         ));
     let import = Command::new("import")
         .about("Import public certificate DER, ML-KEM SPKI DER or data bytes")

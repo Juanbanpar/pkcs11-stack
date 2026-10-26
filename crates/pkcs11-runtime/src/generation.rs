@@ -5,6 +5,37 @@ use crate::{
 };
 use cryptoki::{context::Function, mechanism::Mechanism};
 
+/// Generate a persistent RSA pair restricted to encryption/decryption.
+#[derive(Clone, Copy)]
+pub struct RsaEncryptionKeyPairRequest<'a> {
+    /// Modulus size, 2048..=16384 bits in multiples of eight; provider bounds apply.
+    pub bits: usize,
+    /// Shared nonempty CKA_ID, at most 128 bytes. Existing key-pair IDs are rejected.
+    pub id: &'a [u8],
+    /// Shared nonempty CKA_LABEL, at most 128 bytes.
+    pub label: &'a [u8],
+    /// Require separate context authentication for each private-key decryption.
+    pub always_authenticate: bool,
+}
+impl RsaEncryptionKeyPairRequest<'_> {
+    /// Validate modulus and identity bounds without provider calls.
+    pub fn validate(&self) -> Result<(), Error> {
+        validate_secret_identity(self.id, self.label)?;
+        if !(2048..=16384).contains(&self.bits) || self.bits % 8 != 0 {
+            return Err(Error::InvalidParameters("invalid RSA encryption key size"));
+        }
+        Ok(())
+    }
+}
+impl std::fmt::Debug for RsaEncryptionKeyPairRequest<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RsaEncryptionKeyPairRequest")
+            .field("bits", &self.bits)
+            .field("always_authenticate", &self.always_authenticate)
+            .finish_non_exhaustive()
+    }
+}
+
 /// AES key size, independent of the mechanism's byte-based metadata bounds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AesKeySize {
@@ -106,6 +137,28 @@ fn sizes(enabled: bool, minimum: usize, maximum: usize) -> Vec<AesKeySize> {
     .collect()
 }
 impl Token<'_> {
+    /// Common advertised RSA encryption-pair sizes. Generation support does not
+    /// guarantee any OAEP digest profile or private-key template will be accepted.
+    pub fn rsa_encryption_generation_options(&self) -> Result<Vec<usize>, Error> {
+        if !self
+            .module
+            .raw()?
+            .is_fn_supported(Function::GenerateKeyPair)
+            || !self
+                .mechanisms()?
+                .contains(&MechanismType::RSA_PKCS_KEY_PAIR_GEN)
+        {
+            return Ok(vec![]);
+        }
+        let info = self.mechanism_info(MechanismType::RSA_PKCS_KEY_PAIR_GEN)?;
+        Ok([2048, 3072, 4096, 8192, 16384]
+            .into_iter()
+            .filter(|bits| {
+                info.generate_key_pair()
+                    && (info.min_key_size()..=info.max_key_size()).contains(bits)
+            })
+            .collect())
+    }
     /// Advertised EC pair generation choices in bits, with a GenerateKeyPair entry point.
     /// Does not guarantee curve/template acceptance or support for a later ECDH operation.
     pub fn ecdh_generation_options(&self) -> Result<Vec<NamedCurve>, Error> {
@@ -143,6 +196,97 @@ impl Token<'_> {
     }
 }
 impl<'m> Session<'m> {
+    /// Generate one persistent encryption/decryption-only RSA pair. Public keys
+    /// are public; private keys are sensitive/nonextractable. Signing, recovery,
+    /// wrapping and derivation permissions are disabled. Context authentication
+    /// may be required for decryption. Capabilities and duplicate IDs are checked
+    /// before generation, without uniqueness guarantees against concurrent writers.
+    /// No retry or rollback occurs; failures may leave objects. Requires RW mode.
+    pub fn generate_rsa_encryption_key_pair(
+        &mut self,
+        request: &RsaEncryptionKeyPairRequest<'_>,
+    ) -> Result<(Object<'_, 'm>, Object<'_, 'm>), Error> {
+        request.validate()?;
+        self.validate()?;
+        if self.mode != SessionMode::ReadWrite {
+            return Err(Error::ReadWriteRequired);
+        }
+        let token = self.token();
+        if !token
+            .module
+            .raw()?
+            .is_fn_supported(Function::GenerateKeyPair)
+            || !token
+                .mechanisms()?
+                .contains(&MechanismType::RSA_PKCS_KEY_PAIR_GEN)
+        {
+            return Err(Error::UnsupportedKeyOperation);
+        }
+        let info = token.mechanism_info(MechanismType::RSA_PKCS_KEY_PAIR_GEN)?;
+        if !info.generate_key_pair()
+            || !(info.min_key_size()..=info.max_key_size()).contains(&request.bits)
+        {
+            return Err(Error::UnsupportedKeyOperation);
+        }
+        for class in [ObjectClass::PUBLIC_KEY, ObjectClass::PRIVATE_KEY] {
+            if !self
+                .find_objects(&[
+                    Attribute::Token(true),
+                    Attribute::Class(class),
+                    Attribute::Id(request.id.to_vec()),
+                ])?
+                .is_empty()
+            {
+                return Err(Error::InvalidParameters("key pair ID already exists"));
+            }
+        }
+        let public = [
+            Attribute::Token(true),
+            Attribute::Private(false),
+            Attribute::Id(request.id.to_vec()),
+            Attribute::Label(request.label.to_vec()),
+            Attribute::ModulusBits(
+                request
+                    .bits
+                    .try_into()
+                    .map_err(|_| Error::InvalidParameters("RSA key size"))?,
+            ),
+            Attribute::PublicExponent(vec![1, 0, 1]),
+            Attribute::Encrypt(true),
+            Attribute::Verify(false),
+            Attribute::VerifyRecover(false),
+            Attribute::Wrap(false),
+            Attribute::Derive(false),
+        ];
+        let private = [
+            Attribute::Token(true),
+            Attribute::Private(true),
+            Attribute::Id(request.id.to_vec()),
+            Attribute::Label(request.label.to_vec()),
+            Attribute::Sensitive(true),
+            Attribute::Extractable(false),
+            Attribute::Decrypt(true),
+            Attribute::Sign(false),
+            Attribute::SignRecover(false),
+            Attribute::Unwrap(false),
+            Attribute::Derive(false),
+            Attribute::AlwaysAuthenticate(request.always_authenticate),
+        ];
+        let (public, private) = self
+            .write_operation("generate RSA encryption key pair", |raw| {
+                raw.generate_key_pair(&Mechanism::RsaPkcsKeyPairGen, &public, &private)
+            })?;
+        Ok((
+            Object {
+                session: self,
+                handle: public,
+            },
+            Object {
+                session: self,
+                handle: private,
+            },
+        ))
+    }
     /// Generate one persistent derivation pair in an RW session. The public key is
     /// public; the private key is sensitive/nonextractable and permits only derivation.
     /// Per-operation authentication is disabled; this binding cannot interleave it
@@ -321,5 +465,51 @@ mod tests {
             .validate()
             .is_ok()
         );
+    }
+}
+
+#[cfg(test)]
+mod rsa_tests {
+    use super::*;
+    #[test]
+    fn rsa_encryption_requests_bound_sizes_and_identities() {
+        let request = RsaEncryptionKeyPairRequest {
+            bits: 2048,
+            id: b"key",
+            label: b"encryption",
+            always_authenticate: true,
+        };
+        for bits in [2048, 2056, 3072, 4096, 16384] {
+            assert!(
+                RsaEncryptionKeyPairRequest { bits, ..request }
+                    .validate()
+                    .is_ok()
+            );
+        }
+        for bits in [0, 1024, 2049, 16392, usize::MAX] {
+            assert!(
+                RsaEncryptionKeyPairRequest { bits, ..request }
+                    .validate()
+                    .is_err()
+            );
+        }
+        for value in [b"".as_slice(), &[0; 129]] {
+            assert!(
+                RsaEncryptionKeyPairRequest {
+                    id: value,
+                    ..request
+                }
+                .validate()
+                .is_err()
+            );
+            assert!(
+                RsaEncryptionKeyPairRequest {
+                    label: value,
+                    ..request
+                }
+                .validate()
+                .is_err()
+            );
+        }
     }
 }

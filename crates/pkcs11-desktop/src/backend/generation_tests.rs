@@ -225,6 +225,107 @@ fn software_token_typed_generation_permissions_and_use() {
             );
         }
     }
+    let kind = GenerationKind::RsaEncryption(2048);
+    assert!(choices.contains(&kind));
+    let label = "desktop-rsa-encryption";
+    let list = objects(
+        registry.manage(
+            module,
+            token,
+            ManagementAction::Generate {
+                kind,
+                id: b"desktop-rsa-encryption".to_vec(),
+                label: label.as_bytes().to_vec(),
+                always_authenticate: true,
+            },
+        ),
+        None,
+    );
+    let private = object(&list, label, ObjectClass::PRIVATE_KEY);
+    let fields = registry.inspect(module, token, private).unwrap().fields;
+    for (name, value) in [
+        ("Sign", false),
+        ("Decrypt", true),
+        ("Derive", false),
+        ("Sensitive", true),
+        ("Extractable", false),
+        ("Always authenticate", true),
+    ] {
+        assert!(
+            fields
+                .iter()
+                .any(|field| field.name == name && field.value == Some(value.to_string())),
+            "missing {name}"
+        );
+    }
+    let public_file = root.join("rsa-encryption.der");
+    let list = objects(
+        registry.manage(
+            module,
+            token,
+            ManagementAction::Export {
+                object: object(&list, label, ObjectClass::PUBLIC_KEY),
+                path: public_file.clone(),
+            },
+        ),
+        None,
+    );
+    if std::env::var("PKCS11_TEST_REQUIRE_RSA_OAEP_SHA2").as_deref() == Ok("1") {
+        let message = root.join("rsa-message");
+        let ciphertext = root.join("rsa-ciphertext");
+        let output = root.join("rsa-recovered");
+        std::fs::write(&message, b"desktop RSA encryption purpose").unwrap();
+        let generated = std::process::Command::new("openssl")
+            .args([
+                "pkeyutl",
+                "-encrypt",
+                "-pubin",
+                "-keyform",
+                "DER",
+                "-pkeyopt",
+                "rsa_padding_mode:oaep",
+                "-pkeyopt",
+                "rsa_oaep_md:sha256",
+                "-pkeyopt",
+                "rsa_mgf1_md:sha256",
+            ])
+            .arg("-inkey")
+            .arg(&public_file)
+            .arg("-in")
+            .arg(&message)
+            .arg("-out")
+            .arg(&ciphertext)
+            .output()
+            .unwrap();
+        assert!(generated.status.success());
+        let scope = CryptoScope {
+            module,
+            token,
+            object: object(&list, label, ObjectClass::PRIVATE_KEY),
+            mode: CryptoMode::Decrypt,
+        };
+        let choice = match registry.cipher_options(scope).unwrap() {
+            BackendResult::CipherOptions { choices, .. } => choices.into_iter().find(|choice| matches!(choice, CipherParameters::Oaep(choice) if choice.digest == pkcs11_client::DigestAlgorithm::Sha256 && choice.always_authenticate)).unwrap(),
+            _ => panic!("OAEP choices"),
+        };
+        objects(
+            registry.cipher(
+                scope,
+                CipherJob {
+                    choice,
+                    context: Some(SecretInput::Value("12345678".into())),
+                    aes_gcm: None,
+                    input: ciphertext,
+                    output: output.clone(),
+                },
+            ),
+            None,
+        );
+        assert_eq!(
+            std::fs::read(output).unwrap(),
+            std::fs::read(message).unwrap()
+        );
+    }
     registry.close().unwrap();
     std::fs::remove_dir_all(root).unwrap();
 }

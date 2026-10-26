@@ -10,7 +10,8 @@ use pkcs11_runtime::{
     AesKeyPurpose, AesKeyRequest, AesKeySize, Attribute, AttributeInfo, AttributeType,
     Authentication, DigestAlgorithm, EcdhDerivation, EcdhKeyPairRequest, Error, KeyKind,
     KeyOperation, Module, NamedCurve, ObjectClass, ObjectRef, Pin, PrivateKeyRef, PublicKeyRef,
-    SessionMode, SignInput, SignRequest, SignatureAlgorithm, SigningPolicy,
+    RsaEncryptionKeyPairRequest, SessionMode, SignInput, SignRequest, SignatureAlgorithm,
+    SigningPolicy,
 };
 use secrecy::SecretString;
 fn reference(id: &[u8], kind: &str) -> ObjectRef {
@@ -479,5 +480,134 @@ fn generation_permissions_ecdh_agreement_and_aes_key_use() {
         );
     }
     session.close().unwrap();
+    module.finalize().unwrap();
+}
+
+#[test]
+#[ignore = "requires tools/test-softhsm.sh disposable token"]
+fn rsa_encryption_generation_restricts_purpose_and_supports_context_decryption() {
+    use secrecy::ExposeSecret;
+    assert_eq!(std::env::var("PKCS11_TEST_ISOLATED").as_deref(), Ok("1"));
+    let module = Module::load(std::env::var_os("PKCS11_TEST_MODULE").unwrap()).unwrap();
+    let token = module
+        .resolve_token_uri(&"pkcs11:token=client-test".parse().unwrap())
+        .unwrap();
+    assert!(
+        token
+            .rsa_encryption_generation_options()
+            .unwrap()
+            .contains(&2048)
+    );
+    let pin = SecretString::from("12345678");
+    let mut session = token.open_session(SessionMode::ReadWrite).unwrap();
+    session
+        .authenticate(Authentication::User(Pin::Value(&pin)))
+        .unwrap();
+    for (bits, context) in [(2048, false), (3072, true)] {
+        let id = format!("rsa-encryption-{bits}").into_bytes();
+        let request = RsaEncryptionKeyPairRequest {
+            bits,
+            id: &id,
+            label: &id,
+            always_authenticate: context,
+        };
+        {
+            let (public, private) = session.generate_rsa_encryption_key_pair(&request).unwrap();
+            inspect(
+                &public,
+                &[
+                    Attribute::Private(false),
+                    Attribute::Encrypt(true),
+                    Attribute::Verify(false),
+                    Attribute::VerifyRecover(false),
+                    Attribute::Wrap(false),
+                    Attribute::Derive(false),
+                ],
+            );
+            inspect(
+                &private,
+                &[
+                    Attribute::Private(true),
+                    Attribute::Sensitive(true),
+                    Attribute::Extractable(false),
+                    Attribute::Decrypt(true),
+                    Attribute::Sign(false),
+                    Attribute::SignRecover(false),
+                    Attribute::Unwrap(false),
+                    Attribute::Derive(false),
+                    Attribute::AlwaysAuthenticate(context),
+                ],
+            );
+        }
+        assert!(matches!(
+            session.generate_rsa_encryption_key_pair(&request),
+            Err(Error::InvalidParameters(_))
+        ));
+        let private =
+            PrivateKeyRef::new(reference(&id, "private").uri().to_string().parse().unwrap())
+                .unwrap();
+        let public =
+            PublicKeyRef::new(reference(&id, "public").uri().to_string().parse().unwrap()).unwrap();
+        assert_eq!(
+            public.public_metadata(&mut session).unwrap().key,
+            KeyKind::Rsa { bits }
+        );
+        assert!(!session.key_capabilities(&private).unwrap().can_sign);
+        let signing = SignRequest {
+            algorithm: SignatureAlgorithm::RsaPkcs1,
+            digest: DigestAlgorithm::Sha256,
+            input: SignInput::Message(b"not a signing key"),
+            pss: None,
+        };
+        assert!(matches!(
+            session.sign(&private, &signing, &SigningPolicy::default(), None),
+            Err(Error::UnsupportedSigning(_))
+        ));
+        let mut ro = token.open_session(SessionMode::ReadOnly).unwrap();
+        assert!(matches!(
+            ro.generate_rsa_encryption_key_pair(&RsaEncryptionKeyPairRequest {
+                id: b"ro-rsa",
+                ..request
+            }),
+            Err(Error::ReadWriteRequired)
+        ));
+        ro.close().unwrap();
+        if std::env::var("PKCS11_TEST_REQUIRE_RSA_OAEP_SHA2").as_deref() == Ok("1") {
+            let ciphertext = session
+                .encrypt_rsa_oaep(
+                    &public,
+                    DigestAlgorithm::Sha256,
+                    b"encryption-purpose regression",
+                )
+                .unwrap();
+            if context {
+                assert!(matches!(
+                    session.decrypt_rsa_oaep(&private, DigestAlgorithm::Sha256, &ciphertext),
+                    Err(Error::ContextAuthenticationRequired)
+                ));
+            }
+            let plaintext = session
+                .decrypt_rsa_oaep_with_context(
+                    &private,
+                    DigestAlgorithm::Sha256,
+                    &ciphertext,
+                    context.then_some(Pin::Value(&pin)),
+                )
+                .unwrap();
+            assert_eq!(plaintext.expose_secret(), b"encryption-purpose regression");
+        }
+        session
+            .resolve(private.as_object_ref())
+            .unwrap()
+            .destroy()
+            .unwrap();
+        session
+            .resolve(public.as_object_ref())
+            .unwrap()
+            .destroy()
+            .unwrap();
+    }
+    session.close().unwrap();
+    drop(token);
     module.finalize().unwrap();
 }

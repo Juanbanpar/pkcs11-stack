@@ -441,6 +441,13 @@ format is provided. Keep the nonce, AAD and protocol context with the ciphertext
 an error does not authorize nonce reuse. The CLI and desktop expose the same raw
 ciphertext/tag profile with an explicit nonce and optional AAD file.
 
+`GenerationCapabilities::rsa_encryption` reports common advertised RSA pair sizes.
+`ManagementSession::generate_rsa_encryption_key_pair` accepts
+`RsaEncryptionKeyPairRequest` for encryption/decryption-only, nonextractable pairs,
+including an optional always-authenticate requirement. Existing signing-generation
+APIs retain their signing-only permissions. Identity and modulus bounds are
+validated before generation; duplicate public/private IDs are rejected.
+
 ## RSA-OAEP encryption
 
 `ManagementSession::oaep_options` checks a selected key's class, permissions,

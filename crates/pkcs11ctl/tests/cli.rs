@@ -1269,3 +1269,33 @@ fn token_verification_checks_selectors_and_stdin_before_loading() {
         "only one verification input may read stdin"
     );
 }
+
+#[test]
+fn rsa_encryption_generation_rejects_invalid_purposes_and_identity_bounds_before_loading() {
+    for (purpose, id) in [
+        ("wrapping", "01".to_owned()),
+        ("encryption", "01".repeat(129)),
+    ] {
+        let output = run(&[
+            "--module",
+            "/must-not-load",
+            "--format",
+            "json",
+            "generate",
+            "--token",
+            "pkcs11:token=test",
+            "--kind",
+            "rsa",
+            "--purpose",
+            purpose,
+            "--id",
+            &id,
+            "--label",
+            "encryption",
+            "--confirm",
+        ]);
+        assert_eq!(output.status.code(), Some(2));
+        let failure: serde_json::Value = serde_json::from_slice(&output.stderr).unwrap();
+        assert_eq!(failure["error"]["kind"], "input");
+    }
+}

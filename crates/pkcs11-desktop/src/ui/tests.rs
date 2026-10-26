@@ -960,7 +960,7 @@ fn selecting_aes_clears_signing_authentication_and_disables_its_control() {
             "click \"RSA 2048 — signing\"",
             "type tab",
             "type enter",
-            "click \"Require authentication for every signature\"",
+            "click \"Require authentication for every private-key operation\"",
         ],
     );
     assert!(matches!(
@@ -992,7 +992,7 @@ fn selecting_ml_kem_clears_ml_dsa_authentication_and_disables_its_control() {
     }
     let app = run(
         generation,
-        &["click \"Require authentication for every signature\""],
+        &["click \"Require authentication for every private-key operation\""],
     );
     assert!(app.state.management.always_authenticate);
     for dark in [false, true] {
@@ -1001,11 +1001,11 @@ fn selecting_ml_kem_clears_ml_dsa_authentication_and_disables_its_control() {
     let app = run(
         generation,
         &[
-            "click \"Require authentication for every signature\"",
+            "click \"Require authentication for every private-key operation\"",
             "click \"ML-DSA-65 — signing\"",
             "type tab",
             "type enter",
-            "click \"Require authentication for every signature\"",
+            "click \"Require authentication for every private-key operation\"",
         ],
     );
     assert_eq!(

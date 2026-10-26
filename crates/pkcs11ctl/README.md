@@ -284,13 +284,14 @@ survive initialization. Token labels are at most 32 UTF-8 bytes.
 
 `generate` supports `rsa`, `p256`, `p384`, `p521`, ML-DSA and ML-KEM kinds,
 plus `ecdh-p256`, `ecdh-p384`, `ecdh-p521` and `aes128`, `aes192`, `aes256`.
-RSA defaults to 2048 bits; `--bits` accepts multiples of eight from 2048 to 16384,
-subject to provider bounds. Existing `p256`/`p384`/`p521` kinds create signing
+RSA defaults to signing; `--purpose encryption` creates encryption/decryption-only
+pairs, with signing disabled. RSA defaults to 2048 bits; `--bits` accepts multiples
+of eight from 2048 to 16384, subject to provider bounds. Existing `p256`/`p384`/`p521` kinds create signing
 pairs. ECDH private keys permit only derivation. AES requires
 `--purpose encryption` (encryption/decryption) or `--purpose wrapping`
 (wrapping/unwrapping); other permissions are disabled. `--always-authenticate`
-applies only to signing keys. `--purpose` applies only to AES and `--bits` only
-to RSA; invalid combinations fail before loading a provider.
+applies to signing and RSA encryption keys. `--purpose` applies to AES and RSA,
+and `--bits` only to RSA; invalid combinations fail before loading a provider.
 
 ```sh
 pkcs11ctl --module /path/to/module.so generation-options --token 'pkcs11:serial=123'
@@ -302,7 +303,7 @@ pkcs11ctl --module /path/to/module.so generate --token 'pkcs11:serial=123' \
 
 Choices describe generation only, not later operation support or template
 acceptance. No private/secret values are returned. Generated objects persist;
-private/secret keys are sensitive and nonextractable. ECDH and AES require ID/label
+private/secret keys are sensitive and nonextractable. RSA encryption, ECDH and AES require ID/label
 fields of 1–128 bytes, rejecting existing public/private IDs for ECDH or secret
 IDs for AES. Checks do not ensure uniqueness against concurrent writers. Existing
 signing and PQC generation can create duplicate IDs/labels. Generation does not

@@ -10,6 +10,7 @@ pub struct KeyChoice(pub GenerationKind);
 impl std::fmt::Display for KeyChoice {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.0 {
+            GenerationKind::RsaEncryption(bits) => write!(f, "RSA {bits} — encryption/decryption"),
             GenerationKind::Signing(KeyKind::Rsa { bits }) => write!(f, "RSA {bits} — signing"),
             GenerationKind::MlDsa(parameter) => write!(
                 f,

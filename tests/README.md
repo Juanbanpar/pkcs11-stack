@@ -50,7 +50,8 @@ or formal conformance. Coverage is recorded per capability below.
 | Native RSA/ECDSA verification | Implemented | Runtime/client; CLI `verify-token`; desktop public-key verification. Provider tests check signature/digest profiles, permission/allow-list rejection, mismatches and session reuse; OpenSSL independently verifies the test signatures. |
 | Context-authenticated RSA-OAEP decryption | Implemented | Runtime/client; CLI OAEP commands; desktop context credentials. OpenSSL interoperability runs on the required SHA-2 OAEP provider lane. Failed RSA-OAEP and AES-GCM plaintext buffers zeroize. |
 | Remaining operation expansion, metadata compatibility and explicit legacy policy | Pending | Existing restrictions remain in force. |
-| Classical algorithm expansion | Pending | Existing RSA/EC profiles only. |
+| Encryption-purpose RSA generation | Implemented | Runtime/client/CLI/desktop; key permissions, size/identity bounds, duplicate IDs, RO rejection, export policy and OAEP use of generated keys. |
+| Remaining classical algorithm expansion | Pending | Existing signature/digest profiles remain unchanged. |
 | Symmetric algorithms, MACs and KDF expansion | Pending | Existing AES-GCM, AES-KW and constrained HKDF profiles only. |
 | HashML-DSA, SLH-DSA and additional TLS signatures | Pending | Existing pure ML-DSA and ML-KEM profiles remain supported. |
 | Legacy algorithm execution | Pending | No legacy opt-in or algorithms are enabled yet. |

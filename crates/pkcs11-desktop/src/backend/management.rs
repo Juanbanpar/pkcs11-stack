@@ -2,8 +2,8 @@
 use super::{BackendError, BackendResult, Registry, ResourceId, browse::read_session};
 use pkcs11_client::{
     AesKeyPurpose, AesKeyRequest, AesKeySize, Authentication, CertificateDocument,
-    EcdhKeyPairRequest, KeyKind, MlDsaParameterSet, MlKemParameterSet, NamedCurve, SessionMode,
-    SessionState,
+    EcdhKeyPairRequest, KeyKind, MlDsaParameterSet, MlKemParameterSet, NamedCurve,
+    RsaEncryptionKeyPairRequest, SessionMode, SessionState,
 };
 
 use std::{
@@ -15,6 +15,7 @@ use std::{
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GenerationKind {
     Signing(KeyKind),
+    RsaEncryption(usize),
     MlDsa(MlDsaParameterSet),
     MlKem(MlKemParameterSet),
     Ecdh(NamedCurve),
@@ -22,11 +23,22 @@ pub enum GenerationKind {
 }
 impl GenerationKind {
     pub fn supports_context_authentication(self) -> bool {
-        matches!(self, Self::Signing(_) | Self::MlDsa(_))
+        matches!(
+            self,
+            Self::Signing(_) | Self::MlDsa(_) | Self::RsaEncryption(_)
+        )
     }
     pub fn validate(self, id: &[u8], label: &[u8], context: bool) -> Result<(), BackendError> {
         let valid = match self {
             Self::Signing(_) | Self::MlDsa(_) => !id.is_empty() && !label.is_empty(),
+            Self::RsaEncryption(bits) => RsaEncryptionKeyPairRequest {
+                bits,
+                id,
+                label,
+                always_authenticate: context,
+            }
+            .validate()
+            .is_ok(),
             Self::MlKem(_) => !context && !id.is_empty() && !label.is_empty(),
             Self::Ecdh(curve) => {
                 !context && EcdhKeyPairRequest { curve, id, label }.validate().is_ok()
@@ -114,6 +126,12 @@ impl Registry {
             .signing
             .into_iter()
             .map(GenerationKind::Signing)
+            .chain(
+                choices
+                    .rsa_encryption
+                    .into_iter()
+                    .map(GenerationKind::RsaEncryption),
+            )
             .chain(choices.ml_dsa.into_iter().map(GenerationKind::MlDsa))
             .chain(choices.ml_kem.into_iter().map(GenerationKind::MlKem))
             .chain(choices.ecdh.into_iter().map(GenerationKind::Ecdh))
@@ -206,6 +224,13 @@ impl Registry {
                             &label,
                             always_authenticate,
                         ),
+                        GenerationKind::RsaEncryption(bits) => session
+                            .generate_rsa_encryption_key_pair(&RsaEncryptionKeyPairRequest {
+                                bits,
+                                id: &id,
+                                label: &label,
+                                always_authenticate,
+                            }),
                         GenerationKind::MlDsa(parameter) => session.generate_ml_dsa_key_pair(
                             parameter,
                             &id,

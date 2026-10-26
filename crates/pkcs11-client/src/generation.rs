@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use crate::{Error, KeyKind, ManagementSession, MechanismType, NamedCurve, Pkcs11Uri, Provider};
-pub use pkcs11_runtime::{AesKeyPurpose, AesKeyRequest, AesKeySize, EcdhKeyPairRequest};
+pub use pkcs11_runtime::{
+    AesKeyPurpose, AesKeyRequest, AesKeySize, EcdhKeyPairRequest, RsaEncryptionKeyPairRequest,
+};
 
 /// Advisory generation choices shared by frontends. Fields describe generation
 /// only: they do not guarantee template acceptance or later operation support.
@@ -9,6 +11,8 @@ pub use pkcs11_runtime::{AesKeyPurpose, AesKeyRequest, AesKeySize, EcdhKeyPairRe
 pub struct GenerationCapabilities {
     /// Common RSA sizes and named EC signing curves.
     pub signing: Vec<KeyKind>,
+    /// Common RSA encryption/decryption-only pair sizes, in bits.
+    pub rsa_encryption: Vec<usize>,
     /// Named curves for derivation-only key-pair templates.
     pub ecdh: Vec<NamedCurve>,
     /// AES sizes for encryption-only or wrapping-only key templates.
@@ -29,6 +33,7 @@ impl Provider {
         let selected = self.module.resolve_token_uri(token)?;
         Ok(GenerationCapabilities {
             signing: self.generation_options(token)?,
+            rsa_encryption: selected.rsa_encryption_generation_options()?,
             ecdh: selected.ecdh_generation_options()?,
             aes: selected.aes_generation_options()?,
             ml_dsa: self.ml_dsa_generation_options(token)?,
@@ -37,6 +42,17 @@ impl Provider {
     }
 }
 impl ManagementSession<'_> {
+    /// Generate a persistent encryption-only RSA pair with a bounded shared ID
+    /// and label, sensitive/nonextractable private key and optional context auth.
+    /// Requires RW access. Capabilities and duplicate IDs are checked before crypto;
+    /// failure can leave objects and no retry/rollback is performed.
+    pub fn generate_rsa_encryption_key_pair(
+        &mut self,
+        request: &RsaEncryptionKeyPairRequest<'_>,
+    ) -> Result<(), Error> {
+        self.session.generate_rsa_encryption_key_pair(request)?;
+        Ok(())
+    }
     /// Generate a persistent derivation-only EC pair with a bounded shared ID/label.
     /// Private material is sensitive/nonextractable; no signing or context authentication.
     /// Requires RW mode; existing public/private key IDs are rejected before crypto.

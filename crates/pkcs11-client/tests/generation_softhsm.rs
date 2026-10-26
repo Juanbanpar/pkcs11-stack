@@ -2,8 +2,8 @@
 //! Typed generation and shared choices through the application API.
 use pkcs11_client::{
     AesKeyPurpose, AesKeyRequest, AesKeySize, Authentication, DeriveRequest, EcdhKeyPairRequest,
-    EcdhPeer, Error, KeyOperation, NamedCurve, ObjectRef, Pin, Provider, SecretKeyIdentity,
-    SessionMode,
+    EcdhPeer, Error, KeyOperation, NamedCurve, ObjectRef, Pin, Provider, PublicKeyRef,
+    RsaEncryptionKeyPairRequest, SecretKeyIdentity, SessionMode,
 };
 use secrecy::SecretString;
 
@@ -24,6 +24,7 @@ fn typed_generation_and_advisory_choices() {
     let provider = Provider::load(std::env::var_os("PKCS11_TEST_MODULE").unwrap()).unwrap();
     let token = "pkcs11:token=client-test".parse().unwrap();
     let options = provider.generation_capabilities(&token).unwrap();
+    assert!(options.rsa_encryption.contains(&2048));
     assert_eq!(
         options.ecdh,
         [NamedCurve::P256, NamedCurve::P384, NamedCurve::P521]
@@ -63,6 +64,38 @@ fn typed_generation_and_advisory_choices() {
     let mut session = provider
         .management(&token, SessionMode::ReadWrite, auth())
         .unwrap();
+    let encryption = RsaEncryptionKeyPairRequest {
+        bits: 2048,
+        id: b"client-rsa-encryption",
+        label: b"client RSA encryption",
+        always_authenticate: true,
+    };
+    session
+        .generate_rsa_encryption_key_pair(&encryption)
+        .unwrap();
+    assert!(
+        session
+            .generate_rsa_encryption_key_pair(&encryption)
+            .is_err()
+    );
+    let public = PublicKeyRef::new(
+        reference(encryption.id, "public")
+            .uri()
+            .to_string()
+            .parse()
+            .unwrap(),
+    )
+    .unwrap();
+    assert!(
+        !session
+            .export_classical_public_key(&public)
+            .unwrap()
+            .is_empty()
+    );
+    assert!(matches!(
+        session.export_public(&reference(encryption.id, "private")),
+        Err(Error::UnsupportedExport)
+    ));
     let mut peers = vec![];
     for side in 0..2 {
         let id = [0x96, side];

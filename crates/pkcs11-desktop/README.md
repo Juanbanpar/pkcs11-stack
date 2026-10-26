@@ -375,6 +375,11 @@ a trusted provider supporting persistent ML-KEM, HKDF and AES-GCM:
 PKCS11_TEST_KDF_MODULE=/path/to/libkryoptic_pkcs11.so ./tools/test-kem-hkdf.sh
 ```
 
+Generation choices also include RSA encryption/decryption pairs. They disable
+signing, wrapping and derivation, and keep private keys sensitive/nonextractable.
+The per-operation authentication option applies to their private decryption key.
+Public export and RSA-OAEP workflows use these generated keys directly.
+
 ## License
 
 This application is available under either [MIT](../../LICENSE-MIT) or

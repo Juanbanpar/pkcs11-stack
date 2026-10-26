@@ -304,6 +304,20 @@ validation and policy rejection precede crypto. Native decryption buffers are
 bounded and zeroize on failure or drop. Check explicit session closure before
 releasing output. Testing does not establish formal algorithm validation.
 
+## RSA encryption key generation
+
+`RsaEncryptionKeyPairRequest` and `generate_rsa_encryption_key_pair` create
+persistent RSA pairs for encryption/decryption only, with exponent 65537 and
+2048..=16384 bits in multiples of eight. Public keys are public; private keys are
+private, sensitive and nonextractable. Signing, recovery, wrapping and derivation
+permissions are disabled. Context authentication may be required for decryption.
+
+Both objects share nonempty ID/label fields bounded to 128 bytes. Existing
+public/private IDs, read-only sessions and unsupported generation bounds are
+rejected before generation. Checks are not transactional with concurrent writers;
+failures may leave objects and are never retried. Advertised generation choices
+do not establish support for any OAEP digest profile.
+
 ## ECDH and AES key generation
 
 `Token::ecdh_generation_options` reports P-256/P-384/P-521 generation choices;

@@ -23,6 +23,7 @@ mod error;
 mod generation;
 pub use generation::{
     AesKeyPurpose, AesKeyRequest, AesKeySize, EcdhKeyPairRequest, GenerationCapabilities,
+    RsaEncryptionKeyPairRequest,
 };
 mod hkdf;
 mod management;
