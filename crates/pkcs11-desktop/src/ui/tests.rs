@@ -1432,3 +1432,32 @@ fn hkdf_form_accepts_context_and_output_choices_without_exposing_key_values() {
     });
     assert!(app.state.key_form.is_none());
 }
+
+#[test]
+fn digest_form_accepts_a_file_and_clears_stale_pickers_when_leaving() {
+    use pkcs11_client::HashAlgorithm;
+    fn initial() -> UiState {
+        let mut state = state();
+        state.token_page = TokenPage::Operations;
+        state.presentation.task = Some(ManagementTask::Digest);
+        state.digest.loaded = true;
+        state.digest.algorithms = vec![HashAlgorithm::Sha256, HashAlgorithm::Sha3_256];
+        state.digest.algorithm = Some(HashAlgorithm::Sha256);
+        state
+    }
+    let mut app = run_focused(initial, &["type \"input.bin\""], Some("input-Input file"));
+    assert_eq!(app.state.digest.path, "input.bin");
+    let _ = app.update(Message::DigestAlgorithm(HashAlgorithm::Sha3_256));
+    assert_eq!(app.state.digest.algorithm, Some(HashAlgorithm::Sha3_256));
+    for dark in [false, true] {
+        render_screen(&app.state, "digest-file", 1060, 900, dark);
+    }
+    let id = app.state.digest_picker().unwrap();
+    let _ = app.update(Message::Ui(Action::Task(Some(ManagementTask::Random))));
+    let _ = app.update(Message::DigestPicked {
+        id,
+        path: Some("stale.bin".into()),
+    });
+    assert!(app.state.digest.path.is_empty());
+    assert!(app.state.digest.result.is_none());
+}

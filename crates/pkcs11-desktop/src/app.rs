@@ -94,6 +94,15 @@ pub enum Message {
     },
     SubmitCipher(RequestId),
     DismissCipher(RequestId),
+    ReadDigestAlgorithms,
+    DigestAlgorithm(pkcs11_client::HashAlgorithm),
+    DigestPath(String),
+    DigestBrowse,
+    DigestPicked {
+        id: RequestId,
+        path: Option<PathBuf>,
+    },
+    DigestFile,
     RandomEdit {
         field: RandomField,
         value: String,
@@ -231,6 +240,12 @@ impl std::fmt::Debug for Message {
             Self::CipherPicked { .. } => "CipherPicked",
             Self::SubmitCipher(_) => "SubmitCipher",
             Self::DismissCipher(_) => "DismissCipher",
+            Self::ReadDigestAlgorithms => "ReadDigestAlgorithms",
+            Self::DigestAlgorithm(_) => "DigestAlgorithm",
+            Self::DigestPath(_) => "DigestPath",
+            Self::DigestBrowse => "DigestBrowse",
+            Self::DigestPicked { .. } => "DigestPicked",
+            Self::DigestFile => "DigestFile",
             Self::RandomEdit { .. } => "RandomEdit",
             Self::RandomBrowse => "RandomBrowse",
             Self::RandomPicked { .. } => "RandomPicked",
@@ -428,6 +443,31 @@ impl App {
                             file.map(|file| file.path().to_path_buf())
                         },
                         move |path| Message::CipherPicked { id: request, path },
+                    );
+                }
+            }
+            Message::ReadDigestAlgorithms => {
+                let command = self.state.read_digest_algorithms();
+                self.submit(command);
+            }
+            Message::DigestAlgorithm(algorithm) => self.state.digest_algorithm(algorithm),
+            Message::DigestPath(path) => self.state.digest_path(path),
+            Message::DigestPicked { id, path } => self.state.digest_picked(id, path),
+            Message::DigestFile => {
+                let command = self.state.digest_file();
+                self.submit(command);
+            }
+            Message::DigestBrowse => {
+                if let Some(id) = self.state.digest_picker() {
+                    return Task::perform(
+                        async {
+                            rfd::AsyncFileDialog::new()
+                                .set_title("Select file to hash on the token")
+                                .pick_file()
+                                .await
+                                .map(|file| file.path().to_path_buf())
+                        },
+                        move |path| Message::DigestPicked { id, path },
                     );
                 }
             }

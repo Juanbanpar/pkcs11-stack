@@ -12,6 +12,11 @@ Local changes:
 - `src/mechanism/mod.rs`: preserve all numeric `CK_MECHANISM_TYPE` values,
   including identifiers without named execution variants. This also preserves
   unknown entries when decoding `CKA_ALLOWED_MECHANISMS` and `CKA_KEY_GEN_MECHANISM`.
+- `src/mechanism/mod.rs`: add typed fixed-output SHA-512/224, SHA-512/256 and
+  SHA3-224/256/384/512 digest mechanisms.
+- `src/session/digesting.rs`: complete initialized single-part or multipart
+  digests into an exactly sized buffer, with no native length query or retry;
+  reject incorrect returned lengths.
 - `src/context/slot_token_management.rs`: collect mechanism conversions without
   silently filtering errors.
 - `src/context/mod.rs`, `src/context/interface.rs`, `src/error/mod.rs`: select

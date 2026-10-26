@@ -685,3 +685,25 @@ signatures with a selected token public key and `VerifyRequest`. Shared
 `verification_options` queries report choices from verification permissions and
 the caller's signature policy. Certificate verification remains a separate
 software workflow; neither operation validates certificate trust.
+
+## Token file digests
+
+`ManagementSession::digest_algorithms(DigestMode)` discovers advertised fixed-output
+hash algorithms with the required native entry points. `digest_reader` streams a
+`Read` input in 64 KiB chunks on the token. Its input buffer zeroizes on return;
+the whole input is never retained. It supports empty input and interrupted reads.
+A read or provider failure leaves the session unusable; close it before replacing
+it. No software hash fallback, key digest or algorithm substitution occurs.
+
+```no_run
+use pkcs11_client::{HashAlgorithm, ManagementSession};
+fn hash_file(session: &mut ManagementSession<'_>, file: &mut std::fs::File)
+    -> Result<Vec<u8>, pkcs11_client::Error>
+{
+    session.digest_reader(HashAlgorithm::Sha3_256, file)
+}
+```
+
+Supported hash choices are SHA-224/256/384/512, SHA-512/224, SHA-512/256 and the
+four fixed-output SHA-3 hashes. Signature and MGF choices remain separate.
+Check session closure before publishing the digest.

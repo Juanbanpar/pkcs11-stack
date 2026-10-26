@@ -273,6 +273,14 @@ does not establish peer identity and this form is not a hybrid combiner or TLS
 key schedule. Base and output values remain on the token; there is no output
 file or software fallback.
 
+**Operations → Hash File on Token** reads advertised multipart digest choices.
+Select a SHA-2 or SHA-3 algorithm and an input file. The worker streams it in
+64 KiB chunks, checks session closure, then displays the hexadecimal digest.
+Empty input is supported. No key, output file or software hash fallback is used.
+Input buffers zeroize on return. Read/native failures display no digest and
+close the failed session. Normal token login may be required by the provider.
+Changing token, task or input clears the previous digest and stale file pickers.
+
 After USER login, select an EC private key with derivation permission and choose
 **Derive ECDH secret**. Supply a peer public key in SPKI DER, a new label and a
 hexadecimal ID. The client validates the peer point and requires the same named

@@ -341,6 +341,24 @@ Runtime exposes generic creation/update templates for library callers. Attribute
 updates may partially succeed before a provider reports failure; runtime marks
 that session unusable and does not attempt rollback.
 
+## Token file digests
+
+`digest-algorithms --token "$TOKEN_URI"` reports advertised multipart hash
+algorithms. `digest` streams a file or stdin in bounded chunks and returns
+`algorithm` and `digest_hex` after checked session/module closure. It does not
+load the whole input, accept key material or fall back to software hashing.
+Ordinary login is optional unless required by the provider.
+
+```sh
+pkcs11ctl --module "$MODULE" digest --token "$TOKEN_URI" \
+  --algorithm sha3-256 --input document.bin
+```
+
+Choices are `sha224`, `sha256`, `sha384`, `sha512`, `sha512-224`, `sha512-256`,
+`sha3-224`, `sha3-256`, `sha3-384` and `sha3-512`. Input `-` reads stdin;
+empty files are supported. Read/native failures return no digest and discard
+the session. SHA-512/224 and SHA-512/256 use their distinct standard algorithms.
+
 ## Output and exit codes
 
 Structured JSON success has `schema_version: 1`, `command` and `result`. Errors

@@ -20,9 +20,11 @@ pub use hkdf::{HkdfForm, HkdfOutputChoice};
 pub use key_operations::{KeyField, KeyForm, WrapTarget};
 mod crypto;
 pub use cipher::{CipherChoice, CipherField, CipherForm};
+mod digest;
 mod management;
 mod random;
 pub use crypto::{CryptoField, CryptoForm, SignatureChoice};
+pub use digest::DigestUi;
 pub use management::{FilePurpose, KeyChoice, ManagementField, ManagementUi};
 pub use random::{RandomField, RandomUi};
 
@@ -75,6 +77,8 @@ enum OperationKind {
     KeyOperation,
     Cipher,
     Random,
+    Digest,
+    DigestOptions,
     CryptoOptions,
     Sign,
     Verify,
@@ -133,6 +137,7 @@ pub struct UiState {
     pub cipher_form: Option<CipherForm>,
     pub key_form: Option<KeyForm>,
     pub random: RandomUi,
+    pub digest: DigestUi,
     picked_path: Option<PathBuf>,
     operation_kind: Option<OperationKind>,
     select_loaded: bool,
@@ -163,6 +168,7 @@ impl UiState {
                         | OperationKind::Logout
                         | OperationKind::Manage
                         | OperationKind::Sign
+                        | OperationKind::Digest
                         | OperationKind::Random
                         | OperationKind::Cipher
                         | OperationKind::KeyOperation
@@ -177,6 +183,7 @@ impl UiState {
         let id = self.request_id()?;
         self.administration_form = None;
         self.random.picker = None;
+        self.digest.picker = None;
         if let Some(form) = &mut self.key_form {
             form.picker = None;
         }
@@ -331,6 +338,7 @@ impl UiState {
         self.presentation.locator_expanded = false;
         self.administration_form = None;
         self.random = RandomUi::default();
+        self.digest = DigestUi::default();
         self.clear_crypto_form();
         self.management = ManagementUi::default();
         if matches!(self.dialog, Some(Dialog::Delete(_))) {
@@ -355,6 +363,7 @@ impl UiState {
         self.cancel();
         self.administration_form = None;
         self.random = RandomUi::default();
+        self.digest = DigestUi::default();
         self.login_form = None;
         self.clear_crypto_form();
         self.management = ManagementUi::default();
@@ -498,6 +507,7 @@ impl UiState {
                         | OperationKind::Logout
                         | OperationKind::Manage
                         | OperationKind::Sign
+                        | OperationKind::Digest
                         | OperationKind::Random
                         | OperationKind::Cipher
                         | OperationKind::KeyOperation
@@ -639,6 +649,14 @@ impl UiState {
                             && self.selected_object == Some(scope.object)
                     }
                     Ok(
+                        BackendResult::DigestAlgorithms { module, token, .. }
+                        | BackendResult::Digested { module, token, .. },
+                    ) => {
+                        self.selected_module == Some(*module)
+                            && self.selected_token == Some(*token)
+                            && self.presentation.task == Some(crate::ui::ManagementTask::Digest)
+                    }
+                    Ok(
                         BackendResult::Objects { module, token, .. }
                         | BackendResult::Capabilities { module, token, .. }
                         | BackendResult::Mechanisms { module, token, .. },
@@ -661,6 +679,7 @@ impl UiState {
                     return;
                 }
                 let reading_choices = self.operation_kind == Some(OperationKind::CryptoOptions);
+                let reading_digest = self.operation_kind == Some(OperationKind::DigestOptions);
                 self.current_operation = None;
                 self.operation_kind = None;
                 let error = match result {
@@ -678,6 +697,25 @@ impl UiState {
                             form.loaded = true;
                         }
                         None
+                    }
+                    Ok(BackendResult::DigestAlgorithms { algorithms, .. }) => {
+                        self.digest.algorithm = algorithms
+                            .iter()
+                            .copied()
+                            .find(|a| *a == pkcs11_client::HashAlgorithm::Sha256)
+                            .or_else(|| algorithms.first().copied());
+                        self.digest.algorithms = algorithms;
+                        self.digest.loaded = true;
+                        None
+                    }
+                    Ok(BackendResult::Digested {
+                        algorithm, bytes, ..
+                    }) => {
+                        self.digest.result = Some(format!(
+                            "{algorithm}: {}",
+                            bytes.iter().map(|b| format!("{b:02x}")).collect::<String>()
+                        ));
+                        return;
                     }
                     Ok(BackendResult::RandomWritten { length }) => {
                         self.notification = Some(Notification::RandomSaved(length));
@@ -780,6 +818,11 @@ impl UiState {
                     #[cfg(test)]
                     Ok(BackendResult::Synthetic) => None,
                     Err(error) => {
+                        if reading_digest {
+                            self.digest.loaded = true;
+                            self.digest.algorithms.clear();
+                            self.digest.algorithm = None;
+                        }
                         if reading_choices {
                             if let Some(form) = &mut self.key_form {
                                 form.loaded = true;
@@ -839,6 +882,7 @@ impl UiState {
         self.management = ManagementUi::default();
         self.notification = None;
         self.random = RandomUi::default();
+        self.digest = DigestUi::default();
         Some(id)
     }
     pub fn status(&self) -> &'static str {
@@ -851,6 +895,8 @@ impl UiState {
                 Some(OperationKind::Administer) => "Applying token administration once…",
                 Some(OperationKind::KeyOperation) => "Executing token key operation once…",
                 Some(OperationKind::Cipher) => "Executing cipher once and saving output…",
+                Some(OperationKind::Digest) => "Hashing the file on the token…",
+                Some(OperationKind::DigestOptions) => "Reading token hash algorithms…",
                 Some(OperationKind::Random) => "Generating token random bytes and saving them…",
                 Some(OperationKind::CryptoOptions) => "Reading permitted crypto choices…",
                 Some(OperationKind::Sign) => "Signing once and saving the signature…",

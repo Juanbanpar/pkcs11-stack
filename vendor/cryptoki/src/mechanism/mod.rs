@@ -230,6 +230,23 @@ impl MechanismType {
     /// SHA-512 mechanism
     pub const SHA512: MechanismType = MechanismType { val: CKM_SHA512 };
 
+    /// SHA-512/224 digest mechanism
+    pub const SHA512_224: MechanismType = MechanismType {
+        val: CKM_SHA512_224,
+    };
+    /// SHA-512/256 digest mechanism
+    pub const SHA512_256: MechanismType = MechanismType {
+        val: CKM_SHA512_256,
+    };
+    /// SHA3-224 digest mechanism
+    pub const SHA3_224: MechanismType = MechanismType { val: CKM_SHA3_224 };
+    /// SHA3-256 digest mechanism
+    pub const SHA3_256: MechanismType = MechanismType { val: CKM_SHA3_256 };
+    /// SHA3-384 digest mechanism
+    pub const SHA3_384: MechanismType = MechanismType { val: CKM_SHA3_384 };
+    /// SHA3-512 digest mechanism
+    pub const SHA3_512: MechanismType = MechanismType { val: CKM_SHA3_512 };
+
     // SHAn-RSA-PKCS
     /// SHA1-RSA-PKCS mechanism
     pub const SHA1_RSA_PKCS: MechanismType = MechanismType {
@@ -540,6 +557,10 @@ impl MechanismType {
             CKM_SHA256_RSA_PKCS_PSS => String::from(stringify!(CKM_SHA256_RSA_PKCS_PSS)),
             CKM_SHA384_RSA_PKCS_PSS => String::from(stringify!(CKM_SHA384_RSA_PKCS_PSS)),
             CKM_SHA512_RSA_PKCS_PSS => String::from(stringify!(CKM_SHA512_RSA_PKCS_PSS)),
+            CKM_SHA3_224 => String::from(stringify!(CKM_SHA3_224)),
+            CKM_SHA3_256 => String::from(stringify!(CKM_SHA3_256)),
+            CKM_SHA3_384 => String::from(stringify!(CKM_SHA3_384)),
+            CKM_SHA3_512 => String::from(stringify!(CKM_SHA3_512)),
             CKM_SHA512_224 => String::from(stringify!(CKM_SHA512_224)),
             CKM_SHA512_224_HMAC => String::from(stringify!(CKM_SHA512_224_HMAC)),
             CKM_SHA512_224_HMAC_GENERAL => String::from(stringify!(CKM_SHA512_224_HMAC_GENERAL)),
@@ -1181,6 +1202,19 @@ pub enum Mechanism<'a> {
     /// SHA-512 mechanism
     Sha512,
 
+    /// SHA-512/224 digest mechanism
+    Sha512_224,
+    /// SHA-512/256 digest mechanism
+    Sha512_256,
+    /// SHA3-224 digest mechanism
+    Sha3_224,
+    /// SHA3-256 digest mechanism
+    Sha3_256,
+    /// SHA3-384 digest mechanism
+    Sha3_384,
+    /// SHA3-512 digest mechanism
+    Sha3_512,
+
     // SHAn-RSA-PKCS
     /// SHA1-RSA-PKCS mechanism
     Sha1RsaPkcs,
@@ -1371,6 +1405,12 @@ impl Mechanism<'_> {
             Mechanism::Sha256 => MechanismType::SHA256,
             Mechanism::Sha384 => MechanismType::SHA384,
             Mechanism::Sha512 => MechanismType::SHA512,
+            Mechanism::Sha512_224 => MechanismType::SHA512_224,
+            Mechanism::Sha512_256 => MechanismType::SHA512_256,
+            Mechanism::Sha3_224 => MechanismType::SHA3_224,
+            Mechanism::Sha3_256 => MechanismType::SHA3_256,
+            Mechanism::Sha3_384 => MechanismType::SHA3_384,
+            Mechanism::Sha3_512 => MechanismType::SHA3_512,
 
             Mechanism::Sha1RsaPkcs => MechanismType::SHA1_RSA_PKCS,
             Mechanism::Sha224RsaPkcs => MechanismType::SHA224_RSA_PKCS,
@@ -1543,6 +1583,12 @@ impl From<&Mechanism<'_>> for CK_MECHANISM {
             | Mechanism::Sha256
             | Mechanism::Sha384
             | Mechanism::Sha512
+            | Mechanism::Sha512_224
+            | Mechanism::Sha512_256
+            | Mechanism::Sha3_224
+            | Mechanism::Sha3_256
+            | Mechanism::Sha3_384
+            | Mechanism::Sha3_512
             | Mechanism::DesKeyGen
             | Mechanism::Des2KeyGen
             | Mechanism::Des3KeyGen

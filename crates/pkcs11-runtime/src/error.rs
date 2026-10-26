@@ -19,6 +19,9 @@ pub enum Error {
     /// Provider returned an output inconsistent with the selected key operation.
     #[error("invalid key operation output")]
     InvalidKeyOutput,
+    /// Hash mechanism, digest flag or required native entry point is unavailable.
+    #[error("token digest unsupported")]
+    UnsupportedDigest,
     /// Key class, permissions, trust policy or provider disallows this profile.
     #[error("key operation unsupported for this key or provider")]
     UnsupportedKeyOperation,

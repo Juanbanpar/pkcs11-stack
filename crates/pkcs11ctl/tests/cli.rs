@@ -1348,3 +1348,35 @@ fn ecdh_kdf_output_and_peer_failures_are_rejected_before_loading() {
         assert_eq!(failure["error"]["kind"], "input");
     }
 }
+
+#[test]
+fn digest_rejects_missing_files_and_unknown_algorithms_before_module_loading() {
+    let output = run(&[
+        "--module",
+        "/must-not-load",
+        "--format",
+        "json",
+        "digest",
+        "--token",
+        "pkcs11:token=test",
+        "--algorithm",
+        "sha256",
+        "--input",
+        "/file-does-not-exist",
+    ]);
+    assert_eq!(output.status.code(), Some(6));
+    let failure: serde_json::Value = serde_json::from_slice(&output.stderr).unwrap();
+    assert_eq!(failure["error"]["kind"], "io");
+    let output = run(&[
+        "--module",
+        "/must-not-load",
+        "digest",
+        "--token",
+        "pkcs11:token=test",
+        "--algorithm",
+        "sha1",
+        "--input",
+        "-",
+    ]);
+    assert_eq!(output.status.code(), Some(2));
+}

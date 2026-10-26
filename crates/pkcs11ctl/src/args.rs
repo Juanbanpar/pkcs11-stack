@@ -379,6 +379,29 @@ pub(crate) fn command() -> Command {
                 arg.value_parser(["rsa-pkcs1", "rsa-pss", "ecdsa"])
             }),
         ),
+        auth(token(
+            Command::new("digest")
+                .about("Hash a file on the token using bounded multipart input")
+                .arg(
+                    required("algorithm", "Fixed-output hash algorithm").value_parser([
+                        "sha224",
+                        "sha256",
+                        "sha384",
+                        "sha512",
+                        "sha512-224",
+                        "sha512-256",
+                        "sha3-224",
+                        "sha3-256",
+                        "sha3-384",
+                        "sha3-512",
+                    ]),
+                )
+                .arg(required("input", "File to hash; - reads stdin")),
+        )),
+        auth(token(
+            Command::new("digest-algorithms")
+                .about("List advertised multipart token hash algorithms"),
+        )),
         auth(token(random)),
         gcm(
             "encrypt-aes-gcm",

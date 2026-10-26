@@ -2608,3 +2608,78 @@ fn ecdh_selection_submits_explicit_parameters_and_scopes_edits() {
         EcdhOutput::RawSecret
     );
 }
+
+#[test]
+fn digest_choices_picker_results_and_failures_follow_the_selected_token() {
+    use pkcs11_client::HashAlgorithm;
+    let mut state = browsing();
+    state.token_page = TokenPage::Operations;
+    state.presentation.task = Some(crate::ui::ManagementTask::Digest);
+    let command = state.read_digest_algorithms().unwrap();
+    state.event(complete(
+        command.id(),
+        BackendResult::DigestAlgorithms {
+            module: ResourceId(1),
+            token: ResourceId(2),
+            algorithms: vec![HashAlgorithm::Sha3_256, HashAlgorithm::Sha256],
+        },
+    ));
+    assert_eq!(state.digest.algorithm, Some(HashAlgorithm::Sha256));
+    let picker = state.digest_picker().unwrap();
+    state.digest_path("typed-input".into());
+    state.digest_picked(picker, Some("stale-input".into()));
+    assert_eq!(state.digest.path, "typed-input");
+    state.digest_algorithm(HashAlgorithm::Sha3_256);
+    state.digest_algorithm(HashAlgorithm::Sha512);
+    assert_eq!(state.digest.algorithm, Some(HashAlgorithm::Sha3_256));
+    let command = state.digest_file().unwrap();
+    assert!(matches!(
+        command,
+        BackendCommand::DigestFile {
+            algorithm: HashAlgorithm::Sha3_256,
+            ..
+        }
+    ));
+    assert!(!state.can_submit());
+    assert!(!state.can_cancel());
+    state.event(complete(
+        command.id(),
+        BackendResult::Digested {
+            module: ResourceId(1),
+            token: ResourceId(2),
+            algorithm: HashAlgorithm::Sha3_256,
+            bytes: vec![0xAB; 32],
+        },
+    ));
+    assert_eq!(
+        state.digest.result.as_deref(),
+        Some(format!("sha3-256: {}", "ab".repeat(32)).as_str())
+    );
+    state.digest_path("other".into());
+    assert!(state.digest.result.is_none());
+    let command = state.digest_file().unwrap();
+    state.event(BackendEvent::Completed {
+        id: command.id(),
+        result: Err(BackendError::CryptoRead),
+    });
+    assert!(state.can_digest());
+    assert!(state.digest.result.is_none());
+    let command = state.read_digest_algorithms().unwrap();
+    state.event(BackendEvent::Completed {
+        id: command.id(),
+        result: Err(BackendError::UnknownToken),
+    });
+    assert!(state.digest.loaded);
+    assert!(!state.can_digest());
+    let old = state.read_digest_algorithms().unwrap();
+    state.select_token(ResourceId(1), ResourceId(3));
+    state.event(complete(
+        old.id(),
+        BackendResult::DigestAlgorithms {
+            module: ResourceId(1),
+            token: ResourceId(2),
+            algorithms: vec![HashAlgorithm::Sha256],
+        },
+    ));
+    assert!(state.digest.algorithms.is_empty());
+}

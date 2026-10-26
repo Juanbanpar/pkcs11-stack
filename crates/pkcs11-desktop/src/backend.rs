@@ -19,6 +19,7 @@ mod key_operations;
 pub use key_operations::{EcdhParameters, KeyJob, KeyProfile};
 mod crypto;
 pub use cipher::{AesGcmFiles, CipherJob, CipherParameters};
+mod digest;
 mod management;
 mod random;
 pub use authentication::{LoginRole, LoginState, SecretInput};
@@ -139,6 +140,18 @@ pub enum BackendCommand {
         scope: CryptoScope,
         job: CipherJob,
     },
+    DigestOptions {
+        id: RequestId,
+        module: ResourceId,
+        token: ResourceId,
+    },
+    DigestFile {
+        id: RequestId,
+        module: ResourceId,
+        token: ResourceId,
+        algorithm: pkcs11_client::HashAlgorithm,
+        path: PathBuf,
+    },
     Random {
         id: RequestId,
         module: ResourceId,
@@ -223,6 +236,8 @@ impl BackendCommand {
             | Self::KeyOperation { id, .. }
             | Self::Load { id, .. }
             | Self::Cipher { id, .. }
+            | Self::DigestOptions { id, .. }
+            | Self::DigestFile { id, .. }
             | Self::Random { id, .. }
             | Self::CryptoOptions { id, .. }
             | Self::Crypto { id, .. }
@@ -251,6 +266,17 @@ pub enum BackendResult {
     CipherOptions {
         scope: CryptoScope,
         choices: Vec<CipherParameters>,
+    },
+    DigestAlgorithms {
+        module: ResourceId,
+        token: ResourceId,
+        algorithms: Vec<pkcs11_client::HashAlgorithm>,
+    },
+    Digested {
+        module: ResourceId,
+        token: ResourceId,
+        algorithm: pkcs11_client::HashAlgorithm,
+        bytes: Vec<u8>,
     },
     RandomWritten {
         length: usize,
@@ -799,6 +825,37 @@ impl Registry {
                 return BackendEvent::Completed {
                     id,
                     result: Ok(self.cipher(scope, job)),
+                };
+            }
+            BackendCommand::DigestOptions { module, token, .. } => {
+                return BackendEvent::Completed {
+                    id,
+                    result: self.digest_algorithms(module, token).map(|algorithms| {
+                        BackendResult::DigestAlgorithms {
+                            module,
+                            token,
+                            algorithms,
+                        }
+                    }),
+                };
+            }
+            BackendCommand::DigestFile {
+                module,
+                token,
+                algorithm,
+                path,
+                ..
+            } => {
+                return BackendEvent::Completed {
+                    id,
+                    result: self
+                        .digest_file(module, token, algorithm, &path)
+                        .map(|bytes| BackendResult::Digested {
+                            module,
+                            token,
+                            algorithm,
+                            bytes,
+                        }),
                 };
             }
             BackendCommand::Random {

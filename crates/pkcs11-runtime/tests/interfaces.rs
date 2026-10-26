@@ -11,6 +11,9 @@ use std::{
 struct Fixture(PathBuf);
 impl Fixture {
     fn new(version: V, fault: u8, interface_only: bool) -> Self {
+        Self::from_source("interface.c", version, fault, interface_only)
+    }
+    fn from_source(source: &str, version: V, fault: u8, interface_only: bool) -> Self {
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let dir = std::env::temp_dir().join(format!(
             "pkcs11-interface-{}-{}",
@@ -37,7 +40,7 @@ impl Fixture {
             .arg("-I")
             .arg(root.join("headers").join(version.to_string()));
         let result = compiler
-            .arg(root.join("interface.c"))
+            .arg(root.join(source))
             .arg("-o")
             .arg(fixture.path())
             .output()
@@ -149,4 +152,65 @@ fn legacy_entry_point_never_exposes_newer_functions_despite_known_version_field(
     assert!(!module.supports_function(Function::SessionCancel));
     assert!(!module.supports_function(Function::EncapsulateKey));
     module.finalize().unwrap();
+}
+
+#[test]
+fn digest_entry_points_flags_bounded_outputs_and_failures() {
+    use pkcs11_runtime::{DigestMode, Error, HashAlgorithm, SessionMode};
+    for fault in 0..=8 {
+        let fixture = Fixture::from_source("digest.c", V::V2_40, fault, false);
+        let module = fixture.load(InterfaceSelection::Auto).unwrap();
+        let token = module
+            .resolve_token_uri(&"pkcs11:token=digest".parse().unwrap())
+            .unwrap();
+        let mut session = token.open_session(SessionMode::ReadOnly).unwrap();
+        if fault == 1 || fault == 2 {
+            assert!(
+                token
+                    .digest_algorithms(DigestMode::Multipart)
+                    .unwrap()
+                    .is_empty()
+            );
+            assert!(matches!(
+                session.start_digest(HashAlgorithm::Sha256),
+                Err(Error::UnsupportedDigest)
+            ));
+            session.info().unwrap();
+            if fault == 2 {
+                assert_eq!(
+                    session.digest(HashAlgorithm::Sha256, b"abc").unwrap(),
+                    [0xAB; 32]
+                );
+            }
+        } else if fault == 0 {
+            assert_eq!(
+                session.digest(HashAlgorithm::Sha256, b"abc").unwrap(),
+                [0xAB; 32]
+            );
+            let mut operation = session.start_digest(HashAlgorithm::Sha256).unwrap();
+            operation.update(b"").unwrap();
+            operation.update(b"abc").unwrap();
+            assert_eq!(operation.finish().unwrap(), [0xAB; 32]);
+            session.info().unwrap();
+            drop(session.start_digest(HashAlgorithm::Sha256).unwrap());
+            assert!(matches!(session.info(), Err(Error::Closed)));
+        } else if fault == 3 {
+            assert!(session.start_digest(HashAlgorithm::Sha256).is_err());
+            assert!(matches!(session.info(), Err(Error::Closed)));
+        } else {
+            let mut operation = session.start_digest(HashAlgorithm::Sha256).unwrap();
+            if fault == 4 {
+                assert!(operation.update(b"abc").is_err());
+                assert!(matches!(operation.update(b"abc"), Err(Error::Closed)));
+                assert!(matches!(operation.finish(), Err(Error::Closed)));
+            } else {
+                operation.update(b"abc").unwrap();
+                assert!(operation.finish().is_err());
+            }
+            assert!(matches!(session.info(), Err(Error::Closed)));
+        }
+        session.close().unwrap();
+        drop(token);
+        module.finalize().unwrap();
+    }
 }

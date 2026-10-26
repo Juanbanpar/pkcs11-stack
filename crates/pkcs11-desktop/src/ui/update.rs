@@ -160,10 +160,17 @@ impl App {
                 self.state.presentation.locator_expanded = !self.state.presentation.locator_expanded
             }
             Action::Task(task) if !modal && self.state.can_submit() => {
+                if self.state.presentation.task == Some(ManagementTask::Digest) {
+                    self.state.cancel();
+                }
                 self.state.presentation.task = task;
                 // Switching task invalidates file pickers and abandons the old form.
                 self.state.management = Default::default();
                 self.state.random = Default::default();
+                self.state.digest = Default::default();
+                if task == Some(ManagementTask::Digest) {
+                    return self.update(Message::ReadDigestAlgorithms);
+                }
                 if task == Some(ManagementTask::Generate) {
                     return self.update(Message::ReadCapabilities);
                 }

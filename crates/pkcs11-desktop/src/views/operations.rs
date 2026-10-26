@@ -86,6 +86,12 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
                 ManagementTask::ImportMlKem
             ),
             task_button(
+                lucide::file(),
+                "Hash File on Token",
+                "Advertised digest algorithms",
+                ManagementTask::Digest
+            ),
+            task_button(
                 lucide::shuffle(),
                 "Generate Random Bytes",
                 if state.can_random() {
@@ -138,6 +144,18 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
         text("Import accepts one DER certificate up to 16 MiB. Parsing does not establish trust or bind it to a key.").size(14),
         button("Import certificate").style(button::primary).on_press_maybe(enabled.then_some(Message::ImportCertificate)),
         ].spacing(12).into(),
+        ManagementTask::Digest => {
+            let enabled = state.can_submit();
+            let mut content = column![text("Hash a file on the token").size(22).font(EMPHASIS),
+                text("Uses the selected token's hash mechanism with bounded input chunks. No key or software fallback is used. The provider may require login.").size(14),
+                pick_list(state.digest.algorithms.clone(), state.digest.algorithm, Message::DigestAlgorithm).enabled(enabled),
+                row![text_input("Input file", &state.digest.path).on_input_maybe(enabled.then_some(Message::DigestPath)), button("Browse…").on_press_maybe((enabled && state.digest.picker.is_none()).then_some(Message::DigestBrowse))].spacing(10).align_y(iced::Alignment::End),
+                button("Hash file").style(button::primary).on_press_maybe(state.can_digest().then_some(Message::DigestFile))].spacing(12);
+            if !state.digest.loaded { content = content.push(text("Reading advertised multipart digest algorithms…")); }
+            else if state.digest.algorithms.is_empty() { content = content.push(text("No supported multipart digest algorithms are advertised.")); }
+            if let Some(result) = &state.digest.result { content = content.push(text(result).font(iced::Font::MONOSPACE)); }
+            content.into()
+        }
         ManagementTask::Random => column![
         text("Generate token random bytes").size(22).font(EMPHASIS),
         text(if state.token().is_some_and(|token| token.can_random()) {

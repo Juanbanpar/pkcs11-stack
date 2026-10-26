@@ -3,6 +3,9 @@
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum Error {
+    /// Reading input failed after a token digest operation was initialized.
+    #[error("digest input could not be read")]
+    DigestInput,
     /// A random request is empty or exceeds the client allocation bound.
     #[error("random output length must be between 1 and 1048576 bytes")]
     InvalidRandomLength,
@@ -66,7 +69,9 @@ impl Error {
     pub fn kind(&self) -> ErrorKind {
         use pkcs11_runtime::Error as Runtime;
         match self {
-            Self::UnsupportedExport | Self::InvalidRandomLength => ErrorKind::Input,
+            Self::DigestInput | Self::UnsupportedExport | Self::InvalidRandomLength => {
+                ErrorKind::Input
+            }
             Self::MissingAttributeStatus | Self::ProviderInUse => ErrorKind::Runtime,
             Self::Runtime(error) => match error {
                 Runtime::SignatureMismatch => ErrorKind::Client,
@@ -75,7 +80,8 @@ impl Error {
                 | Runtime::InvalidObjectReference
                 | Runtime::InvalidTokenReference
                 | Runtime::Locator(_) => ErrorKind::Input,
-                Runtime::UnsupportedSigning(_)
+                Runtime::UnsupportedDigest
+                | Runtime::UnsupportedSigning(_)
                 | Runtime::UnsupportedVerification(_)
                 | Runtime::MissingMetadata(_)
                 | Runtime::ContextAuthenticationRequired

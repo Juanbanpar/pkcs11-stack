@@ -375,6 +375,32 @@ Derivation and unwrapping require RW mode. Failed native operations invalidate
 the session; no retry or rollback is attempted. Provider templates and
 permissions may narrow these profiles. Blobs carry ciphertext only, not metadata.
 
+## Token digests
+
+`HashAlgorithm` covers SHA-224/256/384/512, SHA-512/224, SHA-512/256 and
+SHA3-224/256/384/512 independently of signing and MGF profiles.
+`Token::digest_algorithms(DigestMode)` checks advertised mechanisms, CKF_DIGEST
+and the entry points required for single-part or multipart operation.
+`Session::digest` hashes one message; `start_digest` returns an exclusive
+`DigestOperation` accepting chunks through `update` and producing the hash with
+`finish`. Empty messages/chunks are permitted. No key digest, SHA-1, operation
+state export or software fallback is exposed by these APIs.
+
+Native output allocations are fixed by the selected hash, at most 64 bytes.
+Successful finalization restores session reuse. Abandoning a multipart guard or
+any native error leaves the session unusable and causes a pooled lease to be
+discarded. Explicit close remains available. The provider may require ordinary
+login; these APIs do not change authentication implicitly.
+
+```compile_fail
+use pkcs11_runtime::{HashAlgorithm, Session};
+fn exclusive(session: &mut Session<'_>) {
+    let operation = session.start_digest(HashAlgorithm::Sha256).unwrap();
+    session.info().unwrap(); // The operation retains exclusive access.
+    operation.finish().unwrap();
+}
+```
+
 ## Random bytes
 
 `Session::generate_random` fills a nonempty caller-owned buffer using the token's

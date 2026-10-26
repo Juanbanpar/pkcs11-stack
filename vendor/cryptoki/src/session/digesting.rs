@@ -54,6 +54,47 @@ impl Session {
         Ok(digest)
     }
 
+    /// Complete an initialized single-part digest into an exactly sized buffer.
+    /// No provider-controlled allocation or automatic retry occurs. A mismatched
+    /// returned length is rejected; the caller must discard uncertain operations.
+    pub fn digest_initialized_fixed(&self, data: &[u8], expected_length: usize) -> Result<Vec<u8>> {
+        let mut output = vec![0; expected_length];
+        let mut length = expected_length.try_into()?;
+        unsafe {
+            Rv::from(get_pkcs11!(self.client(), C_Digest)(
+                self.handle(),
+                data.as_ptr() as *mut u8,
+                data.len().try_into()?,
+                output.as_mut_ptr(),
+                &mut length,
+            ))
+            .into_result(Function::Digest)?;
+        }
+        if usize::try_from(length)? != expected_length {
+            return Err(crate::error::Error::InvalidValue);
+        }
+        Ok(output)
+    }
+
+    /// Finalize a multipart digest into an exactly sized buffer, without a length
+    /// query, provider-controlled allocation or retry. Reject mismatched lengths.
+    pub fn digest_final_fixed(&self, expected_length: usize) -> Result<Vec<u8>> {
+        let mut output = vec![0; expected_length];
+        let mut length = expected_length.try_into()?;
+        unsafe {
+            Rv::from(get_pkcs11!(self.client(), C_DigestFinal)(
+                self.handle(),
+                output.as_mut_ptr(),
+                &mut length,
+            ))
+            .into_result(Function::DigestFinal)?;
+        }
+        if usize::try_from(length)? != expected_length {
+            return Err(crate::error::Error::InvalidValue);
+        }
+        Ok(output)
+    }
+
     /// Starts new multi-part digesting operation
     pub fn digest_init(&self, m: &Mechanism) -> Result<()> {
         let mut mechanism: CK_MECHANISM = m.into();

@@ -1162,3 +1162,80 @@ fn typed_generation_permissions_and_public_export() {
         }
     }
 }
+
+#[test]
+#[ignore = "requires tools/test-softhsm.sh disposable store"]
+fn token_digests_stream_files_and_stdin() {
+    use std::io::Write;
+    use std::process::Stdio;
+    assert_eq!(std::env::var("PKCS11_TEST_ISOLATED").as_deref(), Ok("1"));
+    let root = PathBuf::from(std::env::var_os("PKCS11_CLIENT_TEST_DIR").unwrap());
+    let f = Fixture {
+        module: std::env::var("PKCS11_TEST_MODULE").unwrap(),
+        root,
+        pin: String::new(),
+        so: String::new(),
+    };
+    let input = f.path("digest-cli-input");
+    std::fs::write(&input, b"abc").unwrap();
+    let options = f.ok(&["digest-algorithms", "--token", "pkcs11:token=client-test"]);
+    assert_eq!(options["advisory"], true);
+    for algorithm in options["algorithms"].as_array().unwrap() {
+        let algorithm = algorithm.as_str().unwrap();
+        let result = f.ok(&[
+            "digest",
+            "--token",
+            "pkcs11:token=client-test",
+            "--algorithm",
+            algorithm,
+            "--input",
+            &input,
+        ]);
+        let expected = Command::new("openssl")
+            .args(["dgst", &format!("-{algorithm}"), "-binary", &input])
+            .output()
+            .unwrap();
+        assert!(expected.status.success());
+        let expected: String = expected.stdout.iter().map(|b| format!("{b:02x}")).collect();
+        assert_eq!(result["digest_hex"], expected);
+    }
+    f.fail(
+        &[
+            "digest",
+            "--token",
+            "pkcs11:token=client-test",
+            "--algorithm",
+            "sha256",
+            "--input",
+            f.root.to_str().unwrap(),
+        ],
+        6,
+    );
+    let mut child = Command::new(env!("CARGO_BIN_EXE_pkcs11ctl"))
+        .args([
+            "--module",
+            &f.module,
+            "--format",
+            "json",
+            "digest",
+            "--token",
+            "pkcs11:token=client-test",
+            "--algorithm",
+            "sha256",
+            "--input",
+            "-",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(b"abc").unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+    let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        value["result"]["digest_hex"],
+        "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+    );
+}

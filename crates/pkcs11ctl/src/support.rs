@@ -61,6 +61,13 @@ impl From<pkcs11_locator::Error> for Failure {
 impl From<pkcs11_client::Error> for Failure {
     fn from(e: pkcs11_client::Error) -> Self {
         use pkcs11_client::ErrorKind;
+        if matches!(e, pkcs11_client::Error::DigestInput) {
+            return Self {
+                code: 6,
+                kind: "io",
+                message: e.to_string(),
+            };
+        }
         let (code, kind) = match e.kind() {
             ErrorKind::Input => (2, "input"),
             ErrorKind::Selection => (3, "selection"),

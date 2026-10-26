@@ -81,6 +81,10 @@ and its key schedule run in the application's crypto provider; signing keys stay
 on the token. TLS use requires verification support from that provider. See the
 [signing and TLS examples](docs/examples.md) for runnable programs.
 
+Standalone SHA-2 and SHA-3 token hashing supports single-part and streaming
+operations. The CLI and desktop stream files in bounded chunks; failed or
+unfinished digest operations discard their sessions.
+
 RSA-OAEP encryption/decryption supports SHA-2 with a matching MGF1 digest and
 empty label. It processes one RSA block. Raw ECDH creates token-held generic
 secrets on P-256/P-384/P-521. Explicit ANSI X9.63 and NIST SP 800-56A SHA-2

@@ -10,6 +10,8 @@ pub use aes_gcm::{
     AesGcmCapabilities, AesGcmDecryptRequest, AesGcmEncryptRequest, AesGcmOperation,
 };
 mod certificate;
+mod digest;
+pub use pkcs11_runtime::{DigestMode, HashAlgorithm};
 mod encryption;
 mod key_operations;
 pub use encryption::{DecryptRequest, EncryptRequest, OaepChoice, Plaintext};
