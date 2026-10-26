@@ -58,6 +58,7 @@ pub use pkcs11_runtime::{
     Module, ModuleOptions, NamedCurve, ObjectClass, ObjectRef, Pin, PrivateKeyRef, PssParameters,
     PublicKeyMetadata, PublicKeyRef, SessionMode, SessionPool, SessionState, SignInput, SignPlan,
     SignRequest, SignatureAlgorithm, SigningMechanism, SigningPolicy, SlotInfo, TokenInfo,
+    VerificationCapabilities, VerifyRequest,
 };
 pub use random::{RandomBytes, RandomRequest};
 pub use signature_options::{SignatureParameters, SigningChoice, SigningOptions};

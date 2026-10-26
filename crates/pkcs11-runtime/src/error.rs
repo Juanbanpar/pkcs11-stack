@@ -52,6 +52,9 @@ pub enum Error {
     /// No permitted implementation exists for the requested operation.
     #[error("unsupported signing request: {0}")]
     UnsupportedSigning(&'static str),
+    /// No permitted native verification implementation exists for this request.
+    #[error("unsupported verification request: {0}")]
+    UnsupportedVerification(&'static str),
     /// The operation requires an explicit context-specific PIN.
     #[error("context-specific authentication required")]
     ContextAuthenticationRequired,

@@ -373,7 +373,10 @@ impl KeyCapabilities {
         })
     }
 }
-fn mechanism(request: &SignRequest<'_>, combined: bool) -> Result<Mechanism<'static>, Error> {
+pub(crate) fn mechanism(
+    request: &SignRequest<'_>,
+    combined: bool,
+) -> Result<Mechanism<'static>, Error> {
     use DigestAlgorithm::*;
     Ok(match request.algorithm {
         SignatureAlgorithm::RsaPkcs1 => {
@@ -452,6 +455,23 @@ fn digest_info(digest: DigestAlgorithm, data: &[u8]) -> Vec<u8> {
     ];
     encoded.extend_from_slice(data);
     encoded
+}
+
+/// Prepare exactly the bytes required by the selected native signature mechanism.
+pub(crate) fn signature_input<'a>(
+    request: &SignRequest<'a>,
+    hashing: HashLocation,
+) -> Cow<'a, [u8]> {
+    let mut data = match request.input {
+        SignInput::Message(value) if hashing == HashLocation::Software => {
+            Cow::Owned(request.digest.hash(value))
+        }
+        SignInput::Message(value) | SignInput::Digest(value) => Cow::Borrowed(value),
+    };
+    if hashing != HashLocation::Token && request.algorithm == SignatureAlgorithm::RsaPkcs1 {
+        data = Cow::Owned(digest_info(request.digest, &data));
+    }
+    data
 }
 
 pub(crate) fn attribute(
@@ -536,7 +556,7 @@ fn capabilities(object: &Object<'_, '_>) -> Result<KeyCapabilities, Error> {
         mechanisms,
     })
 }
-fn supported_mechanism(m: MechanismType) -> bool {
+pub(crate) fn supported_mechanism(m: MechanismType) -> bool {
     [
         MechanismType::RSA_PKCS,
         MechanismType::RSA_PKCS_PSS,
@@ -600,16 +620,7 @@ impl Session<'_> {
             }
             None
         };
-        let mut data = match request.input {
-            SignInput::Message(value) if plan.hashing == HashLocation::Software => {
-                Cow::Owned(request.digest.hash(value))
-            }
-            SignInput::Message(value) | SignInput::Digest(value) => Cow::Borrowed(value),
-        };
-        if plan.hashing != HashLocation::Token && request.algorithm == SignatureAlgorithm::RsaPkcs1
-        {
-            data = Cow::Owned(digest_info(request.digest, &data));
-        }
+        let data = signature_input(request, plan.hashing);
         let mechanism = mechanism(request, plan.hashing == HashLocation::Token)?;
         let raw = object.session.raw()?;
         // A panic/error after init must never return an active operation to the pool.

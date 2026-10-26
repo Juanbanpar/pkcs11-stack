@@ -1138,8 +1138,8 @@ fn object_views_show_only_actions_for_the_observed_key_type() {
         (3, Some(K::EC), vec!["Sign", "Derive"]),
         (3, Some(K::ML_DSA), vec!["Sign"]),
         (3, Some(K::ML_KEM), vec!["Decapsulate"]),
-        (4, Some(K::RSA), vec!["Encrypt"]),
-        (4, Some(K::EC), vec![]),
+        (4, Some(K::RSA), vec!["Encrypt", "Verify"]),
+        (4, Some(K::EC), vec!["Verify"]),
         (4, Some(K::ML_DSA), vec![]),
         (4, Some(K::ML_KEM), vec!["Encapsulate"]),
         (
@@ -1165,6 +1165,7 @@ fn object_views_show_only_actions_for_the_observed_key_type() {
         ui.operate(&renderer, &mut ids);
         for action in [
             "Sign",
+            "Verify",
             "Encrypt",
             "Decrypt",
             "Derive",

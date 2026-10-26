@@ -154,6 +154,49 @@ impl<'m> Client<'m> {
             context_pin,
         )?)
     }
+    /// Inspect current native verification support for an independently selected
+    /// public key. Signing policy supplies the algorithm/hash/size restrictions.
+    pub fn verification_capabilities(
+        &self,
+        key: &PublicKeyRef,
+        authentication: Authentication<'_>,
+    ) -> Result<VerificationCapabilities, Error> {
+        Ok(self
+            .pool
+            .try_acquire(authentication)?
+            .session()
+            .verification_capabilities(key)?)
+    }
+    /// Advisory message-verification choices under this client's signature policy.
+    pub fn verification_options(
+        &self,
+        key: &PublicKeyRef,
+        authentication: Authentication<'_>,
+    ) -> Result<Vec<SigningChoice>, Error> {
+        Ok(crate::signature_options::verification_options(
+            &self.verification_capabilities(key, authentication)?,
+            &self.policy,
+        ))
+    }
+    /// Verify a raw RSA/ECDSA signature on the token, without certificate trust
+    /// inference or software verification fallback. SignatureMismatch is returned
+    /// as the same client error category used by certificate verification.
+    pub fn verify_token(
+        &self,
+        key: &PublicKeyRef,
+        request: &VerifyRequest<'_>,
+        authentication: Authentication<'_>,
+    ) -> Result<(), Error> {
+        match self
+            .pool
+            .try_acquire(authentication)?
+            .session()
+            .verify(key, request, &self.policy)
+        {
+            Err(pkcs11_runtime::Error::SignatureMismatch) => Err(Error::SignatureMismatch),
+            result => Ok(result?),
+        }
+    }
     /// Prove a key/certificate association with one token signature and verification.
     ///
     /// This operation signs a fixed domain-separated binding message. Candidate

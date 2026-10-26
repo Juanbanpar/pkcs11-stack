@@ -113,6 +113,15 @@ fn make_key(
     params: Option<&[u8]>,
     extra: &[Attribute],
 ) -> Vec<u8> {
+    make_key_with_public(session, label, params, extra, &[])
+}
+fn make_key_with_public(
+    session: &cryptoki::session::Session,
+    label: &str,
+    params: Option<&[u8]>,
+    extra: &[Attribute],
+    public_extra: &[Attribute],
+) -> Vec<u8> {
     let mut public = vec![
         Attribute::Token(true),
         Attribute::Private(false),
@@ -133,6 +142,10 @@ fn make_key(
         private.retain(|a| a.attribute_type() != attr.attribute_type());
         private.push(attr.clone());
     }
+    for attr in public_extra {
+        public.retain(|value| value.attribute_type() != attr.attribute_type());
+        public.push(attr.clone());
+    }
     let mechanism = if let Some(params) = params {
         public.push(Attribute::EcParams(params.to_vec()));
         Mechanism::EccKeyPairGen
@@ -147,6 +160,53 @@ fn make_key(
         .generate_key_pair(&mechanism, &public, &private)
         .unwrap();
     public_der(session, public_handle, params)
+}
+fn verify_native(
+    session: &mut Session<'_>,
+    key: &PrivateKeyRef,
+    parameters: &SignRequest<'_>,
+    policy: &SigningPolicy,
+    signature: &[u8],
+) {
+    let selector = key.as_object_ref().uri();
+    let public = PublicKeyRef::new(uri(
+        std::str::from_utf8(selector.path_attribute("serial").unwrap()).unwrap(),
+        std::str::from_utf8(selector.path_attribute("object").unwrap()).unwrap(),
+        "public",
+    ))
+    .unwrap();
+    let request = VerifyRequest {
+        parameters: *parameters,
+        signature,
+    };
+    session.verify(&public, &request, policy).unwrap();
+    let mut altered = signature.to_vec();
+    altered[0] ^= 1;
+    assert!(matches!(
+        session.verify(
+            &public,
+            &VerifyRequest {
+                signature: &altered,
+                ..request
+            },
+            policy
+        ),
+        Err(Error::SignatureMismatch)
+    ));
+    session.info().unwrap();
+    assert!(matches!(
+        session.verify(
+            &public,
+            &VerifyRequest {
+                signature: &signature[..signature.len() - 1],
+                ..request
+            },
+            policy
+        ),
+        Err(Error::SignatureMismatch)
+    ));
+    session.info().unwrap();
+    session.verify(&public, &request, policy).unwrap();
 }
 static NEXT: AtomicUsize = AtomicUsize::new(0);
 fn verify(root: &Path, key: &[u8], request: &SignRequest<'_>, message: &[u8], signature: &[u8]) {
@@ -229,11 +289,15 @@ fn pooled_signing_and_recovery() {
     let raw = fixture.open_rw_session(slot).unwrap();
     raw.login(UserType::User, Some(&user)).unwrap();
     let rsa = make_key(&raw, "signing-rsa", None, &[]);
-    let restricted = make_key(
+    let restricted = make_key_with_public(
         &raw,
         "signing-restricted",
         None,
         &[Attribute::AllowedMechanisms(vec![MechanismType::RSA_PKCS])],
+        &[Attribute::AllowedMechanisms(vec![
+            MechanismType::RSA_PKCS,
+            MechanismType::try_from(0x7fff0001).unwrap(),
+        ])],
     );
     let auth = make_key(
         &raw,
@@ -266,6 +330,13 @@ fn pooled_signing_and_recovery() {
         "review-ec-auth",
         Some(&curves[0]),
         &[Attribute::AlwaysAuthenticate(true)],
+    );
+    make_key_with_public(
+        &raw,
+        "verification-disabled",
+        None,
+        &[],
+        &[Attribute::Verify(false)],
     );
     raw.close().unwrap();
     fixture.finalize().unwrap();
@@ -301,6 +372,47 @@ fn pooled_signing_and_recovery() {
         .sign(&key, &req, &SigningPolicy::default(), None)
         .unwrap();
     verify(root, &rsa, &req, b"signing fixture", &signature);
+    let disabled = PublicKeyRef::new(uri(&serial, "verification-disabled", "public")).unwrap();
+    assert!(
+        !lease
+            .session()
+            .verification_capabilities(&disabled)
+            .unwrap()
+            .can_verify()
+    );
+    assert!(matches!(
+        lease.session().verify(
+            &disabled,
+            &VerifyRequest {
+                parameters: req,
+                signature: &signature
+            },
+            &SigningPolicy::default()
+        ),
+        Err(Error::UnsupportedVerification(_))
+    ));
+    let restricted_verifier =
+        PublicKeyRef::new(uri(&serial, "signing-restricted", "public")).unwrap();
+    let restricted_caps = lease
+        .session()
+        .verification_capabilities(&restricted_verifier)
+        .unwrap();
+    assert!(matches!(
+        restricted_caps.plan(&req, &SigningPolicy::default()),
+        Err(Error::UnsupportedVerification(_))
+    ));
+    assert!(
+        restricted_caps
+            .plan(
+                &req,
+                &SigningPolicy {
+                    hashing: HashingPolicy::SoftwareOnly,
+                    ..Default::default()
+                }
+            )
+            .is_ok()
+    );
+    lease.session().info().unwrap();
     drop(lease);
     let mut lease = pool
         .try_acquire(Authentication::User(Pin::Value(&user)))
@@ -427,6 +539,7 @@ fn pooled_signing_and_recovery() {
                 };
                 let signature = lease.session().sign(&key, &req, &policy, None).unwrap();
                 verify(root, public, &req, b"signing fixture", &signature);
+                verify_native(lease.session(), &key, &req, &policy, &signature);
             }
         }
     }
@@ -442,6 +555,7 @@ fn pooled_signing_and_recovery() {
         };
         let signature = lease.session().sign(&key, &req, &policy, None).unwrap();
         verify(root, public, &req, b"signing fixture", &signature);
+        verify_native(lease.session(), &key, &req, &policy, &signature);
     }
     for salt_len in [0, 20, 222] {
         let req = SignRequest {

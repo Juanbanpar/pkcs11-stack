@@ -31,8 +31,10 @@ mod module;
 mod pool;
 mod session;
 mod signing;
+mod verification;
 pub use pool::{SessionLease, SessionPool};
 pub use signing::*;
+pub use verification::{VerificationCapabilities, VerifyRequest};
 
 pub use cryptoki::context::{Function, InterfaceInfo, InterfaceSelection, InterfaceVersion};
 pub use error::Error;

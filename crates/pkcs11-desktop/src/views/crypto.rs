@@ -17,6 +17,10 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
     };
     let id = form.id;
     let sign = form.scope.mode == CryptoMode::Sign;
+    let native_verify = !sign
+        && state
+            .object()
+            .is_some_and(|object| object.class == Some(pkcs11_client::ObjectClass::PUBLIC_KEY));
     let ml_dsa = match form.choice.map(|choice| choice.0.parameters) {
         Some(SignatureProfile::MlDsa(_)) => true,
         Some(SignatureProfile::Classical(_)) => false,
@@ -28,6 +32,7 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
     let mut content = column![
         text(if sign { "Sign a file" } else { "Verify a signature" }).size(22).font(EMPHASIS),
         text(if sign { "Signs once with the selected private-key locator. No certificate association is checked." }
+            else if native_verify { "Verifies signatures on the token using the selected public key. No certificate association or trust is checked." }
             else { "Verifies signatures in software against the selected certificate's public key. Certificate trust and association with a token key are not checked." }).size(14),
         pick_list(form.options.as_slice(), form.choice, move |choice| Message::CryptoChoice { id, choice }).placeholder("Signature parameters").enabled(enabled),
     ].spacing(10);
@@ -46,7 +51,7 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
             }).size(14))
                 .push(text_input("ML-DSA domain context (UTF-8, 0–255 bytes)", &form.domain_context)
                     .on_input_maybe((enabled && form.choice.is_some()).then_some(move |value| edit(CryptoField::DomainContext, value))));
-    } else if sign {
+    } else if sign || native_verify {
         content = content.push(
             checkbox(form.software_hashing)
                 .label("Allow software hashing if token hashing is unavailable")
@@ -55,7 +60,7 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
                 ),
         );
     }
-    if sign
+    if (sign || native_verify)
         && let Some(choice) = form.choice
         && let Some((mechanism, hashing)) = choice.0.plan
     {
@@ -65,7 +70,7 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
             pkcs11_client::HashLocation::Caller => "Caller-supplied digest",
         };
         content = content.push(crate::ui::components::muted(format!(
-            "{hashing} · {mechanism}. Capabilities are checked again when signing."
+            "{hashing} · {mechanism}. Capabilities are checked again before execution."
         )));
     }
     content = content
@@ -129,7 +134,7 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
     }
     content = content.push(text(if sign && ml_dsa {
         "Output is a raw ML-DSA signature. Verification needs the same message and context; the signature file does not store the context. Existing files are never overwritten; a failed operation may leave an empty or partial file."
-    } else if sign {
+    } else if sign || native_verify {
         "Output uses raw RSA bytes or fixed-width ECDSA r || s, not DER. Existing files are never overwritten; a failed operation may leave an empty or partial file."
     } else if ml_dsa {
         "Signature encoding must be raw ML-DSA bytes for the displayed parameter set. The signature file does not store the domain context. Verification reads both files without changing them."

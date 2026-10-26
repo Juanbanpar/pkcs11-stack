@@ -393,3 +393,9 @@ Kryoptic token; see the [test guide](../../tests/README.md#persistent-ml-kem-and
 `--interface-version auto|2.40|3.0|3.1|3.2` selects module negotiation globally.
 The default is `auto`; exact versions never downgrade. `info` reports the
 selected interface separately from the provider's reported PKCS#11 version.
+
+`verify-token --key <type=public URI> --algorithm rsa-pkcs1|rsa-pss|ecdsa
+--digest sha256|sha384|sha512 --input <file> --signature <file>` performs native
+verification. PSS requires `--mgf-digest` and `--salt-length`. `--hashing` and
+`--input-kind` preserve the signing command's explicit message/digest boundaries.
+The `verify` command continues to verify against certificates in software.

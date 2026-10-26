@@ -509,3 +509,17 @@ object destroyed before return. Cleanup failure invalidates the session and take
 precedence over derivation success/failure; a persistent output may already exist.
 No base is deleted, no value is read, and there is no retry or software fallback.
 This implementation does not establish formal algorithm validation.
+
+## Native RSA/ECDSA verification
+
+`Session::verification_capabilities` inspects a `PublicKeyRef` using `CKA_VERIFY`,
+`CKF_VERIFY`, available entry points, key size and `CKA_ALLOWED_MECHANISMS`.
+`VerificationCapabilities::plan` applies a `SigningPolicy` to the same RSA/ECDSA
+parameters and message/digest boundaries used for signing. It never grants
+signing permissions. `VerifyRequest` combines those parameters with a modulus-width
+RSA or fixed-width ECDSA `r || s` signature.
+
+`Session::verify` executes `C_VerifyInit`/`C_Verify` once. A signature or length
+mismatch returns `Error::SignatureMismatch`; completed mismatch operations leave
+the session usable. Other native failures discard it. No certificate is required,
+no trust decision is made, and no software verification or execution retry occurs.

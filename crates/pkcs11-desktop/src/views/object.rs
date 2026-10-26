@@ -54,6 +54,19 @@ pub fn detail(state: &UiState) -> Element<'_, Message> {
     }
     let mut actions = column![].spacing(8);
     let kind = state.object_key_type();
+    if object.class == Some(ObjectClass::PUBLIC_KEY)
+        && matches!(kind, Some(KeyType::RSA | KeyType::EC))
+    {
+        actions = actions.push(
+            button("Verify on token…")
+                .width(Length::Fill)
+                .on_press_maybe(
+                    state
+                        .can_open_crypto(CryptoMode::Verify)
+                        .then_some(Message::OpenCrypto(CryptoMode::Verify)),
+                ),
+        );
+    }
     match object.class {
         Some(ObjectClass::PRIVATE_KEY) => {
             if matches!(kind, Some(KeyType::RSA | KeyType::EC | KeyType::ML_DSA)) {

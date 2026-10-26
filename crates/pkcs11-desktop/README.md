@@ -379,3 +379,7 @@ PKCS11_TEST_KDF_MODULE=/path/to/libkryoptic_pkcs11.so ./tools/test-kem-hkdf.sh
 
 This application is available under either [MIT](../../LICENSE-MIT) or
 [Apache-2.0](../../LICENSE-APACHE), at your option.
+
+RSA and EC public-key objects offer **Verify on token**. Choices come from native
+verification permissions and capabilities; software hashing requires the form's
+explicit opt-in. Certificate objects retain their software verification workflow.

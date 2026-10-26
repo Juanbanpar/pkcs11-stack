@@ -23,7 +23,7 @@ impl SignatureParameters {
     }
 }
 
-/// One advisory message-signing choice under a client's policy.
+/// One advisory message-signing or native-verification choice under a policy.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SigningChoice {
     /// Parameters to submit; execution rediscovers capabilities.
@@ -83,6 +83,24 @@ pub(crate) fn options(caps: &KeyCapabilities, policy: &SigningPolicy) -> Signing
             })
             .collect(),
     }
+}
+
+pub(crate) fn verification_options(
+    caps: &VerificationCapabilities,
+    policy: &SigningPolicy,
+) -> Vec<SigningChoice> {
+    candidates(caps.key())
+        .into_iter()
+        .filter_map(|parameters| {
+            caps.plan(&parameters.request(SignInput::Message(&[])), policy)
+                .ok()
+                .map(|plan| SigningChoice {
+                    parameters,
+                    mechanism: plan.mechanism(),
+                    hashing: plan.hash_location(),
+                })
+        })
+        .collect()
 }
 
 #[cfg(test)]

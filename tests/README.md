@@ -47,6 +47,7 @@ or formal conformance. Coverage is recorded per capability below.
 | Known interface negotiation and exact version selection | Implemented | Runtime/client; CLI `--interface-version`; desktop displays automatic selection. Native Unix ABI fixtures compile against all four official header sets. |
 | Null/mismatched interface rejection and unavailable-interface fallback | Implemented | Native Unix fixtures cover lifecycle pointers, provider failures, interface-only modules, multiple interfaces and known 3.x version fields on legacy tables. |
 | Context authentication for raw/prehashed and combined RSA/ECDSA signing | Implemented | Runtime/client/CLI/desktop; independent OpenSSL verification on disposable SoftHSM keys, including missing/wrong PIN and recovery checks. |
+| Native RSA/ECDSA verification | Implemented | Runtime/client; CLI `verify-token`; desktop public-key verification. Provider tests check signature/digest profiles, permission/allow-list rejection, mismatches and session reuse; OpenSSL independently verifies the test signatures. |
 | Remaining operation expansion, metadata compatibility and explicit legacy policy | Pending | Existing restrictions remain in force. |
 | Classical algorithm expansion | Pending | Existing RSA/EC profiles only. |
 | Symmetric algorithms, MACs and KDF expansion | Pending | Existing AES-GCM, AES-KW and constrained HKDF profiles only. |

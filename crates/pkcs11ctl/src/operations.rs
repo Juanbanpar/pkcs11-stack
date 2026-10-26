@@ -112,6 +112,7 @@ impl Inputs {
                         | "bind"
                         | "sign"
                         | "verify"
+                        | "verify-token"
                         | "generate"
                 ))
         {
@@ -133,7 +134,10 @@ impl Inputs {
         } else {
             None
         };
-        if name == "verify" && get(m, "input") == Some("-") && get(m, "signature") == Some("-") {
+        if matches!(name, "verify" | "verify-token")
+            && get(m, "input") == Some("-")
+            && get(m, "signature") == Some("-")
+        {
             return Err(usage("only one verification input may read stdin"));
         }
         let aes_gcm = aes_gcm::Inputs::load(name, m)?;
@@ -142,7 +146,7 @@ impl Inputs {
         } else if let Some(path) = get(m, "input") {
             if let Some(limit) = key_establishment::input_limit(name, m)? {
                 bounded_input(path, limit)?
-            } else if name == "verify" || ml_dsa {
+            } else if matches!(name, "verify" | "verify-token") || ml_dsa {
                 bounded_input(path, 64 * 1024 * 1024)?
             } else {
                 input(path)?
@@ -155,14 +159,14 @@ impl Inputs {
             Some(path) => bounded_input(path, 255)?,
             None => vec![],
         };
-        if matches!(name, "sign" | "plan" | "verify") {
+        if matches!(name, "sign" | "plan" | "verify" | "verify-token") {
             if ml_dsa {
                 ml_dsa::request(m, &bytes, &domain_context)?;
             } else {
                 request(m, &bytes)?;
             }
         }
-        let signature = if name == "verify" {
+        let signature = if matches!(name, "verify" | "verify-token") {
             bounded_input(need(m, "signature")?, 16 * 1024)?
         } else {
             vec![]
@@ -216,8 +220,19 @@ impl Inputs {
         for selector in ["token", "object", "key", "certificate", "post-quantum"] {
             if get(m, selector).is_some() {
                 let parsed = uri(m, selector)?;
-                if selector == "key" && parsed.path_attribute("type") != Some(b"private") {
-                    return Err(usage("key URI requires type=private"));
+                if selector == "key" {
+                    let required: &[u8] = if name == "verify-token" {
+                        b"public"
+                    } else {
+                        b"private"
+                    };
+                    if parsed.path_attribute("type") != Some(required) {
+                        return Err(usage(if name == "verify-token" {
+                            "key URI requires type=public"
+                        } else {
+                            "key URI requires type=private"
+                        }));
+                    }
                 }
                 if (selector == "certificate" || (name == "certificate" && selector == "object"))
                     && parsed.path_attribute("type") != Some(b"cert")
@@ -341,7 +356,7 @@ pub(crate) fn run(
             )?;
             json!({"initialized":true})
         }
-        "certificate" | "capabilities" | "plan" | "bind" | "sign" | "verify" => {
+        "certificate" | "capabilities" | "plan" | "bind" | "sign" | "verify" | "verify-token" => {
             return client_command(module, name, m, inputs);
         }
         _ => return management_command(module, name, m, inputs),
@@ -376,6 +391,21 @@ fn client_operation(
         return ml_dsa::client_operation(client, name, m, inputs);
     }
     let auth = || inputs.credential.auth(false);
+    if name == "verify-token" {
+        let key =
+            pkcs11_client::PublicKeyRef::new(uri(m, "key")?).map_err(pkcs11_client::Error::from)?;
+        client.verify_token(
+            &key,
+            &pkcs11_client::VerifyRequest {
+                parameters: request(m, &inputs.bytes)?,
+                signature: &inputs.signature,
+            },
+            auth(),
+        )?;
+        return Ok(Output::Structured(
+            json!({"verified":true,"verification":"token"}),
+        ));
+    }
     if name == "verify" {
         return verify(
             &VerificationCertificate::Classical(

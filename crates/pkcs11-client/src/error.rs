@@ -76,6 +76,7 @@ impl Error {
                 | Runtime::InvalidTokenReference
                 | Runtime::Locator(_) => ErrorKind::Input,
                 Runtime::UnsupportedSigning(_)
+                | Runtime::UnsupportedVerification(_)
                 | Runtime::MissingMetadata(_)
                 | Runtime::ContextAuthenticationRequired
                 | Runtime::ProtectedPathUnavailable

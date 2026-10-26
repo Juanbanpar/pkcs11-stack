@@ -97,7 +97,14 @@ impl UiState {
                                     .token()
                                     .is_some_and(|token| token.login == LoginState::User)
                         }
-                        CryptoMode::Verify => object.class == Some(ObjectClass::CERTIFICATE),
+                        CryptoMode::Verify => {
+                            object.class == Some(ObjectClass::CERTIFICATE)
+                                || (object.class == Some(ObjectClass::PUBLIC_KEY)
+                                    && matches!(
+                                        self.object_key_type(),
+                                        Some(KeyType::RSA | KeyType::EC)
+                                    ))
+                        }
                         _ => false,
                     }
             })
@@ -146,7 +153,11 @@ impl UiState {
     ) -> Option<BackendCommand> {
         let form = self.crypto_form.as_ref()?;
         if form.id != form_id
-            || form.scope.mode != CryptoMode::Sign
+            || (form.scope.mode != CryptoMode::Sign
+                && !(form.scope.mode == CryptoMode::Verify
+                    && self
+                        .object()
+                        .is_some_and(|object| object.class == Some(ObjectClass::PUBLIC_KEY))))
             || !self.can_submit()
             || self.object_key_type() == Some(KeyType::ML_DSA)
             || form

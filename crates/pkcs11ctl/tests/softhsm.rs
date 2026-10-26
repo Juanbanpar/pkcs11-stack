@@ -491,6 +491,21 @@ fn command_workflows() {
     ]);
     assert_eq!(verified["verified"], true);
     assert_eq!(verified["trust_validated"], false);
+    let public_key = key.replace("type=private", "type=public");
+    let native_args = [
+        "verify-token",
+        "--key",
+        &public_key,
+        "--algorithm",
+        "rsa-pkcs1",
+        "--digest",
+        "sha256",
+        "--input",
+        &message,
+        "--signature",
+        &signature,
+    ];
+    assert_eq!(f.ok(&native_args)["verification"], "token");
     let altered = f.path("altered-message");
     std::fs::write(&altered, b"changed message").unwrap();
     f.fail(
@@ -498,6 +513,22 @@ fn command_workflows() {
             "verify",
             "--certificate",
             cert,
+            "--algorithm",
+            "rsa-pkcs1",
+            "--digest",
+            "sha256",
+            "--input",
+            &altered,
+            "--signature",
+            &signature,
+        ],
+        4,
+    );
+    f.fail(
+        &[
+            "verify-token",
+            "--key",
+            &public_key,
             "--algorithm",
             "rsa-pkcs1",
             "--digest",

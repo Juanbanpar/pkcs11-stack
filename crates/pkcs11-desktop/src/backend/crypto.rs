@@ -6,8 +6,8 @@ use super::{
 use pkcs11_client::{
     AttributeType, Certificate, HashLocation, HashingPolicy, KeyType, ManagementSession,
     MechanismType, MlDsaCertificate, MlDsaHedging, MlDsaParameterSet, MlDsaRequest,
-    MlDsaSigningPolicy, ObjectClass, Pin, PrivateKeyRef, SessionState, SignInput,
-    SignatureParameters, SigningPolicy,
+    MlDsaSigningPolicy, ObjectClass, Pin, PrivateKeyRef, PublicKeyRef, SessionState, SignInput,
+    SignatureParameters, SigningPolicy, VerifyRequest,
 };
 use std::{
     fs::File,
@@ -257,6 +257,71 @@ impl Registry {
         })?;
         VerificationCertificate::from_der(der)
     }
+    fn public_verification_location(
+        &self,
+        scope: CryptoScope,
+    ) -> Result<(usize, pkcs11_client::Pkcs11Uri, PublicKeyRef), BackendError> {
+        let (index, uri) = self.location(scope.module, scope.token)?;
+        let (reference, class) = self.reference(scope.module, scope.token, scope.object)?;
+        if class != Some(ObjectClass::PUBLIC_KEY) {
+            return Err(BackendError::SigningUnavailable);
+        }
+        let key = PublicKeyRef::new(
+            reference
+                .uri()
+                .to_string()
+                .parse()
+                .map_err(|_| BackendError::SigningUnavailable)?,
+        )
+        .map_err(|_| BackendError::SigningUnavailable)?;
+        Ok((index, uri, key))
+    }
+    fn public_verification_options(
+        &self,
+        scope: CryptoScope,
+        software: bool,
+    ) -> Result<Vec<SignatureOption>, BackendError> {
+        let (index, uri, key) = self.public_verification_location(scope)?;
+        let module = &self.modules[index];
+        read_session(module, &uri, module.read_mode(scope.token)?, |session| {
+            Ok(session
+                .verification_options(&key, &policy(software))
+                .map_err(|e| BackendError::from(&e))?
+                .into_iter()
+                .map(|choice| SignatureOption {
+                    parameters: SignatureProfile::Classical(choice.parameters),
+                    plan: Some((choice.mechanism, choice.hashing)),
+                })
+                .collect())
+        })
+    }
+    fn verify_public_file(&self, scope: CryptoScope, job: CryptoJob) -> Result<(), BackendError> {
+        let SignatureProfile::Classical(parameters) = job.parameters else {
+            return Err(BackendError::SignatureChoice);
+        };
+        if job.context.is_some() || !job.domain_context.is_empty() {
+            return Err(BackendError::SignatureChoice);
+        }
+        let (index, uri, key) = self.public_verification_location(scope)?;
+        let input = read_bounded(&job.input, 16 * 1024 * 1024)?;
+        let signature = read_bounded(&job.signature, 16 * 1024)?;
+        let module = &self.modules[index];
+        read_session(module, &uri, module.read_mode(scope.token)?, |session| {
+            session
+                .verify_token(
+                    &key,
+                    &VerifyRequest {
+                        parameters: parameters.request(SignInput::Message(&input)),
+                        signature: &signature,
+                    },
+                    &policy(job.software_hashing),
+                )
+                .map_err(|error| match error {
+                    pkcs11_client::Error::SignatureMismatch => BackendError::SignatureMismatch,
+                    other => BackendError::from(&other),
+                })
+        })
+    }
     pub(super) fn crypto_options(
         &self,
         scope: CryptoScope,
@@ -279,7 +344,17 @@ impl Registry {
                     signing_options(session, &key, software_hashing)
                 })?
             }
-            CryptoMode::Verify => (self.verification_certificate(scope)?.options(), false),
+            CryptoMode::Verify => {
+                let (_, class) = self.reference(scope.module, scope.token, scope.object)?;
+                if class == Some(ObjectClass::PUBLIC_KEY) {
+                    (
+                        self.public_verification_options(scope, software_hashing)?,
+                        false,
+                    )
+                } else {
+                    (self.verification_certificate(scope)?.options(), false)
+                }
+            }
         };
         Ok(BackendResult::CryptoOptions {
             scope,
@@ -376,7 +451,12 @@ impl Registry {
         job: CryptoJob,
     ) -> Result<BackendResult, BackendError> {
         if scope.mode == CryptoMode::Verify {
-            self.verification_certificate(scope)?.verify(job)?;
+            let (_, class) = self.reference(scope.module, scope.token, scope.object)?;
+            if class == Some(ObjectClass::PUBLIC_KEY) {
+                self.verify_public_file(scope, job)?;
+            } else {
+                self.verification_certificate(scope)?.verify(job)?;
+            }
             return Ok(BackendResult::Verified { scope });
         }
         if scope.mode != CryptoMode::Sign {

@@ -335,6 +335,17 @@ pub(crate) fn command() -> Command {
         context(auth(key(key_family(bind)))),
         context(auth(signing(key(sign)))),
         auth(signature(verify)),
+        auth(
+            signing(
+                Command::new("verify-token")
+                    .about("Verify a raw RSA/ECDSA signature on the token using a public key")
+                    .arg(required("key", "Stable public-key URI with type=public"))
+                    .arg(required("signature", "Raw signature file; - reads stdin")),
+            )
+            .mut_arg("algorithm", |arg| {
+                arg.value_parser(["rsa-pkcs1", "rsa-pss", "ecdsa"])
+            }),
+        ),
         auth(token(random)),
         gcm(
             "encrypt-aes-gcm",

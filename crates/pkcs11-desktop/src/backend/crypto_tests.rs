@@ -144,6 +144,17 @@ fn software_token_signing_verification_context_and_file_failures() {
     let mut objects = registry.objects(module, token).unwrap();
     let public = scope(module, token, &objects, "rsa", CryptoMode::Verify);
     assert!(!choices(&registry, public, false).0.is_empty());
+    let native_public = CryptoScope {
+        module,
+        token,
+        mode: CryptoMode::Verify,
+        object: objects
+            .iter()
+            .find(|object| object.label == "rsa" && object.class == Some(ObjectClass::PUBLIC_KEY))
+            .unwrap()
+            .id,
+    };
+    assert!(!choices(&registry, native_public, true).0.is_empty());
     assert!(matches!(
         registry.crypto_options(
             CryptoScope {
@@ -200,6 +211,23 @@ fn software_token_signing_verification_context_and_file_failures() {
                 registry.crypto(certificate, job(option.parameters, &input, &output, None)),
                 Ok(BackendResult::Verified { .. })
             ));
+            let native = CryptoScope {
+                module,
+                token,
+                mode: CryptoMode::Verify,
+                object: objects
+                    .iter()
+                    .find(|object| {
+                        object.label == label && object.class == Some(ObjectClass::PUBLIC_KEY)
+                    })
+                    .unwrap()
+                    .id,
+            };
+            assert!(!choices(&registry, native, true).0.is_empty());
+            assert!(matches!(
+                registry.crypto(native, job(option.parameters, &input, &output, None)),
+                Ok(BackendResult::Verified { .. })
+            ));
             let raw = std::fs::read(&output).unwrap();
             let independent = directory.join("openssl-signature");
             std::fs::write(
@@ -244,6 +272,10 @@ fn software_token_signing_verification_context_and_file_failures() {
             std::fs::write(&bad, &tampered).unwrap();
             assert!(matches!(
                 registry.crypto(certificate, job(option.parameters, &input, &bad, None)),
+                Err(BackendError::SignatureMismatch)
+            ));
+            assert!(matches!(
+                registry.crypto(native, job(option.parameters, &input, &bad, None)),
                 Err(BackendError::SignatureMismatch)
             ));
             let target = scope(module, token, &objects, label, CryptoMode::Sign);

@@ -643,3 +643,9 @@ cleanup fails. Inputs are not deleted and values never leave the token.
 This is an application combiner, not a complete hybrid KEM wire protocol, X-Wing
 or the TLS key schedule. See the [runtime contract](../pkcs11-runtime/README.md#application-hybrid-derivation)
 for construction and failure semantics.
+
+`Client::verify_token` and `ManagementSession::verify_token` verify RSA/ECDSA
+signatures with a selected token public key and `VerifyRequest`. Shared
+`verification_options` queries report choices from verification permissions and
+the caller's signature policy. Certificate verification remains a separate
+software workflow; neither operation validates certificate trust.

@@ -60,6 +60,32 @@ pub struct PoolDiagnostic {
     /// Authentication state observed on the first lease.
     pub session_state: SessionState,
 }
+impl ManagementSession<'_> {
+    /// Advisory native verification choices, shared by application frontends.
+    pub fn verification_options(
+        &mut self,
+        key: &crate::PublicKeyRef,
+        policy: &SigningPolicy,
+    ) -> Result<Vec<crate::SigningChoice>, Error> {
+        Ok(crate::signature_options::verification_options(
+            &self.session.verification_capabilities(key)?,
+            policy,
+        ))
+    }
+    /// Verify once with a token public key. A mismatch is distinct from a provider
+    /// failure and leaves the session available for subsequent operations.
+    pub fn verify_token(
+        &mut self,
+        key: &crate::PublicKeyRef,
+        request: &crate::VerifyRequest<'_>,
+        policy: &SigningPolicy,
+    ) -> Result<(), Error> {
+        match self.session.verify(key, request, policy) {
+            Err(pkcs11_runtime::Error::SignatureMismatch) => Err(Error::SignatureMismatch),
+            result => Ok(result?),
+        }
+    }
+}
 impl Provider {
     /// Common RSA sizes and named curves within advertised key-generation bounds.
     /// These are advisory choices, not a guarantee that a vendor accepts a template.

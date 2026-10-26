@@ -45,6 +45,7 @@ fn help_and_version_need_no_module() {
         "bind",
         "sign",
         "verify",
+        "verify-token",
         "random",
         "kem-capabilities",
         "encapsulate",
@@ -1213,4 +1214,56 @@ fn aes_gcm_preflight_rejects_invalid_parameters_before_provider_or_output() {
     ]);
     assert_eq!(out.status.code(), Some(2));
     assert!(!output.exists());
+}
+
+#[test]
+fn token_verification_checks_selectors_and_stdin_before_loading() {
+    let scratch = Scratch::new();
+    let input = scratch.0.join("message");
+    let signature = scratch.0.join("signature");
+    std::fs::write(&input, b"message").unwrap();
+    std::fs::write(&signature, [0; 256]).unwrap();
+    let output = run(&[
+        "--module",
+        "/must-not-load",
+        "--format",
+        "json",
+        "verify-token",
+        "--key",
+        "pkcs11:token=test;id=%01;type=private",
+        "--algorithm",
+        "rsa-pkcs1",
+        "--digest",
+        "sha256",
+        "--input",
+        input.to_str().unwrap(),
+        "--signature",
+        signature.to_str().unwrap(),
+    ]);
+    assert_eq!(output.status.code(), Some(2));
+    let failure: serde_json::Value = serde_json::from_slice(&output.stderr).unwrap();
+    assert_eq!(failure["error"]["message"], "key URI requires type=public");
+    let output = run(&[
+        "--module",
+        "/must-not-load",
+        "--format",
+        "json",
+        "verify-token",
+        "--key",
+        "pkcs11:token=test;id=%01;type=public",
+        "--algorithm",
+        "rsa-pkcs1",
+        "--digest",
+        "sha256",
+        "--input",
+        "-",
+        "--signature",
+        "-",
+    ]);
+    assert_eq!(output.status.code(), Some(2));
+    let failure: serde_json::Value = serde_json::from_slice(&output.stderr).unwrap();
+    assert_eq!(
+        failure["error"]["message"],
+        "only one verification input may read stdin"
+    );
 }
