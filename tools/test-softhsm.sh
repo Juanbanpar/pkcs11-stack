@@ -6,6 +6,7 @@ cd "$(dirname "$0")/.."
 
 source tools/softhsm-store.sh
 command -v openssl >/dev/null
+command -v python3 >/dev/null
 # Deliberately duplicated labels exercise ambiguity. PINs are public disposable
 # fixture values, not a model for production PIN input.
 for number in 1 2; do

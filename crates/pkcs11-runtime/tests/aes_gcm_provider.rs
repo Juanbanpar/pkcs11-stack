@@ -182,6 +182,55 @@ fn nist_vectors_tampering_policy_and_generated_keys() {
         Err(Error::UnsupportedAesGcm)
     ));
     setup.info().unwrap();
+    // A mechanism outside cryptoki's named execution variants must survive metadata decoding.
+    let cmac_general = MechanismType::try_from(0x0000_108b).unwrap();
+    for (id, allowed, permitted) in [
+        (
+            "gcm-mixed-mechanisms",
+            vec![MechanismType::AES_GCM, cmac_general],
+            true,
+        ),
+        ("gcm-cmac-only", vec![cmac_general], false),
+    ] {
+        let mut attributes = template(id, &[0x44; 16]);
+        attributes.push(Attribute::AllowedMechanisms(allowed.clone()));
+        setup.create_object(&attributes).unwrap();
+        let key = reference(name, id, "secret-key");
+        let metadata = setup
+            .resolve(&key)
+            .unwrap()
+            .read_attributes(&[pkcs11_runtime::AttributeType::AllowedMechanisms])
+            .unwrap();
+        assert_eq!(
+            metadata.expose_values(),
+            &[Attribute::AllowedMechanisms(allowed)]
+        );
+        let result = setup.encrypt_aes_gcm(
+            &key,
+            &AesGcmEncryptRequest {
+                nonce: &[3; 12],
+                aad: b"mixed mechanisms",
+                plaintext: b"GCM remains permitted",
+            },
+        );
+        if permitted {
+            let ciphertext = result.unwrap();
+            let plaintext = setup
+                .decrypt_aes_gcm(
+                    &key,
+                    &AesGcmDecryptRequest {
+                        nonce: &[3; 12],
+                        aad: b"mixed mechanisms",
+                        ciphertext: &ciphertext,
+                    },
+                )
+                .unwrap();
+            assert_eq!(plaintext.expose_secret(), b"GCM remains permitted");
+        } else {
+            assert!(matches!(result, Err(Error::UnsupportedAesGcm)));
+        }
+        setup.info().unwrap();
+    }
     let mut generic = template("gcm-wrong-type", &[0x42; 16]);
     generic[1] = Attribute::KeyType(KeyType::GENERIC_SECRET);
     setup.create_object(&generic).unwrap();

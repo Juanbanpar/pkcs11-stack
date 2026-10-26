@@ -116,6 +116,28 @@ fn software_token_runtime_foundation() {
     assert_eq!(token.identity().serial, Some(serial.as_str()));
     let mechanisms = token.mechanisms().unwrap();
     assert!(!mechanisms.is_empty());
+    let native = std::process::Command::new("python3")
+        .args(["-c", include_str!("fixtures/mechanism_list.py"), &path])
+        .arg(token.slot().id().to_string())
+        .output()
+        .unwrap();
+    assert!(
+        native.status.success(),
+        "native mechanism query failed: {}",
+        String::from_utf8_lossy(&native.stderr)
+    );
+    let mut native: Vec<usize> = std::str::from_utf8(&native.stdout)
+        .unwrap()
+        .lines()
+        .map(|line| line.parse().unwrap())
+        .collect();
+    let mut actual: Vec<usize> = mechanisms
+        .iter()
+        .map(|mechanism| usize::try_from(**mechanism).unwrap())
+        .collect();
+    native.sort_unstable();
+    actual.sort_unstable();
+    assert_eq!(actual, native, "discovery must retain every advertised ID");
     for mechanism in mechanisms.iter().take(3) {
         token.mechanism_info(*mechanism).unwrap();
     }

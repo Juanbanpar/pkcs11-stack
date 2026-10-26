@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-exclude = ["fuzz"]
+exclude = ["fuzz", "vendor/cryptoki"]
 members = [
     "crates/pkcs11-locator",
     "crates/pkcs11-runtime",
@@ -23,7 +23,7 @@ pkcs11-locator = { path = "crates/pkcs11-locator" }
 pkcs11-runtime = { path = "crates/pkcs11-runtime" }
 pkcs11-client = { path = "crates/pkcs11-client" }
 serde_json = "1.0"
-cryptoki = "0.12.1"
+cryptoki = { version = "=0.12.1", path = "vendor/cryptoki" }
 rustls = { version = "0.23.46", default-features = false, features = ["std"] }
 rustls-pki-types = "1.15.1"
 rustls-webpki = { version = "0.103.16", default-features = false, features = ["std"] }

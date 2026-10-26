@@ -14,7 +14,7 @@ PKCS11_TEST_KDF_MODULE=/absolute/path/to/kdf-provider/libkryoptic_pkcs11.so \
 ./tools/test.sh
 ```
 
-Install SoftHSM, OpenSC and OpenSSL for the runners below. Provider
+Install SoftHSM, OpenSC, OpenSSL and Python 3 for the runners below. Provider
 builds additionally require Git, a C/C++ toolchain, Make, Perl, Autoconf, Automake,
 Libtool, Clang/libclang, pkg-config and SQLite development files. Desktop requires
 its normal native build dependencies. All token stores are temporary. Missing
@@ -29,6 +29,7 @@ python3 tools/check-dependencies.py
 
 Tests cover URI parsing and redaction, selection ambiguity, ownership, signing
 plans, certificate verification, CLI input/output, and TLS signature encoding.
+Mechanism metadata retains standard, unknown and vendor-defined numeric IDs.
 ML-DSA software tests use public OpenSSL fixtures without a provider. They cover
 message/context mismatches, malformed SPKI/certificates and repeated-hint signature
 encodings, including the regression described by GHSA-5x2r-hc65-25f9.
@@ -37,7 +38,7 @@ outside their owner lifetimes.
 
 ## SoftHSM integration
 
-Install SoftHSM, OpenSC and OpenSSL, then run:
+Install SoftHSM, OpenSC, OpenSSL and Python 3, then run:
 
 ```sh
 ./tools/test-softhsm.sh
@@ -48,7 +49,10 @@ nonextractable RSA/EC keys, runs the ignored integration tests and
 [signing/TLS examples](../docs/examples.md), and verifies signatures independently
 with OpenSSL. It covers authentication, object mutations, pool recovery, key
 replacement, and server/mutual TLS. Generation tests check all three ECDH curves
-and AES sizes, permissions, duplicate identities, public export and rejected secret
+and signing-only RSA/EC permissions. Mechanism discovery is compared with a
+native SoftHSM query; mixed allowed-mechanism lists preserve permitted GCM use
+and reject keys that allow only other mechanisms. Generation tests also check AES
+sizes, permissions, duplicate identities, public export and rejected secret
 export. ECDH agreement, AES encryption and RFC 3394 round trips verify generated
 key use without exporting private material. CLI and desktop tests cover the new
 generation choices, rejected option combinations, permissions and export rules.
