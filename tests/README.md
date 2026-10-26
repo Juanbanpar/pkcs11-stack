@@ -14,7 +14,7 @@ PKCS11_TEST_KDF_MODULE=/absolute/path/to/kdf-provider/libkryoptic_pkcs11.so \
 ./tools/test.sh
 ```
 
-Install SoftHSM, OpenSC, OpenSSL and NSS softoken for the runners below. Provider
+Install SoftHSM, OpenSC and OpenSSL for the runners below. Provider
 builds additionally require Git, a C/C++ toolchain, Make, Perl, Autoconf, Automake,
 Libtool, Clang/libclang, pkg-config and SQLite development files. Desktop requires
 its normal native build dependencies. All token stores are temporary. Missing
@@ -64,7 +64,9 @@ PKCS11_TEST_MODULE=/path/to/libsofthsm2.so SOFTHSM2_UTIL=/path/to/softhsm2-util 
 Desktop backend integration runs without opening a window.
 
 Set `PKCS11_TEST_REQUIRE_EC_MULTIPART=1` to require combined multipart ECDSA support.
-CI tests both packaged SoftHSM and a pinned upstream build with that support.
+CI tests packaged SoftHSM and a pinned upstream build with multipart ECDSA,
+SHA-2 OAEP and ML-DSA enabled. The upstream run reuses one provider build for
+classical and ML-DSA workflows.
 
 ### PQC provider compatibility
 
@@ -87,7 +89,7 @@ Building requires Git, a C/C++ toolchain, Make, Perl, Autoconf, Automake and
 Libtool. OpenSSL uses static PIC libraries, so the test module does not require
 changes to the system OpenSSL installation or library search path.
 
-The `pqc-provider` and `kem-hkdf-provider` CI jobs require ML-DSA-44/65/87 and
+The `softhsm-integration` and `kryoptic-integration` CI jobs require ML-DSA-44/65/87 and
 ML-KEM-512/768/1024 across the libraries, CLI and desktop. TLS tests also require
 hybrid key exchange. Missing mechanisms, parameter sets or entry points fail.
 SoftHSM's advertised ML-KEM bounds are incorrect, so ML-KEM runs on Kryoptic;
@@ -129,25 +131,6 @@ policy rejection before credential acquisition, trust failures, TLS 1.2,
 exhausted pools and replacement keys. The adapter's production graph still
 selects no software crypto provider.
 
-## HKDF provider compatibility
-
-Install NSS softoken (`libnss3` on Debian/Ubuntu, `nss-softokn` on Fedora), then run:
-
-```sh
-./tools/test-hkdf.sh
-# Override the module location when needed:
-PKCS11_TEST_HKDF_MODULE=/absolute/path/to/libsoftokn3.so ./tools/test-hkdf.sh
-```
-
-The runner uses a temporary working directory and ordinary NSS initialization
-without a database or login. All test keys are volatile session objects. The
-`hkdf-provider` CI job requires CKM_HKDF_DERIVE and checks RFC 5869 SHA-256 cases
-1 and 3, including empty salt/info and changed context. HMAC comparisons verify
-derived sensitive, nonextractable keys without reading their values.
-
-This covers the native HKDF mechanism with public RFC vectors. The typed API
-requires hash-length input under the PKCS#11 profile; it is tested separately below.
-
 ## Persistent ML-KEM and HKDF
 
 Build the pinned Kryoptic and OpenSSL sources, then run runtime/client/CLI/desktop tests:
@@ -166,7 +149,7 @@ dependencies are resolved at build time because upstream does not supply a lockf
 
 The runner creates a temporary Kryoptic SQLite store and removes it on exit.
 Use it only with Kryoptic. No existing token store is opened or reset.
-The `kem-hkdf-provider` CI job requires both mechanisms, without skipping missing
+The `kryoptic-integration` CI job requires both mechanisms, without skipping missing
 support. It compares SHA-256/384/512 results against OpenSSL using public
 hash-length inputs, including empty salt/context and maximum SHA-256 output.
 Tests inspect output permissions, reject unsuitable bases, wrong hash lengths,
@@ -188,8 +171,8 @@ key agreement using AES challenges.
 
 ## AES-GCM provider compatibility
 
-The SoftHSM and Kryoptic runners require AES-GCM with a 96-bit nonce and 128-bit
-tag. Runtime fixtures select 12 NIST CAVP known-answer vectors across AES-128/192/256,
+The SoftHSM runner tests AES-GCM with a 96-bit nonce and 128-bit tag. Runtime
+fixtures select 12 NIST CAVP known-answer vectors across AES-128/192/256,
 including empty input/AAD and non-block-aligned messages. Tests reject changes to
 nonce, AAD, ciphertext and tag, and verify failed-session invalidation without
 returning plaintext. They also cover RO execution, permissions, allowed mechanisms,

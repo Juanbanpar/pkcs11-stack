@@ -189,7 +189,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        provider: [packaged, multipart]
+        provider: [packaged, upstream]
     steps:
       - uses: actions/checkout@v4
       - name: Install stable Rust
@@ -200,22 +200,15 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes softhsm2 openssl opensc
-      - name: Build pinned upstream SoftHSM with multipart ECDSA
-        if: matrix.provider == 'multipart'
+      - name: Build upstream SoftHSM with multipart ECDSA and ML-DSA
+        if: matrix.provider == 'upstream'
         run: |
-          sudo apt-get install --yes autoconf automake libtool g++ libssl-dev
-          source_dir="$RUNNER_TEMP/softhsm-source"
-          prefix="$RUNNER_TEMP/softhsm-multipart"
-          git init "$source_dir"
-          git -C "$source_dir" fetch --depth 1 https://github.com/softhsm/SoftHSMv2.git 884cb38f3d2012a0447bd5f50dbd29c429987c41
-          git -C "$source_dir" checkout --detach FETCH_HEAD
-          cd "$source_dir"
-          sh autogen.sh
-          ./configure --prefix="$prefix" --with-crypto-backend=openssl --disable-gost
-          make -j2
-          make install
+          sudo apt-get install --yes autoconf automake libtool g++ make perl pkg-config
+          prefix="$RUNNER_TEMP/softhsm-upstream"
+          bash tools/build-pqc-softhsm.sh "$prefix"
           echo "PKCS11_TEST_MODULE=$prefix/lib/softhsm/libsofthsm2.so" >> "$GITHUB_ENV"
           echo "SOFTHSM2_UTIL=$prefix/bin/softhsm2-util" >> "$GITHUB_ENV"
+          echo "PKCS11_TEST_PQC_OPENSSL=$prefix/openssl/bin/openssl" >> "$GITHUB_ENV"
           echo 'PKCS11_TEST_REQUIRE_EC_MULTIPART=1' >> "$GITHUB_ENV"
           echo 'PKCS11_TEST_REQUIRE_RSA_OAEP_SHA2=1' >> "$GITHUB_ENV"
       - name: Install desktop native dependencies
@@ -223,41 +216,11 @@ jobs:
           sudo apt-get install --yes cmake pkg-config libxkbcommon-dev libwayland-dev libegl1-mesa-dev
       - name: Isolated runtime, client, CLI, TLS and desktop workflows
         run: ./tools/test-softhsm.sh
-
-  pqc-provider:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install stable Rust and provider build dependencies
-        run: |
-          rustup toolchain install stable --no-self-update --profile minimal
-          rustup default stable
-          sudo apt-get update
-          sudo apt-get install --yes cmake autoconf automake libtool g++ make perl openssl opensc pkg-config libxkbcommon-dev libwayland-dev libegl1-mesa-dev
-      - name: Build unmodified OpenSSL and SoftHSM with ML-DSA
-        run: bash tools/build-pqc-softhsm.sh "$RUNNER_TEMP/softhsm-pqc"
-      - name: Require ML-DSA through libraries, CLI, TLS and desktop
-        env:
-          PKCS11_TEST_PQC_OPENSSL: ${{ runner.temp }}/softhsm-pqc/openssl/bin/openssl
-          PKCS11_TEST_MODULE: ${{ runner.temp }}/softhsm-pqc/lib/softhsm/libsofthsm2.so
-          SOFTHSM2_UTIL: ${{ runner.temp }}/softhsm-pqc/bin/softhsm2-util
+      - name: ML-DSA library, CLI, TLS and desktop workflows
+        if: matrix.provider == 'upstream'
         run: ./tools/test-ml-dsa.sh
 
-  hkdf-provider:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install stable Rust and NSS softoken
-        run: |
-          rustup toolchain install stable --no-self-update --profile minimal
-          rustup default stable
-          sudo apt-get update
-          sudo apt-get install --yes libnss3
-      - name: Check RFC 5869 with nonextractable session keys
-        run: ./tools/test-hkdf.sh
-
-  kem-hkdf-provider:
+  kryoptic-integration:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:

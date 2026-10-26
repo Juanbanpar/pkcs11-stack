@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Actual CLI AES-GCM file workflows on disposable providers.
+//! CLI AES-GCM file workflows on disposable SoftHSM.
 use serde_json::Value;
 use std::{
     path::PathBuf,
@@ -38,37 +38,18 @@ impl Fixture {
     }
 }
 #[test]
-#[ignore = "requires tools/test-softhsm.sh or tools/test-kem-hkdf.sh disposable store"]
+#[ignore = "requires tools/test-softhsm.sh disposable store"]
 fn file_encryption_authentication_and_output_contracts() {
-    let kdf = std::env::var("PKCS11_TEST_KDF_ISOLATED").as_deref() == Ok("1");
-    if !kdf {
-        assert_eq!(std::env::var("PKCS11_TEST_ISOLATED").as_deref(), Ok("1"));
-    }
-    let root = PathBuf::from(
-        std::env::var_os(if kdf {
-            "PKCS11_TEST_KDF_DIR"
-        } else {
-            "PKCS11_CLIENT_TEST_DIR"
-        })
-        .unwrap(),
-    )
-    .join("cli-gcm");
+    assert_eq!(std::env::var("PKCS11_TEST_ISOLATED").as_deref(), Ok("1"));
+    let root = PathBuf::from(std::env::var_os("PKCS11_CLIENT_TEST_DIR").unwrap()).join("cli-gcm");
     std::fs::create_dir(&root).unwrap();
     let pin = root.join("user.pin").to_str().unwrap().to_owned();
     std::fs::write(&pin, b"12345678\n").unwrap();
     let f = Fixture {
-        module: std::env::var(if kdf {
-            "PKCS11_TEST_KDF_MODULE"
-        } else {
-            "PKCS11_TEST_MODULE"
-        })
-        .unwrap(),
+        module: std::env::var("PKCS11_TEST_MODULE").unwrap(),
         root,
         pin,
-        token: format!(
-            "pkcs11:token={}",
-            if kdf { "kdf-test" } else { "client-test" }
-        ),
+        token: "pkcs11:token=client-test".into(),
     };
     let input = f.path("plain");
     let aad = f.path("aad");

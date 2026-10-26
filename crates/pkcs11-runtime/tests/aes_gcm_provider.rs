@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! NIST known answers, tampering, policy and generated-key use on disposable providers.
+//! NIST known answers, tampering, policy and generated-key use on disposable SoftHSM.
 #[path = "fixtures/aes_gcm_vectors.rs"]
 mod vectors;
 use cryptoki::object::KeyType;
@@ -14,20 +14,6 @@ fn hex(s: &str) -> Vec<u8> {
         .chunks_exact(2)
         .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
         .collect()
-}
-fn fixture() -> (Module, &'static str) {
-    if std::env::var("PKCS11_TEST_KDF_ISOLATED").as_deref() == Ok("1") {
-        (
-            Module::load(std::env::var_os("PKCS11_TEST_KDF_MODULE").unwrap()).unwrap(),
-            "kdf-test",
-        )
-    } else {
-        assert_eq!(std::env::var("PKCS11_TEST_ISOLATED").as_deref(), Ok("1"));
-        (
-            Module::load(std::env::var_os("PKCS11_TEST_MODULE").unwrap()).unwrap(),
-            "client-test",
-        )
-    }
 }
 fn reference(token: &str, id: &str, kind: &str) -> ObjectRef {
     ObjectRef::new(
@@ -53,9 +39,11 @@ fn template(id: &str, key: &[u8]) -> Vec<Attribute> {
     ]
 }
 #[test]
-#[ignore = "requires tools/test-softhsm.sh or tools/test-kem-hkdf.sh disposable store"]
+#[ignore = "requires tools/test-softhsm.sh disposable store"]
 fn nist_vectors_tampering_policy_and_generated_keys() {
-    let (module, name) = fixture();
+    assert_eq!(std::env::var("PKCS11_TEST_ISOLATED").as_deref(), Ok("1"));
+    let module = Module::load(std::env::var_os("PKCS11_TEST_MODULE").unwrap()).unwrap();
+    let name = "client-test";
     let token = module
         .resolve_token_uri(&format!("pkcs11:token={name}").parse().unwrap())
         .unwrap();

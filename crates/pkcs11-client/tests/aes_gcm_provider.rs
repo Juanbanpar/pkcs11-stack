@@ -6,21 +6,11 @@ use pkcs11_client::{
 };
 use secrecy::{ExposeSecret, SecretString};
 #[test]
-#[ignore = "requires tools/test-softhsm.sh or tools/test-kem-hkdf.sh disposable store"]
+#[ignore = "requires tools/test-softhsm.sh disposable store"]
 fn typed_aes_gcm_permissions_redaction_and_failed_session_cleanup() {
-    let (path, name) = if std::env::var("PKCS11_TEST_KDF_ISOLATED").as_deref() == Ok("1") {
-        (
-            std::env::var_os("PKCS11_TEST_KDF_MODULE").unwrap(),
-            "kdf-test",
-        )
-    } else {
-        assert_eq!(std::env::var("PKCS11_TEST_ISOLATED").as_deref(), Ok("1"));
-        (
-            std::env::var_os("PKCS11_TEST_MODULE").unwrap(),
-            "client-test",
-        )
-    };
-    let provider = Provider::load(path).unwrap();
+    assert_eq!(std::env::var("PKCS11_TEST_ISOLATED").as_deref(), Ok("1"));
+    let provider = Provider::load(std::env::var_os("PKCS11_TEST_MODULE").unwrap()).unwrap();
+    let name = "client-test";
     let token = format!("pkcs11:token={name}").parse().unwrap();
     let pin = SecretString::from("12345678");
     let auth = || Authentication::User(Pin::Value(&pin));

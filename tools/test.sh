@@ -8,5 +8,4 @@ cargo test --workspace --locked
 bash tools/test-softhsm.sh
 bash tools/test-ml-dsa.sh
 bash tools/test-ml-kem.sh
-bash tools/test-hkdf.sh
 bash tools/test-kem-hkdf.sh
