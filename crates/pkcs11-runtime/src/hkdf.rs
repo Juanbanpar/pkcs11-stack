@@ -113,15 +113,15 @@ pub(crate) fn secret_length(object: &Object<'_, '_>) -> Result<usize, Error> {
     };
     Ok(input_length)
 }
-fn capabilities(
-    object: &Object<'_, '_>,
-    digest: DigestAlgorithm,
-) -> Result<HkdfCapabilities, Error> {
+fn capabilities(object: &Object<'_, '_>) -> Result<HkdfCapabilities, Error> {
     let input_length = secret_length(object)?;
     // PKCS#11 3.2 section 6.62.3 restricts secret-key input to the hash length.
-    if input_length != digest.output_len() {
-        return Err(Error::UnsupportedKeyOperation);
-    }
+    let digest = match input_length {
+        32 => DigestAlgorithm::Sha256,
+        48 => DigestAlgorithm::Sha384,
+        64 => DigestAlgorithm::Sha512,
+        _ => return Err(Error::UnsupportedKeyOperation),
+    };
     permits(object, MechanismType::HKDF_DERIVE)?;
     let token = object.session.token();
     if !token.module.raw()?.is_fn_supported(Function::DeriveKey)
@@ -148,6 +148,16 @@ pub(crate) fn permits(object: &Object<'_, '_>, mechanism: MechanismType) -> Resu
     Ok(())
 }
 impl Session<'_> {
+    /// Discover the SHA-2 HKDF profile permitted by a uniquely selected base.
+    /// Reads one object and its metadata once. Unsupported bases/mechanisms produce
+    /// no choices; selection, missing metadata and provider errors propagate.
+    pub fn hkdf_options(&mut self, base: &ObjectRef) -> Result<Vec<HkdfCapabilities>, Error> {
+        match capabilities(&self.resolve(base)?) {
+            Ok(profile) => Ok(vec![profile]),
+            Err(Error::UnsupportedKeyOperation) => Ok(vec![]),
+            Err(error) => Err(error),
+        }
+    }
     /// Inspect a unique sensitive, nonextractable generic/HKDF secret without reading its value.
     /// Requires CKA_DERIVE, permitted mechanisms and an advertised HKDF derive entry point.
     pub fn hkdf_capabilities(
@@ -155,7 +165,11 @@ impl Session<'_> {
         base: &ObjectRef,
         digest: DigestAlgorithm,
     ) -> Result<HkdfCapabilities, Error> {
-        capabilities(&self.resolve(base)?, digest)
+        let profile = capabilities(&self.resolve(base)?)?;
+        if profile.digest != digest {
+            return Err(Error::UnsupportedKeyOperation);
+        }
+        Ok(profile)
     }
     /// Perform HKDF extract-and-expand once, creating a persistent private token key.
     /// Requires RW mode and a sensitive, nonextractable hash-length generic/HKDF base.
@@ -181,7 +195,9 @@ impl Session<'_> {
                 .map_err(|_| Error::InvalidParameters("HKDF output length"))?,
         ));
         let object = self.resolve(base)?;
-        capabilities(&object, request.digest)?;
+        if capabilities(&object)?.digest != request.digest {
+            return Err(Error::UnsupportedKeyOperation);
+        }
         let hash = match request.digest {
             DigestAlgorithm::Sha256 => MechanismType::SHA256,
             DigestAlgorithm::Sha384 => MechanismType::SHA384,
