@@ -270,6 +270,7 @@ fn software_token_derivation_wrapping_unwrapping_permissions_and_failures() {
                 current,
                 profile,
                 KeyJob::Derive {
+                    parameters: Default::default(),
                     peer: fixtures.join(peer),
                     id: vec![0x90],
                     label: b"shared-secret".to_vec(),
@@ -320,6 +321,7 @@ fn software_token_derivation_wrapping_unwrapping_permissions_and_failures() {
                 pkcs11_client::NamedCurve::P256,
             )),
             KeyJob::Derive {
+                parameters: Default::default(),
                 peer: fixtures.join("03-public.der"),
                 id: vec![0x91],
                 label: b"wrong-curve".to_vec(),
@@ -341,4 +343,164 @@ fn software_token_derivation_wrapping_unwrapping_permissions_and_failures() {
     ));
     registry.close().unwrap();
     Provider::load(module_path).unwrap().finalize().unwrap();
+}
+
+#[test]
+#[ignore = "requires tools/test-kem-hkdf.sh disposable Kryoptic store"]
+fn persistent_ecdh_desktop_kdfs_outputs_and_permissions() {
+    use crate::backend::{EcdhParameters, GenerationKind, ManagementAction};
+    use pkcs11_client::{AesKeySize, DigestAlgorithm, EcdhKdf, EcdhOutput, NamedCurve};
+    assert_eq!(
+        std::env::var("PKCS11_TEST_KDF_ISOLATED").as_deref(),
+        Ok("1")
+    );
+    let root = PathBuf::from(std::env::var_os("PKCS11_TEST_KDF_DIR").unwrap());
+    let mut registry = Registry::default();
+    let module = registry
+        .load(&PathBuf::from(
+            std::env::var_os("PKCS11_TEST_KDF_MODULE").unwrap(),
+        ))
+        .unwrap();
+    let token = registry.modules[0]
+        .entry
+        .tokens
+        .iter()
+        .find(|entry| entry.label == "kdf-test")
+        .unwrap()
+        .id;
+    registry
+        .login(
+            module,
+            token,
+            LoginRole::User,
+            SecretInput::Value("12345678".into()),
+        )
+        .unwrap();
+    let mut objects = Vec::new();
+    for side in 0..2 {
+        objects = managed(
+            registry.manage(
+                module,
+                token,
+                ManagementAction::Generate {
+                    kind: GenerationKind::Ecdh(NamedCurve::P521),
+                    id: vec![0xED, side],
+                    label: format!("desktop-ecdh-{side}").into_bytes(),
+                    always_authenticate: false,
+                },
+            ),
+            None,
+        );
+    }
+    let peer = root.join("desktop-ecdh-peer.der");
+    let public = object(&objects, "desktop-ecdh-1", ObjectClass::PUBLIC_KEY);
+    objects = managed(
+        registry.manage(
+            module,
+            token,
+            ManagementAction::Export {
+                object: public,
+                path: peer.clone(),
+            },
+        ),
+        None,
+    );
+    for (index, kdf) in [
+        EcdhKdf::Null,
+        EcdhKdf::X963(DigestAlgorithm::Sha256),
+        EcdhKdf::X963(DigestAlgorithm::Sha384),
+        EcdhKdf::X963(DigestAlgorithm::Sha512),
+        EcdhKdf::Sp80056a(DigestAlgorithm::Sha256),
+        EcdhKdf::Sp80056a(DigestAlgorithm::Sha384),
+        EcdhKdf::Sp80056a(DigestAlgorithm::Sha512),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let current = CryptoScope {
+            module,
+            token,
+            object: object(&objects, "desktop-ecdh-0", ObjectClass::PRIVATE_KEY),
+            mode: CryptoMode::Derive,
+        };
+        let profile = match registry.key_options(current).unwrap() {
+            BackendResult::KeyOptions { profile, .. } => profile,
+            _ => panic!("ECDH profile"),
+        };
+        let aes = index != 0 && index != 4;
+        let output = if index == 0 {
+            EcdhOutput::RawSecret
+        } else if aes {
+            EcdhOutput::Aes(AesKeySize::Bits256)
+        } else {
+            EcdhOutput::DerivationSecret { length: 64 }
+        };
+        let label = format!("desktop-ecdh-output-{index}");
+        objects = managed(
+            registry.key_operation(
+                current,
+                profile,
+                KeyJob::Derive {
+                    peer: peer.clone(),
+                    id: vec![0xED, 0x10, index as u8],
+                    label: label.as_bytes().to_vec(),
+                    parameters: EcdhParameters {
+                        kdf,
+                        output,
+                        shared_info: if index == 0 {
+                            vec![]
+                        } else {
+                            b"desktop ECDH context".to_vec()
+                        },
+                    },
+                },
+            ),
+            None,
+        );
+        let created = object(&objects, &label, ObjectClass::SECRET_KEY);
+        let fields = registry.inspect(module, token, created).unwrap().fields;
+        for (name, expected) in [
+            ("Sensitive", true),
+            ("Extractable", false),
+            ("Encrypt", aes),
+            ("Decrypt", aes),
+            ("Derive", !aes),
+            ("Sign", false),
+            ("Verify", false),
+            ("Wrap", false),
+            ("Unwrap", false),
+        ] {
+            assert!(
+                fields.iter().any(|field| field.name == name
+                    && field.value.as_deref() == Some(if expected { "true" } else { "false" })),
+                "{name}"
+            );
+        }
+        let length = output.length(NamedCurve::P521).to_string();
+        assert!(
+            fields
+                .iter()
+                .any(|field| field.name == "Key bytes" && field.value.as_deref() == Some(&length))
+        );
+        if index == 4 {
+            let current = CryptoScope {
+                module,
+                token,
+                object: created,
+                mode: CryptoMode::Hkdf,
+            };
+            assert!(matches!(
+                registry.key_options(current).unwrap(),
+                BackendResult::KeyOptions {
+                    profile: KeyProfile::Hkdf(pkcs11_client::HkdfCapabilities {
+                        digest: DigestAlgorithm::Sha512,
+                        input_length: 64
+                    }),
+                    ..
+                }
+            ));
+        }
+    }
+    registry.logout(module, token).unwrap();
+    registry.close().unwrap();
 }

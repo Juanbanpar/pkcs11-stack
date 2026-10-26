@@ -1299,3 +1299,52 @@ fn rsa_encryption_generation_rejects_invalid_purposes_and_identity_bounds_before
         assert_eq!(failure["error"]["kind"], "input");
     }
 }
+
+#[test]
+fn ecdh_kdf_output_and_peer_failures_are_rejected_before_loading() {
+    let scratch = Scratch::new();
+    let peer = scratch.0.join("peer.der");
+    let cert = pkcs11_client::Certificate::from_der(
+        std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../pkcs11-client/tests/fixtures/p521.der"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    std::fs::write(&peer, cert.spki_der()).unwrap();
+    for (kdf, kind, length) in [
+        ("null", "aes256", None),
+        ("x963-sha512", "raw-secret", None),
+        ("sp800-sha256", "derivation-secret", Some("0")),
+        ("x963-sha384", "aes128", Some("16")),
+    ] {
+        let mut args = vec![
+            "--module",
+            "/must-not-load",
+            "--format",
+            "json",
+            "derive-ecdh",
+            "--object",
+            "pkcs11:token=test;id=%01;type=private",
+            "--input",
+            peer.to_str().unwrap(),
+            "--kdf",
+            kdf,
+            "--kind",
+            kind,
+            "--id",
+            "02",
+            "--label",
+            "derived",
+            "--confirm",
+        ];
+        if let Some(length) = length {
+            args.extend(["--length", length]);
+        }
+        let output = run(&args);
+        assert_eq!(output.status.code(), Some(2));
+        let failure: serde_json::Value = serde_json::from_slice(&output.stderr).unwrap();
+        assert_eq!(failure["error"]["kind"], "input");
+    }
+}

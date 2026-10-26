@@ -6,8 +6,8 @@ use crate::{
     },
     state::{
         AdministrationField, AdministrationPinField, CipherChoice, CipherField, CryptoField,
-        Dialog, FilePurpose, HkdfOutputChoice, KeyChoice, KeyField, ManagementField, Notification,
-        RandomField, Screen, SignatureChoice, TokenPage, UiState, WrapTarget,
+        Dialog, EcdhChoice, FilePurpose, HkdfOutputChoice, KeyChoice, KeyField, ManagementField,
+        Notification, RandomField, Screen, SignatureChoice, TokenPage, UiState, WrapTarget,
     },
     views,
 };
@@ -35,6 +35,14 @@ pub enum Message {
     SubmitAdministration(RequestId),
     DismissAdministration(RequestId),
     OpenKeyOperation(CryptoMode),
+    EcdhKdf {
+        id: RequestId,
+        kdf: EcdhChoice,
+    },
+    EcdhOutput {
+        id: RequestId,
+        output: HkdfOutputChoice,
+    },
     HkdfOutput {
         id: RequestId,
         output: HkdfOutputChoice,
@@ -204,6 +212,8 @@ impl std::fmt::Debug for Message {
             Self::ReviewAdministration(_) => "ReviewAdministration",
             Self::SubmitAdministration(_) => "SubmitAdministration",
             Self::DismissAdministration(_) => "DismissAdministration",
+            Self::EcdhKdf { .. } => "EcdhKdf",
+            Self::EcdhOutput { .. } => "EcdhOutput",
             Self::HkdfOutput { .. } => "HkdfOutput",
             Self::OpenKeyOperation(_) => "OpenKeyOperation",
             Self::KeyEdit { .. } => "KeyEdit",
@@ -355,6 +365,8 @@ impl App {
                 let command = self.state.open_key_operation(mode);
                 self.submit(command);
             }
+            Message::EcdhKdf { id, kdf } => self.state.ecdh_kdf(id, kdf),
+            Message::EcdhOutput { id, output } => self.state.ecdh_output(id, output),
             Message::HkdfOutput { id, output } => self.state.hkdf_output(id, output),
             Message::KeyEdit { id, field, value } => self.state.key_edit(id, field, value),
             Message::KeyTarget { id, target } => self.state.key_target(id, target),

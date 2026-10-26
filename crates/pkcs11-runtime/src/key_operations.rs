@@ -5,18 +5,12 @@ use crate::{
     error::backend,
     signing::{attribute, key_kind},
 };
-use cryptoki::{
-    mechanism::{
-        Mechanism,
-        elliptic_curve::{EcKdf, Ecdh1DeriveParams},
-    },
-    object::KeyType,
-};
+use cryptoki::{mechanism::Mechanism, object::KeyType};
 
 /// Supported token key derivation and transfer operations.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum KeyOperation {
-    /// Raw ECDH, producing token-held generic secret material for a later KDF.
+    /// ECDH with an explicitly selected KDF and token-held output.
     Derive,
     /// RFC 3394 AES key wrap, with the default IV.
     Wrap,
@@ -26,7 +20,7 @@ pub enum KeyOperation {
 /// Advisory profile after current class, permission and mechanism checks.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum KeyOperationProfile {
-    /// ECDH on this curve with an explicitly selected null KDF.
+    /// ECDH base on this curve; individual KDF parameter support is checked on use.
     EcdhRaw(NamedCurve),
     /// RFC 3394 using an AES wrapping key of this length in bytes.
     AesKeyWrap(usize),
@@ -76,7 +70,7 @@ fn aes_length(object: &crate::Object<'_, '_>) -> Result<usize, Error> {
         _ => Err(Error::UnsupportedKeyOperation),
     }
 }
-fn profile(
+pub(crate) fn profile(
     object: &crate::Object<'_, '_>,
     operation: KeyOperation,
 ) -> Result<KeyOperationProfile, Error> {
@@ -210,43 +204,20 @@ impl Session<'_> {
         base: &ObjectRef,
         request: &EcdhDerivation<'_>,
     ) -> Result<(), Error> {
-        let EcdhDerivation {
-            curve,
-            peer,
-            id,
-            label,
-        } = *request;
-        let mut template = self.new_secret_template(id, label, false)?;
-        if peer.first() != Some(&4)
-            || peer.len()
-                != match curve {
-                    NamedCurve::P256 => 65,
-                    NamedCurve::P384 => 97,
-                    NamedCurve::P521 => 133,
-                }
-        {
-            return Err(Error::InvalidParameters("ECDH peer"));
-        }
-        template.push(Attribute::ValueLen(
-            (match curve {
-                NamedCurve::P256 => 32,
-                NamedCurve::P384 => 48,
-                NamedCurve::P521 => 66,
-            })
-            .into(),
-        ));
-        let object = self.resolve(base)?;
-        if profile(&object, KeyOperation::Derive)? != KeyOperationProfile::EcdhRaw(curve) {
-            return Err(Error::UnsupportedKeyOperation);
-        }
-        let mechanism = Mechanism::Ecdh1Derive(Ecdh1DeriveParams::new(EcKdf::null(), peer));
-        object
-            .session
-            .write_operation("derive ECDH secret", |raw| {
-                raw.derive_key(&mechanism, object.handle, &template)
-            })?;
-        Ok(())
+        self.derive_ecdh_key(
+            base,
+            &crate::EcdhKeyRequest {
+                curve: request.curve,
+                peer: request.peer,
+                kdf: crate::EcdhKdf::Null,
+                shared_info: &[],
+                output: crate::EcdhOutput::RawSecret,
+                id: request.id,
+                label: request.label,
+            },
+        )
     }
+
     /// Wrap an extractable AES-128/192/256 key using RFC 3394. Never reads CKA_VALUE.
     /// CKA_WRAP_WITH_TRUSTED is honored; provider wrap templates remain authoritative.
     pub fn wrap_aes_key(

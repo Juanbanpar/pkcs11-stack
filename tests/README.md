@@ -52,7 +52,8 @@ or formal conformance. Coverage is recorded per capability below.
 | Remaining operation expansion, metadata compatibility and explicit legacy policy | Pending | Existing restrictions remain in force. |
 | Encryption-purpose RSA generation | Implemented | Runtime/client/CLI/desktop; key permissions, size/identity bounds, duplicate IDs, RO rejection, export policy and OAEP use of generated keys. |
 | Remaining classical algorithm expansion | Pending | Existing signature/digest profiles remain unchanged. |
-| Symmetric algorithms, MACs and KDF expansion | Pending | Existing AES-GCM, AES-KW and constrained HKDF profiles only. |
+| Explicit ECDH SHA-2 KDFs and output purposes | Implemented | Runtime/client/CLI/desktop; Kryoptic tests cover ANSI X9.63 and SP 800-56A SHA-256/384/512, all three curves, AES output and 64-byte generic output followed by HKDF. OpenSSL supplies independent ECDH/HKDF calculations. |
+| Remaining symmetric algorithms, MACs and KDF expansion | Pending | Existing AES-GCM, AES-KW, constrained HKDF and ECDH profiles. |
 | HashML-DSA, SLH-DSA and additional TLS signatures | Pending | Existing pure ML-DSA and ML-KEM profiles remain supported. |
 | Legacy algorithm execution | Pending | No legacy opt-in or algorithms are enabled yet. |
 

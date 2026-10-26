@@ -315,9 +315,28 @@ creation template; it does not validate certificate trust. Data bytes remain
 uninterpreted. `--id` maps to CKA_ID for certificates/keys and CKA_OBJECT_ID for data;
 select data objects by their label. Imported objects are persistent and public.
 
+`derive-ecdh` validates a P-256/P-384/P-521 peer SPKI DER public key and derives
+one persistent sensitive, nonextractable key. Select `--kdf null` with
+`--kind raw-secret` to preserve the complete raw secret (66 bytes on P-521).
+Use `x963-sha256|384|512` or `sp800-sha256|384|512` with
+`--kind aes128|aes192|aes256|derivation-secret` for an explicit SHA-2 KDF.
+Generic KDF output requires `--length 1..4096`; AES length is fixed.
+Optional `--shared-info-file` accepts up to 4096 public bytes for SHA-2 KDFs.
+AES outputs permit only encryption/decryption; generic outputs permit only
+further derivation. Peer authentication remains the caller's responsibility.
+Individual KDF support is checked during derivation; rejection never changes
+parameters or falls back to software.
+
+```sh
+pkcs11ctl --module "$MODULE" derive-ecdh --object "$PRIVATE_KEY_URI" \
+  --input peer.der --kdf x963-sha512 --kind derivation-secret --length 64 \
+  --shared-info-file context.bin --id 0501 --label agreement-material \
+  --pin-file user.pin --confirm
+```
+
 Raw certificate export and inspection work independently of client key support.
-Arbitrary JSON templates, private/secret-key import/export, wrapping, RSA-OAEP,
-raw ECDH derivation and vendor-specific administration are not implemented.
+Arbitrary JSON templates, private/secret-key import/export, wrapping and
+vendor-specific administration are not implemented.
 Runtime exposes generic creation/update templates for library callers. Attribute
 updates may partially succeed before a provider reports failure; runtime marks
 that session unusable and does not attempt rollback.

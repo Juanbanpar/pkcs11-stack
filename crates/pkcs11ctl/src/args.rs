@@ -417,6 +417,38 @@ pub(crate) fn command() -> Command {
                 .about("Decapsulate public ciphertext into a persistent token secret")
                 .arg(required("input", "Ciphertext file; - reads stdin")),
         ))))),
+        mutation(auth(named(object(
+            Command::new("derive-ecdh")
+                .about("Derive a persistent ECDH key with explicit KDF and output purpose")
+                .arg(required(
+                    "input",
+                    "Peer public key file (SPKI DER); - reads stdin",
+                ))
+                .arg(required("kdf", "Explicit KDF; no fallback").value_parser([
+                    "null",
+                    "x963-sha256",
+                    "x963-sha384",
+                    "x963-sha512",
+                    "sp800-sha256",
+                    "sp800-sha384",
+                    "sp800-sha512",
+                ]))
+                .arg(required("kind", "Derived key purpose").value_parser([
+                    "raw-secret",
+                    "derivation-secret",
+                    "aes128",
+                    "aes192",
+                    "aes256",
+                ]))
+                .arg(value(
+                    "length",
+                    "Byte length, required only for derivation-secret",
+                ))
+                .arg(value(
+                    "shared-info-file",
+                    "Public KDF context file, at most 4096 bytes",
+                )),
+        )))),
         auth(hkdf_digest(object(
             Command::new("hkdf-capabilities")
                 .about("Inspect a sensitive, nonextractable HKDF base secret"),

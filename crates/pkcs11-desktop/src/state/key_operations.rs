@@ -25,6 +25,7 @@ impl std::fmt::Display for WrapTarget {
 }
 pub struct KeyForm {
     pub hkdf: HkdfForm,
+    pub ecdh: super::ecdh::EcdhForm,
     pub id: RequestId,
     pub scope: CryptoScope,
     pub profile: Option<KeyProfile>,
@@ -107,6 +108,7 @@ impl UiState {
         self.clear_crypto_form();
         self.key_form = Some(KeyForm {
             hkdf: HkdfForm::default(),
+            ecdh: super::ecdh::EcdhForm::default(),
             id,
             scope,
             profile: None,
@@ -139,6 +141,10 @@ impl UiState {
                 KeyField::Salt if form.scope.mode == CryptoMode::Hkdf => form.hkdf.salt = value,
                 KeyField::Info if form.scope.mode == CryptoMode::Hkdf => form.hkdf.info = value,
                 KeyField::Length if form.scope.mode == CryptoMode::Hkdf => form.hkdf.length = value,
+                KeyField::Info if form.scope.mode == CryptoMode::Derive => form.ecdh.info = value,
+                KeyField::Length if form.scope.mode == CryptoMode::Derive => {
+                    form.ecdh.length = value
+                }
                 KeyField::Salt | KeyField::Info | KeyField::Length => {}
                 KeyField::Input => {
                     form.input = value;
@@ -232,6 +238,7 @@ impl UiState {
         } else {
             None
         };
+        let ecdh_parameters = form.ecdh.parameters().ok();
         let valid = form
             .profile
             .is_some_and(|profile| profile.supports(form.scope.mode))
@@ -249,11 +256,13 @@ impl UiState {
                 | CryptoMode::Unwrap
                 | CryptoMode::Encapsulate
                 | CryptoMode::Decapsulate => {
-                    (if form.scope.mode == CryptoMode::Encapsulate {
-                        !form.output.is_empty()
-                    } else {
-                        !form.input.is_empty()
-                    }) && !form.label.is_empty()
+                    (form.scope.mode != CryptoMode::Derive || ecdh_parameters.is_some())
+                        && (if form.scope.mode == CryptoMode::Encapsulate {
+                            !form.output.is_empty()
+                        } else {
+                            !form.input.is_empty()
+                        })
+                        && !form.label.is_empty()
                         && form.label.len() <= 128
                         && identity.as_ref().is_some_and(|id| id.len() <= 128)
                 }
@@ -282,6 +291,7 @@ impl UiState {
                     .unwrap_or_else(|| PathBuf::from(form.output)),
             },
             CryptoMode::Derive => KeyJob::Derive {
+                parameters: ecdh_parameters?,
                 peer: input,
                 id: identity?,
                 label: form.label.into_bytes(),

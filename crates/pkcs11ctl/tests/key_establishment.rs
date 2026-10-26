@@ -331,3 +331,126 @@ fn cli_hybrid_combines_token_components() {
         f.fail(&args, 2);
     }
 }
+
+#[test]
+#[ignore = "requires tools/test-kem-hkdf.sh disposable Kryoptic store"]
+fn cli_ecdh_explicit_kdf_outputs_and_p521_hkdf_chain() {
+    assert_eq!(
+        std::env::var("PKCS11_TEST_KDF_ISOLATED").as_deref(),
+        Ok("1")
+    );
+    let root = PathBuf::from(std::env::var_os("PKCS11_TEST_KDF_DIR").unwrap());
+    let pin = root.join("ecdh-cli.pin").to_str().unwrap().to_owned();
+    std::fs::write(&pin, b"12345678\n").unwrap();
+    let f = Fixture {
+        module: std::env::var("PKCS11_TEST_KDF_MODULE").unwrap(),
+        root,
+        pin,
+    };
+    for side in ["EC01", "EC02"] {
+        f.ok(&[
+            "generate",
+            "--token",
+            "pkcs11:token=kdf-test",
+            "--kind",
+            "ecdh-p521",
+            "--id",
+            side,
+            "--label",
+            "CLI ECDH",
+            "--pin-file",
+            &f.pin,
+            "--confirm",
+        ]);
+    }
+    let peer = f.path("ecdh-cli-peer.der");
+    f.ok(&[
+        "export",
+        "--object",
+        "pkcs11:token=kdf-test;id=%EC%02;type=public",
+        "--output",
+        &peer,
+        "--pin-file",
+        &f.pin,
+    ]);
+    let info = f.path("ecdh-cli-info");
+    std::fs::write(&info, b"CLI context\0binary").unwrap();
+    for (index, (kdf, kind, length)) in [
+        ("null", "raw-secret", None),
+        ("x963-sha256", "aes128", None),
+        ("x963-sha384", "aes192", None),
+        ("x963-sha512", "aes256", None),
+        ("sp800-sha256", "derivation-secret", Some("64")),
+        ("sp800-sha384", "aes256", None),
+        ("sp800-sha512", "aes256", None),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let id = format!("EC10{index:02X}");
+        let mut args = vec![
+            "derive-ecdh",
+            "--object",
+            "pkcs11:token=kdf-test;id=%EC%01;type=private",
+            "--input",
+            &peer,
+            "--kdf",
+            kdf,
+            "--kind",
+            kind,
+            "--id",
+            &id,
+            "--label",
+            "CLI ECDH output",
+            "--pin-file",
+            &f.pin,
+            "--confirm",
+        ];
+        if let Some(length) = length {
+            args.extend(["--length", length]);
+        }
+        if kdf != "null" {
+            args.extend(["--shared-info-file", &info]);
+        }
+        let result = f.ok(&args);
+        assert_eq!(result["derived"], true);
+        assert_eq!(result["kdf"], kdf);
+        assert_eq!(
+            result["length"],
+            match kind {
+                "raw-secret" => 66,
+                "aes128" => 16,
+                "aes192" => 24,
+                "aes256" => 32,
+                _ => 64,
+            }
+        );
+        f.fail(&args, 2);
+    }
+    let caps = f.ok(&[
+        "hkdf-capabilities",
+        "--object",
+        "pkcs11:token=kdf-test;id=%EC%10%04;type=secret-key",
+        "--digest",
+        "sha512",
+        "--pin-file",
+        &f.pin,
+    ]);
+    assert_eq!(caps["input_length"], 64);
+    f.ok(&[
+        "derive-hkdf",
+        "--object",
+        "pkcs11:token=kdf-test;id=%EC%10%04;type=secret-key",
+        "--digest",
+        "sha512",
+        "--kind",
+        "aes256",
+        "--id",
+        "EC20",
+        "--label",
+        "CLI ECDH HKDF",
+        "--pin-file",
+        &f.pin,
+        "--confirm",
+    ]);
+}

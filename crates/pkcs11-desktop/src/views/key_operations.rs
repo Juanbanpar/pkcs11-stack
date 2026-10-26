@@ -3,7 +3,7 @@ use crate::ui::{button, components::EMPHASIS, pick_list, text_input};
 use crate::{
     app::Message,
     backend::{CryptoMode, KeyProfile},
-    state::{KeyField, UiState},
+    state::{EcdhChoice, HkdfOutputChoice, KeyField, UiState},
 };
 use iced::{
     Element,
@@ -37,7 +37,7 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
     let mut content = column![text(title).size(22).font(EMPHASIS)].spacing(10);
     if let Some(profile) = form.profile {
         content = content.push(text(match profile {
-            KeyProfile::Classical(pkcs11_client::KeyOperationProfile::EcdhRaw(curve)) => format!("Raw ECDH {curve:?} with an explicit null KDF. The token-held shared secret requires a later KDF before cryptographic use. Authenticate the peer public key separately."),
+            KeyProfile::Classical(pkcs11_client::KeyOperationProfile::EcdhRaw(curve)) => format!("ECDH {curve:?}. Select the KDF and output purpose explicitly. Parameter support is checked by the token when deriving; a rejected KDF is never replaced. Authenticate the peer public key separately."),
             KeyProfile::Classical(pkcs11_client::KeyOperationProfile::AesKeyWrap(bytes)) => format!("RFC 3394 AES key wrap with the default IV, using an AES-{} key. The blob contains no label, ID or permissions.", bytes * 8),
             KeyProfile::Hkdf(_) => "No compatible key-operation profile.".into(),
             KeyProfile::MlKem(parameter) => format!("ML-KEM-{}: {}-byte raw ciphertext. The 32-byte shared secret stays on the token; apply a protocol KDF before use and authenticate the peer separately.", match parameter { pkcs11_client::MlKemParameterSet::MlKem512 => 512, pkcs11_client::MlKemParameterSet::MlKem768 => 768, pkcs11_client::MlKemParameterSet::MlKem1024 => 1024 }, parameter.ciphertext_length()),
@@ -48,6 +48,45 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
         } else {
             "Reading permitted key operation profile…"
         }));
+    }
+    if derive {
+        content = content.push(
+            pick_list(EcdhChoice::ALL, Some(form.ecdh.kdf), move |kdf| {
+                Message::EcdhKdf { id, kdf }
+            })
+            .enabled(enabled),
+        );
+        if form.ecdh.kdf != EcdhChoice::Raw {
+            content = content
+                .push(
+                    pick_list(
+                        HkdfOutputChoice::ALL,
+                        Some(form.ecdh.output),
+                        move |output| Message::EcdhOutput { id, output },
+                    )
+                    .enabled(enabled),
+                )
+                .push(
+                    text_input("Public shared info (UTF-8, optional)", &form.ecdh.info)
+                        .on_input_maybe(enabled.then_some(move |value| Message::KeyEdit {
+                            id,
+                            field: KeyField::Info,
+                            value,
+                        })),
+                );
+            if form.ecdh.output == HkdfOutputChoice::DerivationSecret {
+                content = content.push(
+                    text_input("Output length in bytes (1–4096)", &form.ecdh.length)
+                        .on_input_maybe(enabled.then_some(move |value| Message::KeyEdit {
+                            id,
+                            field: KeyField::Length,
+                            value,
+                        })),
+                );
+            }
+        } else {
+            content = content.push(text("Raw output preserves the full shared secret, including all 66 bytes on P-521. It needs a protocol KDF before cryptographic use.").size(14));
+        }
     }
     if wrap {
         content = content.push(pick_list(form.targets.clone(), form.target.clone(), move |target| Message::KeyTarget { id, target }).placeholder("Target secret key").enabled(enabled))
@@ -96,7 +135,7 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
                 enabled.then_some(move |value| Message::KeyEdit { id, field, value }),
             ));
         }
-        content = content.push(text(if derive || kem { "Creates a persistent sensitive, nonextractable generic secret with derivation permission only. No encryption, decryption, signing or wrapping is allowed. Existing secret key IDs are rejected. Failure may leave an object; refresh before retrying." } else { "Creates a persistent private sensitive, nonextractable AES key with encryption/decryption permission only. Existing secret key IDs are rejected. Failure may leave an object; refresh before retrying." }).size(14));
+        content = content.push(text(if kem || (derive && (form.ecdh.kdf == EcdhChoice::Raw || form.ecdh.output == HkdfOutputChoice::DerivationSecret)) { "Creates a persistent sensitive, nonextractable generic secret with derivation permission only. No encryption, decryption, signing or wrapping is allowed. Existing secret key IDs are rejected. Failure may leave an object; refresh before retrying." } else { "Creates a persistent private sensitive, nonextractable AES key with encryption/decryption permission only. Existing secret key IDs are rejected. Failure may leave an object; refresh before retrying." }).size(14));
     }
     if decapsulate {
         content = content.push(text("ML-KEM implicit rejection can accept altered ciphertext of the correct length and create a different secret. Completion does not confirm that peers share the same secret. Always-authenticate decapsulation keys are unsupported.").size(14));

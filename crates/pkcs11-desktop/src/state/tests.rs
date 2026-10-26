@@ -2560,3 +2560,51 @@ fn cipher_context_credentials_clear_on_choice_change_and_protected_path() {
     ));
     assert!(state.cipher_form.is_none());
 }
+
+#[test]
+fn ecdh_selection_submits_explicit_parameters_and_scopes_edits() {
+    use crate::backend::{CryptoMode, KeyJob};
+    use pkcs11_client::{DigestAlgorithm, EcdhKdf, EcdhOutput};
+    let (mut state, id, _) = key_state(CryptoMode::Derive);
+    state.key_edit(id, KeyField::Input, "peer.der".into());
+    state.key_edit(id, KeyField::Id, "EC01".into());
+    state.key_edit(id, KeyField::Label, "agreement".into());
+    state.ecdh_kdf(id, EcdhChoice::Sp800Sha512);
+    state.ecdh_output(id, HkdfOutputChoice::DerivationSecret);
+    state.key_edit(id, KeyField::Length, "64".into());
+    state.key_edit(id, KeyField::Info, "protocol context".into());
+    state.ecdh_kdf(RequestId(id.0 + 1), EcdhChoice::Raw);
+    assert_eq!(
+        state.key_form.as_ref().unwrap().ecdh.kdf,
+        EcdhChoice::Sp800Sha512
+    );
+    let BackendCommand::KeyOperation {
+        job: KeyJob::Derive { parameters, .. },
+        ..
+    } = state.submit_key_operation(id).unwrap()
+    else {
+        panic!("ECDH job")
+    };
+    assert_eq!(parameters.kdf, EcdhKdf::Sp80056a(DigestAlgorithm::Sha512));
+    assert_eq!(
+        parameters.output,
+        EcdhOutput::DerivationSecret { length: 64 }
+    );
+    assert_eq!(parameters.shared_info, b"protocol context");
+    let (mut state, id, _) = key_state(CryptoMode::Derive);
+    state.ecdh_kdf(id, EcdhChoice::X963Sha256);
+    state.key_edit(id, KeyField::Info, "old context".into());
+    state.ecdh_kdf(id, EcdhChoice::Raw);
+    assert!(state.key_form.as_ref().unwrap().ecdh.info.is_empty());
+    assert_eq!(
+        state
+            .key_form
+            .as_ref()
+            .unwrap()
+            .ecdh
+            .parameters()
+            .unwrap()
+            .output,
+        EcdhOutput::RawSecret
+    );
+}

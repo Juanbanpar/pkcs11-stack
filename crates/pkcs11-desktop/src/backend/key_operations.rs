@@ -4,8 +4,8 @@ use super::{
     browse::read_session,
 };
 use pkcs11_client::{
-    DeriveRequest, EcdhPeer, KeyOperation, KeyOperationProfile, SecretKeyIdentity, SessionMode,
-    SessionState, UnwrapRequest, WrapRequest,
+    EcdhKdf, EcdhOutput, EcdhPeer, EcdhRequest, KeyOperation, KeyOperationProfile,
+    SecretKeyIdentity, SessionMode, SessionState, UnwrapRequest, WrapRequest,
 };
 use std::{
     fs::File,
@@ -39,6 +39,20 @@ impl KeyProfile {
         )
     }
 }
+pub struct EcdhParameters {
+    pub kdf: EcdhKdf,
+    pub output: EcdhOutput,
+    pub shared_info: Vec<u8>,
+}
+impl Default for EcdhParameters {
+    fn default() -> Self {
+        Self {
+            kdf: EcdhKdf::Null,
+            output: EcdhOutput::RawSecret,
+            shared_info: vec![],
+        }
+    }
+}
 pub enum KeyJob {
     Hkdf(super::HkdfJob),
     Encapsulate {
@@ -52,6 +66,7 @@ pub enum KeyJob {
         label: Vec<u8>,
     },
     Derive {
+        parameters: EcdhParameters,
         peer: PathBuf,
         id: Vec<u8>,
         label: Vec<u8>,
@@ -177,7 +192,15 @@ impl Registry {
             SessionMode::ReadWrite
         };
         match (operation, job) {
-            (KeyOperation::Derive, KeyJob::Derive { peer, id, label }) => {
+            (
+                KeyOperation::Derive,
+                KeyJob::Derive {
+                    peer,
+                    id,
+                    label,
+                    parameters,
+                },
+            ) => {
                 let peer = EcdhPeer::from_spki_der(&read(&peer, 1024)?)
                     .map_err(|_| BackendError::KeyOperationInput)?;
                 read_session(module, &uri, mode, |session| {
@@ -189,9 +212,12 @@ impl Registry {
                         return Err(BackendError::KeyOperationUnavailable);
                     }
                     session
-                        .derive(
+                        .derive_ecdh(
                             &reference,
-                            &DeriveRequest {
+                            &EcdhRequest {
+                                kdf: parameters.kdf,
+                                output: parameters.output,
+                                shared_info: &parameters.shared_info,
                                 peer: &peer,
                                 identity: SecretKeyIdentity {
                                     id: &id,

@@ -16,7 +16,7 @@ mod hkdf;
 mod kem;
 pub use hkdf::HkdfJob;
 mod key_operations;
-pub use key_operations::{KeyJob, KeyProfile};
+pub use key_operations::{EcdhParameters, KeyJob, KeyProfile};
 mod crypto;
 pub use cipher::{AesGcmFiles, CipherJob, CipherParameters};
 mod management;

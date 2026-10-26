@@ -5,8 +5,9 @@ use crate::{
 };
 use clap::ArgMatches;
 use pkcs11_client::{
-    HkdfOutput, HkdfRequest, ManagementSession, MlKemOperation, MlKemParameterSet, MlKemPublicKey,
-    MlKemRequest, PrivateKeyRef, PublicKeyRef, object_reference,
+    AesKeySize, EcdhKdf, EcdhOutput, EcdhPeer, EcdhRequest, HkdfOutput, HkdfRequest,
+    ManagementSession, MlKemOperation, MlKemParameterSet, MlKemPublicKey, MlKemRequest,
+    PrivateKeyRef, PublicKeyRef, SecretKeyIdentity, object_reference,
 };
 use serde_json::{Value, json};
 
@@ -38,17 +39,20 @@ pub(crate) fn selected(name: &str) -> bool {
             | "hkdf-capabilities"
             | "derive-hkdf"
             | "derive-hybrid"
+            | "derive-ecdh"
     )
 }
 pub(crate) fn mutation(name: &str) -> bool {
     matches!(
         name,
-        "encapsulate" | "decapsulate" | "derive-hkdf" | "derive-hybrid"
+        "encapsulate" | "decapsulate" | "derive-hkdf" | "derive-hybrid" | "derive-ecdh"
     )
 }
 pub(crate) fn input_limit(name: &str, m: &ArgMatches) -> Result<Option<usize>> {
     Ok(if name == "decapsulate" {
         Some(selected_parameter(m)?.ciphertext_length())
+    } else if name == "derive-ecdh" {
+        Some(1024)
     } else if name == "import" && get(m, "kind") == Some("ml-kem") {
         Some(2048)
     } else {
@@ -95,9 +99,52 @@ fn hkdf_request<'a>(
         label: need(m, "label")?.as_bytes(),
     })
 }
+fn ecdh_request<'a>(
+    m: &'a ArgMatches,
+    inputs: &'a Inputs,
+    id: &'a [u8],
+) -> Result<EcdhRequest<'a>> {
+    let kdf = match need(m, "kdf")? {
+        "null" => EcdhKdf::Null,
+        "x963-sha256" => EcdhKdf::X963(pkcs11_client::DigestAlgorithm::Sha256),
+        "x963-sha384" => EcdhKdf::X963(pkcs11_client::DigestAlgorithm::Sha384),
+        "x963-sha512" => EcdhKdf::X963(pkcs11_client::DigestAlgorithm::Sha512),
+        "sp800-sha256" => EcdhKdf::Sp80056a(pkcs11_client::DigestAlgorithm::Sha256),
+        "sp800-sha384" => EcdhKdf::Sp80056a(pkcs11_client::DigestAlgorithm::Sha384),
+        "sp800-sha512" => EcdhKdf::Sp80056a(pkcs11_client::DigestAlgorithm::Sha512),
+        _ => return Err(usage("unsupported ECDH KDF")),
+    };
+    let output = match need(m, "kind")? {
+        "raw-secret" => EcdhOutput::RawSecret,
+        "derivation-secret" => EcdhOutput::DerivationSecret {
+            length: number(m, "length")?,
+        },
+        "aes128" => EcdhOutput::Aes(AesKeySize::Bits128),
+        "aes192" => EcdhOutput::Aes(AesKeySize::Bits192),
+        "aes256" => EcdhOutput::Aes(AesKeySize::Bits256),
+        _ => return Err(usage("unsupported ECDH output")),
+    };
+    if !matches!(output, EcdhOutput::DerivationSecret { .. }) && get(m, "length").is_some() {
+        return Err(usage("--length applies only to derivation-secret"));
+    }
+    Ok(EcdhRequest {
+        peer: inputs
+            .ecdh_peer
+            .as_ref()
+            .ok_or_else(|| usage("missing ECDH peer"))?,
+        kdf,
+        shared_info: &inputs.info,
+        output,
+        identity: SecretKeyIdentity {
+            id,
+            label: need(m, "label")?.as_bytes(),
+        },
+    })
+}
 #[derive(Default)]
 pub(crate) struct Inputs {
     pub public_key: Option<MlKemPublicKey>,
+    ecdh_peer: Option<EcdhPeer>,
     salt: Vec<u8>,
     info: Vec<u8>,
 }
@@ -118,7 +165,7 @@ impl Inputs {
         }
         let kind = match name {
             "encapsulate" => "public",
-            "decapsulate" => "private",
+            "decapsulate" | "derive-ecdh" => "private",
             "kem-capabilities" => {
                 if direction(m) == MlKemOperation::Encapsulate {
                     "public"
@@ -142,6 +189,17 @@ impl Inputs {
                     "ciphertext length does not match the ML-KEM parameter set",
                 ));
             }
+        }
+        if name == "derive-ecdh" {
+            inputs.ecdh_peer = Some(EcdhPeer::from_spki_der(bytes)?);
+            if let Some(path) = get(m, "shared-info-file") {
+                if path == "-" {
+                    return Err(usage("shared-info-file requires a file path"));
+                }
+                inputs.info = bounded_input(path, 4096)?;
+            }
+            let id = unhex(need(m, "id")?)?;
+            ecdh_request(m, &inputs, &id)?.validate()?;
         }
         if matches!(name, "derive-hkdf" | "derive-hybrid") {
             for (name, target) in [
@@ -179,6 +237,12 @@ pub(crate) fn operation(
 ) -> Result<Output> {
     let reference = object_reference(uri(m, "object")?)?;
     let value = match name {
+        "derive-ecdh" => {
+            let id = unhex(need(m, "id")?)?;
+            let request = ecdh_request(m, &inputs.establishment, &id)?;
+            session.derive_ecdh(&reference, &request)?;
+            json!({"derived":true,"id_hex":hex(&id),"kdf":need(m,"kdf")?,"kind":need(m,"kind")?,"length":request.output.length(request.peer.curve()),"extractable":false})
+        }
         "kem-capabilities" => {
             let caps = session.ml_kem_capabilities(&reference, direction(m))?;
             json!({"key":key_info(caps.parameter_set),"operation":need(m,"operation")?,"ciphertext_length":caps.parameter_set.ciphertext_length()})

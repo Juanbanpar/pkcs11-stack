@@ -351,6 +351,19 @@ token generic secret with derivation permission only. A later KDF and peer
 authentication remain the application's responsibility. Context authentication
 for ECDH is unsupported.
 
+`derive_ecdh_key` accepts `EcdhKeyRequest` with explicit `EcdhKdf` and
+`EcdhOutput`. ANSI X9.63 and NIST SP 800-56A KDFs support SHA-256/384/512 and
+up to 4096 bytes of public shared info. They create either AES-128/192/256 keys
+with encryption/decryption permission only, or 1–4096-byte generic secrets with
+derivation permission only. The null KDF accepts no shared info and preserves
+the complete raw secret; it cannot directly create AES keys. P-521 raw output
+remains 66 bytes. An explicit SHA-2 KDF can instead create a 64-byte generic
+secret suitable for the separately selected HKDF-SHA512 profile.
+
+Mechanism flags do not advertise individual ECDH KDF parameters. Unsupported
+parameters fail without retry, KDF substitution or software fallback. All
+outputs remain persistent, private, sensitive and nonextractable.
+
 `wrap_aes_key` and `unwrap_aes_key` use RFC 3394 with the default IV and
 AES-128/192/256 keys. Wrapping requires CKA_WRAP, an extractable AES target and
 compatible CKA_WRAP_WITH_TRUSTED policy. No key values are read. Unwrapping

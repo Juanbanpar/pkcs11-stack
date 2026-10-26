@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use crate::{Error, ManagementSession, NamedCurve, ObjectRef};
 use p256::elliptic_curve::sec1::ToEncodedPoint;
-pub use pkcs11_runtime::{KeyOperation, KeyOperationProfile};
+pub use pkcs11_runtime::{EcdhKdf, EcdhOutput, KeyOperation, KeyOperationProfile};
 use x509_cert::{
     der::{Decode, Encode, asn1::ObjectIdentifier},
     spki::SubjectPublicKeyInfoOwned,
@@ -87,6 +87,37 @@ pub struct DeriveRequest<'a> {
     /// New sensitive, nonextractable private secret key identity.
     pub identity: SecretKeyIdentity<'a>,
 }
+/// ECDH with an explicit KDF and purpose-restricted persistent output.
+/// Public points are validated during EcdhPeer construction.
+pub struct EcdhRequest<'a> {
+    /// Validated peer; its curve must match the selected base key.
+    pub peer: &'a EcdhPeer,
+    /// Explicit null, ANSI X9.63 or NIST SP 800-56A SHA-2 KDF.
+    pub kdf: EcdhKdf,
+    /// Public shared info, bounded to 4096 bytes; empty for the null KDF.
+    pub shared_info: &'a [u8],
+    /// Output type, length and permissions.
+    pub output: EcdhOutput,
+    /// New sensitive, nonextractable secret identity.
+    pub identity: SecretKeyIdentity<'a>,
+}
+impl EcdhRequest<'_> {
+    fn runtime_request(&self) -> pkcs11_runtime::EcdhKeyRequest<'_> {
+        pkcs11_runtime::EcdhKeyRequest {
+            curve: self.peer.curve,
+            peer: &self.peer.point,
+            kdf: self.kdf,
+            shared_info: self.shared_info,
+            output: self.output,
+            id: self.identity.id,
+            label: self.identity.label,
+        }
+    }
+    /// Validate all non-provider parameters without opening a session.
+    pub fn validate(&self) -> Result<(), Error> {
+        Ok(self.runtime_request().validate()?)
+    }
+}
 /// RFC 3394 wrap request; the selected target must be an extractable AES key.
 pub struct WrapRequest<'a> {
     /// Freshly resolved persistent target; no key value is read by the client.
@@ -100,7 +131,13 @@ pub struct UnwrapRequest<'a> {
     pub identity: SecretKeyIdentity<'a>,
 }
 macro_rules! redacted { ($($name:ident),+) => { $(impl std::fmt::Debug for $name<'_> { fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { f.write_str(concat!(stringify!($name), "([REDACTED])")) } })+ }; }
-redacted!(SecretKeyIdentity, DeriveRequest, WrapRequest, UnwrapRequest);
+redacted!(
+    SecretKeyIdentity,
+    DeriveRequest,
+    EcdhRequest,
+    WrapRequest,
+    UnwrapRequest
+);
 impl ManagementSession<'_> {
     /// Advisory profile after current key, permission and provider checks, with no mutation.
     pub fn key_operation_options(
@@ -123,6 +160,18 @@ impl ManagementSession<'_> {
                 label: request.identity.label,
             },
         )?)
+    }
+    /// Derive once on the token with explicit KDF, context and output permissions.
+    /// Requires RW access. Provider KDF support is not implied by the mechanism
+    /// flag. No downgrade, retry or software fallback occurs after rejection.
+    pub fn derive_ecdh(
+        &mut self,
+        base: &ObjectRef,
+        request: &EcdhRequest<'_>,
+    ) -> Result<(), Error> {
+        Ok(self
+            .session
+            .derive_ecdh_key(base, &request.runtime_request())?)
     }
     /// Wrap an AES key once with RFC 3394; no template override or extractability change.
     pub fn wrap(

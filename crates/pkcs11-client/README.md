@@ -500,6 +500,33 @@ fn derive(session: &mut ManagementSession<'_>, base: &ObjectRef, peer_der: &[u8]
 }
 ```
 
+`derive_ecdh` accepts an `EcdhRequest` with the same validated peer, an explicit
+`EcdhKdf`, public shared info and `EcdhOutput`. ANSI X9.63 and NIST SP 800-56A
+support SHA-256/384/512. Hashed output can be AES-128/192/256 for encryption and
+decryption, or a 1–4096-byte generic secret for further derivation. All outputs
+remain persistent, private, sensitive and nonextractable. The null KDF preserves
+the full raw secret and cannot create an AES key or accept shared info.
+P-521 raw output is still 66 bytes; select a hashed 64-byte generic output
+explicitly when a later HKDF-SHA512 stage is needed. Provider rejection never
+changes the KDF or triggers software derivation.
+
+```no_run
+use pkcs11_client::{DigestAlgorithm, EcdhKdf, EcdhOutput, EcdhPeer, EcdhRequest,
+    ManagementSession, ObjectRef, SecretKeyIdentity};
+fn derive(session: &mut ManagementSession<'_>, base: &ObjectRef, peer_der: &[u8])
+    -> Result<(), pkcs11_client::Error>
+{
+    let peer = EcdhPeer::from_spki_der(peer_der)?;
+    session.derive_ecdh(base, &EcdhRequest {
+        peer: &peer,
+        kdf: EcdhKdf::X963(DigestAlgorithm::Sha512),
+        shared_info: b"protocol v1 peer identities and transcript",
+        output: EcdhOutput::DerivationSecret { length: 64 },
+        identity: SecretKeyIdentity { id: b"agreement-2", label: b"ECDH KDF material" },
+    })
+}
+```
+
 `wrap` accepts a `WrapRequest` naming an extractable AES-128/192/256 target.
 The wrapping key must be AES with CKA_WRAP; CKA_WRAP_WITH_TRUSTED requires a
 trusted wrapping key. The operation never reads CKA_VALUE or changes permissions.

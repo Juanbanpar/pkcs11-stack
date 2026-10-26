@@ -276,12 +276,16 @@ file or software fallback.
 After USER login, select an EC private key with derivation permission and choose
 **Derive ECDH secret**. Supply a peer public key in SPKI DER, a new label and a
 hexadecimal ID. The client validates the peer point and requires the same named
-curve as the base key. P-256/P-384/P-521 use the explicitly selected null KDF.
-The result is a persistent private, sensitive, nonextractable generic secret,
-with derivation permission only. It cannot be encrypted, signed or wrapped.
-A subsequent KDF is required before cryptographic use; HKDF is available for
-base lengths supported by its PKCS#11 profile. Authenticate the peer separately; ECDH alone does not establish
-its identity. Per-operation-authentication base keys are unsupported.
+curve as the base key. P-256/P-384/P-521 offer an explicit null KDF, or ANSI
+X9.63 and NIST SP 800-56A with SHA-256/384/512. The null KDF preserves the full
+raw secret, including 66 bytes on P-521, with derivation permission only; apply
+a protocol KDF before cryptographic use. SHA-2 KDFs accept up to 4096 bytes of
+public UTF-8 shared info and create an AES encryption/decryption key or a generic
+derivation secret of an explicit length. A 64-byte generic output can feed
+HKDF-SHA512. These are persistent private, sensitive, nonextractable keys.
+Authenticate the peer separately. Individual KDF support is checked by the token
+on submission, with no parameter downgrade or software fallback.
+Per-operation-authentication base keys are unsupported.
 
 Select an AES key with wrapping permission and choose **Wrap AES key**. Select
 another secret key as the target and a new output file. The client requires an

@@ -170,6 +170,7 @@ fn software_token_typed_generation_permissions_and_use() {
                         curve,
                     )),
                     KeyJob::Derive {
+                        parameters: Default::default(),
                         peer: path,
                         id: vec![0xA6, index as u8],
                         label: format!("desktop-derived-{index}").into_bytes(),
