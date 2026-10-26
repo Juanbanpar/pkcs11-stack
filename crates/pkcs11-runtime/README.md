@@ -39,7 +39,10 @@ not cause reads beyond a known function-table layout.
 `Module::load_with_options` accepts `ModuleOptions` with
 `InterfaceSelection::Exact(InterfaceVersion::V2_40)` (or a supported 3.x version).
 An exact selection never downgrades. `Module::interface` reports the selected
-table independently of `C_GetInfo`; `supports_function` reports pointer presence,
+table independently of `C_GetInfo`, together with its `reported_version` field.
+A known 3.x version reported through `C_GetFunctionList` is tolerated, but only
+the legacy prefix is read and no newer functions are exposed through it. An exact
+2.40 selection requests that legacy layout. `supports_function` reports pointer presence,
 not proof that a provider implements an operation. A provider may return
 `CKR_FUNCTION_NOT_SUPPORTED` from a non-null stub. Pre-OASIS versions are outside
 the supported interface range.

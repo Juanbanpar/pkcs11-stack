@@ -17,6 +17,8 @@ Local changes:
 - `src/context/mod.rs`, `src/context/interface.rs`, `src/error/mod.rs`: select
   known standard interfaces explicitly, validate pointers/versions/lifecycle
   functions, expose selection metadata, and support exact-version loading.
+  Known 3.x version fields returned through C_GetFunctionList are retained for
+  diagnostics, but only the legacy prefix is read and exposed.
   Automatic fallback accepts unavailable-interface responses, not general or
   host-memory failures. Regression fixtures use independent OASIS headers for
   each supported layout (`runtime/tests/interfaces.rs`).

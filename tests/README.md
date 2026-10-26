@@ -45,7 +45,7 @@ or formal conformance. Coverage is recorded per capability below.
 | Capability | Status | Frontends and evidence |
 | --- | --- | --- |
 | Known interface negotiation and exact version selection | Implemented | Runtime/client; CLI `--interface-version`; desktop displays automatic selection. Native Unix ABI fixtures compile against all four official header sets. |
-| Null/mismatched interface rejection and unavailable-interface fallback | Implemented | Native Unix fixtures cover lifecycle pointers, provider failures, interface-only modules and multiple interfaces. |
+| Null/mismatched interface rejection and unavailable-interface fallback | Implemented | Native Unix fixtures cover lifecycle pointers, provider failures, interface-only modules, multiple interfaces and known 3.x version fields on legacy tables. |
 | Context authentication for raw/prehashed and combined RSA/ECDSA signing | Implemented | Runtime/client/CLI/desktop; independent OpenSSL verification on disposable SoftHSM keys, including missing/wrong PIN and recovery checks. |
 | Remaining operation expansion, metadata compatibility and explicit legacy policy | Pending | Existing restrictions remain in force. |
 | Classical algorithm expansion | Pending | Existing RSA/EC profiles only. |

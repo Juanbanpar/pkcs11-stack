@@ -49,7 +49,7 @@ static CK_RV slots(CK_BBOOL present, CK_SLOT_ID_PTR list, CK_ULONG_PTR count) {
 }
 #ifndef INTERFACE_ONLY
 static CK_FUNCTION_LIST legacy = {
-    .version = {2, FAULT == 8 ? 20 : 40},
+    .version = {FAULT == 17 ? 3 : 2, FAULT == 17 ? 2 : FAULT == 8 ? 20 : 40},
     .C_Initialize = FAULT == 15 ? NULL : initialize,
     .C_Finalize = FAULT == 9 ? NULL : finalize,
     .C_GetInfo = FAULT == 14 ? NULL : info,

@@ -138,3 +138,15 @@ fn automatic_selection_prefers_highest_available_and_exact_selection_is_honored(
         module.finalize().unwrap();
     }
 }
+
+#[test]
+fn legacy_entry_point_never_exposes_newer_functions_despite_known_version_field() {
+    let fixture = Fixture::new(V::V3_2, 17, false);
+    let module = fixture.load(InterfaceSelection::Exact(V::V2_40)).unwrap();
+    assert_eq!(module.interface().version, V::V2_40);
+    assert_eq!(module.interface().reported_version.major(), 3);
+    assert_eq!(module.interface().reported_version.minor(), 2);
+    assert!(!module.supports_function(Function::SessionCancel));
+    assert!(!module.supports_function(Function::EncapsulateKey));
+    module.finalize().unwrap();
+}

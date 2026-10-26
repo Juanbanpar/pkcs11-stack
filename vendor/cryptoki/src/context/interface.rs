@@ -56,6 +56,9 @@ pub enum InterfaceSelection {
 pub struct InterfaceInfo {
     /// Selected standard interface version.
     pub version: InterfaceVersion,
+    /// Provider's table version field. Some providers report a known 3.x version
+    /// through C_GetFunctionList; only its legacy prefix is used in that case.
+    pub reported_version: crate::types::Version,
     /// Interface flags, or zero for the legacy function-list entry point.
     pub flags: CK_FLAGS,
     /// Whether selection used C_GetFunctionList instead of C_GetInterface.
@@ -123,6 +126,7 @@ pub(super) unsafe fn select(
                 list,
                 InterfaceInfo {
                     version,
+                    reported_version: actual.into(),
                     flags: interface.flags,
                     legacy: false,
                 },
@@ -141,15 +145,18 @@ pub(super) unsafe fn select(
         return Err(Error::InvalidInterface("NULL legacy function list"));
     }
     let version = ptr::read_unaligned(list.cast::<CK_VERSION>());
-    if version.major != 2 || version.minor != 40 {
+    if !matches!((version.major, version.minor), (2, 40) | (3, 0..=2)) {
         return Err(Error::InvalidInterface(
-            "legacy function list must report 2.40",
+            "unknown legacy function-list version",
         ));
     }
+    // The entry point's ABI determines the read size. Known 3.x version fields
+    // are tolerated here, but never authorize reading a 3.x tail from this pointer.
     Ok((
         FunctionList::V2(v2tov3(ptr::read_unaligned(list))),
         InterfaceInfo {
             version: InterfaceVersion::V2_40,
+            reported_version: version.into(),
             flags: 0,
             legacy: true,
         },

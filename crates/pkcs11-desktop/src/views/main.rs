@@ -66,7 +66,8 @@ fn module_view<'a>(state: &'a UiState, module: &'a ModuleEntry) -> Element<'a, M
                 field("Manufacturer", &module.manufacturer),
                 field("Library version", &module.library_version),
                 field("PKCS#11 version", &module.cryptoki_version),
-                field("Selected interface", &module.selected_interface)
+                field("Selected interface", &module.selected_interface),
+                field("Reported interface version", &module.reported_interface)
             ]
             .spacing(12)
         )

@@ -299,7 +299,7 @@ pub(crate) fn run(
         "info" => {
             let info = module.info();
             let interface = module.interface();
-            json!({"manufacturer":info.manufacturer_id(),"description":info.library_description(),"version":format!("{}.{}",info.library_version().major(),info.library_version().minor()),"cryptoki_version":format!("{}.{}",info.cryptoki_version().major(),info.cryptoki_version().minor()),"interface":{"version":interface.version.to_string(),"flags":interface.flags,"legacy":interface.legacy}})
+            json!({"manufacturer":info.manufacturer_id(),"description":info.library_description(),"version":format!("{}.{}",info.library_version().major(),info.library_version().minor()),"cryptoki_version":format!("{}.{}",info.cryptoki_version().major(),info.cryptoki_version().minor()),"interface":{"version":interface.version.to_string(),"reported_version":interface.reported_version.to_string(),"flags":interface.flags,"legacy":interface.legacy}})
         }
         "slots" => {
             let mut slots = vec![];
