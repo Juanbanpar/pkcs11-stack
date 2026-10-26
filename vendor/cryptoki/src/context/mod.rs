@@ -135,10 +135,14 @@ impl Pkcs11 {
         };
         // Reject missing lifecycle functions before initialization can succeed
         // without a corresponding way to finalize the owned context.
+        // Windows function tables are packed; copy fields before borrowing them.
+        let initialize = table.C_Initialize;
+        let finalize = table.C_Finalize;
+        let get_info = table.C_GetInfo;
         for (name, present) in [
-            ("C_Initialize", table.C_Initialize.is_some()),
-            ("C_Finalize", table.C_Finalize.is_some()),
-            ("C_GetInfo", table.C_GetInfo.is_some()),
+            ("C_Initialize", initialize.is_some()),
+            ("C_Finalize", finalize.is_some()),
+            ("C_GetInfo", get_info.is_some()),
         ] {
             if !present {
                 return Err(Error::MissingSymbol(name));
