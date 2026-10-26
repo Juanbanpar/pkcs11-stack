@@ -46,7 +46,8 @@ or formal conformance. Coverage is recorded per capability below.
 | --- | --- | --- |
 | Known interface negotiation and exact version selection | Implemented | Runtime/client; CLI `--interface-version`; desktop displays automatic selection. Native Unix ABI fixtures compile against all four official header sets. |
 | Null/mismatched interface rejection and unavailable-interface fallback | Implemented | Native Unix fixtures cover lifecycle pointers, provider failures, interface-only modules and multiple interfaces. |
-| Operation expansion, metadata compatibility and explicit legacy policy | Pending | Existing operation restrictions remain in force. |
+| Context authentication for raw/prehashed and combined RSA/ECDSA signing | Implemented | Runtime/client/CLI/desktop; independent OpenSSL verification on disposable SoftHSM keys, including missing/wrong PIN and recovery checks. |
+| Remaining operation expansion, metadata compatibility and explicit legacy policy | Pending | Existing restrictions remain in force. |
 | Classical algorithm expansion | Pending | Existing RSA/EC profiles only. |
 | Symmetric algorithms, MACs and KDF expansion | Pending | Existing AES-GCM, AES-KW and constrained HKDF profiles only. |
 | HashML-DSA, SLH-DSA and additional TLS signatures | Pending | Existing pure ML-DSA and ML-KEM profiles remain supported. |
@@ -88,7 +89,9 @@ PKCS11_TEST_MODULE=/path/to/libsofthsm2.so SOFTHSM2_UTIL=/path/to/softhsm2-util 
 
 Desktop backend integration runs without opening a window.
 
-Set `PKCS11_TEST_REQUIRE_EC_MULTIPART=1` to require combined multipart ECDSA support.
+Set the historical `PKCS11_TEST_REQUIRE_EC_MULTIPART=1` flag to require all three
+combined ECDSA context-authentication profiles; signing now uses single-part
+completion after initialization and context login.
 CI tests packaged SoftHSM and a pinned upstream build with multipart ECDSA,
 SHA-2 OAEP and ML-DSA enabled. The upstream run reuses one provider build for
 classical and ML-DSA workflows.

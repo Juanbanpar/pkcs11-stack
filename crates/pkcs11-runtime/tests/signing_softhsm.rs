@@ -561,6 +561,28 @@ fn pooled_signing_and_recovery() {
         )
         .unwrap();
     verify(root, &auth, &auth_pss, b"signing fixture", &signature);
+    // Context login must also work with raw RSA mechanisms and caller digests.
+    for request in [req, auth_pss] {
+        let software = SigningPolicy {
+            hashing: HashingPolicy::SoftwareOnly,
+            ..Default::default()
+        };
+        let signature = lease
+            .session()
+            .sign(&auth_key, &request, &software, Some(Pin::Value(&user)))
+            .unwrap();
+        verify(root, &auth, &request, b"signing fixture", &signature);
+        let hashed = Sha256::digest(b"signing fixture");
+        let prehashed = SignRequest {
+            input: SignInput::Digest(&hashed),
+            ..request
+        };
+        let signature = lease
+            .session()
+            .sign(&auth_key, &prehashed, &software, Some(Pin::Value(&user)))
+            .unwrap();
+        verify(root, &auth, &request, b"signing fixture", &signature);
+    }
     let ec_auth_key = reference(&serial, "review-ec-auth");
     let ec_capabilities = lease.session().key_capabilities(&ec_auth_key).unwrap();
     let mut combined_ec_checks = 0;
@@ -591,51 +613,49 @@ fn pooled_signing_and_recovery() {
                 &SigningPolicy::default(),
                 Some(Pin::Value(&user)),
             );
-            match result {
-                Ok(signature) => {
-                    verify(root, &ec_auth, &ec_request, b"signing fixture", &signature);
-                    combined_ec_checks += 1;
-                }
-                // SoftHSM 2.7 advertises these mechanisms but disables multipart
-                // ECDSA. Check the exact failure and recovery, never retry signing.
-                Err(Error::Backend {
-                    operation: "sign update",
-                    source:
-                        cryptoki::error::Error::Pkcs11(
-                            cryptoki::error::RvError::OperationNotInitialized,
-                            cryptoki::context::Function::SignUpdate,
-                        ),
-                }) => {
-                    let generation = lease.generation();
-                    assert!(matches!(lease.session().info(), Err(Error::Closed)));
-                    drop(lease);
-                    lease = pool
-                        .try_acquire(Authentication::User(Pin::Value(&user)))
-                        .unwrap();
-                    assert_ne!(lease.generation(), generation);
-                }
-                Err(error) => panic!("unexpected combined ECDSA error: {error}"),
-            }
+            let signature = result.unwrap();
+            verify(root, &ec_auth, &ec_request, b"signing fixture", &signature);
+            combined_ec_checks += 1;
         }
         let raw_policy = SigningPolicy {
             hashing: HashingPolicy::SoftwareOnly,
             ..Default::default()
         };
-        assert!(matches!(
-            lease.session().sign(
+        let signature = lease
+            .session()
+            .sign(
                 &ec_auth_key,
                 &ec_request,
                 &raw_policy,
-                Some(Pin::Value(&user))
-            ),
-            Err(Error::UnsupportedSigning(_))
-        ));
+                Some(Pin::Value(&user)),
+            )
+            .unwrap();
+        verify(root, &ec_auth, &ec_request, b"signing fixture", &signature);
+        let hashed = match digest {
+            DigestAlgorithm::Sha256 => Sha256::digest(b"signing fixture").to_vec(),
+            DigestAlgorithm::Sha384 => Sha384::digest(b"signing fixture").to_vec(),
+            DigestAlgorithm::Sha512 => Sha512::digest(b"signing fixture").to_vec(),
+        };
+        let prehashed = SignRequest {
+            input: SignInput::Digest(&hashed),
+            ..ec_request
+        };
+        let signature = lease
+            .session()
+            .sign(
+                &ec_auth_key,
+                &prehashed,
+                &raw_policy,
+                Some(Pin::Value(&user)),
+            )
+            .unwrap();
+        verify(root, &ec_auth, &ec_request, b"signing fixture", &signature);
     }
     eprintln!("combined ECDSA context-authentication mechanisms verified: {combined_ec_checks}");
     if std::env::var_os("PKCS11_TEST_REQUIRE_EC_MULTIPART").is_some() {
         assert_eq!(
             combined_ec_checks, 3,
-            "provider must implement multipart ECDSA"
+            "provider must implement combined ECDSA"
         );
     }
     assert!(matches!(

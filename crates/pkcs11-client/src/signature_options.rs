@@ -117,7 +117,7 @@ mod tests {
         policy.hashing = HashingPolicy::AllowSoftware;
         assert_eq!(options(&caps, &policy).choices.len(), 3);
         caps.always_authenticate = true;
-        assert!(options(&caps, &policy).choices.is_empty());
+        assert_eq!(options(&caps, &policy).choices.len(), 3);
         caps.mechanisms[0].mechanism = MechanismType::SHA384_RSA_PKCS;
         assert!(options(&caps, &policy).always_authenticate);
         caps.can_sign = false;

@@ -269,7 +269,7 @@ pub enum HashLocation {
 pub struct SignPlan {
     mechanism: MechanismType,
     hashing: HashLocation,
-    multipart: bool,
+    context_authentication: bool,
 }
 impl SignPlan {
     /// Selected PKCS#11 mechanism.
@@ -280,9 +280,9 @@ impl SignPlan {
     pub fn hash_location(&self) -> HashLocation {
         self.hashing
     }
-    /// Whether context login must occur between init and multipart signing.
+    /// Whether context login must occur between initialization and signing.
     pub fn context_authentication(&self) -> bool {
-        self.multipart
+        self.context_authentication
     }
 }
 impl KeyCapabilities {
@@ -366,15 +366,10 @@ impl KeyCapabilities {
             }
             _ => return Err(Error::UnsupportedSigning("no permitted mechanism")),
         };
-        if self.always_authenticate && hashing != HashLocation::Token {
-            return Err(Error::UnsupportedSigning(
-                "context authentication needs a combined hash/sign mechanism with cryptoki 0.12",
-            ));
-        }
         Ok(SignPlan {
             mechanism: selected,
             hashing,
-            multipart: self.always_authenticate,
+            context_authentication: self.always_authenticate,
         })
     }
 }
@@ -593,7 +588,7 @@ impl Session<'_> {
         let object = self.resolve(&key.0)?;
         let capabilities = capabilities(&object)?;
         let plan = capabilities.plan(request, policy)?;
-        let pin = if plan.multipart {
+        let pin = if plan.context_authentication {
             object
                 .session
                 .login_pin(context_pin.ok_or(Error::ContextAuthenticationRequired)?)?
@@ -619,14 +614,13 @@ impl Session<'_> {
         let raw = object.session.raw()?;
         // A panic/error after init must never return an active operation to the pool.
         object.session.healthy.set(false);
-        let signature = if plan.multipart {
+        let signature = if plan.context_authentication {
             raw.sign_init(&mechanism, object.handle)
                 .map_err(|e| backend("sign init", e))?;
             raw.login(UserType::ContextSpecific, pin)
                 .map_err(|e| backend("context login", e))?;
-            raw.sign_update(&data)
-                .map_err(|e| backend("sign update", e))?;
-            raw.sign_final().map_err(|e| backend("sign final", e))?
+            raw.sign_initialized(&data)
+                .map_err(|e| backend("sign", e))?
         } else {
             raw.sign(&mechanism, object.handle, &data)
                 .map_err(|e| backend("sign", e))?

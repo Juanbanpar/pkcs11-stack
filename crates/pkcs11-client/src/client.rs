@@ -297,6 +297,12 @@ mod tests {
         policy.hashing = HashingPolicy::SoftwareOnly;
         binding_request(&capabilities, &policy).unwrap();
         capabilities.always_authenticate = true;
-        assert!(binding_request(&capabilities, &policy).is_err());
+        let request = binding_request(&capabilities, &policy).unwrap();
+        assert!(
+            capabilities
+                .plan(&request, &policy)
+                .unwrap()
+                .context_authentication()
+        );
     }
 }

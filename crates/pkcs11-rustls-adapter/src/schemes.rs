@@ -154,7 +154,10 @@ mod tests {
             ..Default::default()
         };
         caps.always_authenticate = true;
-        assert!(choose(PREFERENCE, &caps, &policy, &provider).is_none());
+        assert_eq!(
+            choose(PREFERENCE, &caps, &policy, &provider),
+            Some(SignatureScheme::ECDSA_NISTP256_SHA256)
+        );
         caps.always_authenticate = false;
         caps.can_sign = false;
         assert!(choose(PREFERENCE, &caps, &policy, &provider).is_none());

@@ -13,18 +13,15 @@ use std::convert::TryInto;
 impl Session {
     /// Sign data in single-part
     pub fn sign(&self, mechanism: &Mechanism, key: ObjectHandle, data: &[u8]) -> Result<Vec<u8>> {
-        let mut mechanism: CK_MECHANISM = mechanism.into();
+        self.sign_init(mechanism, key)?;
+        self.sign_initialized(data)
+    }
+
+    /// Complete a single-part signing operation after `sign_init` and any
+    /// required context-specific login. Does not initialize or retry signing.
+    /// Output-size queries retain the active operation under PKCS #11 section 5.2.
+    pub fn sign_initialized(&self, data: &[u8]) -> Result<Vec<u8>> {
         let mut signature_len = 0;
-
-        unsafe {
-            Rv::from(get_pkcs11!(self.client(), C_SignInit)(
-                self.handle(),
-                &mut mechanism as CK_MECHANISM_PTR,
-                key.handle(),
-            ))
-            .into_result(Function::SignInit)?;
-        }
-
         // Get the output buffer length
         unsafe {
             Rv::from(get_pkcs11!(self.client(), C_Sign)(
@@ -39,7 +36,6 @@ impl Session {
 
         let mut signature = vec![0; signature_len.try_into()?];
 
-        //TODO: we should add a new error instead of those unwrap!
         unsafe {
             Rv::from(get_pkcs11!(self.client(), C_Sign)(
                 self.handle(),
@@ -51,7 +47,11 @@ impl Session {
             .into_result(Function::Sign)?;
         }
 
-        signature.truncate(signature_len.try_into()?);
+        let written = signature_len.try_into()?;
+        if written > signature.len() {
+            return Err(crate::error::Error::InvalidValue);
+        }
+        signature.truncate(written);
 
         Ok(signature)
     }

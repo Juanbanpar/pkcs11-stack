@@ -146,10 +146,9 @@ ownership of a previous login. `None` is not an implicit logout.
 USER/SO login and logout affect other sessions on the same token. Drop does not
 issue logout, although closing the last session can reset authentication.
 Context-specific login is performed inside signing for always-authenticate keys
-using combined multipart RSA or ECDSA hashing mechanisms. Raw/prehashed requests
-for such keys are rejected because cryptoki 0.12.1 cannot interleave login in
-single-part sign. A provider must actually implement the multipart mechanism;
-SoftHSM 2.7 advertises combined ECDSA but rejects its multipart operations.
+between operation initialization and single-part signing. Combined, software-hashed
+and caller-prehashed RSA/ECDSA requests all preserve this ordering; multipart
+support is not required. Missing context credentials are rejected before signing.
 No authentication is silently omitted.
 
 Module can be shared across scoped threads; each session is used exclusively.

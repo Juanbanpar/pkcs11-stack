@@ -20,6 +20,8 @@ Local changes:
   Automatic fallback accepts unavailable-interface responses, not general or
   host-memory failures. Regression fixtures use independent OASIS headers for
   each supported layout (`runtime/tests/interfaces.rs`).
+- `src/session/signing_macing.rs`: expose single-part completion after explicit
+  initialization so context login can occur before signing, without reinitializing.
 - `rustfmt.toml`: retain upstream's 2021 formatting independently of the workspace.
 
 The workspace uses this path dependency, including from the separate fuzz

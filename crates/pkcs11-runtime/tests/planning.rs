@@ -172,13 +172,18 @@ fn always_authenticate_never_silently_skips_login() {
             &request(SignInput::Digest(&[0; 32])),
             &SigningPolicy::default()
         )
-        .is_err()
+        .unwrap()
+        .context_authentication()
     );
     let policy = SigningPolicy {
         hashing: HashingPolicy::SoftwareOnly,
         ..Default::default()
     };
-    assert!(k.plan(&request(SignInput::Message(b"m")), &policy).is_err());
+    assert!(
+        k.plan(&request(SignInput::Message(b"m")), &policy)
+            .unwrap()
+            .context_authentication()
+    );
 }
 #[test]
 fn ec_curve_size_and_token_raw_mechanisms() {
@@ -206,11 +211,11 @@ fn ec_curve_size_and_token_raw_mechanisms() {
         };
         assert!(key.plan(&req, &forbidden_curve).is_err());
         key.always_authenticate = true;
-        assert!(key.plan(&req, &policy).is_err());
+        assert!(key.plan(&req, &policy).unwrap().context_authentication());
     }
 }
 #[test]
-fn combined_ec_supports_context_authentication_but_raw_ec_does_not() {
+fn combined_and_raw_ec_preserve_context_authentication() {
     for curve in [NamedCurve::P256, NamedCurve::P384, NamedCurve::P521] {
         for (digest, combined) in [
             (DigestAlgorithm::Sha256, MechanismType::ECDSA_SHA256),
@@ -243,10 +248,14 @@ fn combined_ec_supports_context_authentication_but_raw_ec_does_not() {
                 hashing: HashingPolicy::SoftwareOnly,
                 ..Default::default()
             };
-            assert!(key.plan(&req, &policy).is_err());
+            assert!(key.plan(&req, &policy).unwrap().context_authentication());
             let hashed = vec![0; digest.output_len()];
             req.input = SignInput::Digest(&hashed);
-            assert!(key.plan(&req, &SigningPolicy::default()).is_err());
+            assert!(
+                key.plan(&req, &SigningPolicy::default())
+                    .unwrap()
+                    .context_authentication()
+            );
         }
     }
 }
