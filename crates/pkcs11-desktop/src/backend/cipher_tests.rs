@@ -104,13 +104,19 @@ fn software_token_oaep_interoperability_permissions_and_file_failures() {
         })
         .unwrap()
         .id;
-    assert!(matches!(
-        registry.cipher_options(CryptoScope {
+    let auth_choices = match registry
+        .cipher_options(CryptoScope {
             object: restricted,
             mode: CryptoMode::Decrypt,
             ..encrypt
-        }),
-        Err(BackendError::Client(pkcs11_client::ErrorKind::Policy))
+        })
+        .unwrap()
+    {
+        BackendResult::CipherOptions { choices, .. } => choices,
+        _ => panic!("OAEP choices"),
+    };
+    assert!(auth_choices.iter().all(
+        |choice| matches!(choice, CipherParameters::Oaep(choice) if choice.always_authenticate)
     ));
     let mut supported = 0;
     for choice in choices {
@@ -124,6 +130,7 @@ fn software_token_oaep_interoperability_permissions_and_file_failures() {
         let result = registry.cipher(
             current,
             CipherJob {
+                context: None,
                 aes_gcm: None,
                 choice: CipherParameters::Oaep(choice),
                 input: input.clone(),
@@ -181,6 +188,7 @@ fn software_token_oaep_interoperability_permissions_and_file_failures() {
             registry.cipher(
                 target,
                 CipherJob {
+                    context: None,
                     aes_gcm: None,
                     choice: CipherParameters::Oaep(choice),
                     input: ciphertext.clone(),
@@ -219,9 +227,72 @@ fn software_token_oaep_interoperability_permissions_and_file_failures() {
             registry.cipher(
                 target,
                 CipherJob {
+                    context: None,
                     aes_gcm: None,
                     choice: CipherParameters::Oaep(choice),
-                    input: independent_cipher,
+                    input: independent_cipher.clone(),
+                    output: output.clone(),
+                },
+            ),
+            None,
+        );
+        assert_eq!(
+            std::fs::read(&output).unwrap(),
+            std::fs::read(&input).unwrap()
+        );
+
+        let auth_scope = CryptoScope {
+            module,
+            token,
+            mode: CryptoMode::Decrypt,
+            object: objects
+                .iter()
+                .find(|object| {
+                    object.label == "cipher-always"
+                        && object.class == Some(ObjectClass::PRIVATE_KEY)
+                })
+                .unwrap()
+                .id,
+        };
+        let auth_choice = CipherParameters::Oaep(OaepChoice {
+            always_authenticate: true,
+            ..choice
+        });
+        let missing = directory.join(format!("missing-context-{digest}"));
+        objects = managed(
+            registry.cipher(
+                auth_scope,
+                CipherJob {
+                    context: None,
+                    aes_gcm: None,
+                    choice: auth_choice,
+                    input: independent_cipher.clone(),
+                    output: missing.clone(),
+                },
+            ),
+            Some(BackendError::Client(pkcs11_client::ErrorKind::Policy)),
+        );
+        assert_eq!(std::fs::metadata(&missing).unwrap().len(), 0);
+        let auth_scope = CryptoScope {
+            object: objects
+                .iter()
+                .find(|object| {
+                    object.label == "cipher-always"
+                        && object.class == Some(ObjectClass::PRIVATE_KEY)
+                })
+                .unwrap()
+                .id,
+            ..auth_scope
+        };
+        let output = directory.join(format!("context-plain-{digest}"));
+        objects = managed(
+            registry.cipher(
+                auth_scope,
+                CipherJob {
+                    context: Some(SecretInput::Value("12345678".into())),
+                    aes_gcm: None,
+                    choice: auth_choice,
+                    input: independent_cipher.clone(),
                     output: output.clone(),
                 },
             ),
@@ -237,6 +308,7 @@ fn software_token_oaep_interoperability_permissions_and_file_failures() {
             registry.cipher(
                 target,
                 CipherJob {
+                    context: None,
                     aes_gcm: None,
                     choice: CipherParameters::Oaep(choice),
                     input: ciphertext.clone(),
@@ -254,6 +326,7 @@ fn software_token_oaep_interoperability_permissions_and_file_failures() {
             registry.cipher(
                 target,
                 CipherJob {
+                    context: None,
                     aes_gcm: None,
                     choice: CipherParameters::Oaep(choice),
                     input: bad,
@@ -271,6 +344,7 @@ fn software_token_oaep_interoperability_permissions_and_file_failures() {
             registry.cipher(
                 target,
                 CipherJob {
+                    context: None,
                     aes_gcm: None,
                     choice: CipherParameters::Oaep(choice),
                     input: too_large,

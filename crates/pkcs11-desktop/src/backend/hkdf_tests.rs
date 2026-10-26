@@ -371,6 +371,7 @@ fn persistent_hkdf_desktop_peer_exchange_output_profiles_and_failures() {
                     registry.cipher(
                         target,
                         CipherJob {
+                            context: None,
                             choice: CipherParameters::AesGcm(AesGcmCapabilities { key_size: size }),
                             aes_gcm: Some(AesGcmFiles {
                                 nonce: [0x80 + index; 12],
@@ -416,6 +417,7 @@ fn persistent_hkdf_desktop_peer_exchange_output_profiles_and_failures() {
                     registry.cipher(
                         wrong_key,
                         CipherJob {
+                            context: None,
                             choice: CipherParameters::AesGcm(AesGcmCapabilities {
                                 key_size: AesKeySize::Bits128,
                             }),

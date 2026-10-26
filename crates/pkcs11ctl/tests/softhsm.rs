@@ -71,6 +71,140 @@ fn command_workflows() {
     assert_eq!(info["interface"]["legacy"], true);
     assert!(f.ok(&["info"])["interface"]["version"].is_string());
     f.ok(&["slots"]);
+    if std::env::var("PKCS11_TEST_REQUIRE_RSA_OAEP_SHA2").as_deref() == Ok("1") {
+        let message = f.path("oaep-message");
+        std::fs::write(&message, b"OAEP context-authentication CLI regression").unwrap();
+        let ciphertext = f.path("oaep-ciphertext");
+        let output = f.run(&[
+            "encrypt-rsa-oaep",
+            "--object",
+            "pkcs11:token=client-test;id=%20;type=public",
+            "--digest",
+            "sha256",
+            "--input",
+            &message,
+            "--output",
+            &ciphertext,
+        ]);
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let plain = f.path("oaep-independent-plain");
+        external(
+            "openssl",
+            &[
+                "pkeyutl",
+                "-decrypt",
+                "-inkey",
+                &f.path("cipher.key"),
+                "-in",
+                &ciphertext,
+                "-out",
+                &plain,
+                "-pkeyopt",
+                "rsa_padding_mode:oaep",
+                "-pkeyopt",
+                "rsa_oaep_md:sha256",
+                "-pkeyopt",
+                "rsa_mgf1_md:sha256",
+            ],
+        );
+        assert_eq!(
+            std::fs::read(&message).unwrap(),
+            std::fs::read(&plain).unwrap()
+        );
+        let independent = f.path("oaep-independent-cipher");
+        external(
+            "openssl",
+            &[
+                "pkeyutl",
+                "-encrypt",
+                "-pubin",
+                "-keyform",
+                "DER",
+                "-inkey",
+                &f.path("cipher-public.der"),
+                "-in",
+                &message,
+                "-out",
+                &independent,
+                "-pkeyopt",
+                "rsa_padding_mode:oaep",
+                "-pkeyopt",
+                "rsa_oaep_md:sha256",
+                "-pkeyopt",
+                "rsa_mgf1_md:sha256",
+            ],
+        );
+        let recovered = f.path("oaep-context-plain");
+        let output = f.run(&[
+            "decrypt-rsa-oaep",
+            "--object",
+            "pkcs11:token=client-test;id=%21;type=private",
+            "--digest",
+            "sha256",
+            "--input",
+            &independent,
+            "--output",
+            &recovered,
+            "--pin-file",
+            &f.pin,
+            "--context-pin-file",
+            &f.pin,
+        ]);
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            std::fs::read(&message).unwrap(),
+            std::fs::read(&recovered).unwrap()
+        );
+        let missing = f.path("oaep-missing-context");
+        f.fail(
+            &[
+                "decrypt-rsa-oaep",
+                "--object",
+                "pkcs11:token=client-test;id=%21;type=private",
+                "--digest",
+                "sha256",
+                "--input",
+                &independent,
+                "--output",
+                &missing,
+                "--pin-file",
+                &f.pin,
+            ],
+            4,
+        );
+        assert!(!PathBuf::from(missing).exists());
+        let wrong_pin = f.path("oaep-wrong-context.pin");
+        std::fs::write(&wrong_pin, b"wrong-context").unwrap();
+        let failed = f.path("oaep-wrong-context");
+        f.fail(
+            &[
+                "decrypt-rsa-oaep",
+                "--object",
+                "pkcs11:token=client-test;id=%21;type=private",
+                "--digest",
+                "sha256",
+                "--input",
+                &independent,
+                "--output",
+                &failed,
+                "--pin-file",
+                &f.pin,
+                "--context-pin-file",
+                &wrong_pin,
+            ],
+            5,
+        );
+        assert!(!PathBuf::from(failed).exists());
+    }
+
     let tokens = f.ok(&["tokens"]);
     let uninitialized = tokens
         .as_array()

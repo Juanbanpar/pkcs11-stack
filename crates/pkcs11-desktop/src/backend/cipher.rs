@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use super::{
-    BackendError, BackendResult, CryptoMode, CryptoScope, LoginState, Registry,
+    BackendError, BackendResult, CryptoMode, CryptoScope, LoginState, Registry, SecretInput,
     browse::read_session,
 };
 use pkcs11_client::{
@@ -31,6 +31,7 @@ pub struct AesGcmFiles {
 }
 pub struct CipherJob {
     pub choice: CipherParameters,
+    pub context: Option<SecretInput>,
     pub aes_gcm: Option<AesGcmFiles>,
     pub input: PathBuf,
     pub output: PathBuf,
@@ -110,6 +111,11 @@ impl Registry {
     fn cipher_action(&self, scope: CryptoScope, job: CipherJob) -> Result<(), BackendError> {
         let (index, uri, reference, operation) = self.cipher_reference(scope)?;
         let module = &self.modules[index];
+        if job.context.is_some()
+            && !matches!(operation, CipherTarget::Rsa(RsaCipherOperation::Decrypt))
+        {
+            return Err(BackendError::CipherInput);
+        }
         let limit = match (operation, job.choice) {
             (CipherTarget::Rsa(RsaCipherOperation::Encrypt), CipherParameters::Oaep(choice))
                 if job.aes_gcm.is_none() && choice.maximum_plaintext <= 2048 =>
@@ -241,12 +247,16 @@ impl Registry {
                     let key = PrivateKeyRef::new(selector)
                         .map_err(|_| BackendError::CipherUnavailable)?;
                     session
-                        .decrypt(
+                        .decrypt_with_context(
                             &key,
                             &DecryptRequest {
                                 digest: choice.digest,
                                 ciphertext: input.expose_secret(),
                             },
+                            job.context.as_ref().map(|secret| match secret {
+                                SecretInput::Value(pin) => pkcs11_client::Pin::Value(pin),
+                                SecretInput::ProtectedPath => pkcs11_client::Pin::ProtectedPath,
+                            }),
                         )
                         .map_err(|e| cipher_error(&e))
                 }

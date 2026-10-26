@@ -399,3 +399,9 @@ selected interface separately from the provider's reported PKCS#11 version.
 verification. PSS requires `--mgf-digest` and `--salt-length`. `--hashing` and
 `--input-kind` preserve the signing command's explicit message/digest boundaries.
 The `verify` command continues to verify against certificates in software.
+
+`encrypt-rsa-oaep` and `decrypt-rsa-oaep` take `--object`, `--digest`, `--input`
+and `--output`. They use SHA-256/384/512, a matching MGF1 digest and an empty
+label. Input is one RSA block; output files are never overwritten. Decryption
+accepts `--context-pin-file` or `--context-protected-path`, separately from USER
+login. Per-operation credentials are not cached or retried.

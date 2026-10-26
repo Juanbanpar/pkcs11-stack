@@ -11,6 +11,8 @@ pub struct OaepChoice {
     pub maximum_plaintext: usize,
     /// Exact ciphertext length in bytes.
     pub ciphertext_length: usize,
+    /// Whether decryption requires a separate per-operation credential.
+    pub always_authenticate: bool,
 }
 /// Borrowed plaintext request; Debug omits input bytes.
 pub struct EncryptRequest<'a> {
@@ -57,6 +59,7 @@ impl ManagementSession<'_> {
             digest,
             maximum_plaintext: caps.maximum_plaintext(digest),
             ciphertext_length: caps.ciphertext_length(),
+            always_authenticate: caps.always_authenticate,
         })
         .collect())
     }
@@ -71,7 +74,8 @@ impl ManagementSession<'_> {
             .encrypt_rsa_oaep(key, request.digest, request.plaintext)?)
     }
     /// Decrypt once on the token; no bytes are returned on failure.
-    /// Per-operation authentication and failed cryptoki-buffer zeroization are unsupported.
+    /// Always-authenticate keys require `decrypt_with_context`. Plaintext buffers
+    /// zeroize on native failure and on drop.
     pub fn decrypt(
         &mut self,
         key: &PrivateKeyRef,
@@ -80,6 +84,21 @@ impl ManagementSession<'_> {
         Ok(self
             .session
             .decrypt_rsa_oaep(key, request.digest, request.ciphertext)?)
+    }
+    /// Decrypt once with a separate context PIN or protected authentication path.
+    /// The credential is never cached; wrong credentials are not retried.
+    pub fn decrypt_with_context(
+        &mut self,
+        key: &PrivateKeyRef,
+        request: &DecryptRequest<'_>,
+        context: Option<Pin<'_>>,
+    ) -> Result<Plaintext, Error> {
+        Ok(self.session.decrypt_rsa_oaep_with_context(
+            key,
+            request.digest,
+            request.ciphertext,
+            context,
+        )?)
     }
 }
 #[cfg(test)]

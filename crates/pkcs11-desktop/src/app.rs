@@ -64,6 +64,14 @@ pub enum Message {
         field: CipherField,
         value: String,
     },
+    CipherPin {
+        id: RequestId,
+        pin: secrecy::SecretString,
+    },
+    CipherProtected {
+        id: RequestId,
+        enabled: bool,
+    },
     CipherChoice {
         id: RequestId,
         choice: CipherChoice,
@@ -206,6 +214,8 @@ impl std::fmt::Debug for Message {
             Self::DismissKeyOperation(_) => "DismissKeyOperation",
             Self::OpenCipher(_) => "OpenCipher",
             Self::CipherEdit { .. } => "CipherEdit",
+            Self::CipherPin { .. } => "CipherPin",
+            Self::CipherProtected { .. } => "CipherProtected",
             Self::CipherChoice { .. } => "CipherChoice",
             Self::CipherBrowse { .. } => "CipherBrowse",
             Self::CipherPicked { .. } => "CipherPicked",
@@ -381,6 +391,8 @@ impl App {
                 self.submit(command);
             }
             Message::CipherEdit { id, field, value } => self.state.cipher_edit(id, field, value),
+            Message::CipherPin { id, pin } => self.state.cipher_pin(id, pin),
+            Message::CipherProtected { id, enabled } => self.state.cipher_protected(id, enabled),
             Message::CipherChoice { id, choice } => self.state.cipher_choice(id, choice),
             Message::CipherPicked { id, path } => self.state.cipher_picked(id, path),
             Message::SubmitCipher(id) => {

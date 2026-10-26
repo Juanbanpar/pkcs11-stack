@@ -61,6 +61,51 @@ impl Session {
         Ok(data)
     }
 
+    /// Complete a single-part operation after `decrypt_init` and any required
+    /// context login, without reinitialization. Allocation is bounded by the
+    /// caller and the entire plaintext buffer zeroizes on failure or drop.
+    pub fn decrypt_initialized(
+        &self,
+        encrypted_data: &[u8],
+        maximum_output: usize,
+    ) -> Result<secrecy::SecretBox<Vec<u8>>> {
+        use secrecy::{ExposeSecret, ExposeSecretMut, SecretBox};
+        let input_length = encrypted_data.len().try_into()?;
+        let mut length = 0;
+        unsafe {
+            Rv::from(get_pkcs11!(self.client(), C_Decrypt)(
+                self.handle(),
+                encrypted_data.as_ptr() as *mut u8,
+                input_length,
+                std::ptr::null_mut(),
+                &mut length,
+            ))
+            .into_result(Function::Decrypt)?;
+        }
+        let capacity: usize = length.try_into()?;
+        if capacity > maximum_output {
+            return Err(crate::error::Error::InvalidValue);
+        }
+        let mut output = SecretBox::new(Box::new(vec![0; capacity]));
+        unsafe {
+            Rv::from(get_pkcs11!(self.client(), C_Decrypt)(
+                self.handle(),
+                encrypted_data.as_ptr() as *mut u8,
+                input_length,
+                output.expose_secret_mut().as_mut_ptr(),
+                &mut length,
+            ))
+            .into_result(Function::Decrypt)?;
+        }
+        let written: usize = length.try_into()?;
+        if written > output.expose_secret().len() {
+            return Err(crate::error::Error::InvalidValue);
+        }
+        output.expose_secret_mut()[written..].fill(0);
+        output.expose_secret_mut().truncate(written);
+        Ok(output)
+    }
+
     /// Starts new multi-part decryption operation
     pub fn decrypt_init(&self, mechanism: &Mechanism, key: ObjectHandle) -> Result<()> {
         let mut mechanism: CK_MECHANISM = mechanism.into();

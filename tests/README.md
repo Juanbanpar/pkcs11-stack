@@ -48,6 +48,7 @@ or formal conformance. Coverage is recorded per capability below.
 | Null/mismatched interface rejection and unavailable-interface fallback | Implemented | Native Unix fixtures cover lifecycle pointers, provider failures, interface-only modules, multiple interfaces and known 3.x version fields on legacy tables. |
 | Context authentication for raw/prehashed and combined RSA/ECDSA signing | Implemented | Runtime/client/CLI/desktop; independent OpenSSL verification on disposable SoftHSM keys, including missing/wrong PIN and recovery checks. |
 | Native RSA/ECDSA verification | Implemented | Runtime/client; CLI `verify-token`; desktop public-key verification. Provider tests check signature/digest profiles, permission/allow-list rejection, mismatches and session reuse; OpenSSL independently verifies the test signatures. |
+| Context-authenticated RSA-OAEP decryption | Implemented | Runtime/client; CLI OAEP commands; desktop context credentials. OpenSSL interoperability runs on the required SHA-2 OAEP provider lane. Failed RSA-OAEP and AES-GCM plaintext buffers zeroize. |
 | Remaining operation expansion, metadata compatibility and explicit legacy policy | Pending | Existing restrictions remain in force. |
 | Classical algorithm expansion | Pending | Existing RSA/EC profiles only. |
 | Symmetric algorithms, MACs and KDF expansion | Pending | Existing AES-GCM, AES-KW and constrained HKDF profiles only. |

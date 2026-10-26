@@ -35,6 +35,8 @@ pub struct CipherForm {
     pub input: String,
     pub output: String,
     pub nonce: String,
+    pub pin: SecretString,
+    pub protected_path: bool,
     pub aad: String,
     picked_aad: Option<PathBuf>,
     picked_input: Option<PathBuf>,
@@ -92,6 +94,8 @@ impl UiState {
             input: String::new(),
             output: String::new(),
             nonce: String::new(),
+            pin: SecretString::default(),
+            protected_path: false,
             aad: String::new(),
             picked_aad: None,
             picked_input: None,
@@ -138,6 +142,35 @@ impl UiState {
             && form.choices.contains(&choice)
         {
             form.choice = Some(choice);
+            form.pin = SecretString::default();
+            form.protected_path = false;
+        }
+    }
+    pub fn cipher_pin(&mut self, id: RequestId, pin: SecretString) {
+        if !self.can_submit() {
+            return;
+        }
+        if let Some(form) = &mut self.cipher_form
+            && form.id == id
+            && !form.protected_path
+            && form.choice.is_some_and(
+                |choice| matches!(choice.0, CipherParameters::Oaep(c) if c.always_authenticate),
+            )
+        {
+            form.pin = pin;
+        }
+    }
+    pub fn cipher_protected(&mut self, id: RequestId, enabled: bool) {
+        if !self.can_submit()
+            || (enabled && !self.token().is_some_and(|token| token.protected_path))
+        {
+            return;
+        }
+        if let Some(form) = &mut self.cipher_form
+            && form.id == id
+        {
+            form.pin = SecretString::default();
+            form.protected_path = enabled;
         }
     }
     pub fn cipher_picker(
@@ -230,7 +263,18 @@ impl UiState {
             None
         };
         let form = self.cipher_form.take()?;
+        let context = match form.choice?.0 {
+            CipherParameters::Oaep(choice) if choice.always_authenticate => {
+                Some(if form.protected_path {
+                    SecretInput::ProtectedPath
+                } else {
+                    SecretInput::Value(form.pin)
+                })
+            }
+            _ => None,
+        };
         let job = CipherJob {
+            context,
             aes_gcm,
             choice: form.choice?.0,
             input: form

@@ -268,9 +268,11 @@ and an empty label. RSA sizes are limited to 2048–16384 bits; plaintext must f
 the OAEP bound and ciphertext must be modulus-width. An error or panic during a
 provider operation prevents session reuse.
 
-Per-operation-authentication decryption keys are rejected before init. Successful
-plaintext is redacted and zeroizing, but cryptoki's transient buffers from failed
-provider calls cannot currently be guaranteed zeroized.
+`decrypt_rsa_oaep_with_context` supports always-authenticate private keys with a
+separate context credential. The sequence is decrypt initialization, context login,
+then single-part completion. Ordinary `decrypt_rsa_oaep` requires no context
+credential and rejects keys that need one before initialization. Both paths use
+bounded zeroizing plaintext storage, including on native failure.
 
 ## AES-GCM encryption
 
@@ -298,8 +300,8 @@ wrapping-only keys and raw generic secrets do not. No key values are read.
 Decryption returns redacted, zeroizing plaintext only after provider success and
 exact-length checks. Tag, AAD, nonce or ciphertext corruption returns no plaintext.
 Provider errors/unwinds or malformed outputs invalidate the session; request
-validation and policy rejection precede crypto. cryptoki's transient buffers from
-failed calls cannot be guaranteed zeroized. Check explicit session closure before
+validation and policy rejection precede crypto. Native decryption buffers are
+bounded and zeroize on failure or drop. Check explicit session closure before
 releasing output. Testing does not establish formal algorithm validation.
 
 ## ECDH and AES key generation

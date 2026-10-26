@@ -28,7 +28,7 @@ impl ManagementSession<'_> {
     /// Authenticate/decrypt once. Provider failures return no plaintext and
     /// invalidate the session; preflight rejection does not. Successful plaintext
     /// zeroizes on drop and has redacted Debug.
-    /// cryptoki's transient failed buffers cannot be guaranteed zeroized. No retry
+    /// Native output buffers zeroize on failure and on drop. No retry
     /// or multipart plaintext release occurs. Check closure before releasing output.
     pub fn decrypt_aes_gcm(
         &mut self,

@@ -46,6 +46,8 @@ fn help_and_version_need_no_module() {
         "sign",
         "verify",
         "verify-token",
+        "encrypt-rsa-oaep",
+        "decrypt-rsa-oaep",
         "random",
         "kem-capabilities",
         "encapsulate",

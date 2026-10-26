@@ -334,6 +334,32 @@ pub(crate) fn command() -> Command {
         ))),
         context(auth(key(key_family(bind)))),
         context(auth(signing(key(sign)))),
+        auth(object(
+            Command::new("encrypt-rsa-oaep")
+                .about("Encrypt one RSA-OAEP block with SHA-2, matching MGF1 and empty label")
+                .arg(
+                    required("digest", "OAEP and MGF1 digest")
+                        .value_parser(["sha256", "sha384", "sha512"]),
+                )
+                .arg(required("input", "Plaintext file; - reads stdin"))
+                .arg(required(
+                    "output",
+                    "New ciphertext file, or - for binary stdout",
+                )),
+        )),
+        context(auth(object(
+            Command::new("decrypt-rsa-oaep")
+                .about("Decrypt one RSA-OAEP block with optional context authentication")
+                .arg(
+                    required("digest", "OAEP and MGF1 digest")
+                        .value_parser(["sha256", "sha384", "sha512"]),
+                )
+                .arg(required("input", "Ciphertext file; - reads stdin"))
+                .arg(required(
+                    "output",
+                    "New plaintext file, or - for binary stdout",
+                )),
+        ))),
         auth(signature(verify)),
         auth(
             signing(

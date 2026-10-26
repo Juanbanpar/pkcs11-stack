@@ -24,6 +24,9 @@ Local changes:
   each supported layout (`runtime/tests/interfaces.rs`).
 - `src/session/signing_macing.rs`: expose single-part completion after explicit
   initialization so context login can occur before signing, without reinitializing.
+- `src/session/decryption.rs`: expose bounded single-part completion after
+  explicit initialization and context login. Output storage uses SecretBox before
+  the native call so failed plaintext buffers zeroize as well as successful ones.
 - `rustfmt.toml`: retain upstream's 2021 formatting independently of the workspace.
 
 The workspace uses this path dependency, including from the separate fuzz

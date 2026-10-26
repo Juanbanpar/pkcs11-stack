@@ -1415,6 +1415,7 @@ fn cipher_state(
                     digest: pkcs11_client::DigestAlgorithm::Sha256,
                     maximum_plaintext: 190,
                     ciphertext_length: 256,
+                    always_authenticate: false,
                 },
             )],
         },
@@ -2505,4 +2506,57 @@ fn hkdf_authentication_scope_and_stale_choices_are_rechecked_before_submission()
     };
     assert!(job.salt.is_empty());
     assert!(job.info.is_empty());
+}
+
+#[test]
+fn cipher_context_credentials_clear_on_choice_change_and_protected_path() {
+    use crate::backend::{CipherParameters, CryptoMode};
+    use secrecy::ExposeSecret;
+    let (mut state, id, _) = cipher_state(CryptoMode::Decrypt);
+    let form = state.cipher_form.as_mut().unwrap();
+    let CipherParameters::Oaep(mut choice) = form.choice.unwrap().0 else {
+        panic!("OAEP");
+    };
+    choice.always_authenticate = true;
+    let choice = CipherChoice(CipherParameters::Oaep(choice));
+    form.choices = vec![choice];
+    form.choice = Some(choice);
+    state.cipher_pin(id, "context-canary".into());
+    assert_eq!(
+        state.cipher_form.as_ref().unwrap().pin.expose_secret(),
+        "context-canary"
+    );
+    state.cipher_choice(id, choice);
+    assert!(
+        state
+            .cipher_form
+            .as_ref()
+            .unwrap()
+            .pin
+            .expose_secret()
+            .is_empty()
+    );
+    state.loaded_modules[0].tokens[0].protected_path = true;
+    state.cipher_pin(id, "second-canary".into());
+    state.cipher_protected(id, true);
+    state.cipher_pin(id, "ignored-canary".into());
+    assert!(
+        state
+            .cipher_form
+            .as_ref()
+            .unwrap()
+            .pin
+            .expose_secret()
+            .is_empty()
+    );
+    state.cipher_edit(id, CipherField::Input, "cipher.bin".into());
+    state.cipher_edit(id, CipherField::Output, "new-plain.bin".into());
+    let BackendCommand::Cipher { job, .. } = state.submit_cipher(id).unwrap() else {
+        panic!("cipher job");
+    };
+    assert!(matches!(
+        job.context,
+        Some(crate::backend::SecretInput::ProtectedPath)
+    ));
+    assert!(state.cipher_form.is_none());
 }

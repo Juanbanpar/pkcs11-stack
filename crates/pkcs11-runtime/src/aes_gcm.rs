@@ -202,7 +202,7 @@ impl Session<'_> {
     /// after provider success and exact-length checks. Tag/AAD/nonce failures
     /// return no plaintext and invalidate the session; native error context is retained.
     /// No multipart output, retry or fallback is exposed. Read-only sessions are
-    /// permitted. cryptoki's transient failed buffers cannot be guaranteed zeroized.
+    /// permitted. Output storage is bounded and zeroizes on native failure or drop.
     pub fn decrypt_aes_gcm(
         &mut self,
         key: &ObjectRef,
@@ -216,14 +216,11 @@ impl Session<'_> {
             .map_err(|e| backend("AES GCM parameters", e))?;
         let raw = object.session.raw()?;
         object.session.healthy.set(false);
-        let plaintext = SecretBox::new(Box::new(
-            raw.decrypt(
-                &Mechanism::AesGcm(params),
-                object.handle,
-                request.ciphertext,
-            )
-            .map_err(|e| backend("AES GCM decrypt", e))?,
-        ));
+        raw.decrypt_init(&Mechanism::AesGcm(params), object.handle)
+            .map_err(|e| backend("AES GCM decrypt", e))?;
+        let plaintext = raw
+            .decrypt_initialized(request.ciphertext, request.ciphertext.len())
+            .map_err(|e| backend("AES GCM decrypt", e))?;
         if plaintext.expose_secret().len() != request.ciphertext.len() - AES_GCM_TAG_LENGTH
             || nonce != *request.nonce
         {

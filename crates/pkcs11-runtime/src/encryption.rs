@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use crate::{
     Attribute, AttributeType, DigestAlgorithm, Error, KeyKind, MechanismType, ObjectClass,
-    ObjectRef, PrivateKeyRef, PublicKeyRef, Session,
+    ObjectRef, Pin, PrivateKeyRef, PublicKeyRef, Session,
     error::backend,
     signing::{attribute, key_kind},
 };
@@ -9,6 +9,7 @@ use cryptoki::mechanism::{
     Mechanism,
     rsa::{PkcsMgfType, PkcsOaepParams, PkcsOaepSource},
 };
+use cryptoki::{context::Function, session::UserType};
 use secrecy::{ExposeSecret, SecretBox};
 
 /// Direction of a token RSA-OAEP operation.
@@ -24,6 +25,8 @@ pub enum RsaCipherOperation {
 pub struct RsaOaepCapabilities {
     /// Observed modulus size, restricted to 2048 through 16384 bits.
     pub modulus_bits: usize,
+    /// Whether private decryption requires a separate context credential.
+    pub always_authenticate: bool,
 }
 impl RsaOaepCapabilities {
     /// RSA ciphertext length in bytes.
@@ -63,14 +66,14 @@ fn capabilities(
     if !enabled {
         return Err(Error::UnsupportedCipher);
     }
-    if operation == RsaCipherOperation::Decrypt
-        && !matches!(
-            attribute(object, AttributeType::AlwaysAuthenticate, true)?,
-            Some(Attribute::AlwaysAuthenticate(false))
-        )
-    {
-        return Err(Error::UnsupportedCipher);
-    }
+    let always_authenticate = if operation == RsaCipherOperation::Decrypt {
+        match attribute(object, AttributeType::AlwaysAuthenticate, true)? {
+            Some(Attribute::AlwaysAuthenticate(value)) => value,
+            _ => return Err(Error::MissingMetadata("CKA_ALWAYS_AUTHENTICATE")),
+        }
+    } else {
+        false
+    };
     let KeyKind::Rsa { bits } = key_kind(object)? else {
         return Err(Error::UnsupportedCipher);
     };
@@ -85,6 +88,17 @@ fn capabilities(
         }
     }
     let token = object.session.token();
+    let functions = match operation {
+        RsaCipherOperation::Encrypt => [Function::EncryptInit, Function::Encrypt],
+        RsaCipherOperation::Decrypt => [Function::DecryptInit, Function::Decrypt],
+    };
+    let module = token.module.raw()?;
+    if functions
+        .into_iter()
+        .any(|function| !module.is_fn_supported(function))
+    {
+        return Err(Error::UnsupportedCipher);
+    }
     if !token.mechanisms()?.contains(&MechanismType::RSA_PKCS_OAEP) {
         return Err(Error::UnsupportedCipher);
     }
@@ -98,7 +112,10 @@ fn capabilities(
     {
         return Err(Error::UnsupportedCipher);
     }
-    Ok(RsaOaepCapabilities { modulus_bits: bits })
+    Ok(RsaOaepCapabilities {
+        modulus_bits: bits,
+        always_authenticate,
+    })
 }
 impl Session<'_> {
     /// Inspect a uniquely resolved key without encryption or decryption.
@@ -134,26 +151,55 @@ impl Session<'_> {
         object.session.healthy.set(true);
         Ok(result)
     }
-    /// Decrypt once. Per-operation-authentication keys are unsupported by this binding.
-    /// Successful plaintext is redacted and zeroizing. cryptoki's failed transient buffers
-    /// cannot currently be guaranteed zeroized; no plaintext is returned on error.
+    /// Decrypt once without a context credential. Always-authenticate keys return
+    /// ContextAuthenticationRequired before initialization. All plaintext buffers
+    /// zeroize on error or drop; no plaintext is returned on failure.
     pub fn decrypt_rsa_oaep(
         &mut self,
         key: &PrivateKeyRef,
         digest: DigestAlgorithm,
         ciphertext: &[u8],
     ) -> Result<SecretBox<Vec<u8>>, Error> {
+        self.decrypt_rsa_oaep_with_context(key, digest, ciphertext, None)
+    }
+    /// Decrypt once with an optional per-operation credential, borrowed only for
+    /// this call. Login occurs after initialization and before single-part
+    /// completion. A context PIN for an ordinary key is rejected before crypto.
+    pub fn decrypt_rsa_oaep_with_context(
+        &mut self,
+        key: &PrivateKeyRef,
+        digest: DigestAlgorithm,
+        ciphertext: &[u8],
+        context_pin: Option<Pin<'_>>,
+    ) -> Result<SecretBox<Vec<u8>>, Error> {
         let object = self.resolve(key.as_object_ref())?;
         let caps = capabilities(&object, RsaCipherOperation::Decrypt)?;
         if ciphertext.len() != caps.ciphertext_length() {
             return Err(Error::InvalidParameters("OAEP ciphertext length"));
         }
+        let pin = if caps.always_authenticate {
+            object
+                .session
+                .login_pin(context_pin.ok_or(Error::ContextAuthenticationRequired)?)?
+        } else {
+            if context_pin.is_some() {
+                return Err(Error::InvalidParameters(
+                    "context PIN for a key without always-authenticate",
+                ));
+            }
+            None
+        };
         let raw = object.session.raw()?;
         object.session.healthy.set(false);
-        let plaintext = SecretBox::new(Box::new(
-            raw.decrypt(&mechanism(digest), object.handle, ciphertext)
-                .map_err(|e| backend("RSA OAEP decrypt", e))?,
-        ));
+        raw.decrypt_init(&mechanism(digest), object.handle)
+            .map_err(|e| backend("RSA OAEP decrypt", e))?;
+        if caps.always_authenticate {
+            raw.login(UserType::ContextSpecific, pin)
+                .map_err(|e| backend("context login", e))?;
+        }
+        let plaintext = raw
+            .decrypt_initialized(ciphertext, caps.ciphertext_length())
+            .map_err(|e| backend("RSA OAEP decrypt", e))?;
         if plaintext.expose_secret().len() > caps.maximum_plaintext(digest) {
             return Err(Error::InvalidCiphertext);
         }
@@ -166,7 +212,10 @@ mod tests {
     use super::*;
     #[test]
     fn oaep_bounds_follow_modulus_and_digest_and_parameters_are_explicit() {
-        let caps = RsaOaepCapabilities { modulus_bits: 2048 };
+        let caps = RsaOaepCapabilities {
+            modulus_bits: 2048,
+            always_authenticate: false,
+        };
         assert_eq!(caps.ciphertext_length(), 256);
         assert_eq!(caps.maximum_plaintext(DigestAlgorithm::Sha256), 190);
         assert_eq!(caps.maximum_plaintext(DigestAlgorithm::Sha384), 158);

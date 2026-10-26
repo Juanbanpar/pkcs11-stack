@@ -432,8 +432,8 @@ Plaintext is limited to 16 MiB and AAD to 1 MiB. Empty input/AAD are supported;
 decryption requires at least the full tag. Successful plaintext zeroizes on drop
 and its Debug is redacted. Authentication failures return no plaintext and make
 the session unusable; native error context is retained. Preflight rejection does
-not itself invalidate the session. cryptoki's transient failed buffers cannot be
-guaranteed zeroized.
+not itself invalidate the session. Native decryption output buffers zeroize on
+failure and on drop.
 
 Callers manage nonce uniqueness per key across writers, restarts and copies of key
 material. No nonce generation/tracking, retry, software fallback, streaming or file
@@ -453,13 +453,15 @@ reject a digest parameter; advertisement is advisory and no probe operation occu
 once on the token, with no fallback or padding downgrade. RSA keys must have
 2048–16384 bits. Input is one block: at 2048 bits, SHA-256 OAEP permits 190 plaintext
 bytes and ciphertext is exactly 256 bytes. This is not a bulk-file format or sender
-authentication. Decryption requires a key with CKA_DECRYPT and without
-CKA_ALWAYS_AUTHENTICATE; the current binding cannot perform context login followed
-by single-part OAEP decryption.
+authentication. Decryption requires a key with CKA_DECRYPT; always-authenticate
+keys require a separate context credential.
 
-Requests redact input in Debug. Successful `Plaintext` uses zeroizing storage;
-no bytes are returned after failure. cryptoki's transient decryption buffers on
-provider errors cannot currently be guaranteed zeroized.
+Requests redact input in Debug. `Plaintext` and failed decryption buffers use
+zeroizing storage; no bytes are returned after failure.
+
+`ManagementSession::decrypt_with_context` supplies a separate per-operation
+credential for always-authenticate RSA-OAEP keys. `oaep_options` reports that
+requirement. Decryption buffers zeroize on failure and on drop.
 
 ## Derivation and key transfer
 

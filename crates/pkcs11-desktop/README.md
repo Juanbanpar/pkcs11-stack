@@ -190,12 +190,12 @@ choices display SHA-2 digest and byte limits. OAEP uses a matching MGF1 digest a
 empty label; output is one raw RSA block, with no header. Select the same digest
 when decrypting. This handles small payloads, not bulk files or sender authentication.
 
-Permissions, allowed mechanisms and bounds are checked again at execution. Keys
-requiring authentication for each decrypt operation are unsupported by the binding
-and rejected before decrypt init. Vendor digest-parameter rejection never causes
-a retry, SHA-1 fallback or padding downgrade. Input and successful plaintext stay
-in zeroizing storage on the worker; cryptoki's transient buffers after a failed
-provider call cannot currently be guaranteed zeroized.
+Permissions, allowed mechanisms and bounds are checked again at execution.
+Always-authenticate keys require a separate per-operation PIN or protected
+path. Changing the cipher choice or leaving the form clears the credential.
+Vendor digest-parameter rejection never causes a retry, SHA-1 fallback or padding
+downgrade. Input and plaintext buffers, including failed decryption output, use
+zeroizing storage.
 
 The worker creates a new output file before the token call and reports session
 close failures before writing bytes. Existing files are preserved. Failures may

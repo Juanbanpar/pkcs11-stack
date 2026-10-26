@@ -75,7 +75,7 @@ pub(crate) struct Inputs {
     pub credential: Credential,
     pub context: Credential,
     pub new_pin: Option<secrecy::SecretString>,
-    pub bytes: Vec<u8>,
+    pub bytes: zeroize::Zeroizing<Vec<u8>>,
     pub certificate_document: Option<pkcs11_client::CertificateDocument>,
     pub verification_certificate: Option<VerificationCertificate>,
     pub domain_context: Vec<u8>,
@@ -113,6 +113,8 @@ impl Inputs {
                         | "sign"
                         | "verify"
                         | "verify-token"
+                        | "encrypt-rsa-oaep"
+                        | "decrypt-rsa-oaep"
                         | "generate"
                 ))
         {
@@ -146,6 +148,8 @@ impl Inputs {
         } else if let Some(path) = get(m, "input") {
             if let Some(limit) = key_establishment::input_limit(name, m)? {
                 bounded_input(path, limit)?
+            } else if matches!(name, "encrypt-rsa-oaep" | "decrypt-rsa-oaep") {
+                bounded_input(path, 2048)?
             } else if matches!(name, "verify" | "verify-token") || ml_dsa {
                 bounded_input(path, 64 * 1024 * 1024)?
             } else {
@@ -246,6 +250,16 @@ impl Inputs {
                 }
             }
         }
+        if matches!(name, "encrypt-rsa-oaep" | "decrypt-rsa-oaep") {
+            let expected: &[u8] = if name == "encrypt-rsa-oaep" {
+                b"public"
+            } else {
+                b"private"
+            };
+            if uri(m, "object")?.path_attribute("type") != Some(expected) {
+                return Err(usage("RSA cipher object URI has the wrong class"));
+            }
+        }
         if name == "init-token" {
             need(m, "slot")?
                 .parse::<u64>()
@@ -262,7 +276,7 @@ impl Inputs {
             credential,
             context,
             new_pin,
-            bytes,
+            bytes: zeroize::Zeroizing::new(bytes),
             certificate_document,
             verification_certificate,
             domain_context,
@@ -529,6 +543,29 @@ fn management_operation(
         return key_establishment::operation(session, name, m, inputs);
     }
     let value = match name {
+        "encrypt-rsa-oaep" => {
+            let key = pkcs11_client::PublicKeyRef::new(uri(m, "object")?)
+                .map_err(pkcs11_client::Error::from)?;
+            return Ok(Output::Binary(session.encrypt(
+                &key,
+                &pkcs11_client::EncryptRequest {
+                    digest: digest(need(m, "digest")?),
+                    plaintext: &inputs.bytes,
+                },
+            )?));
+        }
+        "decrypt-rsa-oaep" => {
+            let key = pkcs11_client::PrivateKeyRef::new(uri(m, "object")?)
+                .map_err(pkcs11_client::Error::from)?;
+            return Ok(Output::SecretBinary(session.decrypt_with_context(
+                &key,
+                &pkcs11_client::DecryptRequest {
+                    digest: digest(need(m, "digest")?),
+                    ciphertext: &inputs.bytes,
+                },
+                inputs.context.pin(),
+            )?));
+        }
         "random" => {
             return Ok(Output::SecretBinary(
                 session.generate_random(

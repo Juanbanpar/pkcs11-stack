@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-use crate::ui::{button, components::EMPHASIS, pick_list, text_input};
+use crate::ui::{button, checkbox, components::EMPHASIS, pick_list, text_input};
 use crate::{
     app::Message,
     backend::{CipherParameters, CryptoMode},
@@ -9,6 +9,7 @@ use iced::{
     Element,
     widget::{column, container, row, text},
 };
+use secrecy::ExposeSecret;
 pub fn view(state: &UiState) -> Element<'_, Message> {
     let Some(form) = &state.cipher_form else {
         return column![].into();
@@ -42,6 +43,31 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
         Some(CipherParameters::Oaep(choice)) => content = content.push(text(format!("Maximum plaintext: {} bytes · ciphertext: exactly {} bytes. Choices are advisory; a provider may reject digest parameters.",choice.maximum_plaintext,choice.ciphertext_length)).size(14)),
         Some(CipherParameters::AesGcm(caps)) => content = content.push(text(format!("AES-{} GCM · 12-byte nonce · 128-bit tag. Provider support is checked again before execution.",caps.key_size.length()*8)).size(14)),
         None => content = content.push(text(if form.loaded { "No supported cipher choice." } else { "Reading permitted cipher choices…" })),
+    }
+    if form.choice.is_some_and(
+        |choice| matches!(choice.0, CipherParameters::Oaep(c) if c.always_authenticate),
+    ) {
+        content = content
+            .push(text("This key requires separate authentication for each decryption.").size(14));
+        if state.token().is_some_and(|token| token.protected_path) {
+            content = content.push(
+                checkbox(form.protected_path)
+                    .label("Use protected authentication path")
+                    .on_toggle_maybe(
+                        enabled.then_some(move |enabled| Message::CipherProtected { id, enabled }),
+                    ),
+            );
+        }
+        if !form.protected_path {
+            content = content.push(
+                text_input("Per-operation PIN", form.pin.expose_secret())
+                    .secure(true)
+                    .on_input_maybe(enabled.then_some(move |pin: String| Message::CipherPin {
+                        id,
+                        pin: pin.into(),
+                    })),
+            );
+        }
     }
     if aes {
         content = content.push(text_input("Nonce (24 hexadecimal digits)",&form.nonce).on_input_maybe(enabled.then_some(move |value|Message::CipherEdit { id,field: CipherField::Nonce,value })))
