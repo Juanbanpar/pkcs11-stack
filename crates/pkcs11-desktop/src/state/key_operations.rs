@@ -4,6 +4,9 @@ use crate::backend::{CryptoMode, CryptoScope, KeyJob, KeyProfile};
 use pkcs11_client::{KeyType, ObjectClass};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum KeyField {
+    Salt,
+    Info,
+    Length,
     Input,
     Output,
     Label,
@@ -21,6 +24,7 @@ impl std::fmt::Display for WrapTarget {
     }
 }
 pub struct KeyForm {
+    pub hkdf: HkdfForm,
     pub id: RequestId,
     pub scope: CryptoScope,
     pub profile: Option<KeyProfile>,
@@ -46,6 +50,13 @@ impl UiState {
                 !object.ambiguous
                     && object.uri.is_some()
                     && match mode {
+                        CryptoMode::Hkdf => {
+                            object.class == Some(ObjectClass::SECRET_KEY)
+                                && matches!(
+                                    self.object_key_type(),
+                                    Some(KeyType::GENERIC_SECRET | KeyType::HKDF)
+                                )
+                        }
                         CryptoMode::Derive => {
                             object.class == Some(ObjectClass::PRIVATE_KEY)
                                 && self.object_key_type() == Some(KeyType::EC)
@@ -95,6 +106,7 @@ impl UiState {
         let id = self.begin(OperationKind::CryptoOptions)?;
         self.clear_crypto_form();
         self.key_form = Some(KeyForm {
+            hkdf: HkdfForm::default(),
             id,
             scope,
             profile: None,
@@ -124,6 +136,10 @@ impl UiState {
         {
             form.picker = None;
             match field {
+                KeyField::Salt if form.scope.mode == CryptoMode::Hkdf => form.hkdf.salt = value,
+                KeyField::Info if form.scope.mode == CryptoMode::Hkdf => form.hkdf.info = value,
+                KeyField::Length if form.scope.mode == CryptoMode::Hkdf => form.hkdf.length = value,
+                KeyField::Salt | KeyField::Info | KeyField::Length => {}
                 KeyField::Input => {
                     form.input = value;
                     form.picked_input = None;
@@ -209,11 +225,19 @@ impl UiState {
             return None;
         }
         let identity = management::identifier(&form.key_id);
+        let hkdf_job = if let Some(KeyProfile::Hkdf(profile)) = form.profile {
+            form.hkdf
+                .job(profile, identity.as_deref(), &form.label)
+                .ok()
+        } else {
+            None
+        };
         let valid = form
             .profile
             .is_some_and(|profile| profile.supports(form.scope.mode))
             && form.loaded
             && match form.scope.mode {
+                CryptoMode::Hkdf => hkdf_job.is_some(),
                 CryptoMode::Wrap => {
                     !form.output.is_empty()
                         && form
@@ -236,7 +260,13 @@ impl UiState {
                 _ => false,
             };
         if !valid {
-            self.notification = Some(Notification::Error(BackendError::KeyOperationInput));
+            self.notification = Some(Notification::Error(
+                if form.scope.mode == CryptoMode::Hkdf {
+                    BackendError::HkdfInput
+                } else {
+                    BackendError::KeyOperationInput
+                },
+            ));
             return None;
         }
         let form = self.key_form.take()?;
@@ -244,6 +274,7 @@ impl UiState {
             .picked_input
             .unwrap_or_else(|| PathBuf::from(form.input));
         let job = match form.scope.mode {
+            CryptoMode::Hkdf => KeyJob::Hkdf(hkdf_job?),
             CryptoMode::Wrap => KeyJob::Wrap {
                 target: form.target?.id,
                 output: form

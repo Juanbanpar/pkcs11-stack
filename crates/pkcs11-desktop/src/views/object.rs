@@ -149,6 +149,25 @@ pub fn detail(state: &UiState) -> Element<'_, Message> {
                 ));
             }
         }
+        Some(ObjectClass::SECRET_KEY)
+            if matches!(kind, Some(KeyType::GENERIC_SECRET | KeyType::HKDF)) =>
+        {
+            actions = actions.push(
+                button("Derive HKDF key…")
+                    .width(Length::Fill)
+                    .style(button::primary)
+                    .on_press_maybe(
+                        state
+                            .can_open_key_operation(CryptoMode::Hkdf)
+                            .then_some(Message::OpenKeyOperation(CryptoMode::Hkdf)),
+                    ),
+            );
+            if !state.can_manage() {
+                actions = actions.push(muted(
+                    "Key derivation requires USER login on a writable token.",
+                ));
+            }
+        }
         Some(ObjectClass::SECRET_KEY) if kind == Some(KeyType::AES) => {
             actions = actions
                 .push(

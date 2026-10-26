@@ -13,6 +13,9 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
     let Some(form) = &state.key_form else {
         return column![].into();
     };
+    if form.scope.mode == CryptoMode::Hkdf {
+        return super::hkdf::view(state);
+    }
     let id = form.id;
     let enabled = state.can_submit();
     let wrap = form.scope.mode == CryptoMode::Wrap;
@@ -36,6 +39,7 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
         content = content.push(text(match profile {
             KeyProfile::Classical(pkcs11_client::KeyOperationProfile::EcdhRaw(curve)) => format!("Raw ECDH {curve:?} with an explicit null KDF. The token-held shared secret requires a later KDF before cryptographic use. Authenticate the peer public key separately."),
             KeyProfile::Classical(pkcs11_client::KeyOperationProfile::AesKeyWrap(bytes)) => format!("RFC 3394 AES key wrap with the default IV, using an AES-{} key. The blob contains no label, ID or permissions.", bytes * 8),
+            KeyProfile::Hkdf(_) => "No compatible key-operation profile.".into(),
             KeyProfile::MlKem(parameter) => format!("ML-KEM-{}: {}-byte raw ciphertext. The 32-byte shared secret stays on the token; apply a protocol KDF before use and authenticate the peer separately.", match parameter { pkcs11_client::MlKemParameterSet::MlKem512 => 512, pkcs11_client::MlKemParameterSet::MlKem768 => 768, pkcs11_client::MlKemParameterSet::MlKem1024 => 1024 }, parameter.ciphertext_length()),
         }).size(14));
     } else {

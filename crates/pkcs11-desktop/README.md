@@ -88,6 +88,15 @@ and ML-KEM pairs permit duplicate IDs; ambiguous selectors are rejected. Key
 pairs share their ID and label. ML-KEM does not permit per-operation PIN
 authentication.
 
+Use **Import ML-KEM Public Key** on **Operations** for one ML-KEM-512/768/1024
+SPKI DER file up to 2048 bytes. The parameter set comes from the encoded key;
+the client rejects other algorithms and noncanonical encodings. Supply a label
+of 1–128 UTF-8 bytes and an ID of 1–128 hexadecimal bytes. USER login and a
+writable token are required. Import preserves existing objects; duplicate IDs
+can make selection ambiguous. Authenticate the peer separately: parsing does
+not prove identity or private-key possession. Export from **Objects** uses the
+same SPKI format.
+
 Certificate import accepts one X.509 DER file up to 16 MiB and an explicit label/ID.
 It parses certificate metadata without establishing trust or binding the
 certificate to a key. PEM, bundles and private-key import are not supported.
@@ -110,7 +119,7 @@ and export finish before another operation can start; navigation remains availab
 Key actions follow the key type read with the selected object's attributes:
 RSA offers signing and OAEP, EC offers signing and ECDH, ML-DSA offers signing,
 AES offers GCM and wrapping, and ML-KEM offers encapsulation or decapsulation
-according to the object class. Generic secrets do not offer those actions.
+according to the object class. Generic/HKDF secrets offer HKDF derivation.
 Permissions and provider capabilities are checked again in the worker.
 
 To sign a file, log in as USER and select an unambiguous private key on **Objects**.
@@ -242,10 +251,27 @@ and produce a different secret. Completion does not confirm agreement or
 peer identity. Always-authenticate decapsulation keys are unsupported.
 
 Authenticate the peer and apply the protocol's KDF before using a raw secret.
-Use the client or CLI for public-key import, HKDF and hybrid KEM workflows;
-these are not exposed in the desktop. Failed encapsulation, session closure or
+Use the client or CLI for hybrid KEM workflows; these are not exposed in the
+desktop. Failed encapsulation, session closure or
 output writes may leave a token object and an empty or partial ciphertext file.
 Existing files are preserved. Refresh the inventory before retrying.
+
+Select a generic/HKDF secret on **Objects** and choose **Derive HKDF key**. The
+client discovers a permitted SHA-2 profile: 32-byte bases use SHA-256, 48-byte
+bases SHA-384 and 64-byte bases SHA-512. Other lengths have no profile; values
+are never truncated or padded. The base must be sensitive, nonextractable and
+permit derivation. USER login on a writable token is required.
+
+Choose AES-128/192/256 for encryption/decryption, or a generic secret for further
+derivation with a length from 1 through 255 times the hash length. Outputs are
+persistent, private, sensitive and nonextractable. The provider may reject a
+specific output template. Provide a new label/ID of 1–128 bytes each; duplicate
+secret IDs are rejected. Optional salt uses hexadecimal bytes and protocol
+context uses UTF-8, each limited to 4096 bytes. Empty salt uses RFC 5869 zero
+salt. Agree on exact protocol inputs and output parameters with the peer; HKDF
+does not establish peer identity and this form is not a hybrid combiner or TLS
+key schedule. Base and output values remain on the token; there is no output
+file or software fallback.
 
 After USER login, select an EC private key with derivation permission and choose
 **Derive ECDH secret**. Supply a peer public key in SPKI DER, a new label and a
@@ -253,8 +279,8 @@ hexadecimal ID. The client validates the peer point and requires the same named
 curve as the base key. P-256/P-384/P-521 use the explicitly selected null KDF.
 The result is a persistent private, sensitive, nonextractable generic secret,
 with derivation permission only. It cannot be encrypted, signed or wrapped.
-A subsequent KDF is required before cryptographic use; KDF application is not
-implemented. Authenticate the peer separately; ECDH alone does not establish
+A subsequent KDF is required before cryptographic use; HKDF is available for
+base lengths supported by its PKCS#11 profile. Authenticate the peer separately; ECDH alone does not establish
 its identity. Per-operation-authentication base keys are unsupported.
 
 Select an AES key with wrapping permission and choose **Wrap AES key**. Select
@@ -334,8 +360,19 @@ The required PQC provider CI job also runs desktop generation tests for all six
 ML-DSA/ML-KEM parameter sets, private-key permissions, authentication settings and
 public export without login. ML-KEM operation tests cover ciphertext lengths,
 implicit rejection, derivation-only secret permissions, duplicate IDs, authentication
-and file preservation. Export tests also reject private keys and stale
+and file preservation. Import tests check bounded SPKI files, authentication,
+round-trip export and ambiguous duplicate IDs. Export tests also reject private keys and stale
 object IDs, preserve existing files and check Unix file permissions.
+
+The Kryoptic CI job also runs the desktop flow from public-key export/import
+through ML-KEM and HKDF to AES-GCM, for all three ML-KEM parameter sets, all AES
+output sizes and further derivation using SHA-384/SHA-512. It checks output
+permissions, duplicate IDs, login requirements and stale references. Run it with
+a trusted provider supporting persistent ML-KEM, HKDF and AES-GCM:
+
+```sh
+PKCS11_TEST_DESKTOP=1 PKCS11_TEST_KDF_MODULE=/path/to/libkryoptic_pkcs11.so ./tools/test-kem-hkdf.sh
+```
 
 ## License
 

@@ -59,7 +59,8 @@ if [[ "${PKCS11_TEST_REQUIRE_PQC:-0}" == 1 ]]; then
 fi
 cargo test -p pkcs11-runtime --test key_operations_softhsm --test generation_softhsm --test aes_gcm_provider --locked -- --ignored --test-threads=1
 if [[ "${PKCS11_TEST_DESKTOP:-0}" == 1 ]]; then
-    cargo test -p pkcs11-desktop --locked -- --ignored --test-threads=1
+    # Persistent HKDF tests use Kryoptic via test-kem-hkdf.sh.
+    cargo test -p pkcs11-desktop --locked -- --ignored --test-threads=1 --skip persistent_hkdf_desktop
 fi
 bash tools/test-examples.sh client
 cargo test -p pkcs11-client --test softhsm --test administration_softhsm --test generation_softhsm --test aes_gcm_provider --locked -- --ignored --test-threads=1

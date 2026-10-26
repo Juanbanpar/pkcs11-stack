@@ -12,7 +12,9 @@ pub use administration::{AdministrationAction, AdministrationKind};
 mod authentication;
 mod browse;
 mod cipher;
+mod hkdf;
 mod kem;
+pub use hkdf::HkdfJob;
 mod key_operations;
 pub use key_operations::{KeyJob, KeyProfile};
 mod crypto;
@@ -336,6 +338,8 @@ pub enum BackendError {
     RefreshAfterManagement,
     InvalidForm,
     FileRead,
+    MlKemImportInput,
+    HkdfInput,
     FileWrite,
     ExportUnavailable,
     Client(ErrorKind),
@@ -356,7 +360,7 @@ impl BackendError {
                 "Administration failed. Changes may still have applied. No retry was made; check token status before authenticating again."
             }
             Self::KeyOperationUnavailable => {
-                "Select a permitted EC, AES or ML-KEM key after USER login. Creating secrets requires a writable token."
+                "Check key type, permissions, provider support and USER login. Creating keys requires a writable token."
             }
             Self::KeyOperationInput => {
                 "Check the operation files, new secret label and hexadecimal ID. EC needs SPKI DER, AES needs a 24/32/40-byte wrapped blob, and ML-KEM ciphertext must match the displayed parameter set."
@@ -401,6 +405,12 @@ impl BackendError {
             Self::ManagementUnavailable => "Log in as USER on a writable token to manage objects.",
             Self::InvalidForm => {
                 "Select an advertised key type and provide a label and a nonempty hexadecimal ID."
+            }
+            Self::HkdfInput => {
+                "Check the HKDF output length, hexadecimal salt (at most 4096 bytes), UTF-8 context (at most 4096 bytes), label and new hexadecimal ID."
+            }
+            Self::MlKemImportInput => {
+                "Provide one ML-KEM SPKI DER public key of at most 2048 bytes, a label of 1–128 UTF-8 bytes and an ID of 1–128 hexadecimal bytes."
             }
             Self::FileRead => {
                 "Could not read one DER certificate of at most 16 MiB from the selected file."

@@ -47,6 +47,11 @@ impl GenerationKind {
     }
 }
 pub enum ManagementAction {
+    ImportMlKem {
+        path: PathBuf,
+        id: Vec<u8>,
+        label: Vec<u8>,
+    },
     Generate {
         kind: GenerationKind,
         id: Vec<u8>,
@@ -155,6 +160,20 @@ impl Registry {
             ManagementAction::Delete { object } => Some(self.reference(module, token, *object)?.0),
             _ => None,
         };
+        let public_key = match &action {
+            ManagementAction::ImportMlKem { path, id, label } => {
+                if id.is_empty() || id.len() > 128 || label.is_empty() || label.len() > 128 {
+                    return Err(BackendError::MlKemImportInput);
+                }
+                let bytes = super::key_operations::read(path, 2048)
+                    .map_err(|_| BackendError::MlKemImportInput)?;
+                Some(
+                    pkcs11_client::MlKemPublicKey::from_spki_der(&bytes)
+                        .map_err(|_| BackendError::MlKemImportInput)?,
+                )
+            }
+            _ => None,
+        };
         let document = match &action {
             ManagementAction::ImportCertificate { path, .. } => Some(certificate(path)?),
             _ => None,
@@ -213,6 +232,12 @@ impl Registry {
                         }
                     }
                 }
+                ManagementAction::ImportMlKem { id, label, .. } => session
+                    .import_ml_kem_public_key(
+                        public_key.as_ref().expect("parsed public key"),
+                        &id,
+                        &label,
+                    ),
                 ManagementAction::ImportCertificate { id, label, .. } => {
                     if id.is_empty() || label.is_empty() {
                         return Err(BackendError::InvalidForm);

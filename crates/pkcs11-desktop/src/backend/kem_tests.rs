@@ -397,3 +397,144 @@ fn software_token_ml_kem_files_permissions_implicit_rejection_and_failures() {
     registry.close().unwrap();
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+#[ignore = "requires tools/test-softhsm.sh; public-key import required with PKCS11_TEST_REQUIRE_PQC=1"]
+fn software_token_ml_kem_import_validates_files_identity_authentication_and_duplicates() {
+    assert_eq!(std::env::var("PKCS11_TEST_ISOLATED").as_deref(), Ok("1"));
+    let mut registry = Registry::default();
+    let module = registry
+        .load(&PathBuf::from(
+            std::env::var_os("PKCS11_TEST_MODULE").unwrap(),
+        ))
+        .unwrap();
+    let token = registry.modules[0]
+        .entry
+        .tokens
+        .iter()
+        .find(|entry| entry.label == "client-test")
+        .unwrap()
+        .id;
+    let supported = registry
+        .capabilities(module, token)
+        .unwrap()
+        .iter()
+        .filter(|kind| matches!(kind, GenerationKind::MlKem(_)))
+        .count();
+    if std::env::var("PKCS11_TEST_REQUIRE_PQC").as_deref() == Ok("1") {
+        assert_eq!(supported, 3);
+    }
+    let root = std::env::temp_dir().join(format!("desktop-ml-kem-import-{}", std::process::id()));
+    std::fs::create_dir(&root).unwrap();
+    let fixtures =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../pkcs11-client/tests/fixtures");
+    for (index, name) in ["mlkem512", "mlkem768", "mlkem1024"]
+        .into_iter()
+        .take(supported)
+        .enumerate()
+    {
+        let path = fixtures.join(format!("{name}.spki.der"));
+        let label = format!("desktop-import-{name}");
+        let action = || ManagementAction::ImportMlKem {
+            path: path.clone(),
+            id: vec![0xD7, 0x50, 0x57, index as u8],
+            label: label.as_bytes().to_vec(),
+        };
+        managed(
+            registry.manage(module, token, action()),
+            Some(BackendError::ManagementUnavailable),
+        );
+        registry
+            .login(
+                module,
+                token,
+                LoginRole::User,
+                SecretInput::Value("12345678".into()),
+            )
+            .unwrap();
+        let invalid = root.join("invalid.der");
+        for bytes in [
+            Vec::new(),
+            vec![0; 2049],
+            std::fs::read(fixtures.join("mldsa44.spki.der")).unwrap(),
+            std::fs::read(fixtures.join("rsa.der")).unwrap(),
+        ] {
+            std::fs::write(&invalid, bytes).unwrap();
+            let listed = managed(
+                registry.manage(
+                    module,
+                    token,
+                    ManagementAction::ImportMlKem {
+                        path: invalid.clone(),
+                        id: vec![0xD7, 0x50, 0x57, index as u8],
+                        label: label.as_bytes().to_vec(),
+                    },
+                ),
+                Some(BackendError::MlKemImportInput),
+            );
+            assert!(!listed.iter().any(|entry| entry.label == label));
+        }
+        let listed = managed(
+            registry.manage(
+                module,
+                token,
+                ManagementAction::ImportMlKem {
+                    path: path.clone(),
+                    id: Vec::new(),
+                    label: label.as_bytes().to_vec(),
+                },
+            ),
+            Some(BackendError::MlKemImportInput),
+        );
+        assert!(!listed.iter().any(|entry| entry.label == label));
+        let listed = managed(registry.manage(module, token, action()), None);
+        let target = scope(module, token, &listed, &label, CryptoMode::Encapsulate);
+        assert!(matches!(
+            registry.key_options(target),
+            Ok(BackendResult::KeyOptions {
+                profile: KeyProfile::MlKem(_),
+                ..
+            })
+        ));
+        let exported = root.join(format!("{name}.der"));
+        managed(
+            registry.manage(
+                module,
+                token,
+                ManagementAction::Export {
+                    object: target.object,
+                    path: exported.clone(),
+                },
+            ),
+            None,
+        );
+        assert_eq!(
+            std::fs::read(exported).unwrap(),
+            std::fs::read(&path).unwrap()
+        );
+        let listed = managed(registry.manage(module, token, action()), None);
+        assert_eq!(
+            listed.iter().filter(|entry| entry.label == label).count(),
+            2
+        );
+        assert!(
+            listed
+                .iter()
+                .filter(|entry| entry.label == label)
+                .all(|entry| entry.ambiguous)
+        );
+        let target = scope(module, token, &listed, &label, CryptoMode::Encapsulate);
+        assert!(matches!(
+            registry.key_options(target),
+            Err(BackendError::AmbiguousObject)
+        ));
+        registry.logout(module, token).unwrap();
+        let listed = registry.objects(module, token).unwrap();
+        assert_eq!(
+            listed.iter().filter(|entry| entry.label == label).count(),
+            2
+        );
+    }
+    registry.close().unwrap();
+    std::fs::remove_dir_all(root).unwrap();
+}

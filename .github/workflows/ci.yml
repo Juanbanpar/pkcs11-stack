@@ -270,10 +270,11 @@ jobs:
           rustup toolchain install stable --no-self-update --profile minimal
           rustup default stable
           sudo apt-get update
-          sudo apt-get install --yes clang libclang-dev pkg-config libsqlite3-dev g++ make perl openssl
+          sudo apt-get install --yes clang libclang-dev pkg-config libsqlite3-dev g++ make perl openssl libxkbcommon-dev libwayland-dev libegl1-mesa-dev
       - name: Build pinned Kryoptic and OpenSSL with ML-KEM, ECDH and HKDF
         run: ./tools/build-kem-hkdf-provider.sh "$RUNNER_TEMP/kdf-provider"
-      - name: Require typed HKDF, hybrid and CLI key establishment on the same token
+      - name: Require library, CLI and desktop KEM/HKDF workflows on the same token
         env:
+          PKCS11_TEST_DESKTOP: '1'
           PKCS11_TEST_KDF_MODULE: ${{ runner.temp }}/kdf-provider/libkryoptic_pkcs11.so
         run: ./tools/test-kem-hkdf.sh

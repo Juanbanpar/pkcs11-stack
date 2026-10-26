@@ -866,6 +866,7 @@ fn primary_actions_stay_visible_at_supported_window_sizes() {
                 &[
                     "task-Some(Generate)",
                     "task-Some(Import)",
+                    "task-Some(ImportMlKem)",
                     "task-Some(Random)",
                 ]
             };
@@ -1144,7 +1145,7 @@ fn object_views_show_only_actions_for_the_observed_key_type() {
             Some(K::AES),
             vec!["Encrypt", "Decrypt", "Wrap", "Unwrap"],
         ),
-        (6, Some(K::GENERIC_SECRET), vec![]),
+        (6, Some(K::GENERIC_SECRET), vec!["Hkdf"]),
         (3, None, vec![]),
     ] {
         let mut state = populated_state();
@@ -1169,6 +1170,7 @@ fn object_views_show_only_actions_for_the_observed_key_type() {
             "Unwrap",
             "Encapsulate",
             "Decapsulate",
+            "Hkdf",
         ] {
             assert_eq!(
                 ids.0.contains(&Id::from(format!("crypto-{action}"))),
@@ -1338,4 +1340,92 @@ fn ml_kem_forms_accept_keyboard_input_and_render_both_directions() {
         assert!(app.state.key_form.is_none());
         assert!(app.state.current_operation.is_none());
     }
+}
+
+#[test]
+fn ml_kem_public_import_accepts_keyboard_input_and_discards_picker_on_task_change() {
+    fn initial() -> UiState {
+        let mut state = populated_state();
+        state.token_page = TokenPage::Operations;
+        state.presentation.task = Some(ManagementTask::ImportMlKem);
+        state
+    }
+    let mut app = run_focused(
+        initial,
+        &["type \"Peer key\"", "type tab", "type \"D75701\""],
+        Some("input-Public key label (1–128 UTF-8 bytes)"),
+    );
+    assert_eq!(app.state.management.ml_kem_label, "Peer key");
+    assert_eq!(app.state.management.ml_kem_id, "D75701");
+    for dark in [false, true] {
+        render_screen(&app.state, "import-ml-kem", 1060, 900, dark);
+    }
+    let (picker, _) = app.state.begin_ml_kem_file().unwrap();
+    let _ = app.update(Message::Ui(Action::Task(Some(ManagementTask::Import))));
+    let _ = app.update(Message::ObjectFilePicked {
+        id: picker,
+        path: Some("obsolete.der".into()),
+    });
+    assert!(app.state.management.ml_kem_path.is_empty());
+    assert!(app.state.management.certificate_path.is_empty());
+    let _ = app.update(Message::Ui(Action::Task(None)));
+    app.state.presentation.width = 900.0;
+    for dark in [false, true] {
+        render_screen(&app.state, "operations-with-peer-import", 900, 600, dark);
+    }
+}
+
+#[test]
+fn hkdf_form_accepts_context_and_output_choices_without_exposing_key_values() {
+    fn initial() -> UiState {
+        use crate::backend::{BackendCommand, BackendEvent, BackendResult, CryptoMode, KeyProfile};
+        let mut state = populated_state();
+        state.token_page = TokenPage::Objects;
+        state.selected_object = Some(ResourceId(6));
+        state.object_details.as_mut().unwrap().key_type =
+            Some(pkcs11_client::KeyType::GENERIC_SECRET);
+        let BackendCommand::CryptoOptions { id, scope, .. } =
+            state.open_key_operation(CryptoMode::Hkdf).unwrap()
+        else {
+            panic!("HKDF options")
+        };
+        state.event(BackendEvent::Completed {
+            id,
+            result: Ok(BackendResult::KeyOptions {
+                scope,
+                profile: KeyProfile::Hkdf(pkcs11_client::HkdfCapabilities {
+                    digest: pkcs11_client::DigestAlgorithm::Sha256,
+                    input_length: 32,
+                }),
+            }),
+        });
+        state
+    }
+    let mut app = run_focused(
+        initial,
+        &["type \"public protocol é\""],
+        Some("input-Protocol context (UTF-8, optional, up to 4096 bytes)"),
+    );
+    assert_eq!(
+        app.state.key_form.as_ref().unwrap().hkdf.info,
+        "public protocol é"
+    );
+    let id = app.state.key_form.as_ref().unwrap().id;
+    for dark in [false, true] {
+        render_screen(&app.state, "derive-hkdf-aes", 1060, 900, dark);
+    }
+    let _ = app.update(Message::HkdfOutput {
+        id,
+        output: crate::state::HkdfOutputChoice::DerivationSecret,
+    });
+    for dark in [false, true] {
+        render_screen(&app.state, "derive-hkdf-secret", 1060, 900, dark);
+    }
+    let _ = app.update(Message::DismissKeyOperation(id));
+    assert!(app.state.key_form.is_none());
+    let _ = app.update(Message::HkdfOutput {
+        id,
+        output: crate::state::HkdfOutputChoice::Aes128,
+    });
+    assert!(app.state.key_form.is_none());
 }

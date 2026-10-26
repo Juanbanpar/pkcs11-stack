@@ -39,6 +39,7 @@ impl std::fmt::Debug for Action {
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ManagementTask {
+    ImportMlKem,
     Generate,
     Import,
     Random,

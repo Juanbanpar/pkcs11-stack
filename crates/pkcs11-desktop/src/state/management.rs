@@ -56,6 +56,7 @@ impl std::fmt::Display for KeyChoice {
 }
 #[derive(Clone, Copy)]
 pub enum FilePurpose {
+    MlKem,
     Certificate,
     Export {
         module: ResourceId,
@@ -75,6 +76,10 @@ pub struct DeleteConfirmation {
 }
 #[derive(Default)]
 pub struct ManagementUi {
+    pub ml_kem_label: String,
+    pub ml_kem_id: String,
+    pub ml_kem_path: String,
+    pub picked_ml_kem: Option<PathBuf>,
     pub keys: Vec<KeyChoice>,
     pub key: Option<KeyChoice>,
     pub capabilities_loaded: bool,
@@ -166,6 +171,30 @@ impl UiState {
             id,
             label: self.management.key_label.as_bytes().to_vec(),
             always_authenticate: self.management.always_authenticate,
+        };
+        self.begin_management(self.module()?.id, self.token()?.id, action)
+    }
+    pub fn import_ml_kem(&mut self) -> Option<BackendCommand> {
+        if !self.can_manage() || self.token_page != TokenPage::Operations {
+            return None;
+        }
+        let id = identifier(&self.management.ml_kem_id);
+        if !id.as_ref().is_some_and(|id| id.len() <= 128)
+            || self.management.ml_kem_label.is_empty()
+            || self.management.ml_kem_label.len() > 128
+            || self.management.ml_kem_path.is_empty()
+        {
+            self.notification = Some(Notification::Error(BackendError::MlKemImportInput));
+            return None;
+        }
+        let action = ManagementAction::ImportMlKem {
+            path: self
+                .management
+                .picked_ml_kem
+                .clone()
+                .unwrap_or_else(|| PathBuf::from(&self.management.ml_kem_path)),
+            id: id?,
+            label: self.management.ml_kem_label.as_bytes().to_vec(),
         };
         self.begin_management(self.module()?.id, self.token()?.id, action)
     }
@@ -281,6 +310,18 @@ impl UiState {
             }
             FilePurpose::Certificate
         };
+        self.begin_management_file(purpose)
+    }
+    pub fn begin_ml_kem_file(&mut self) -> Option<(RequestId, FilePurpose)> {
+        if self.token_page != TokenPage::Operations || !self.can_manage() {
+            return None;
+        }
+        self.begin_management_file(FilePurpose::MlKem)
+    }
+    fn begin_management_file(&mut self, purpose: FilePurpose) -> Option<(RequestId, FilePurpose)> {
+        if self.management.file_request.is_some() || !self.can_submit() {
+            return None;
+        }
         let id = self.request_id()?;
         self.management.file_request = Some(FileRequest { id, purpose });
         Some((id, purpose))
@@ -302,6 +343,11 @@ impl UiState {
         let request = self.management.file_request.take()?;
         let path = path?;
         match request.purpose {
+            FilePurpose::MlKem if self.token_page == TokenPage::Operations => {
+                self.management.ml_kem_path = path.to_string_lossy().into_owned();
+                self.management.picked_ml_kem = Some(path);
+                None
+            }
             FilePurpose::Certificate if self.token_page == TokenPage::Operations => {
                 self.management.certificate_path = path.to_string_lossy().into_owned();
                 self.management.picked_certificate = Some(path);
@@ -325,6 +371,9 @@ impl UiState {
 
 #[derive(Clone, Copy)]
 pub enum ManagementField {
+    MlKemLabel,
+    MlKemId,
+    MlKemPath,
     KeyLabel,
     KeyId,
     CertificateLabel,
@@ -337,6 +386,13 @@ impl UiState {
             return;
         }
         match field {
+            ManagementField::MlKemLabel => self.management.ml_kem_label = value,
+            ManagementField::MlKemId => self.management.ml_kem_id = value,
+            ManagementField::MlKemPath => {
+                self.management.ml_kem_path = value;
+                self.management.picked_ml_kem = None;
+                self.management.file_request = None;
+            }
             ManagementField::KeyLabel => self.management.key_label = value,
             ManagementField::KeyId => self.management.key_id = value,
             ManagementField::CertificateLabel => self.management.certificate_label = value,

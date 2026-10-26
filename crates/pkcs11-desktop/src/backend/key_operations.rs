@@ -15,6 +15,7 @@ use std::{
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum KeyProfile {
+    Hkdf(pkcs11_client::HkdfCapabilities),
     Classical(KeyOperationProfile),
     MlKem(pkcs11_client::MlKemParameterSet),
 }
@@ -22,20 +23,24 @@ impl KeyProfile {
     pub fn supports(self, mode: CryptoMode) -> bool {
         matches!(
             (self, mode),
-            (
-                Self::Classical(KeyOperationProfile::EcdhRaw(_)),
-                CryptoMode::Derive
-            ) | (
-                Self::Classical(KeyOperationProfile::AesKeyWrap(_)),
-                CryptoMode::Wrap | CryptoMode::Unwrap
-            ) | (
-                Self::MlKem(_),
-                CryptoMode::Encapsulate | CryptoMode::Decapsulate
-            )
+            (Self::Hkdf(_), CryptoMode::Hkdf)
+                | (
+                    Self::Classical(KeyOperationProfile::EcdhRaw(_)),
+                    CryptoMode::Derive
+                )
+                | (
+                    Self::Classical(KeyOperationProfile::AesKeyWrap(_)),
+                    CryptoMode::Wrap | CryptoMode::Unwrap
+                )
+                | (
+                    Self::MlKem(_),
+                    CryptoMode::Encapsulate | CryptoMode::Decapsulate
+                )
         )
     }
 }
 pub enum KeyJob {
+    Hkdf(super::HkdfJob),
     Encapsulate {
         output: PathBuf,
         id: Vec<u8>,
@@ -88,7 +93,8 @@ impl Registry {
     ) -> Result<(usize, pkcs11_client::Pkcs11Uri, pkcs11_client::ObjectRef), BackendError> {
         if !matches!(
             scope.mode,
-            CryptoMode::Derive
+            CryptoMode::Hkdf
+                | CryptoMode::Derive
                 | CryptoMode::Wrap
                 | CryptoMode::Unwrap
                 | CryptoMode::Encapsulate
@@ -123,7 +129,15 @@ impl Registry {
         let (index, uri, reference) = self.key_location(scope)?;
         let module = &self.modules[index];
         let profile = read_session(module, &uri, module.read_mode(scope.token)?, |session| {
-            if matches!(
+            if scope.mode == CryptoMode::Hkdf {
+                let choices = session
+                    .hkdf_options(&reference)
+                    .map_err(|e| BackendError::from(&e))?;
+                let [profile] = choices.as_slice() else {
+                    return Err(BackendError::KeyOperationUnavailable);
+                };
+                Ok(KeyProfile::Hkdf(*profile))
+            } else if matches!(
                 scope.mode,
                 CryptoMode::Encapsulate | CryptoMode::Decapsulate
             ) {
@@ -150,6 +164,7 @@ impl Registry {
             return Err(BackendError::KeyOperationUnavailable);
         }
         let selected = match selected {
+            KeyProfile::Hkdf(profile) => return self.hkdf_action(scope, profile, job),
             KeyProfile::Classical(profile) => profile,
             KeyProfile::MlKem(parameter) => return self.kem_action(scope, parameter, job),
         };

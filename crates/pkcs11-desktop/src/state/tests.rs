@@ -1139,6 +1139,10 @@ fn key_actions_follow_typed_metadata_instead_of_labels_or_formatted_fields() {
             state.can_open_key_operation(Decapsulate),
             class == C::PRIVATE_KEY && kind == Some(K::ML_KEM)
         );
+        assert_eq!(
+            state.can_open_key_operation(Hkdf),
+            class == C::SECRET_KEY && matches!(kind, Some(K::GENERIC_SECRET | K::HKDF))
+        );
         state.object_details = None;
         assert!(!state.can_open_crypto(Sign));
         assert!(!state.can_open_cipher(Encrypt));
@@ -2285,4 +2289,214 @@ fn ml_kem_file_pickers_preserve_native_paths() {
             _ => panic!("ML-KEM job"),
         }
     }
+}
+
+#[test]
+fn ml_kem_public_import_validates_identity_and_rejects_stale_pickers() {
+    let mut state = managing();
+    state.token_page = TokenPage::Operations;
+    assert!(state.import_ml_kem().is_none());
+    state.edit_management(ManagementField::MlKemPath, "peer.der".into());
+    state.edit_management(ManagementField::MlKemLabel, "é".repeat(65));
+    state.edit_management(ManagementField::MlKemId, "D75701".into());
+    assert!(state.import_ml_kem().is_none());
+    state.edit_management(ManagementField::MlKemLabel, "é".repeat(64));
+    state.edit_management(ManagementField::MlKemId, "AA".repeat(129));
+    assert!(state.import_ml_kem().is_none());
+    state.edit_management(ManagementField::MlKemId, "GG".into());
+    assert!(state.import_ml_kem().is_none());
+    state.edit_management(ManagementField::MlKemId, "D75701".into());
+    let (picker, _) = state.begin_ml_kem_file().unwrap();
+    state.edit_management(ManagementField::MlKemPath, "current.der".into());
+    state.object_file_picked(picker, Some("old.der".into()));
+    assert_eq!(state.management.ml_kem_path, "current.der");
+    state.loaded_modules[0].tokens[0].write_protected = true;
+    assert!(state.begin_ml_kem_file().is_none());
+    assert!(state.import_ml_kem().is_none());
+    state.loaded_modules[0].tokens[0].write_protected = false;
+    state.loaded_modules[0].tokens[0].login = LoginState::Public;
+    assert!(state.import_ml_kem().is_none());
+    state.loaded_modules[0].tokens[0].login = LoginState::User;
+    let BackendCommand::Manage {
+        action: crate::backend::ManagementAction::ImportMlKem { path, id, label },
+        ..
+    } = state.import_ml_kem().unwrap()
+    else {
+        panic!("import")
+    };
+    assert_eq!(path, PathBuf::from("current.der"));
+    assert_eq!(id, [0xD7, 0x57, 1]);
+    assert_eq!(label.len(), 128);
+    assert!(!state.can_cancel());
+    assert!(state.management.ml_kem_path.is_empty());
+}
+
+#[cfg(unix)]
+#[test]
+fn ml_kem_import_picker_preserves_native_paths_and_ignores_navigation_and_shutdown() {
+    use std::os::unix::ffi::OsStringExt;
+    for shutdown in [false, true] {
+        let mut state = managing();
+        state.token_page = TokenPage::Operations;
+        let path = PathBuf::from(std::ffi::OsString::from_vec(b"peer-\xff.der".to_vec()));
+        let (picker, _) = state.begin_ml_kem_file().unwrap();
+        state.object_file_picked(picker, Some(path.clone()));
+        state.edit_management(ManagementField::MlKemLabel, "peer".into());
+        state.edit_management(ManagementField::MlKemId, "01".into());
+        let BackendCommand::Manage {
+            action: crate::backend::ManagementAction::ImportMlKem { path: actual, .. },
+            ..
+        } = state.import_ml_kem().unwrap()
+        else {
+            panic!("import")
+        };
+        assert_eq!(actual, path);
+        let mut state = managing();
+        state.token_page = TokenPage::Operations;
+        let (picker, _) = state.begin_ml_kem_file().unwrap();
+        if shutdown {
+            state.begin_shutdown();
+        } else {
+            state.select_token(ResourceId(1), ResourceId(3));
+        }
+        state.object_file_picked(picker, Some(path));
+        assert!(state.management.picked_ml_kem.is_none());
+    }
+}
+
+fn hkdf_state(
+    digest: pkcs11_client::DigestAlgorithm,
+) -> (UiState, RequestId, crate::backend::CryptoScope) {
+    use crate::backend::{CryptoMode, KeyProfile};
+    let (mut state, old, _) = key_state(CryptoMode::Derive);
+    state.dismiss_key_operation(old);
+    state.objects[0].class = Some(pkcs11_client::ObjectClass::SECRET_KEY);
+    state.object_details.as_mut().unwrap().key_type = Some(pkcs11_client::KeyType::GENERIC_SECRET);
+    let BackendCommand::CryptoOptions { id, scope, .. } =
+        state.open_key_operation(CryptoMode::Hkdf).unwrap()
+    else {
+        panic!("HKDF capabilities")
+    };
+    state.event(complete(
+        id,
+        BackendResult::KeyOptions {
+            scope,
+            profile: KeyProfile::Hkdf(pkcs11_client::HkdfCapabilities {
+                digest,
+                input_length: digest.output_len(),
+            }),
+        },
+    ));
+    (state, id, scope)
+}
+#[test]
+fn hkdf_forms_validate_public_inputs_outputs_and_submit_typed_jobs_once() {
+    use crate::backend::{KeyJob, KeyProfile};
+    use pkcs11_client::{DigestAlgorithm, HkdfOutput};
+    for digest in [
+        DigestAlgorithm::Sha256,
+        DigestAlgorithm::Sha384,
+        DigestAlgorithm::Sha512,
+    ] {
+        for output in HkdfOutputChoice::ALL {
+            let (mut state, id, _) = hkdf_state(digest);
+            assert!(state.key_picker(id, KeyField::Input).is_none());
+            assert!(state.key_picker(id, KeyField::Output).is_none());
+            assert!(state.submit_key_operation(id).is_none());
+            state.key_edit(id, KeyField::Label, "new key".into());
+            state.key_edit(id, KeyField::Id, "D75901".into());
+            state.hkdf_output(id, output);
+            for salt in ["a".to_string(), "zz".to_string(), "AA".repeat(4097)] {
+                state.key_edit(id, KeyField::Salt, salt);
+                assert!(state.submit_key_operation(id).is_none());
+                assert_eq!(
+                    state.notification,
+                    Some(Notification::Error(BackendError::HkdfInput))
+                );
+            }
+            state.key_edit(id, KeyField::Salt, "00fF".into());
+            state.key_edit(id, KeyField::Info, "é".repeat(2049));
+            assert!(state.submit_key_operation(id).is_none());
+            state.key_edit(id, KeyField::Info, "é".repeat(2048));
+            if output == HkdfOutputChoice::DerivationSecret {
+                for length in [
+                    "0".to_string(),
+                    "NaN".to_string(),
+                    (255 * digest.output_len() + 1).to_string(),
+                ] {
+                    state.key_edit(id, KeyField::Length, length);
+                    assert!(state.submit_key_operation(id).is_none());
+                }
+                state.key_edit(
+                    id,
+                    KeyField::Length,
+                    (255 * digest.output_len()).to_string(),
+                );
+            }
+            let BackendCommand::KeyOperation {
+                profile: KeyProfile::Hkdf(caps),
+                job: KeyJob::Hkdf(job),
+                ..
+            } = state.submit_key_operation(id).unwrap()
+            else {
+                panic!("HKDF request")
+            };
+            assert_eq!(caps.digest, digest);
+            assert_eq!(job.salt, [0, 255]);
+            assert_eq!(job.info.len(), 4096);
+            assert_eq!(job.id, [0xD7, 0x59, 1]);
+            assert_eq!(
+                job.output,
+                match output {
+                    HkdfOutputChoice::Aes128 => HkdfOutput::Aes128,
+                    HkdfOutputChoice::Aes192 => HkdfOutput::Aes192,
+                    HkdfOutputChoice::Aes256 => HkdfOutput::Aes256,
+                    HkdfOutputChoice::DerivationSecret => HkdfOutput::DerivationSecret {
+                        length: 255 * digest.output_len()
+                    },
+                }
+            );
+            assert!(!state.can_cancel());
+            assert!(state.key_form.is_none());
+        }
+    }
+}
+#[test]
+fn hkdf_authentication_scope_and_stale_choices_are_rechecked_before_submission() {
+    use crate::backend::{CryptoMode, KeyProfile};
+    let (mut state, id, scope) = hkdf_state(pkcs11_client::DigestAlgorithm::Sha256);
+    state.key_edit(id, KeyField::Label, "new key".into());
+    state.key_edit(id, KeyField::Id, "01".into());
+    state.loaded_modules[0].tokens[0].write_protected = true;
+    assert!(state.submit_key_operation(id).is_none());
+    state.loaded_modules[0].tokens[0].write_protected = false;
+    state.loaded_modules[0].tokens[0].login = LoginState::Public;
+    assert!(!state.can_open_key_operation(CryptoMode::Hkdf));
+    state.loaded_modules[0].tokens[0].login = LoginState::User;
+    state.select_token(ResourceId(1), ResourceId(3));
+    state.event(complete(
+        id,
+        BackendResult::KeyOptions {
+            scope,
+            profile: KeyProfile::Hkdf(pkcs11_client::HkdfCapabilities {
+                digest: pkcs11_client::DigestAlgorithm::Sha256,
+                input_length: 32,
+            }),
+        },
+    ));
+    state.hkdf_output(id, HkdfOutputChoice::DerivationSecret);
+    state.key_edit(id, KeyField::Salt, "stale".into());
+    assert!(state.key_form.is_none());
+    let (mut state, id, _) = hkdf_state(pkcs11_client::DigestAlgorithm::Sha256);
+    state.key_edit(id, KeyField::Label, "new key".into());
+    state.key_edit(id, KeyField::Id, "01".into());
+    let BackendCommand::KeyOperation {
+        job: crate::backend::KeyJob::Hkdf(job),
+        ..
+    } = state.submit_key_operation(id).unwrap()
+    else {
+        panic!("HKDF request")
+    };
+    assert!(job.salt.is_empty());
+    assert!(job.info.is_empty());
 }
