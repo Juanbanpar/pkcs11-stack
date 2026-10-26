@@ -348,6 +348,7 @@ fn module(id: u64, tokens: Vec<TokenEntry>) -> ModuleEntry {
         manufacturer: "Maker".into(),
         library_version: "1.0".into(),
         cryptoki_version: "2.40".into(),
+        selected_interface: "2.40".into(),
         slots: Vec::new(),
         tokens,
         discovery_error: None,

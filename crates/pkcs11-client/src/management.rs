@@ -83,6 +83,24 @@ impl Provider {
             module: Arc::new(Module::load(path)?),
         })
     }
+    /// Load a trusted module with automatic or exact standard-interface selection.
+    pub fn load_with_options(
+        path: impl AsRef<Path>,
+        options: crate::ModuleOptions,
+    ) -> Result<Self, Error> {
+        Ok(Self {
+            module: Arc::new(Module::load_with_options(path, options)?),
+        })
+    }
+    /// Selected function-table version and flags, independent of library metadata.
+    pub fn interface(&self) -> crate::InterfaceInfo {
+        self.module.interface()
+    }
+    /// Whether a pointer exists in the selected function table. A provider stub
+    /// can still reject the operation when called.
+    pub fn supports_function(&self, function: crate::Function) -> bool {
+        self.module.supports_function(function)
+    }
     /// Loaded library metadata.
     pub fn info(&self) -> &LibraryInfo {
         self.module.info()

@@ -66,7 +66,10 @@ fn command_workflows() {
     };
     std::fs::write(&f.pin, b"12345678\n").unwrap();
     std::fs::write(&f.so, b"87654321\r\n").unwrap();
-    f.ok(&["info"]);
+    let info = f.ok(&["info", "--interface-version", "2.40"]);
+    assert_eq!(info["interface"]["version"], "2.40");
+    assert_eq!(info["interface"]["legacy"], true);
+    assert!(f.ok(&["info"])["interface"]["version"].is_string());
     f.ok(&["slots"]);
     let tokens = f.ok(&["tokens"]);
     let uninitialized = tokens

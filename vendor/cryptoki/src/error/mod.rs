@@ -46,6 +46,12 @@ pub enum Error {
     /// A required PKCS#11 symbol was not found in the loaded library.
     MissingSymbol(&'static str),
 
+    /// No supported standard interface satisfies the requested selection.
+    InterfaceUnavailable,
+
+    /// The module returned malformed interface metadata.
+    InvalidInterface(&'static str),
+
     /// The value is not one of those expected.
     InvalidValue,
 
@@ -66,6 +72,8 @@ impl fmt::Display for Error {
             Error::NulError(e) => write!(f, "An interior nul byte was found ({e})"),
             Error::NullFunctionPointer => write!(f, "Calling a NULL function pointer"),
             Error::MissingSymbol(name) => write!(f, "Missing PKCS#11 symbol: {name}"),
+            Error::InterfaceUnavailable => write!(f, "Requested PKCS#11 interface unavailable"),
+            Error::InvalidInterface(reason) => write!(f, "Invalid PKCS#11 interface: {reason}"),
             Error::InvalidValue => write!(f, "The value is not one of the expected options"),
             Error::PinNotSet => write!(f, "Pin has not been set before trying to log in"),
         }
@@ -86,7 +94,9 @@ impl std::error::Error for Error {
             | Error::NullFunctionPointer
             | Error::MissingSymbol(_)
             | Error::PinNotSet
-            | Error::InvalidValue => None,
+            | Error::InvalidValue
+            | Error::InterfaceUnavailable
+            | Error::InvalidInterface(_) => None,
         }
     }
 }

@@ -421,5 +421,14 @@ pub(crate) fn command() -> Command {
             .default_value("text")
             .global(true),
         )
+        .arg(
+            value(
+                "interface-version",
+                "Require an exact standard interface, or negotiate automatically",
+            )
+            .value_parser(["auto", "2.40", "3.0", "3.1", "3.2"])
+            .default_value("auto")
+            .global(true),
+        )
         .subcommands(commands)
 }

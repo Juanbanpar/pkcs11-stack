@@ -17,6 +17,13 @@ use crate::{
     error::{backend, unique},
 };
 
+/// Standard function-table selection used when loading a module.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ModuleOptions {
+    /// Automatic negotiation by default; an exact selection never falls back.
+    pub interface: crate::InterfaceSelection,
+}
+
 /// Owns one successful initialization of a trusted PKCS#11 library.
 ///
 /// Sessions borrow this owner or retain it through shared ownership.
@@ -60,8 +67,18 @@ impl Module {
     ///
     /// Module loading executes vendor code. There is no URI-driven automatic load.
     pub fn load(path: impl AsRef<Path>) -> Result<Self, Error> {
+        Self::load_with_options(path, ModuleOptions::default())
+    }
+
+    /// Load a trusted module with explicit standard-interface selection.
+    /// Ownership, native locking and initialization rules are identical to `load`.
+    pub fn load_with_options(
+        path: impl AsRef<Path>,
+        options: ModuleOptions,
+    ) -> Result<Self, Error> {
         let path = path.as_ref().canonicalize().map_err(Error::ModulePath)?;
-        let raw = Pkcs11::new(&path).map_err(|e| backend("load module", e))?;
+        let raw = Pkcs11::new_with_interface(&path, options.interface)
+            .map_err(|e| backend("load module", e))?;
         // On failure (including AlreadyInitialized), do not call C_Finalize.
         raw.initialize(CInitializeArgs::new(CInitializeFlags::OS_LOCKING_OK))
             .map_err(|e| backend("initialize module", e))?;
@@ -91,6 +108,18 @@ impl Module {
     /// Canonical path of this explicitly configured module.
     pub fn path(&self) -> &Path {
         &self.path
+    }
+    /// Selected function-table interface, independently of library metadata.
+    pub fn interface(&self) -> crate::InterfaceInfo {
+        // Every Module is initialized with a context; finalization consumes it.
+        self.raw.as_ref().expect("live module context").interface()
+    }
+    /// Whether a function pointer exists in the selected table. A provider may
+    /// still return CKR_FUNCTION_NOT_SUPPORTED when that function is called.
+    pub fn supports_function(&self, function: crate::Function) -> bool {
+        self.raw
+            .as_ref()
+            .is_some_and(|raw| raw.is_fn_supported(function))
     }
     /// Library metadata captured after successful initialization.
     pub fn info(&self) -> &LibraryInfo {

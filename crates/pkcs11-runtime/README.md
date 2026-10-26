@@ -28,6 +28,22 @@ module.finalize()?;
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
+## Interface compatibility
+
+`Module::load` requests the standard `PKCS 11` interface in order: 3.2, 3.1,
+3.0, then the legacy 2.40 function list. The default vendor interface is never
+interpreted as a standard table. Null pointers, mismatched versions and missing
+lifecycle functions are rejected before initialization. Unsupported versions do
+not cause reads beyond a known function-table layout.
+
+`Module::load_with_options` accepts `ModuleOptions` with
+`InterfaceSelection::Exact(InterfaceVersion::V2_40)` (or a supported 3.x version).
+An exact selection never downgrades. `Module::interface` reports the selected
+table independently of `C_GetInfo`; `supports_function` reports pointer presence,
+not proof that a provider implements an operation. A provider may return
+`CKR_FUNCTION_NOT_SUPPORTED` from a non-null stub. Pre-OASIS versions are outside
+the supported interface range.
+
 ## Ownership and shutdown
 
 `Module::load` canonicalizes an explicitly supplied, trusted library path and uses

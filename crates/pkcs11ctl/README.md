@@ -389,3 +389,7 @@ verification, random generation and administration commands. The required PQC
 provider lane also tests ML-DSA CLI workflows and OpenSSL interoperability.
 `tools/test-kem-hkdf.sh` tests ML-KEM, HKDF and hybrid CLI workflows on a disposable
 Kryoptic token; see the [test guide](../../tests/README.md#persistent-ml-kem-and-hkdf).
+
+`--interface-version auto|2.40|3.0|3.1|3.2` selects module negotiation globally.
+The default is `auto`; exact versions never downgrade. `info` reports the
+selected interface separately from the provider's reported PKCS#11 version.

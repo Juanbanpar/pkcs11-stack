@@ -20,19 +20,20 @@ macro_rules! get_pkcs11_func {
 
 mod general_purpose;
 mod info;
+mod interface;
 mod locking;
 mod session_management;
 mod slot_token_management;
 
 pub use general_purpose::*;
 pub use info::*;
+pub use interface::{InterfaceInfo, InterfaceSelection, InterfaceVersion};
 pub use locking::*;
 
-use crate::error::{Error, Result, Rv};
+use crate::error::{Error, Result};
 
 use std::fmt;
 use std::path::Path;
-use std::ptr;
 use std::sync::Arc;
 
 /// Enum for various function lists
@@ -54,12 +55,14 @@ pub(crate) struct Pkcs11Impl {
     // valid.
     _pkcs11_lib: cryptoki_sys::Pkcs11,
     function_list: FunctionList,
+    interface: InterfaceInfo,
 }
 
 impl fmt::Debug for Pkcs11Impl {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("Pkcs11Impl")
             .field("function_list", &self.function_list)
+            .field("interface", &self.interface)
             .finish()
     }
 }
@@ -87,11 +90,25 @@ impl Pkcs11 {
     where
         P: AsRef<Path>,
     {
+        Self::new_with_interface(filename, InterfaceSelection::Auto)
+    }
+
+    /// Load a trusted module with explicit standard-interface selection.
+    /// No initialization is performed and an exact selection never falls back.
+    pub fn new_with_interface<P: AsRef<Path>>(
+        filename: P,
+        selection: InterfaceSelection,
+    ) -> Result<Self> {
         unsafe {
             let pkcs11_lib =
                 cryptoki_sys::Pkcs11::new(filename.as_ref()).map_err(Error::LibraryLoading)?;
-            Self::_new(pkcs11_lib)
+            Self::_new(pkcs11_lib, selection)
         }
+    }
+
+    /// The function-table interface actually selected, independently of C_GetInfo.
+    pub fn interface(&self) -> InterfaceInfo {
+        self.impl_.interface
     }
 
     /// Instantiate a new context from current executable, the PKCS11 implementation is contained in the current executable
@@ -102,63 +119,36 @@ impl Pkcs11 {
             #[cfg(windows)]
             let this_lib = libloading::os::windows::Library::this()?;
             let pkcs11_lib = cryptoki_sys::Pkcs11::from_library(this_lib)?;
-            Self::_new(pkcs11_lib)
+            Self::_new(pkcs11_lib, InterfaceSelection::Auto)
         }
     }
 
-    unsafe fn _new(pkcs11_lib: cryptoki_sys::Pkcs11) -> Result<Self> {
-        /* First try the 3.* API to get default interface. It might have some more functions than
-         * the 2.40 API */
-        let mut interface: *mut cryptoki_sys::CK_INTERFACE = ptr::null_mut();
-        if pkcs11_lib.C_GetInterface.is_ok() {
-            Rv::from(pkcs11_lib.C_GetInterface(
-                ptr::null_mut(),
-                ptr::null_mut(),
-                &mut interface,
-                0,
-            ))
-            .into_result(Function::GetInterface)?;
-            if !interface.is_null() {
-                let ifce: cryptoki_sys::CK_INTERFACE = *interface;
-
-                let list_ptr: *mut cryptoki_sys::CK_FUNCTION_LIST =
-                    ifce.pFunctionList as *mut cryptoki_sys::CK_FUNCTION_LIST;
-                let list: cryptoki_sys::CK_FUNCTION_LIST = *list_ptr;
-                if list.version.major >= 3 {
-                    if list.version.minor >= 2 {
-                        let list32_ptr: *mut cryptoki_sys::CK_FUNCTION_LIST_3_2 =
-                            ifce.pFunctionList as *mut cryptoki_sys::CK_FUNCTION_LIST_3_2;
-                        return Ok(Pkcs11 {
-                            impl_: Arc::new(Pkcs11Impl {
-                                _pkcs11_lib: pkcs11_lib,
-                                function_list: FunctionList::V3_2(*list32_ptr),
-                            }),
-                        });
-                    }
-                    let list30_ptr: *mut cryptoki_sys::CK_FUNCTION_LIST_3_0 =
-                        ifce.pFunctionList as *mut cryptoki_sys::CK_FUNCTION_LIST_3_0;
-                    return Ok(Pkcs11 {
-                        impl_: Arc::new(Pkcs11Impl {
-                            _pkcs11_lib: pkcs11_lib,
-                            function_list: FunctionList::V3_0(v30tov32(*list30_ptr)),
-                        }),
-                    });
-                }
-                /* fall back to the 2.* API */
+    unsafe fn _new(
+        pkcs11_lib: cryptoki_sys::Pkcs11,
+        selection: InterfaceSelection,
+    ) -> Result<Self> {
+        let (function_list, interface) = interface::select(&pkcs11_lib, selection)?;
+        let table = match &function_list {
+            FunctionList::V2(table) | FunctionList::V3_0(table) | FunctionList::V3_2(table) => {
+                table
+            }
+        };
+        // Reject missing lifecycle functions before initialization can succeed
+        // without a corresponding way to finalize the owned context.
+        for (name, present) in [
+            ("C_Initialize", table.C_Initialize.is_some()),
+            ("C_Finalize", table.C_Finalize.is_some()),
+            ("C_GetInfo", table.C_GetInfo.is_some()),
+        ] {
+            if !present {
+                return Err(Error::MissingSymbol(name));
             }
         }
-
-        if pkcs11_lib.C_GetFunctionList.is_err() {
-            return Err(Error::MissingSymbol("C_GetFunctionList"));
-        }
-        let mut list_ptr: *mut cryptoki_sys::CK_FUNCTION_LIST = ptr::null_mut();
-        Rv::from(pkcs11_lib.C_GetFunctionList(&mut list_ptr))
-            .into_result(Function::GetFunctionList)?;
-
         Ok(Pkcs11 {
             impl_: Arc::new(Pkcs11Impl {
                 _pkcs11_lib: pkcs11_lib,
-                function_list: FunctionList::V2(v2tov3(*list_ptr)),
+                function_list,
+                interface,
             }),
         })
     }

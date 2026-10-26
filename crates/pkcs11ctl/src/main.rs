@@ -31,7 +31,16 @@ fn execute(matches: &clap::ArgMatches) -> Result<()> {
     } else {
         None
     };
-    let mut module = pkcs11_client::Provider::load(module_path)?;
+    use pkcs11_client::{InterfaceSelection, InterfaceVersion, ModuleOptions};
+    let interface = match get(matches, "interface-version") {
+        Some("2.40") => InterfaceSelection::Exact(InterfaceVersion::V2_40),
+        Some("3.0") => InterfaceSelection::Exact(InterfaceVersion::V3_0),
+        Some("3.1") => InterfaceSelection::Exact(InterfaceVersion::V3_1),
+        Some("3.2") => InterfaceSelection::Exact(InterfaceVersion::V3_2),
+        _ => InterfaceSelection::Auto,
+    };
+    let mut module =
+        pkcs11_client::Provider::load_with_options(module_path, ModuleOptions { interface })?;
     let outcome = operations::run(&mut module, name, m, &inputs);
     let finalized = module.finalize();
     let output = finish(outcome, finalized, "module finalization")?;

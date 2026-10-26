@@ -36,6 +36,27 @@ encodings, including the regression described by GHSA-5x2r-hc65-25f9.
 Compile-fail examples check that modules, sessions and objects cannot be used
 outside their owner lifetimes.
 
+## OASIS compatibility coverage
+
+The target interface range is 2.40 with Errata 01, 3.0, 3.1 and 3.2. This is a
+consumer application; advertised mechanisms do not imply executable algorithms
+or formal conformance. Coverage is recorded per capability below.
+
+| Capability | Status | Frontends and evidence |
+| --- | --- | --- |
+| Known interface negotiation and exact version selection | Implemented | Runtime/client; CLI `--interface-version`; desktop displays automatic selection. Native Unix ABI fixtures compile against all four official header sets. |
+| Null/mismatched interface rejection and unavailable-interface fallback | Implemented | Native Unix fixtures cover lifecycle pointers, provider failures, interface-only modules and multiple interfaces. |
+| Operation expansion, metadata compatibility and explicit legacy policy | Pending | Existing operation restrictions remain in force. |
+| Classical algorithm expansion | Pending | Existing RSA/EC profiles only. |
+| Symmetric algorithms, MACs and KDF expansion | Pending | Existing AES-GCM, AES-KW and constrained HKDF profiles only. |
+| HashML-DSA, SLH-DSA and additional TLS signatures | Pending | Existing pure ML-DSA and ML-KEM profiles remain supported. |
+| Legacy algorithm execution | Pending | No legacy opt-in or algorithms are enabled yet. |
+
+The native fixtures require a C99 compiler (`cc`) on Unix and run with the normal
+runtime tests. They exercise independent function-table layouts and are not
+cryptographic provider tests. Windows builds compile the Rust interfaces; native
+fixture execution there is not covered by this runner.
+
 ## SoftHSM integration
 
 Install SoftHSM, OpenSC, OpenSSL and Python 3, then run:

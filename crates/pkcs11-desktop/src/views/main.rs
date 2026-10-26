@@ -65,7 +65,8 @@ fn module_view<'a>(state: &'a UiState, module: &'a ModuleEntry) -> Element<'a, M
                 field("Library file", module.path.to_string_lossy().into_owned()),
                 field("Manufacturer", &module.manufacturer),
                 field("Library version", &module.library_version),
-                field("PKCS#11 version", &module.cryptoki_version)
+                field("PKCS#11 version", &module.cryptoki_version),
+                field("Selected interface", &module.selected_interface)
             ]
             .spacing(12)
         )

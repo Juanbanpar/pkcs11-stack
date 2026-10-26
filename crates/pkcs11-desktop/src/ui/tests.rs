@@ -54,6 +54,7 @@ fn state() -> UiState {
         manufacturer: "Maker".into(),
         library_version: "1.0".into(),
         cryptoki_version: "2.40".into(),
+        selected_interface: "2.40".into(),
         slots: vec![],
         tokens: vec![token],
         discovery_error: None,

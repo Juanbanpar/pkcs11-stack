@@ -34,8 +34,9 @@ mod signing;
 pub use pool::{SessionLease, SessionPool};
 pub use signing::*;
 
+pub use cryptoki::context::{Function, InterfaceInfo, InterfaceSelection, InterfaceVersion};
 pub use error::Error;
-pub use module::{Module, Token, validate_token_uri};
+pub use module::{Module, ModuleOptions, Token, validate_token_uri};
 pub use session::{AttributeValues, Authentication, Object, ObjectRef, Pin, Session, SessionMode};
 // Reuse cryptoki's domain representations, without exposing lifecycle or handles.
 pub use cryptoki::{
