@@ -28,6 +28,8 @@ for ident in members:
         raise SystemExit(f"Forbidden sibling dependencies for {name}: {siblings - allowed[name]}")
     if "cryptoki" in direct and name != "pkcs11-runtime":
         raise SystemExit(f"Only runtime may directly consume cryptoki: {name}")
+    if "ml-dsa" in direct and name != "pkcs11-client":
+        raise SystemExit(f"Only client may directly consume the ML-DSA software verifier: {name}")
     if name == "pkcs11ctl" and "pkcs11-client" not in direct:
         raise SystemExit("CLI must reuse client")
     if name == "pkcs11-desktop" and "pkcs11-client" not in direct:
@@ -39,6 +41,9 @@ for ident in members:
             visited.add(current)
             pending.extend(nodes[current]["dependencies"])
     transitive = {packages[d]["name"] for d in visited}
+    for dependency in visited:
+        if packages[dependency]["name"] == "ml-dsa" and set(nodes[dependency]["features"]) != {"alloc"}:
+            raise SystemExit("ML-DSA software verification must enable only alloc")
     if name != "pkcs11-desktop" and {"pkcs11-desktop", "iced"} & transitive:
         raise SystemExit(f"Desktop dependency outside desktop: {name}")
     if name != "pkcs11-rustls-adapter" and {"rustls", "rustls-pki-types", "rustls-webpki"} & transitive:

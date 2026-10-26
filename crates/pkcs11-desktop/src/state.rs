@@ -1,18 +1,20 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-#[cfg(test)]
-use crate::backend::SyntheticOutcome;
 use crate::backend::{
     BackendCommand, BackendError, BackendEvent, BackendResult, LoginRole, LoginState,
-    MechanismEntry, MetadataField, ModuleEntry, ObjectEntry, RequestId, ResourceId, SecretInput,
+    MechanismEntry, ModuleEntry, ObjectDetails, ObjectEntry, RequestId, ResourceId, SecretInput,
     TokenEntry,
 };
+#[cfg(test)]
+use crate::backend::{MetadataField, SyntheticOutcome};
 use pkcs11_client::MechanismType;
 use secrecy::SecretString;
 use std::path::PathBuf;
 mod administration;
 pub use administration::{AdministrationField, AdministrationForm, AdministrationPinField};
 mod cipher;
+mod hkdf;
 mod key_operations;
+pub use hkdf::{HkdfForm, HkdfOutputChoice};
 pub use key_operations::{KeyField, KeyForm, WrapTarget};
 mod crypto;
 pub use cipher::{CipherChoice, CipherField, CipherForm};
@@ -120,7 +122,7 @@ pub struct UiState {
     pub mechanisms: Vec<MechanismEntry>,
     pub object_filter: String,
     pub mechanism_filter: String,
-    pub object_details: Option<Vec<MetadataField>>,
+    pub object_details: Option<ObjectDetails>,
     pub selected_mechanism: Option<MechanismType>,
     pub objects_loaded: bool,
     pub mechanisms_loaded: bool,
@@ -698,6 +700,13 @@ impl UiState {
                     Ok(BackendResult::Capabilities { keys, .. }) => {
                         self.management.keys = keys.into_iter().map(KeyChoice).collect();
                         self.management.key = self.management.keys.first().copied();
+                        if !self
+                            .management
+                            .key
+                            .is_some_and(|key| key.0.supports_context_authentication())
+                        {
+                            self.management.always_authenticate = false;
+                        }
                         self.management.capabilities_loaded = true;
                         None
                     }
@@ -762,8 +771,8 @@ impl UiState {
                         self.mechanisms_loaded = true;
                         None
                     }
-                    Ok(BackendResult::ObjectDetails { fields, .. }) => {
-                        self.object_details = Some(fields);
+                    Ok(BackendResult::ObjectDetails { details, .. }) => {
+                        self.object_details = Some(details);
                         None
                     }
                     #[cfg(test)]
@@ -839,7 +848,7 @@ impl UiState {
             match self.operation_kind {
                 Some(OperationKind::Administer) => "Applying token administration once…",
                 Some(OperationKind::KeyOperation) => "Executing token key operation once…",
-                Some(OperationKind::Cipher) => "Executing RSA OAEP once and saving output…",
+                Some(OperationKind::Cipher) => "Executing cipher once and saving output…",
                 Some(OperationKind::Random) => "Generating token random bytes and saving them…",
                 Some(OperationKind::CryptoOptions) => "Reading permitted crypto choices…",
                 Some(OperationKind::Sign) => "Signing once and saving the signature…",

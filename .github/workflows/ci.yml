@@ -2,6 +2,7 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
 
 permissions:
@@ -12,14 +13,28 @@ env:
   PROPTEST_RNG_SEED: "20260927"
 
 jobs:
+  dependency-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install stable Rust
+        run: |
+          rustup toolchain install stable --no-self-update --profile minimal
+          rustup default stable
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --version 0.22.2 --locked
+      - name: Audit workspace and fuzz lockfiles
+        run: |
+          cargo audit --file Cargo.lock
+          cargo audit --file fuzz/Cargo.lock
   quality:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install desktop native dependencies
+      - name: Install native build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --yes pkg-config libxkbcommon-dev libwayland-dev libegl1-mesa-dev
+          sudo apt-get install --yes cmake pkg-config libxkbcommon-dev libwayland-dev libegl1-mesa-dev
       - name: Install stable Rust
         run: |
           rustup toolchain install stable --no-self-update --profile minimal --component rustfmt --component clippy
@@ -115,6 +130,9 @@ jobs:
         run: |
           rustup toolchain install stable --no-self-update --profile minimal
           rustup default stable
+      - name: Install adapter test build dependencies
+        if: matrix.crate == 'pkcs11-rustls-adapter'
+        run: sudo apt-get update && sudo apt-get install --yes cmake
       - name: Check and test one crate without sibling feature unification
         run: |
           cargo check -p ${{ matrix.crate }} --all-targets --locked
@@ -134,6 +152,8 @@ jobs:
       PROPTEST_RNG_SEED: "20260928"
     steps:
       - uses: actions/checkout@v4
+      - name: Install native build dependencies
+        run: sudo apt-get update && sudo apt-get install --yes cmake
       - name: Install minimum Rust
         run: rustup toolchain install 1.85.0 --no-self-update --profile minimal
       - name: Check minimum Rust
@@ -169,7 +189,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        provider: [packaged, multipart]
+        provider: [packaged, upstream]
     steps:
       - uses: actions/checkout@v4
       - name: Install stable Rust
@@ -180,28 +200,44 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes softhsm2 openssl opensc
-      - name: Build pinned upstream SoftHSM with multipart ECDSA
-        if: matrix.provider == 'multipart'
+      - name: Build upstream SoftHSM with multipart ECDSA and ML-DSA
+        if: matrix.provider == 'upstream'
         run: |
-          sudo apt-get install --yes autoconf automake libtool g++ libssl-dev
-          source_dir="$RUNNER_TEMP/softhsm-source"
-          prefix="$RUNNER_TEMP/softhsm-multipart"
-          git init "$source_dir"
-          git -C "$source_dir" fetch --depth 1 https://github.com/softhsm/SoftHSMv2.git 884cb38f3d2012a0447bd5f50dbd29c429987c41
-          git -C "$source_dir" checkout --detach FETCH_HEAD
-          cd "$source_dir"
-          sh autogen.sh
-          ./configure --prefix="$prefix" --with-crypto-backend=openssl --disable-gost
-          make -j2
-          make install
+          sudo apt-get install --yes autoconf automake libtool g++ make perl pkg-config
+          prefix="$RUNNER_TEMP/softhsm-upstream"
+          bash tools/build-pqc-softhsm.sh "$prefix"
           echo "PKCS11_TEST_MODULE=$prefix/lib/softhsm/libsofthsm2.so" >> "$GITHUB_ENV"
           echo "SOFTHSM2_UTIL=$prefix/bin/softhsm2-util" >> "$GITHUB_ENV"
+          echo "PKCS11_TEST_PQC_OPENSSL=$prefix/openssl/bin/openssl" >> "$GITHUB_ENV"
           echo 'PKCS11_TEST_REQUIRE_EC_MULTIPART=1' >> "$GITHUB_ENV"
           echo 'PKCS11_TEST_REQUIRE_RSA_OAEP_SHA2=1' >> "$GITHUB_ENV"
       - name: Install desktop native dependencies
         run: |
-          sudo apt-get install --yes pkg-config libxkbcommon-dev libwayland-dev libegl1-mesa-dev
+          sudo apt-get install --yes cmake pkg-config libxkbcommon-dev libwayland-dev libegl1-mesa-dev
       - name: Isolated runtime, client, CLI, TLS and desktop workflows
-        env:
-          PKCS11_TEST_DESKTOP: "1"
         run: ./tools/test-softhsm.sh
+      - name: ML-DSA library, CLI, TLS and desktop workflows
+        if: matrix.provider == 'upstream'
+        run: ./tools/test-ml-dsa.sh
+
+  kryoptic-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install stable Rust and provider build dependencies
+        run: |
+          rustup toolchain install stable --no-self-update --profile minimal
+          rustup default stable
+          sudo apt-get update
+          sudo apt-get install --yes clang libclang-dev pkg-config libsqlite3-dev g++ make perl openssl opensc libxkbcommon-dev libwayland-dev libegl1-mesa-dev
+      - name: Build pinned Kryoptic and OpenSSL with ML-KEM, ECDH and HKDF
+        run: ./tools/build-kem-hkdf-provider.sh "$RUNNER_TEMP/kdf-provider"
+      - name: Require library, CLI and desktop KEM/HKDF workflows on the same token
+        env:
+          PKCS11_TEST_KDF_MODULE: ${{ runner.temp }}/kdf-provider/libkryoptic_pkcs11.so
+          PKCS11_TEST_PQC_OPENSSL: ${{ runner.temp }}/kdf-provider/openssl/bin/openssl
+          PKCS11_TEST_KDF_OPENSSL: ${{ runner.temp }}/kdf-provider/openssl/bin/openssl
+        run: |
+          ./tools/test-ml-kem.sh
+          ./tools/test-kem-hkdf.sh

@@ -1,15 +1,59 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use super::{BackendError, BackendResult, Registry, ResourceId, browse::read_session};
-use pkcs11_client::{Authentication, CertificateDocument, KeyKind, SessionMode, SessionState};
+use pkcs11_client::{
+    AesKeyPurpose, AesKeyRequest, AesKeySize, Authentication, CertificateDocument,
+    EcdhKeyPairRequest, KeyKind, MlDsaParameterSet, MlKemParameterSet, NamedCurve, SessionMode,
+    SessionState,
+};
+
 use std::{
     fs::{File, OpenOptions},
     io::{Read, Write},
     path::{Path, PathBuf},
 };
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GenerationKind {
+    Signing(KeyKind),
+    MlDsa(MlDsaParameterSet),
+    MlKem(MlKemParameterSet),
+    Ecdh(NamedCurve),
+    Aes(AesKeySize, AesKeyPurpose),
+}
+impl GenerationKind {
+    pub fn supports_context_authentication(self) -> bool {
+        matches!(self, Self::Signing(_) | Self::MlDsa(_))
+    }
+    pub fn validate(self, id: &[u8], label: &[u8], context: bool) -> Result<(), BackendError> {
+        let valid = match self {
+            Self::Signing(_) | Self::MlDsa(_) => !id.is_empty() && !label.is_empty(),
+            Self::MlKem(_) => !context && !id.is_empty() && !label.is_empty(),
+            Self::Ecdh(curve) => {
+                !context && EcdhKeyPairRequest { curve, id, label }.validate().is_ok()
+            }
+            Self::Aes(size, purpose) => {
+                !context
+                    && AesKeyRequest {
+                        size,
+                        purpose,
+                        id,
+                        label,
+                    }
+                    .validate()
+                    .is_ok()
+            }
+        };
+        valid.then_some(()).ok_or(BackendError::InvalidForm)
+    }
+}
 pub enum ManagementAction {
+    ImportMlKem {
+        path: PathBuf,
+        id: Vec<u8>,
+        label: Vec<u8>,
+    },
     Generate {
-        kind: KeyKind,
+        kind: GenerationKind,
         id: Vec<u8>,
         label: Vec<u8>,
         always_authenticate: bool,
@@ -60,12 +104,24 @@ impl Registry {
         &self,
         module: ResourceId,
         token: ResourceId,
-    ) -> Result<Vec<KeyKind>, BackendError> {
+    ) -> Result<Vec<GenerationKind>, BackendError> {
         let (index, uri) = self.location(module, token)?;
-        self.modules[index]
+        let choices = self.modules[index]
             .provider
-            .generation_options(&uri)
-            .map_err(|e| BackendError::from(&e))
+            .generation_capabilities(&uri)
+            .map_err(|e| BackendError::from(&e))?;
+        Ok(choices
+            .signing
+            .into_iter()
+            .map(GenerationKind::Signing)
+            .chain(choices.ml_dsa.into_iter().map(GenerationKind::MlDsa))
+            .chain(choices.ml_kem.into_iter().map(GenerationKind::MlKem))
+            .chain(choices.ecdh.into_iter().map(GenerationKind::Ecdh))
+            .chain(choices.aes.into_iter().flat_map(|size| {
+                [AesKeyPurpose::Encryption, AesKeyPurpose::Wrapping]
+                    .map(|purpose| GenerationKind::Aes(size, purpose))
+            }))
+            .collect())
     }
     fn management_action(
         &mut self,
@@ -104,6 +160,20 @@ impl Registry {
             ManagementAction::Delete { object } => Some(self.reference(module, token, *object)?.0),
             _ => None,
         };
+        let public_key = match &action {
+            ManagementAction::ImportMlKem { path, id, label } => {
+                if id.is_empty() || id.len() > 128 || label.is_empty() || label.len() > 128 {
+                    return Err(BackendError::MlKemImportInput);
+                }
+                let bytes = super::key_operations::read(path, 2048)
+                    .map_err(|_| BackendError::MlKemImportInput)?;
+                Some(
+                    pkcs11_client::MlKemPublicKey::from_spki_der(&bytes)
+                        .map_err(|_| BackendError::MlKemImportInput)?,
+                )
+            }
+            _ => None,
+        };
         let document = match &action {
             ManagementAction::ImportCertificate { path, .. } => Some(certificate(path)?),
             _ => None,
@@ -128,11 +198,46 @@ impl Registry {
                     label,
                     always_authenticate,
                 } => {
-                    if id.is_empty() || label.is_empty() {
-                        return Err(BackendError::InvalidForm);
+                    kind.validate(&id, &label, always_authenticate)?;
+                    match kind {
+                        GenerationKind::Signing(kind) => session.generate_signing_key_pair(
+                            kind,
+                            &id,
+                            &label,
+                            always_authenticate,
+                        ),
+                        GenerationKind::MlDsa(parameter) => session.generate_ml_dsa_key_pair(
+                            parameter,
+                            &id,
+                            &label,
+                            always_authenticate,
+                        ),
+                        GenerationKind::MlKem(parameter) => {
+                            session.generate_ml_kem_key_pair(parameter, &id, &label)
+                        }
+                        GenerationKind::Ecdh(curve) => {
+                            session.generate_ecdh_key_pair(&EcdhKeyPairRequest {
+                                curve,
+                                id: &id,
+                                label: &label,
+                            })
+                        }
+                        GenerationKind::Aes(size, purpose) => {
+                            session.generate_aes_key(&AesKeyRequest {
+                                size,
+                                purpose,
+                                id: &id,
+                                label: &label,
+                            })
+                        }
                     }
-                    session.generate_signing_key_pair(kind, &id, &label, always_authenticate)
                 }
+                ManagementAction::ImportMlKem { id, label, .. } => session
+                    .import_ml_kem_public_key(
+                        public_key.as_ref().expect("parsed public key"),
+                        &id,
+                        &label,
+                    ),
                 ManagementAction::ImportCertificate { id, label, .. } => {
                     if id.is_empty() || label.is_empty() {
                         return Err(BackendError::InvalidForm);
@@ -291,10 +396,12 @@ mod integration_tests {
             })
             .expect("public fixture token");
         let choices = registry.capabilities(module, token).unwrap();
-        assert!(choices.contains(&KeyKind::Rsa { bits: 2048 }));
-        assert!(choices.contains(&KeyKind::Ec(pkcs11_client::NamedCurve::P256)));
+        assert!(choices.contains(&GenerationKind::Signing(KeyKind::Rsa { bits: 2048 })));
+        assert!(choices.contains(&GenerationKind::Signing(KeyKind::Ec(
+            pkcs11_client::NamedCurve::P256
+        ))));
         let generation = |kind| ManagementAction::Generate {
-            kind,
+            kind: GenerationKind::Signing(kind),
             id: vec![0xEE],
             label: b"desktop-key".to_vec(),
             always_authenticate: false,
@@ -347,7 +454,7 @@ mod integration_tests {
         ] {
             let listed = objects(registry.manage(module, token, generation(kind)), None);
             let private = object_id(&listed, "desktop-key", ObjectClass::PRIVATE_KEY);
-            let fields = registry.inspect(module, token, private).unwrap();
+            let fields = registry.inspect(module, token, private).unwrap().fields;
             assert!(
                 fields.iter().any(
                     |field| field.name == "Sensitive" && field.value.as_deref() == Some("true")

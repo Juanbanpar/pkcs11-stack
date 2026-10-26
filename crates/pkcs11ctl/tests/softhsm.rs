@@ -21,11 +21,7 @@ impl Fixture {
     }
     fn ok(&self, args: &[&str]) -> Value {
         let out = self.run(args);
-        assert!(
-            out.status.success(),
-            "{args:?}: {}",
-            String::from_utf8_lossy(&out.stderr)
-        );
+        assert!(out.status.success(), "CLI command failed: {}", out.status);
         assert!(out.stderr.is_empty());
         let value: Value = serde_json::from_slice(&out.stdout).unwrap();
         assert_eq!(value["schema_version"], 1);
@@ -37,8 +33,8 @@ impl Fixture {
         assert_eq!(
             out.status.code(),
             Some(code),
-            "{args:?}: {}",
-            String::from_utf8_lossy(&out.stderr)
+            "CLI command failed: {}",
+            out.status
         );
         assert!(out.stdout.is_empty());
         let value: Value = serde_json::from_slice(&out.stderr).unwrap();
@@ -53,8 +49,8 @@ fn external(program: &str, args: &[&str]) {
     let out = Command::new(program).args(args).output().unwrap();
     assert!(
         out.status.success(),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
+        "external command failed: {}",
+        out.status
     );
 }
 #[test]
@@ -161,6 +157,64 @@ fn command_workflows() {
     let bad = f.path("bad.pin");
     std::fs::write(&bad, b"definitely-wrong").unwrap();
     f.fail(&["objects", "--token", token, "--pin-file", &bad], 5);
+    let random_file = f.path("random.bin");
+    let random_args = [
+        "random",
+        "--token",
+        token,
+        "--length",
+        "1048576",
+        "--output",
+        &random_file,
+        "--pin-file",
+        &f.pin,
+    ];
+    let out = f.run(&random_args);
+    assert!(
+        out.status.success(),
+        "external command failed: {}",
+        out.status
+    );
+    assert!(out.stdout.is_empty());
+    assert!(out.stderr.is_empty());
+    assert_eq!(std::fs::metadata(&random_file).unwrap().len(), 1048576);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            std::fs::metadata(&random_file)
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+    }
+    f.fail(&random_args, 6);
+    let out = f.run(&[
+        "random", "--token", token, "--length", "64", "--output", "-",
+    ]);
+    assert!(
+        out.status.success(),
+        "external command failed: {}",
+        out.status
+    );
+    assert_eq!(out.stdout.len(), 64);
+    assert!(out.stderr.is_empty());
+    let failed_random = f.path("failed-random");
+    f.fail(
+        &[
+            "random",
+            "--token",
+            "pkcs11:token=missing",
+            "--length",
+            "32",
+            "--output",
+            &failed_random,
+        ],
+        3,
+    );
+    assert!(!std::path::Path::new(&failed_random).exists());
     for (kind, id) in [
         ("rsa", "01"),
         ("p256", "02"),
@@ -295,8 +349,8 @@ fn command_workflows() {
     let out = f.run(&["export", "--object", ed_uri, "--output", &exported]);
     assert!(
         out.status.success(),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
+        "external command failed: {}",
+        out.status
     );
     assert!(out.stdout.is_empty());
     assert_eq!(
@@ -402,8 +456,8 @@ fn command_workflows() {
     let out = f.run(&args);
     assert!(
         out.status.success(),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
+        "external command failed: {}",
+        out.status
     );
     assert!(out.stdout.is_empty());
     external(
@@ -419,6 +473,39 @@ fn command_workflows() {
         ],
     );
     f.fail(&args, 6); // existing output is never overwritten
+    let verified = f.ok(&[
+        "verify",
+        "--certificate",
+        cert,
+        "--algorithm",
+        "rsa-pkcs1",
+        "--digest",
+        "sha256",
+        "--input",
+        &message,
+        "--signature",
+        &signature,
+    ]);
+    assert_eq!(verified["verified"], true);
+    assert_eq!(verified["trust_validated"], false);
+    let altered = f.path("altered-message");
+    std::fs::write(&altered, b"changed message").unwrap();
+    f.fail(
+        &[
+            "verify",
+            "--certificate",
+            cert,
+            "--algorithm",
+            "rsa-pkcs1",
+            "--digest",
+            "sha256",
+            "--input",
+            &altered,
+            "--signature",
+            &signature,
+        ],
+        4,
+    );
     let prehash = f.path("sha256");
     external(
         "openssl",
@@ -448,8 +535,8 @@ fn command_workflows() {
     ]);
     assert!(
         out.status.success(),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
+        "external command failed: {}",
+        out.status
     );
     external(
         "openssl",
@@ -469,6 +556,25 @@ fn command_workflows() {
             &message,
         ],
     );
+    f.ok(&[
+        "verify",
+        "--certificate",
+        cert,
+        "--algorithm",
+        "rsa-pss",
+        "--digest",
+        "sha256",
+        "--mgf-digest",
+        "sha256",
+        "--salt-length",
+        "20",
+        "--input-kind",
+        "digest",
+        "--input",
+        &prehash,
+        "--signature",
+        &pss,
+    ]);
     f.fail(
         &[
             "sign",
@@ -516,8 +622,8 @@ fn command_workflows() {
     ]);
     assert!(
         out.status.success(),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
+        "external command failed: {}",
+        out.status
     );
     assert_eq!(out.stdout.len(), 132);
     let always = "pkcs11:token=client-test;object=always;type=private";
@@ -558,8 +664,8 @@ fn command_workflows() {
     ]);
     assert!(
         out.status.success(),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
+        "external command failed: {}",
+        out.status
     );
     assert_eq!(out.stdout.len(), 256);
     // USER and SO changes each execute exactly once; subsequent login verifies state.
@@ -686,4 +792,124 @@ fn listed_empty_selectors_are_preserved(f: &Fixture) {
         "--object",
         "pkcs11:token=cli-test;object=review-other;type=cert",
     ]);
+}
+
+#[test]
+#[ignore = "requires tools/test-softhsm.sh disposable store"]
+fn typed_generation_permissions_and_public_export() {
+    assert_eq!(std::env::var("PKCS11_TEST_ISOLATED").as_deref(), Ok("1"));
+    let root = PathBuf::from(std::env::var_os("PKCS11_CLIENT_TEST_DIR").unwrap());
+    let f = Fixture {
+        module: std::env::var("PKCS11_TEST_MODULE").unwrap(),
+        pin: root.join("generation-user.pin").to_str().unwrap().into(),
+        so: String::new(),
+        root,
+    };
+    std::fs::write(&f.pin, b"12345678\n").unwrap();
+    let token = "pkcs11:token=client-test";
+    let options = f.ok(&["generation-options", "--token", token]);
+    assert_eq!(options["advisory"], true);
+    assert_eq!(
+        options["ecdh"],
+        serde_json::json!(["ecdh-p256", "ecdh-p384", "ecdh-p521"])
+    );
+    assert_eq!(
+        options["aes"],
+        serde_json::json!(["aes128", "aes192", "aes256"])
+    );
+    for (index, kind) in ["ecdh-p256", "ecdh-p384", "ecdh-p521"]
+        .into_iter()
+        .enumerate()
+    {
+        let id = format!("a8{index:02x}");
+        let args = [
+            "generate",
+            "--token",
+            token,
+            "--kind",
+            kind,
+            "--id",
+            &id,
+            "--label",
+            "CLI ECDH",
+            "--pin-file",
+            &f.pin,
+            "--confirm",
+        ];
+        let generated = f.ok(&args);
+        assert_eq!(generated["key"]["algorithm"], "ec");
+        assert_eq!(generated["key"]["purpose"], "derivation");
+        f.fail(&args, 2);
+        let private = format!("{token};id=%A8%{index:02X};type=private");
+        let attrs = f.ok(&[
+            "inspect",
+            "--object",
+            &private,
+            "--attributes",
+            "sign,sensitive,extractable",
+            "--pin-file",
+            &f.pin,
+        ]);
+        assert_eq!(attrs["sign"]["value"], false);
+        assert_eq!(attrs["sensitive"]["value"], true);
+        assert_eq!(attrs["extractable"]["value"], false);
+        let public = format!("{token};id=%A8%{index:02X};type=public");
+        let path = f.path(&format!("{kind}.der"));
+        let exported = f.run(&["export", "--object", &public, "--output", &path]);
+        assert!(exported.status.success());
+        assert!(exported.stdout.is_empty());
+        pkcs11_client::EcdhPeer::from_spki_der(&std::fs::read(path).unwrap()).unwrap();
+    }
+    for (index, kind) in ["aes128", "aes192", "aes256"].into_iter().enumerate() {
+        for (purpose_index, purpose) in ["encryption", "wrapping"].into_iter().enumerate() {
+            let id = format!("a9{index:02x}{purpose_index:02x}");
+            let args = [
+                "generate",
+                "--token",
+                token,
+                "--kind",
+                kind,
+                "--purpose",
+                purpose,
+                "--id",
+                &id,
+                "--label",
+                "CLI AES",
+                "--pin-file",
+                &f.pin,
+                "--confirm",
+            ];
+            let generated = f.ok(&args);
+            assert_eq!(generated["key"]["algorithm"], "aes");
+            assert_eq!(generated["key"]["purpose"], purpose);
+            assert_eq!(generated["extractable"], false);
+            f.fail(&args, 2);
+            let secret = format!("{token};id=%A9%{index:02X}%{purpose_index:02X};type=secret-key");
+            let attrs = f.ok(&[
+                "inspect",
+                "--object",
+                &secret,
+                "--attributes",
+                "sensitive,extractable",
+                "--pin-file",
+                &f.pin,
+            ]);
+            assert_eq!(attrs["sensitive"]["value"], true);
+            assert_eq!(attrs["extractable"]["value"], false);
+            let forbidden = f.path(&format!("forbidden-{id}"));
+            f.fail(
+                &[
+                    "export",
+                    "--object",
+                    &secret,
+                    "--output",
+                    &forbidden,
+                    "--pin-file",
+                    &f.pin,
+                ],
+                2,
+            );
+            assert!(!std::path::Path::new(&forbidden).exists());
+        }
+    }
 }

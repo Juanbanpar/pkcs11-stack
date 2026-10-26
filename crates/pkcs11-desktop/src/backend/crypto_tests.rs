@@ -31,7 +31,7 @@ fn crypto_file_limits_and_unknown_targets_report_fixed_errors() {
     ));
     assert!(!format!("{event:?}").contains("canary"));
 }
-fn scope(
+pub(super) fn scope(
     module: ResourceId,
     token: ResourceId,
     objects: &[ObjectEntry],
@@ -54,7 +54,7 @@ fn scope(
         mode,
     }
 }
-fn choices(
+pub(super) fn choices(
     registry: &Registry,
     scope: CryptoScope,
     software: bool,
@@ -67,7 +67,7 @@ fn choices(
     }
 }
 fn job(
-    parameters: SignatureParameters,
+    parameters: SignatureProfile,
     input: &Path,
     signature: &Path,
     context: Option<SecretInput>,
@@ -75,12 +75,13 @@ fn job(
     CryptoJob {
         parameters,
         software_hashing: true,
+        domain_context: Vec::new(),
         input: input.into(),
         signature: signature.into(),
         context,
     }
 }
-fn managed(result: BackendResult, expected: Option<BackendError>) -> Vec<ObjectEntry> {
+pub(super) fn managed(result: BackendResult, expected: Option<BackendError>) -> Vec<ObjectEntry> {
     match result {
         BackendResult::Managed {
             objects: Some(objects),
@@ -203,14 +204,17 @@ fn software_token_signing_verification_context_and_file_failures() {
             let independent = directory.join("openssl-signature");
             std::fs::write(
                 &independent,
-                if option.parameters.algorithm == SignatureAlgorithm::Ecdsa {
+                if matches!(option.parameters, SignatureProfile::Classical(p) if p.algorithm == SignatureAlgorithm::Ecdsa) {
                     ecdsa_der(&raw)
                 } else {
                     raw.clone()
                 },
             )
             .unwrap();
-            let digest = match option.parameters.digest {
+            let SignatureProfile::Classical(parameters) = option.parameters else {
+                panic!("classical choices")
+            };
+            let digest = match parameters.digest {
                 DigestAlgorithm::Sha256 => "sha256",
                 DigestAlgorithm::Sha384 => "sha384",
                 DigestAlgorithm::Sha512 => "sha512",
@@ -223,7 +227,7 @@ fn software_token_signing_verification_context_and_file_failures() {
                 .arg(fixtures.join(format!("{id}-public.pem")))
                 .arg("-signature")
                 .arg(&independent);
-            if let Some(pss) = option.parameters.pss {
+            if let Some(pss) = parameters.pss {
                 command.args([
                     "-sigopt",
                     "rsa_padding_mode:pss",
@@ -258,7 +262,9 @@ fn software_token_signing_verification_context_and_file_failures() {
                 module,
                 token,
                 crate::backend::ManagementAction::Generate {
-                    kind: pkcs11_client::KeyKind::Ec(pkcs11_client::NamedCurve::P256),
+                    kind: crate::backend::GenerationKind::Signing(pkcs11_client::KeyKind::Ec(
+                        pkcs11_client::NamedCurve::P256,
+                    )),
                     id: vec![0xE8],
                     label: b"desktop-ambiguous".to_vec(),
                     always_authenticate: false,

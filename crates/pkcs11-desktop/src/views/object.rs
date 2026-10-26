@@ -13,7 +13,7 @@ use iced::{
     Element, Length,
     widget::{column, row, rule, text},
 };
-use pkcs11_client::ObjectClass;
+use pkcs11_client::{KeyType, ObjectClass};
 
 pub fn detail(state: &UiState) -> Element<'_, Message> {
     let Some(object) = state.object() else {
@@ -53,10 +53,11 @@ pub fn detail(state: &UiState) -> Element<'_, Message> {
         ));
     }
     let mut actions = column![].spacing(8);
+    let kind = state.object_key_type();
     match object.class {
         Some(ObjectClass::PRIVATE_KEY) => {
-            actions = actions
-                .push(
+            if matches!(kind, Some(KeyType::RSA | KeyType::EC | KeyType::ML_DSA)) {
+                actions = actions.push(
                     button("Sign file…")
                         .width(Length::Fill)
                         .style(button::primary)
@@ -65,8 +66,10 @@ pub fn detail(state: &UiState) -> Element<'_, Message> {
                                 .can_open_crypto(CryptoMode::Sign)
                                 .then_some(Message::OpenCrypto(CryptoMode::Sign)),
                         ),
-                )
-                .push(
+                );
+            }
+            if kind == Some(KeyType::RSA) {
+                actions = actions.push(
                     button("Decrypt RSA OAEP…")
                         .width(Length::Fill)
                         .on_press_maybe(
@@ -74,8 +77,10 @@ pub fn detail(state: &UiState) -> Element<'_, Message> {
                                 .can_open_cipher(CryptoMode::Decrypt)
                                 .then_some(Message::OpenCipher(CryptoMode::Decrypt)),
                         ),
-                )
-                .push(
+                );
+            }
+            if kind == Some(KeyType::EC) {
+                actions = actions.push(
                     button("Derive ECDH secret…")
                         .width(Length::Fill)
                         .on_press_maybe(
@@ -84,6 +89,18 @@ pub fn detail(state: &UiState) -> Element<'_, Message> {
                                 .then_some(Message::OpenKeyOperation(CryptoMode::Derive)),
                         ),
                 );
+            }
+            if kind == Some(KeyType::ML_KEM) {
+                actions = actions.push(
+                    button("Decapsulate ML-KEM secret…")
+                        .width(Length::Fill)
+                        .on_press_maybe(
+                            state
+                                .can_open_key_operation(CryptoMode::Decapsulate)
+                                .then_some(Message::OpenKeyOperation(CryptoMode::Decapsulate)),
+                        ),
+                );
+            }
             if !state
                 .token()
                 .is_some_and(|token| token.login == LoginState::User)
@@ -103,7 +120,7 @@ pub fn detail(state: &UiState) -> Element<'_, Message> {
                     ),
             )
         }
-        Some(ObjectClass::PUBLIC_KEY) => {
+        Some(ObjectClass::PUBLIC_KEY) if kind == Some(KeyType::RSA) => {
             actions = actions.push(
                 button("Encrypt RSA OAEP…")
                     .width(Length::Fill)
@@ -115,8 +132,62 @@ pub fn detail(state: &UiState) -> Element<'_, Message> {
                     ),
             )
         }
-        Some(ObjectClass::SECRET_KEY) => {
+        Some(ObjectClass::PUBLIC_KEY) if kind == Some(KeyType::ML_KEM) => {
+            actions = actions.push(
+                button("Encapsulate ML-KEM secret…")
+                    .width(Length::Fill)
+                    .style(button::primary)
+                    .on_press_maybe(
+                        state
+                            .can_open_key_operation(CryptoMode::Encapsulate)
+                            .then_some(Message::OpenKeyOperation(CryptoMode::Encapsulate)),
+                    ),
+            );
+            if !state.can_manage() {
+                actions = actions.push(muted(
+                    "Creating a shared secret requires USER login on a writable token.",
+                ));
+            }
+        }
+        Some(ObjectClass::SECRET_KEY)
+            if matches!(kind, Some(KeyType::GENERIC_SECRET | KeyType::HKDF)) =>
+        {
+            actions = actions.push(
+                button("Derive HKDF key…")
+                    .width(Length::Fill)
+                    .style(button::primary)
+                    .on_press_maybe(
+                        state
+                            .can_open_key_operation(CryptoMode::Hkdf)
+                            .then_some(Message::OpenKeyOperation(CryptoMode::Hkdf)),
+                    ),
+            );
+            if !state.can_manage() {
+                actions = actions.push(muted(
+                    "Key derivation requires USER login on a writable token.",
+                ));
+            }
+        }
+        Some(ObjectClass::SECRET_KEY) if kind == Some(KeyType::AES) => {
             actions = actions
+                .push(
+                    button("Encrypt AES-GCM…")
+                        .width(Length::Fill)
+                        .on_press_maybe(
+                            state
+                                .can_open_cipher(CryptoMode::Encrypt)
+                                .then_some(Message::OpenCipher(CryptoMode::Encrypt)),
+                        ),
+                )
+                .push(
+                    button("Decrypt AES-GCM…")
+                        .width(Length::Fill)
+                        .on_press_maybe(
+                            state
+                                .can_open_cipher(CryptoMode::Decrypt)
+                                .then_some(Message::OpenCipher(CryptoMode::Decrypt)),
+                        ),
+                )
                 .push(
                     button("Wrap AES key…").width(Length::Fill).on_press_maybe(
                         state
@@ -154,7 +225,7 @@ pub fn detail(state: &UiState) -> Element<'_, Message> {
         content = content
             .push(rule::horizontal(1))
             .push(text("Attributes").size(15).font(EMPHASIS))
-            .push(metadata(fields));
+            .push(metadata(&fields.fields));
     } else if !object.ambiguous && object.uri.is_some() {
         content = content
             .push(muted("Attributes are read only when you select an object."))
@@ -175,9 +246,13 @@ pub fn detail(state: &UiState) -> Element<'_, Message> {
     ) {
         management = management.push(
             button("Export public object…")
+                .id("export-public-object")
                 .width(Length::Fill)
                 .on_press_maybe(state.can_export().then_some(Message::ExportObject)),
         );
+        management = management.push(muted(
+            "Public keys use SPKI DER; certificate and data objects keep their original bytes.",
+        ));
         if !state.can_export() {
             management = management.push(muted(
                 "Export requires attributes confirming that this is a public object.",

@@ -28,6 +28,13 @@ fn object(command: Command) -> Command {
 fn key(command: Command) -> Command {
     command.arg(required("key", "Stable private-key URI with type=private"))
 }
+fn key_family(command: Command) -> Command {
+    command.arg(
+        value("key-family", "Key/certificate algorithm family")
+            .value_parser(["classical", "ml-dsa"])
+            .default_value("classical"),
+    )
+}
 fn auth(command: Command) -> Command {
     command
         .arg(
@@ -61,15 +68,23 @@ fn context(command: Command) -> Command {
             "Use protected path for context authentication",
         ))
 }
-fn signing(command: Command) -> Command {
+fn signature(command: Command) -> Command {
     command
         .arg(required("algorithm", "Signature family").value_parser([
             "rsa-pkcs1",
             "rsa-pss",
             "ecdsa",
+            "ml-dsa-44",
+            "ml-dsa-65",
+            "ml-dsa-87",
         ]))
         .arg(
-            required("digest", "Message/prehash digest")
+            value("digest", "Required for RSA/ECDSA; forbidden for ML-DSA")
+                .required_if_eq_any([
+                    ("algorithm", "rsa-pkcs1"),
+                    ("algorithm", "rsa-pss"),
+                    ("algorithm", "ecdsa"),
+                ])
                 .value_parser(["sha256", "sha384", "sha512"]),
         )
         .arg(
@@ -78,6 +93,10 @@ fn signing(command: Command) -> Command {
         )
         .arg(value("salt-length", "Exact PSS salt length in bytes"))
         .arg(required("input", "Input file; - reads stdin"))
+        .arg(value(
+            "context-file",
+            "ML-DSA domain context file, at most 255 bytes; no stdin",
+        ))
         .arg(
             value(
                 "input-kind",
@@ -86,10 +105,22 @@ fn signing(command: Command) -> Command {
             .value_parser(["message", "digest"])
             .default_value("message"),
         )
+}
+fn signing(command: Command) -> Command {
+    signature(command)
         .arg(
-            value("hashing", "Message hashing policy")
-                .value_parser(["token", "allow-software", "software"])
-                .default_value("token"),
+            value(
+                "hashing",
+                "Classical message hashing policy; defaults to token",
+            )
+            .value_parser(["token", "allow-software", "software"]),
+        )
+        .arg(
+            value(
+                "hedging",
+                "ML-DSA randomness requirement; defaults to required",
+            )
+            .value_parser(["required", "preferred", "deterministic"]),
         )
 }
 fn mutation(command: Command) -> Command {
@@ -100,6 +131,58 @@ fn mutation(command: Command) -> Command {
         )
         .required(true),
     )
+}
+fn kem_parameter(command: Command) -> Command {
+    command.arg(
+        required("parameter-set", "Expected ML-KEM parameter set").value_parser([
+            "ml-kem-512",
+            "ml-kem-768",
+            "ml-kem-1024",
+        ]),
+    )
+}
+fn hkdf_digest(command: Command) -> Command {
+    command.arg(
+        required("digest", "HKDF hash; base key must match its output length")
+            .value_parser(["sha256", "sha384", "sha512"]),
+    )
+}
+fn hkdf_options(command: Command) -> Command {
+    hkdf_digest(command)
+        .arg(
+            required("kind", "Output key type and permissions").value_parser([
+                "aes128",
+                "aes192",
+                "aes256",
+                "derivation-secret",
+            ]),
+        )
+        .arg(
+            value("length", "Generic derivation-secret length in bytes")
+                .required_if_eq("kind", "derivation-secret"),
+        )
+        .arg(value(
+            "salt-file",
+            "Public salt file, at most 4096 bytes; omitted means zero salt",
+        ))
+        .arg(value(
+            "info-file",
+            "Public protocol context file, at most 4096 bytes; omitted means empty",
+        ))
+}
+fn hybrid_options(command: Command) -> Command {
+    hkdf_options(command)
+        .mut_arg("digest", |arg| {
+            arg.value_parser(["sha512"])
+                .help("Hybrid combiner hash: sha512")
+        })
+        .mut_arg("salt-file", |arg| {
+            arg.help("Public salt file, at most 128 bytes; omitted means zero salt")
+        })
+        .mut_arg("info-file", |arg| {
+            arg.required(true)
+                .help("Nonempty public protocol context file, at most 4096 bytes")
+        })
 }
 fn named(command: Command) -> Command {
     command
@@ -113,7 +196,12 @@ pub(crate) fn command() -> Command {
         .arg(value("attributes", "Comma-separated class,label,id,object-id,private,sign,sensitive,extractable,always-authenticate,key-type,modulus,exponent,ec-params,ec-point,subject,issuer,serial,value")
             .default_value("class,label,id"));
     let export = Command::new("export")
-        .about("Export raw certificate/data CKA_VALUE; no trust validation")
+        .about("Export certificate/data bytes or public-key SPKI DER; no trust validation")
+        .arg(
+            value("key-family", "Public-key algorithm family")
+                .value_parser(["classical", "ml-dsa", "ml-kem"])
+                .default_value("classical"),
+        )
         .arg(required(
             "output",
             "New output file, or - for binary stdout",
@@ -122,9 +210,11 @@ pub(crate) fn command() -> Command {
         .about("Prove a key/certificate association with one signature")
         .arg(required("certificate", "Explicit certificate URI"))
         .arg(
-            value("hashing", "Binding probe hashing policy")
-                .value_parser(["token", "allow-software", "software"])
-                .default_value("token"),
+            value(
+                "hashing",
+                "Classical binding probe hashing policy; defaults to token",
+            )
+            .value_parser(["token", "allow-software", "software"]),
         );
     let sign = Command::new("sign")
         .about("Sign once; with a certificate, bind first and verify the output")
@@ -139,6 +229,27 @@ pub(crate) fn command() -> Command {
     let diagnose = Command::new("diagnose")
         .about("Check bounded pool capacity, role and lease reuse")
         .arg(value("pool-size", "Number of concurrent leases, 1..=64").default_value("2"));
+    let verify = Command::new("verify")
+        .about("Verify a raw signature using a certificate; no certificate trust validation")
+        .arg(
+            value("certificate", "Token certificate URI with type=cert")
+                .required_unless_present("certificate-file"),
+        )
+        .arg(
+            value(
+                "certificate-file",
+                "X.509 DER certificate file; no module required",
+            )
+            .conflicts_with_all(["certificate", "pin-file", "protected-path", "role"]),
+        )
+        .arg(required("signature", "Raw signature file; - reads stdin"));
+    let random = Command::new("random")
+        .about("Generate bytes once using the selected token's random generator")
+        .arg(required("length", "Number of bytes, 1..=1048576"))
+        .arg(required(
+            "output",
+            "New output file, or - for raw binary stdout",
+        ));
     let init_token = Command::new("init-token")
         .about("Initialize/erase a token; destroys existing token contents")
         .arg(required("slot", "Current diagnostic slot ID"))
@@ -155,41 +266,129 @@ pub(crate) fn command() -> Command {
         .about("Change authenticated role's host PIN once")
         .arg(required("new-pin-file", "New PIN file"));
     let generate = Command::new("generate")
-        .about("Generate a persistent nonextractable signing key pair")
-        .arg(required("kind", "Key kind").value_parser(["rsa", "p256", "p384", "p521"]))
+        .about("Generate persistent nonextractable signing, ECDH, ML-KEM or AES keys")
+        .arg(required("kind", "Key kind").value_parser([
+            "rsa",
+            "ecdh-p256",
+            "ecdh-p384",
+            "ecdh-p521",
+            "aes128",
+            "aes192",
+            "aes256",
+            "p256",
+            "p384",
+            "p521",
+            "ml-dsa-44",
+            "ml-dsa-65",
+            "ml-dsa-87",
+            "ml-kem-512",
+            "ml-kem-768",
+            "ml-kem-1024",
+        ]))
         .arg(value("bits", "RSA modulus size; RSA only"))
+        .arg(
+            value("purpose", "Required AES permissions")
+                .value_parser(["encryption", "wrapping"])
+                .required_if_eq_any([("kind", "aes128"), ("kind", "aes192"), ("kind", "aes256")]),
+        )
         .arg(flag(
             "always-authenticate",
             "Require per-signature context authentication",
         ));
     let import = Command::new("import")
-        .about("Import public certificate DER or data bytes")
-        .arg(required("kind", "Object kind").value_parser(["cert", "data"]))
+        .about("Import public certificate DER, ML-KEM SPKI DER or data bytes")
+        .arg(required("kind", "Object kind").value_parser(["cert", "data", "ml-kem"]))
         .arg(required("input", "Input file; - reads stdin"));
     let set_label = Command::new("set-label")
         .about("Relabel exactly one object")
         .arg(required("label", "New label"));
+    let gcm = |name, help| {
+        auth(object(Command::new(name).about(help)
+        .arg(required("nonce", "Exactly 24 hex digits; encryption requires a unique nonce per key, also after errors"))
+        .arg(value("aad-file", "Additional authenticated data file, at most 1 MiB; omitted means empty; no stdin"))
+        .arg(required("input", "Input file; - reads stdin; ciphertext includes the full 16-byte tag"))
+        .arg(required("output", "New output file, or - for binary stdout; nonce/AAD are not included"))))
+    };
     let commands = [
         Command::new("info").about("Inspect the loaded library"),
         Command::new("slots").about("List diagnostic slot IDs"),
         Command::new("tokens").about("List tokens and stable token URIs"),
         token(Command::new("mechanisms").about("List advertised mechanisms")),
+        token(
+            Command::new("generation-options")
+                .about("List advisory key generation choices; no login or generation"),
+        ),
         auth(token(
             Command::new("objects").about("List persistent objects, without secret values"),
         )),
         auth(object(inspect)),
         auth(object(export)),
-        auth(object(
+        auth(object(key_family(
             Command::new("certificate").about("Parse a supported certificate through client"),
-        )),
-        auth(key(
-            Command::new("capabilities").about("Inspect selected signing-key capabilities")
-        )),
+        ))),
+        auth(key(key_family(
+            Command::new("capabilities").about("Inspect selected signing-key capabilities"),
+        ))),
         auth(signing(key(
             Command::new("plan").about("Plan one signing request without signing")
         ))),
-        context(auth(key(bind))),
+        context(auth(key(key_family(bind)))),
         context(auth(signing(key(sign)))),
+        auth(signature(verify)),
+        auth(token(random)),
+        gcm(
+            "encrypt-aes-gcm",
+            "Encrypt at most 16 MiB once; output is ciphertext followed by a full tag",
+        ),
+        gcm(
+            "decrypt-aes-gcm",
+            "Authenticate/decrypt AES-GCM once; no output before authentication and checked closure",
+        ),
+        auth(object(
+            Command::new("aes-gcm-capabilities")
+                .about("Inspect current AES-GCM key permissions and provider support")
+                .arg(
+                    required("operation", "Requested direction")
+                        .value_parser(["encrypt", "decrypt"]),
+                ),
+        )),
+        auth(object(
+            Command::new("kem-capabilities")
+                .about("Inspect current ML-KEM parameters and direction permissions")
+                .arg(
+                    required("operation", "Requested ML-KEM direction")
+                        .value_parser(["encapsulate", "decapsulate"]),
+                ),
+        )),
+        mutation(auth(named(kem_parameter(object(
+            Command::new("encapsulate")
+                .about("Create a token-held ML-KEM secret and write public ciphertext")
+                .arg(required(
+                    "output",
+                    "New ciphertext file, or - for binary stdout",
+                )),
+        ))))),
+        mutation(auth(named(kem_parameter(object(
+            Command::new("decapsulate")
+                .about("Decapsulate public ciphertext into a persistent token secret")
+                .arg(required("input", "Ciphertext file; - reads stdin")),
+        ))))),
+        auth(hkdf_digest(object(
+            Command::new("hkdf-capabilities")
+                .about("Inspect a sensitive, nonextractable HKDF base secret"),
+        ))),
+        mutation(auth(named(hkdf_options(object(
+            Command::new("derive-hkdf")
+                .about("Derive a persistent nonextractable token key using HKDF"),
+        ))))),
+        mutation(auth(named(hybrid_options(object(
+            Command::new("derive-hybrid")
+                .about("Combine P-256 and ML-KEM-768 secrets on-token, then apply HKDF-SHA512")
+                .arg(required(
+                    "post-quantum",
+                    "ML-KEM-768 raw secret URI with type=secret-key",
+                )),
+        ))))),
         auth(token(diagnose)),
         mutation(init_token),
         mutation(auth(token(init_pin))),
@@ -203,7 +402,7 @@ pub(crate) fn command() -> Command {
     ];
     Command::new("pkcs11ctl")
         .version(env!("CARGO_PKG_VERSION"))
-        .about("PKCS#11 inspection, signing and administration")
+        .about("PKCS#11 inspection, signing, verification and administration")
         .subcommand_required(true)
         .arg_required_else_help(true)
         .arg(

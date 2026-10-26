@@ -1,24 +1,62 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use super::*;
-use crate::backend::ManagementAction;
-use pkcs11_client::{KeyKind, NamedCurve, ObjectClass};
+use crate::backend::{GenerationKind, ManagementAction};
+use pkcs11_client::{
+    AesKeyPurpose, KeyKind, MlDsaParameterSet, MlKemParameterSet, NamedCurve, ObjectClass,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct KeyChoice(pub KeyKind);
+pub struct KeyChoice(pub GenerationKind);
 impl std::fmt::Display for KeyChoice {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.0 {
-            KeyKind::Rsa { bits } => write!(f, "RSA {bits}"),
-            KeyKind::Ec(curve) => f.write_str(match curve {
-                NamedCurve::P256 => "EC P-256",
-                NamedCurve::P384 => "EC P-384",
-                NamedCurve::P521 => "EC P-521",
-            }),
+            GenerationKind::Signing(KeyKind::Rsa { bits }) => write!(f, "RSA {bits} — signing"),
+            GenerationKind::MlDsa(parameter) => write!(
+                f,
+                "ML-DSA-{} — signing",
+                match parameter {
+                    MlDsaParameterSet::MlDsa44 => 44,
+                    MlDsaParameterSet::MlDsa65 => 65,
+                    MlDsaParameterSet::MlDsa87 => 87,
+                }
+            ),
+            GenerationKind::MlKem(parameter) => write!(
+                f,
+                "ML-KEM-{} — encapsulation/decapsulation",
+                match parameter {
+                    MlKemParameterSet::MlKem512 => 512,
+                    MlKemParameterSet::MlKem768 => 768,
+                    MlKemParameterSet::MlKem1024 => 1024,
+                }
+            ),
+            GenerationKind::Signing(KeyKind::Ec(curve)) | GenerationKind::Ecdh(curve) => {
+                let purpose = if matches!(self.0, GenerationKind::Ecdh(_)) {
+                    "ECDH"
+                } else {
+                    "signing"
+                };
+                let curve = match curve {
+                    NamedCurve::P256 => "P-256",
+                    NamedCurve::P384 => "P-384",
+                    NamedCurve::P521 => "P-521",
+                };
+                write!(f, "EC {curve} — {purpose}")
+            }
+            GenerationKind::Aes(size, purpose) => write!(
+                f,
+                "AES {} — {}",
+                size.length() * 8,
+                match purpose {
+                    AesKeyPurpose::Encryption => "encryption/decryption",
+                    AesKeyPurpose::Wrapping => "wrapping/unwrapping",
+                }
+            ),
         }
     }
 }
 #[derive(Clone, Copy)]
 pub enum FilePurpose {
+    MlKem,
     Certificate,
     Export {
         module: ResourceId,
@@ -38,6 +76,10 @@ pub struct DeleteConfirmation {
 }
 #[derive(Default)]
 pub struct ManagementUi {
+    pub ml_kem_label: String,
+    pub ml_kem_id: String,
+    pub ml_kem_path: String,
+    pub picked_ml_kem: Option<PathBuf>,
     pub keys: Vec<KeyChoice>,
     pub key: Option<KeyChoice>,
     pub capabilities_loaded: bool,
@@ -111,11 +153,48 @@ impl UiState {
             self.notification = Some(Notification::Error(BackendError::InvalidForm));
             return None;
         }
+        let id = id.unwrap();
+        if key
+            .0
+            .validate(
+                &id,
+                self.management.key_label.as_bytes(),
+                self.management.always_authenticate,
+            )
+            .is_err()
+        {
+            self.notification = Some(Notification::Error(BackendError::InvalidForm));
+            return None;
+        }
         let action = ManagementAction::Generate {
             kind: key.0,
-            id: id.unwrap(),
+            id,
             label: self.management.key_label.as_bytes().to_vec(),
             always_authenticate: self.management.always_authenticate,
+        };
+        self.begin_management(self.module()?.id, self.token()?.id, action)
+    }
+    pub fn import_ml_kem(&mut self) -> Option<BackendCommand> {
+        if !self.can_manage() || self.token_page != TokenPage::Operations {
+            return None;
+        }
+        let id = identifier(&self.management.ml_kem_id);
+        if !id.as_ref().is_some_and(|id| id.len() <= 128)
+            || self.management.ml_kem_label.is_empty()
+            || self.management.ml_kem_label.len() > 128
+            || self.management.ml_kem_path.is_empty()
+        {
+            self.notification = Some(Notification::Error(BackendError::MlKemImportInput));
+            return None;
+        }
+        let action = ManagementAction::ImportMlKem {
+            path: self
+                .management
+                .picked_ml_kem
+                .clone()
+                .unwrap_or_else(|| PathBuf::from(&self.management.ml_kem_path)),
+            id: id?,
+            label: self.management.ml_kem_label.as_bytes().to_vec(),
         };
         self.begin_management(self.module()?.id, self.token()?.id, action)
     }
@@ -207,6 +286,7 @@ impl UiState {
             })
             && self.object_details.as_ref().is_some_and(|fields| {
                 fields
+                    .fields
                     .iter()
                     .any(|field| field.name == "Private" && field.value.as_deref() == Some("false"))
             })
@@ -230,6 +310,18 @@ impl UiState {
             }
             FilePurpose::Certificate
         };
+        self.begin_management_file(purpose)
+    }
+    pub fn begin_ml_kem_file(&mut self) -> Option<(RequestId, FilePurpose)> {
+        if self.token_page != TokenPage::Operations || !self.can_manage() {
+            return None;
+        }
+        self.begin_management_file(FilePurpose::MlKem)
+    }
+    fn begin_management_file(&mut self, purpose: FilePurpose) -> Option<(RequestId, FilePurpose)> {
+        if self.management.file_request.is_some() || !self.can_submit() {
+            return None;
+        }
         let id = self.request_id()?;
         self.management.file_request = Some(FileRequest { id, purpose });
         Some((id, purpose))
@@ -251,6 +343,11 @@ impl UiState {
         let request = self.management.file_request.take()?;
         let path = path?;
         match request.purpose {
+            FilePurpose::MlKem if self.token_page == TokenPage::Operations => {
+                self.management.ml_kem_path = path.to_string_lossy().into_owned();
+                self.management.picked_ml_kem = Some(path);
+                None
+            }
             FilePurpose::Certificate if self.token_page == TokenPage::Operations => {
                 self.management.certificate_path = path.to_string_lossy().into_owned();
                 self.management.picked_certificate = Some(path);
@@ -274,6 +371,9 @@ impl UiState {
 
 #[derive(Clone, Copy)]
 pub enum ManagementField {
+    MlKemLabel,
+    MlKemId,
+    MlKemPath,
     KeyLabel,
     KeyId,
     CertificateLabel,
@@ -286,6 +386,13 @@ impl UiState {
             return;
         }
         match field {
+            ManagementField::MlKemLabel => self.management.ml_kem_label = value,
+            ManagementField::MlKemId => self.management.ml_kem_id = value,
+            ManagementField::MlKemPath => {
+                self.management.ml_kem_path = value;
+                self.management.picked_ml_kem = None;
+                self.management.file_request = None;
+            }
             ManagementField::KeyLabel => self.management.key_label = value,
             ManagementField::KeyId => self.management.key_id = value,
             ManagementField::CertificateLabel => self.management.certificate_label = value,

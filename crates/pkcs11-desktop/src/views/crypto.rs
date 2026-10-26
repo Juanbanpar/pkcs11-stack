@@ -2,7 +2,7 @@
 use crate::ui::{button, checkbox, components::EMPHASIS, pick_list, text_input};
 use crate::{
     app::Message,
-    backend::CryptoMode,
+    backend::{CryptoMode, SignatureProfile},
     state::{CryptoField, UiState},
 };
 use iced::{
@@ -17,13 +17,18 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
     };
     let id = form.id;
     let sign = form.scope.mode == CryptoMode::Sign;
+    let ml_dsa = match form.choice.map(|choice| choice.0.parameters) {
+        Some(SignatureProfile::MlDsa(_)) => true,
+        Some(SignatureProfile::Classical(_)) => false,
+        None => state.object_key_type() == Some(pkcs11_client::KeyType::ML_DSA),
+    };
     let enabled = state.can_submit();
     let edit = move |field, value| Message::CryptoEdit { id, field, value };
     let browse = move |field| Message::CryptoBrowse { id, field };
     let mut content = column![
         text(if sign { "Sign a file" } else { "Verify a signature" }).size(22).font(EMPHASIS),
         text(if sign { "Signs once with the selected private-key locator. No certificate association is checked." }
-            else { "Verifies in software against the selected certificate's public key. Certificate trust is not checked." }).size(14),
+            else { "Verifies signatures in software against the selected certificate's public key. Certificate trust and association with a token key are not checked." }).size(14),
         pick_list(form.options.as_slice(), form.choice, move |choice| Message::CryptoChoice { id, choice }).placeholder("Signature parameters").enabled(enabled),
     ].spacing(10);
     if !form.loaded {
@@ -33,7 +38,15 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
             "No supported signature choices under the selected policy.",
         ));
     }
-    if sign {
+    if ml_dsa {
+        content = content.push(text(if sign {
+                "Pure ML-DSA on the token, with fresh randomness required. No prehash or software-hashing fallback."
+            } else {
+                "Pure ML-DSA verification in software. Use the original message and the exact domain context used for signing. No prehash is accepted."
+            }).size(14))
+                .push(text_input("ML-DSA domain context (UTF-8, 0–255 bytes)", &form.domain_context)
+                    .on_input_maybe((enabled && form.choice.is_some()).then_some(move |value| edit(CryptoField::DomainContext, value))));
+    } else if sign {
         content = content.push(
             checkbox(form.software_hashing)
                 .label("Allow software hashing if token hashing is unavailable")
@@ -41,18 +54,19 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
                     enabled.then_some(move |software| Message::CryptoPolicy { id, software }),
                 ),
         );
-        if let Some(choice) = form.choice
-            && let Some((mechanism, hashing)) = choice.0.plan
-        {
-            let hashing = match hashing {
-                pkcs11_client::HashLocation::Token => "Hashing on the token",
-                pkcs11_client::HashLocation::Software => "Software hashing",
-                pkcs11_client::HashLocation::Caller => "Caller-supplied digest",
-            };
-            content = content.push(crate::ui::components::muted(format!(
-                "{hashing} · {mechanism}. Capabilities are checked again when signing."
-            )));
-        }
+    }
+    if sign
+        && let Some(choice) = form.choice
+        && let Some((mechanism, hashing)) = choice.0.plan
+    {
+        let hashing = match hashing {
+            pkcs11_client::HashLocation::Token => "Hashing on the token",
+            pkcs11_client::HashLocation::Software => "Software hashing",
+            pkcs11_client::HashLocation::Caller => "Caller-supplied digest",
+        };
+        content = content.push(crate::ui::components::muted(format!(
+            "{hashing} · {mechanism}. Capabilities are checked again when signing."
+        )));
     }
     content = content
         .push(
@@ -113,8 +127,12 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
         content = content
             .push(text("One attempt only. Failed authentication can lock the PIN.").size(14));
     }
-    content = content.push(text(if sign {
+    content = content.push(text(if sign && ml_dsa {
+        "Output is a raw ML-DSA signature. Verification needs the same message and context; the signature file does not store the context. Existing files are never overwritten; a failed operation may leave an empty or partial file."
+    } else if sign {
         "Output uses raw RSA bytes or fixed-width ECDSA r || s, not DER. Existing files are never overwritten; a failed operation may leave an empty or partial file."
+    } else if ml_dsa {
+        "Signature encoding must be raw ML-DSA bytes for the displayed parameter set. The signature file does not store the domain context. Verification reads both files without changing them."
     } else { "Signature encoding must be raw RSA or fixed-width ECDSA r || s, not DER. PSS uses the displayed salt length and matching MGF1 digest." }).size(14))
         .push(row![button(if sign { "Sign once" } else { "Verify" }).style(button::primary).on_press_maybe((enabled && form.choice.is_some()).then_some(Message::SubmitCrypto(id))), button("Cancel").on_press(Message::DismissCrypto(id))].spacing(10).align_y(iced::Alignment::End));
     container(content)

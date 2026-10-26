@@ -12,16 +12,19 @@ pub use administration::{AdministrationAction, AdministrationKind};
 mod authentication;
 mod browse;
 mod cipher;
+mod hkdf;
+mod kem;
+pub use hkdf::HkdfJob;
 mod key_operations;
-pub use key_operations::KeyJob;
+pub use key_operations::{KeyJob, KeyProfile};
 mod crypto;
-pub use cipher::CipherJob;
+pub use cipher::{AesGcmFiles, CipherJob, CipherParameters};
 mod management;
 mod random;
 pub use authentication::{LoginRole, LoginState, SecretInput};
-pub use browse::{MechanismEntry, MetadataField, ObjectEntry};
-pub use crypto::{CryptoJob, CryptoMode, CryptoScope, SignatureOption};
-pub use management::ManagementAction;
+pub use browse::{MechanismEntry, MetadataField, ObjectDetails, ObjectEntry};
+pub use crypto::{CryptoJob, CryptoMode, CryptoScope, SignatureOption, SignatureProfile};
+pub use management::{GenerationKind, ManagementAction};
 
 /// Never reused during an application's lifetime, including after cancellation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -126,7 +129,7 @@ pub enum BackendCommand {
     KeyOperation {
         id: RequestId,
         scope: CryptoScope,
-        profile: pkcs11_client::KeyOperationProfile,
+        profile: KeyProfile,
         job: KeyJob,
     },
     Cipher {
@@ -241,11 +244,11 @@ impl BackendCommand {
 pub enum BackendResult {
     KeyOptions {
         scope: CryptoScope,
-        profile: pkcs11_client::KeyOperationProfile,
+        profile: KeyProfile,
     },
     CipherOptions {
         scope: CryptoScope,
-        choices: Vec<pkcs11_client::OaepChoice>,
+        choices: Vec<CipherParameters>,
     },
     RandomWritten {
         length: usize,
@@ -261,7 +264,7 @@ pub enum BackendResult {
     Capabilities {
         module: ResourceId,
         token: ResourceId,
-        keys: Vec<pkcs11_client::KeyKind>,
+        keys: Vec<GenerationKind>,
     },
     Managed {
         module: ResourceId,
@@ -284,7 +287,7 @@ pub enum BackendResult {
         module: ResourceId,
         token: ResourceId,
         object: ResourceId,
-        fields: Vec<MetadataField>,
+        details: ObjectDetails,
     },
     Modules {
         modules: Vec<ModuleEntry>,
@@ -311,6 +314,7 @@ pub enum BackendError {
     RandomLength,
     SigningUnavailable,
     SignatureChoice,
+    MlDsaContext,
     ContextRequired,
     CryptoRead,
     SignatureMismatch,
@@ -334,6 +338,8 @@ pub enum BackendError {
     RefreshAfterManagement,
     InvalidForm,
     FileRead,
+    MlKemImportInput,
+    HkdfInput,
     FileWrite,
     ExportUnavailable,
     Client(ErrorKind),
@@ -354,19 +360,19 @@ impl BackendError {
                 "Administration failed. Changes may still have applied. No retry was made; check token status before authenticating again."
             }
             Self::KeyOperationUnavailable => {
-                "Select a permitted EC derivation key or AES wrapping key after USER login. Creating keys requires a writable token."
+                "Check key type, permissions, provider support and USER login. Creating keys requires a writable token."
             }
             Self::KeyOperationInput => {
-                "Provide one EC SPKI DER peer key, or one 24/32/40-byte AES wrapped blob, with a new key label and hexadecimal ID."
+                "Check the operation files, new secret label and hexadecimal ID. EC needs SPKI DER, AES needs a 24/32/40-byte wrapped blob, and ML-KEM ciphertext must match the displayed parameter set."
             }
             Self::OaepParametersRejected => {
                 "The provider rejected these OAEP digest parameters. No digest downgrade or fallback was attempted."
             }
             Self::CipherUnavailable => {
-                "Select a permitted RSA public key to encrypt, or a permitted private key after USER login to decrypt. Per-operation-authentication decryption is unsupported."
+                "Select a permitted RSA key or an AES secret key. AES and private-key operations require USER login. Per-operation-authentication RSA decryption is unsupported."
             }
             Self::CipherInput => {
-                "Provide input and a new output path within the selected OAEP byte limits. Ciphertext must match the displayed RSA width."
+                "Provide valid cipher parameters, bounded input, optional AAD and a new output path. AES-GCM requires a 24-digit hexadecimal nonce and a full tag."
             }
             Self::RandomUnavailable => {
                 "Select an initialized token that advertises a random generator."
@@ -380,6 +386,7 @@ impl BackendError {
             Self::SignatureChoice => {
                 "Select a currently permitted signature choice and input/output files."
             }
+            Self::MlDsaContext => "ML-DSA context must contain at most 255 UTF-8 bytes.",
             Self::ContextRequired => {
                 "This key requires a per-operation PIN or protected authentication path."
             }
@@ -398,6 +405,12 @@ impl BackendError {
             Self::ManagementUnavailable => "Log in as USER on a writable token to manage objects.",
             Self::InvalidForm => {
                 "Select an advertised key type and provide a label and a nonempty hexadecimal ID."
+            }
+            Self::HkdfInput => {
+                "Check the HKDF output length, hexadecimal salt (at most 4096 bytes), UTF-8 context (at most 4096 bytes), label and new hexadecimal ID."
+            }
+            Self::MlKemImportInput => {
+                "Provide one ML-KEM SPKI DER public key of at most 2048 bytes, a label of 1–128 UTF-8 bytes and an ID of 1–128 hexadecimal bytes."
             }
             Self::FileRead => {
                 "Could not read one DER certificate of at most 16 MiB from the selected file."
@@ -871,12 +884,12 @@ impl Registry {
             } => {
                 return BackendEvent::Completed {
                     id,
-                    result: self.inspect(module, token, object).map(|fields| {
+                    result: self.inspect(module, token, object).map(|details| {
                         BackendResult::ObjectDetails {
                             module,
                             token,
                             object,
-                            fields,
+                            details,
                         }
                     }),
                 };
@@ -965,3 +978,9 @@ fn run(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod generation_tests;
+
+#[cfg(test)]
+mod gcm_tests;

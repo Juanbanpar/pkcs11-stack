@@ -250,6 +250,58 @@ Per-operation-authentication decryption keys are rejected before init. Successfu
 plaintext is redacted and zeroizing, but cryptoki's transient buffers from failed
 provider calls cannot currently be guaranteed zeroized.
 
+## AES-GCM encryption
+
+`Session::encrypt_aes_gcm` and `decrypt_aes_gcm` use CKM_AES_GCM with a supplied
+12-byte nonce and full 16-byte tag. Output/input is ciphertext followed by the tag;
+the nonce and AAD are separate. This fixed profile follows
+[PKCS#11 AES-GCM](https://docs.oasis-open.org/pkcs11/pkcs11-spec/v3.2/pkcs11-spec-v3.2.pdf)
+and [NIST SP 800-38D](https://csrc.nist.gov/pubs/sp/800/38/d/final).
+`AesGcmEncryptRequest` and `AesGcmDecryptRequest` borrow their inputs and redact
+all buffers in Debug. Plaintext is bounded to 16 MiB and AAD to 1 MiB; empty
+plaintext/AAD are permitted. Ciphertext includes exactly 16 tag bytes.
+
+The caller must ensure nonce uniqueness per key across writers and restarts,
+including equivalent copies of a key. No nonce is generated, persisted or tracked.
+An error does not authorize reusing a nonce. There is no retry, multipart plaintext
+release, software fallback or envelope format. Applications store and authenticate
+their protocol context and manage key lifetimes.
+
+`aes_gcm_capabilities` checks secret/AES class and type, 16/24/32-byte length,
+direction permission, allowed mechanisms, provider flags/bounds and native init
+and single-part entry points. Execution rechecks these constraints. Both RO and RW
+sessions are supported. Generated encryption keys and HKDF AES outputs qualify;
+wrapping-only keys and raw generic secrets do not. No key values are read.
+
+Decryption returns redacted, zeroizing plaintext only after provider success and
+exact-length checks. Tag, AAD, nonce or ciphertext corruption returns no plaintext.
+Provider errors/unwinds or malformed outputs invalidate the session; request
+validation and policy rejection precede crypto. cryptoki's transient buffers from
+failed calls cannot be guaranteed zeroized. Check explicit session closure before
+releasing output. Testing does not establish formal algorithm validation.
+
+## ECDH and AES key generation
+
+`Token::ecdh_generation_options` reports P-256/P-384/P-521 generation choices;
+`Token::aes_generation_options` reports AES-128/192/256 sizes. Both check native
+entry points, advertised generation flags and bounds. EC bounds are in bits;
+AES bounds and CKA_VALUE_LEN are in bytes. Choices do not guarantee template
+acceptance or later operation support.
+
+RW sessions accept `EcdhKeyPairRequest` through `generate_ecdh_key_pair` and
+`AesKeyRequest` through `generate_aes_key`. The EC public key is public; its
+private key is sensitive, nonextractable and derivation-only, with per-operation
+authentication disabled. AES keys are private, sensitive and nonextractable.
+`AesKeyPurpose::Encryption` permits encryption/decryption only; `Wrapping`
+permits wrapping/unwrapping only. No key values are read or returned.
+
+Both requests require nonempty ID/label fields of at most 128 bytes. Generation
+rechecks capabilities and rejects existing persistent public/private IDs for EC
+pairs or secret IDs for AES, without a uniqueness guarantee against concurrent
+writers. Provider failures invalidate the session and can leave persistent effects;
+there is no retry or rollback. Check session closure. The signing-generation API
+continues to create signing-only keys.
+
 ## Derivation and key transfer
 
 `Session::key_operation_profile` validates current key class, usage permissions,
@@ -312,6 +364,32 @@ session can be used after such a failure. Caller templates may contain secrets a
 are never logged. `validate_token_uri` provides the same pure constraint validation
 used by module resolution, so callers can reject unsupported input before loading.
 
+## ML-DSA
+
+Pure ML-DSA uses `MlDsaRequest` with an expected parameter set, the original message,
+a context of at most 255 bytes, and an explicit hedging choice. It has no external
+digest or prehash field. `MlDsaSigningPolicy` restricts allowed parameter sets
+independently of the RSA/EC `SigningPolicy`; its default permits ML-DSA-44/65/87.
+
+`Token::ml_dsa_generation_options` reports advertised choices. RW sessions provide
+`generate_ml_dsa_key_pair` with explicit ID/label and optional always-authenticate.
+Generated private keys are sensitive and nonextractable. `ml_dsa_capabilities`
+intersects key permissions, allowed mechanisms and token flags/bounds; ML-DSA
+mechanism bounds are public-key bytes, not bits.
+
+`sign_ml_dsa` rediscovers the key, checks its parameter set and policy, then signs
+once with CKM_ML_DSA. Always-authenticate keys use signing initialization, context
+login and multipart signing. Other keys use single-part signing. Returned signature
+length must match the selected parameter set. No private value or seed is read.
+`ml_dsa_public_key` reads only an explicitly public, non-private public-key object
+and checks its encoding length.
+
+`verify_ml_dsa` verifies on the token. A malformed or nonmatching signature returns
+`Error::SignatureMismatch`; a completed C_Verify mismatch leaves the session usable.
+Other backend failures invalidate it. Verification does not bind a private key to
+a public key or establish certificate trust. Software verification and certificate
+binding belong to `pkcs11-client`. HashML-DSA and external-mu signing are not implemented.
+
 ## Testing
 
 ```sh
@@ -323,3 +401,89 @@ Unit tests cover selection, redaction and signing plans; compile-fail examples
 check module, session and object lifetimes. The SoftHSM runner provisions disposable
 tokens for discovery, authentication, signing and mutation tests. See the
 [test guide](../../tests/README.md) for provider configuration.
+
+## ML-KEM
+
+`MlKemParameterSet` selects ML-KEM-512/768/1024. `Token::ml_kem_generation_options`
+checks advertised generation flags and public-key byte bounds.
+`Session::generate_ml_kem_key_pair` creates a persistent public encapsulation key
+and a sensitive, nonextractable private decapsulation key with explicit ID/label.
+Duplicate key-pair IDs remain possible; selection must resolve exactly one object.
+
+`MlKemPublicKey::from_bytes` validates the parameter-set length and the FIPS 203
+modulus check. `Session::ml_kem_public_key` exports only public, non-private
+objects and applies the same validation to provider output.
+`Session::import_ml_kem_public_key` creates a persistent public encapsulation key
+in an RW session. Its explicit ID/label follows the generation contract; existing
+objects are not overwritten. These checks do not authenticate the key's owner.
+
+`Session::ml_kem_capabilities` checks the selected class, parameter set, direction,
+key permission, allowed mechanisms, token flags/bounds and the PKCS#11 entry point.
+Always-authenticate decapsulation is unsupported by this single-call profile.
+The typed methods do not weaken these checks for vendor metadata errors.
+
+`encapsulate_ml_kem` returns only public ciphertext; `decapsulate_ml_kem` accepts
+that ciphertext and returns no key bytes. Both take `MlKemRequest`, with an
+expected parameter set and a new secret ID/label, and require an RW session.
+Secret identity fields are nonempty and at most 128 bytes; an existing secret ID
+is rejected before crypto. The result is a persistent private 32-byte generic
+secret with sensitive/nonextractable attributes and only derivation enabled.
+No private seed or shared-secret value is read or exported.
+
+Raw shared secrets require a protocol KDF and peer authentication before use.
+ML-KEM implicit rejection can produce a different secret for altered same-length
+ciphertext without reporting an error. Success alone does not authenticate a peer.
+These KEM calls do not apply a KDF; use `derive_hkdf` separately. There is no
+retry, rollback or software fallback. Provider failures
+invalidate the session, and even an error can leave persistent effects.
+
+## HKDF
+
+`HkdfRequest` selects SHA-256/384/512, public salt/context, output type and a new
+secret ID/label. `Session::derive_hkdf` always runs extract-and-expand through
+CKM_HKDF_DERIVE in an RW session. An empty salt uses RFC 5869's zero salt; empty
+context is permitted. Salt and context are each bounded to 4096 bytes, and output
+is limited to 255 times the hash length.
+
+`Session::hkdf_capabilities` checks secret class, generic/HKDF key type,
+CKA_DERIVE, allowed mechanisms, sensitivity, nonextractability and the provider's
+HKDF derive support. Under PKCS#11 section 6.62.3 the base key must match the hash
+length: 32, 48 or 64 bytes. ML-KEM's 32-byte shared secret therefore uses SHA-256.
+Advertised support is advisory; provider parameter/template rejection is returned
+without retry or software fallback.
+
+Outputs are persistent private, sensitive, nonextractable keys. `HkdfOutput`
+selects AES-128/192/256 with encryption/decryption permissions, or a generic
+secret permitting only further derivation. Signing, verification, wrapping and
+unwrapping are disabled. Existing secret IDs are checked before derivation;
+the check is not a transaction against concurrent writers. No key values are
+read. Base keys remain on the token until explicitly deleted. Failures can leave
+persistent effects, and session closure must be checked when cleanup matters.
+
+Applications authenticate the peer and define salt/context within their protocol.
+HKDF does not authenticate ML-KEM ciphertexts or combine classical/PQC secrets.
+
+## Application hybrid derivation
+
+`Session::derive_hybrid_hkdf` combines a P-256 ECDH secret followed by an
+ML-KEM-768 secret, then applies HKDF-SHA512 on the same token. This uses the
+classical || auxiliary construction described by
+[NIST SP 800-56C Rev. 2](https://doi.org/10.6028/NIST.SP.800-56Cr2).
+It defines neither a wire protocol nor the X-Wing or TLS key schedule.
+
+Both selectors must resolve to distinct 32-byte generic secrets with derivation
+permission, sensitive/nonextractable attributes and permission for
+CKM_CONCATENATE_BASE_AND_KEY. Metadata cannot prove their origin: the caller must
+establish component provenance, independent generation and authenticated peers.
+Use ECDH and ML-KEM outputs from the same protocol exchange, with agreed ordering.
+
+Pass `HkdfRequest` with SHA-512, public salt of at most 128 bytes and nonempty
+context of at most 4096 bytes. The protocol must bind identities, algorithm choices,
+roles and the exchange transcript as appropriate. Output profiles, duplicate-ID
+checks and persistent effects follow `derive_hkdf`.
+
+The concatenated 64-byte input is a private, sensitive, nonextractable session
+object destroyed before return. Cleanup failure invalidates the session and takes
+precedence over derivation success/failure; a persistent output may already exist.
+No base is deleted, no value is read, and there is no retry or software fallback.
+This implementation does not establish formal algorithm validation.

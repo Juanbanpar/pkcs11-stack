@@ -70,12 +70,32 @@ loaded only after an explicit Load action; paths are not saved or loaded on star
 
 Use **Operations** to choose a key generation, certificate import or random
 generation task. Each task opens its own form. Key generation and certificate
-import require USER login on a writable token. Generation offers common RSA sizes and named
-EC curves within the client's advertised bounds. Supply a label and nonempty
-hexadecimal ID; the public and private keys share them. Private keys are sensitive
-and nonextractable. The per-operation authentication option sets
-CKA_ALWAYS_AUTHENTICATE. A provider may reject an advertised choice or template;
-operations are never retried automatically.
+import require USER login on a writable token. Generation uses the client's shared
+capability query to offer RSA/EC and ML-DSA-44/65/87 signing pairs,
+ML-KEM-512/768/1024 encapsulation/decapsulation pairs, P-256/P-384/P-521 ECDH pairs
+and AES-128/192/256 keys. Unsupported choices are omitted. Each choice names its
+purpose. ECDH private keys permit only derivation; AES keys permit either
+encryption/decryption or wrapping/unwrapping.
+Private and secret keys are sensitive and nonextractable. Per-signature
+authentication is available only for signing keys and clears when another purpose
+is selected. A provider may reject an advertised choice or template; operations
+are never retried automatically.
+
+Supply a label and hexadecimal ID. ECDH/AES identity fields each require 1–128
+bytes. Existing public/private IDs are rejected for ECDH pairs, and secret IDs for
+AES, without a uniqueness guarantee against concurrent writers. Signing pairs
+and ML-KEM pairs permit duplicate IDs; ambiguous selectors are rejected. Key
+pairs share their ID and label. ML-KEM does not permit per-operation PIN
+authentication.
+
+Use **Import ML-KEM Public Key** on **Operations** for one ML-KEM-512/768/1024
+SPKI DER file up to 2048 bytes. The parameter set comes from the encoded key;
+the client rejects other algorithms and noncanonical encodings. Supply a label
+of 1–128 UTF-8 bytes and an ID of 1–128 hexadecimal bytes. USER login and a
+writable token are required. Import preserves existing objects; duplicate IDs
+can make selection ambiguous. Authenticate the peer separately: parsing does
+not prove identity or private-key possession. Export from **Objects** uses the
+same SPKI format.
 
 Certificate import accepts one X.509 DER file up to 16 MiB and an explicit label/ID.
 It parses certificate metadata without establishing trust or binding the
@@ -84,22 +104,43 @@ certificate to a key. PEM, bundles and private-key import are not supported.
 On **Objects**, select an unambiguous object and use **Delete object**. Confirm the
 shown locator to permanently delete that single object. Related keys and
 certificates are kept. **Export public object** saves public certificate/data
-values, or RSA/P-256/P-384/P-521 public keys as SPKI DER. Private objects and
-private/secret key classes cannot be exported. Export creates a new file and
+values, or RSA, P-256/P-384/P-521, ML-DSA-44/65/87 and ML-KEM-512/768/1024 public
+keys as SPKI DER. The client selects the encoder from token metadata and validates
+the public key. Public export does not require login or authenticate a peer.
+Private objects and private/secret key classes cannot be exported. Export creates a new file and
 never overwrites one; a write failure can leave a partial file. On Unix, new
 export files are created with permissions 0600.
 
 Management clears selections and refreshes the object list, including after a
-failure that might have partial effects. Labels and IDs are not uniqueness
-constraints: collisions can produce ambiguous locators. Mutation commands and
-export finish before another operation can start; navigation remains available.
+failure that might have partial effects. Labels can collide, and existing signing
+generation permits duplicate IDs; ambiguous selectors are rejected. Mutation commands
+and export finish before another operation can start; navigation remains available.
+
+Key actions follow the key type read with the selected object's attributes:
+RSA offers signing and OAEP, EC offers signing and ECDH, ML-DSA offers signing,
+AES offers GCM and wrapping, and ML-KEM offers encapsulation or decapsulation
+according to the object class. Generic/HKDF secrets offer HKDF derivation.
+Permissions and provider capabilities are checked again in the worker.
 
 To sign a file, log in as USER and select an unambiguous private key on **Objects**.
-Choose **Sign file**, select a client-provided SHA-2 signature choice, and provide
+For RSA/EC, choose **Sign file**, select a client-provided SHA-2 signature choice, and provide
 a message file and a new signature output path. Token hashing is required by
 default; **Allow software hashing** permits a fallback planned before signing.
 The displayed mechanism and hashing location are advisory and checked again at
 execution. PSS choices use a matching MGF1 digest and digest-length salt.
+
+For ML-DSA-44/65/87, **Sign file** uses the observed parameter set and the original
+message, up to 16 MiB, including an empty file. Pure ML-DSA requires fresh token
+randomness and has no prehash, deterministic or software-hashing fallback. An
+optional domain context accepts up to 255 UTF-8 bytes; this is separate from the
+per-operation PIN. Always-authenticate keys use the same one-attempt PIN or
+protected-path form as classical signing. Protected-path behavior requires a
+supporting token and has not been tested with hardware.
+
+The output is a raw ML-DSA signature. Keep the domain context with the message for
+verification: the signature file contains no context or metadata. Existing files
+are never overwritten. The worker checks session closure before writing the
+signature; a failed signing operation may leave an empty file.
 
 Keys with CKA_ALWAYS_AUTHENTICATE require a per-operation PIN or supported
 protected authentication path. This credential is cleared on submission,
@@ -110,13 +151,38 @@ a failed signature or write can leave an empty or partial file. Signing refreshe
 token status and object inventories, including after authentication failures.
 
 Select a supported certificate and choose **Verify signature** to check a message
-and signature in software using its public key. Verification does not establish
+and signature in software using its RSA/EC or ML-DSA public key. ML-DSA uses the
+parameter set encoded in the certificate and the original message, with the exact
+domain context used for signing (empty unless one was supplied). No login,
+per-operation PIN or token verification mechanism is required for a visible public
+certificate. Both input files are read without modification. Verification does not establish
 certificate trust or prove association with a token key. Editing the form or
-changing selection invalidates pending verification results.
+changing selection invalidates pending verification results, including changes to
+the ML-DSA domain context.
 
 Message files are limited to 16 MiB and signature inputs to 16 KiB. RSA signatures
 use raw modulus-width bytes; EC signatures use fixed-width `r || s`, not ASN.1 DER.
 File contents, signature bytes and credentials remain on the worker.
+
+For AES-GCM, log in as USER and select an AES secret key on **Objects**. Choose
+**Encrypt AES-GCM** or **Decrypt AES-GCM**. Supply exactly 24 hexadecimal nonce
+digits, an input file, a new output path and, optionally, an AAD file. The worker
+checks key permissions and provider support again before execution. Wrapping-only
+keys cannot encrypt/decrypt.
+
+Output/input is raw ciphertext followed by a full 16-byte tag. Nonce and AAD are
+separate: retain them for decryption. Plaintext is limited to 16 MiB and AAD to
+1 MiB; empty files and absent AAD are supported. Nonces must never repeat for the
+same key, including across applications, restarts and copies of key material.
+After an encryption error, use a new nonce. This interface does not generate or
+track nonces and does not define a file envelope.
+
+Decryption writes no plaintext before successful authentication and checked
+session closure. Altered nonce, AAD, ciphertext or tag fails. Existing output files
+are preserved; failures can leave an empty output, or a partial file after a write
+error. Input and plaintext use zeroizing storage on the worker. Parameter forms
+clear after submission or navigation, and stale capability/picker results are
+ignored. Operations are not retried.
 
 On **Objects**, select a public RSA key and choose **Encrypt RSA OAEP**, or log in
 as USER and select a private RSA key for **Decrypt RSA OAEP**. Client-provided
@@ -167,14 +233,54 @@ sudo apt-get install pkg-config libxkbcommon-dev libwayland-dev libegl1-mesa-dev
 
 ## Derivation and key transfer
 
+After USER login on a writable token, select an ML-KEM public key and choose
+**Encapsulate ML-KEM secret**. Enter a new secret label, hexadecimal ID and
+ciphertext output path. To receive a ciphertext, select the corresponding ML-KEM
+private key and choose **Decapsulate ML-KEM secret**, then provide the ciphertext
+file and a new secret label/ID. The key determines ML-KEM-512/768/1024; the worker
+checks its current parameter set, permissions and provider capabilities before use.
+
+Both operations create a persistent private, sensitive, nonextractable 32-byte
+generic secret with derivation permission only. Labels and IDs require 1–128
+bytes; existing secret IDs are rejected. Shared-secret bytes never leave the
+token. Encapsulation writes only raw public ciphertext, after checked session
+closure, to a new file. Decapsulation requires exactly 768, 1088 or 1568 bytes
+for ML-KEM-512, 768 or 1024 respectively and reads the input without modification.
+ML-KEM implicit rejection can accept a changed ciphertext of the correct length
+and produce a different secret. Completion does not confirm agreement or
+peer identity. Always-authenticate decapsulation keys are unsupported.
+
+Authenticate the peer and apply the protocol's KDF before using a raw secret.
+Use the client or CLI for hybrid KEM workflows; these are not exposed in the
+desktop. Failed encapsulation, session closure or
+output writes may leave a token object and an empty or partial ciphertext file.
+Existing files are preserved. Refresh the inventory before retrying.
+
+Select a generic/HKDF secret on **Objects** and choose **Derive HKDF key**. The
+client discovers a permitted SHA-2 profile: 32-byte bases use SHA-256, 48-byte
+bases SHA-384 and 64-byte bases SHA-512. Other lengths have no profile; values
+are never truncated or padded. The base must be sensitive, nonextractable and
+permit derivation. USER login on a writable token is required.
+
+Choose AES-128/192/256 for encryption/decryption, or a generic secret for further
+derivation with a length from 1 through 255 times the hash length. Outputs are
+persistent, private, sensitive and nonextractable. The provider may reject a
+specific output template. Provide a new label/ID of 1–128 bytes each; duplicate
+secret IDs are rejected. Optional salt uses hexadecimal bytes and protocol
+context uses UTF-8, each limited to 4096 bytes. Empty salt uses RFC 5869 zero
+salt. Agree on exact protocol inputs and output parameters with the peer; HKDF
+does not establish peer identity and this form is not a hybrid combiner or TLS
+key schedule. Base and output values remain on the token; there is no output
+file or software fallback.
+
 After USER login, select an EC private key with derivation permission and choose
 **Derive ECDH secret**. Supply a peer public key in SPKI DER, a new label and a
 hexadecimal ID. The client validates the peer point and requires the same named
 curve as the base key. P-256/P-384/P-521 use the explicitly selected null KDF.
 The result is a persistent private, sensitive, nonextractable generic secret,
 with derivation permission only. It cannot be encrypted, signed or wrapped.
-A subsequent KDF is required before cryptographic use; KDF application is not
-implemented. Authenticate the peer separately; ECDH alone does not establish
+A subsequent KDF is required before cryptographic use; HKDF is available for
+base lengths supported by its PKCS#11 profile. Authenticate the peer separately; ECDH alone does not establish
 its identity. Per-operation-authentication base keys are unsupported.
 
 Select an AES key with wrapping permission and choose **Wrap AES key**. Select
@@ -189,10 +295,10 @@ Choose **Unwrap AES key** on an AES key with unwrapping permission, select a
 24/32/40-byte wrapped file, and provide a new label and hexadecimal ID. It creates
 an AES-128/192/256 token key with encryption/decryption permission only. The key
 is private, sensitive and nonextractable. Existing secret key IDs are rejected.
-Unwrapping and derivation require a writable token. The app does not generate
-wrapping or ECDH base keys yet; provision compatible keys separately.
+Unwrapping and derivation require a writable token. Generate ECDH and AES wrapping
+keys from **Operations** when the provider advertises those choices.
 
-All three operations execute once on the worker and refresh inventories on
+All key operations execute once on the worker and refresh inventories on
 success or failure. Once submitted, they cannot be cancelled or superseded.
 Navigation remains available. There is no retry or rollback: a failed provider
 call or session close may still leave a created object. Refresh before retrying.
@@ -244,10 +350,29 @@ the worker off the UI thread.
 
 Tests cover state transitions, stale responses, picker results, backend errors,
 shutdown, lazy details, ambiguous objects, metadata redaction and isolated SoftHSM
-module/object/mechanism, USER/SO authentication, object management, signing/verification, RSA-OAEP, ECDH and RFC 3394 workflows:
+module/object/mechanism, USER/SO authentication, object management, signing/verification, AES-GCM, RSA-OAEP, ECDH and RFC 3394 workflows:
 
 ```sh
-PKCS11_TEST_DESKTOP=1 ./tools/test-softhsm.sh
+./tools/test-softhsm.sh
+```
+
+The workspace [default test suite](../../tests/README.md) includes desktop tests
+without opt-in flags. Required ML-DSA and ML-KEM provider jobs cover all six
+ML-DSA/ML-KEM parameter sets, private-key permissions, authentication settings and
+public export without login. ML-KEM operation tests cover ciphertext lengths,
+implicit rejection, derivation-only secret permissions, duplicate IDs, authentication
+and file preservation. Import tests check bounded SPKI files, authentication,
+round-trip export and ambiguous duplicate IDs. Export tests also reject private keys and stale
+object IDs, preserve existing files and check Unix file permissions.
+
+The Kryoptic CI job also runs the desktop flow from public-key export/import
+through ML-KEM and HKDF to AES-GCM, for all three ML-KEM parameter sets, all AES
+output sizes and further derivation using SHA-384/SHA-512. It checks output
+permissions, duplicate IDs, login requirements and stale references. Run it with
+a trusted provider supporting persistent ML-KEM, HKDF and AES-GCM:
+
+```sh
+PKCS11_TEST_KDF_MODULE=/path/to/libkryoptic_pkcs11.so ./tools/test-kem-hkdf.sh
 ```
 
 ## License

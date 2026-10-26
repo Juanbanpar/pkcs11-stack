@@ -87,8 +87,16 @@ async fn settle<P: Program + 'static>(
     panic!("UI event stream disconnected");
 }
 fn run(initial: fn() -> UiState, steps: &[&str]) -> App {
+    run_focused(initial, steps, None)
+}
+fn run_focused(initial: fn() -> UiState, steps: &[&str], focus: Option<&'static str>) -> App {
     let program = iced::application(
-        move || App::without_worker(initial()),
+        move || {
+            (
+                App::without_worker(initial()),
+                focus.map_or_else(iced::Task::none, crate::ui::focus::focus),
+            )
+        },
         App::update,
         App::view,
     )
@@ -321,8 +329,12 @@ fn choice_keyboard_navigation_selects_typed_client_parameters() {
         state.presentation.task = Some(ManagementTask::Generate);
         state.management.capabilities_loaded = true;
         state.management.keys = vec![
-            crate::state::KeyChoice(pkcs11_client::KeyKind::Rsa { bits: 2048 }),
-            crate::state::KeyChoice(pkcs11_client::KeyKind::Rsa { bits: 4096 }),
+            crate::state::KeyChoice(crate::backend::GenerationKind::Signing(
+                pkcs11_client::KeyKind::Rsa { bits: 2048 },
+            )),
+            crate::state::KeyChoice(crate::backend::GenerationKind::Signing(
+                pkcs11_client::KeyKind::Rsa { bits: 4096 },
+            )),
         ];
         state
     }
@@ -332,9 +344,9 @@ fn choice_keyboard_navigation_selects_typed_client_parameters() {
     );
     assert_eq!(
         app.state.management.key,
-        Some(crate::state::KeyChoice(pkcs11_client::KeyKind::Rsa {
-            bits: 4096
-        }))
+        Some(crate::state::KeyChoice(
+            crate::backend::GenerationKind::Signing(pkcs11_client::KeyKind::Rsa { bits: 4096 })
+        ))
     );
     assert!(app.state.presentation.choice.is_none());
     assert_eq!(
@@ -564,23 +576,26 @@ fn populated_state() -> UiState {
     }];
     state.mechanisms_loaded = true;
     state.selected_object = Some(ResourceId(3));
-    state.object_details = Some(vec![
-        MetadataField {
-            name: "Key type",
-            status: "available",
-            value: Some("CKK_RSA".into()),
-        },
-        MetadataField {
-            name: "Sign",
-            status: "available",
-            value: Some("true".into()),
-        },
-        MetadataField {
-            name: "Sensitive",
-            status: "available",
-            value: Some("true".into()),
-        },
-    ]);
+    state.object_details = Some(crate::backend::ObjectDetails {
+        key_type: Some(pkcs11_client::KeyType::RSA),
+        fields: vec![
+            MetadataField {
+                name: "Key type",
+                status: "available",
+                value: Some("CKK_RSA".into()),
+            },
+            MetadataField {
+                name: "Sign",
+                status: "available",
+                value: Some("true".into()),
+            },
+            MetadataField {
+                name: "Sensitive",
+                status: "available",
+                value: Some("true".into()),
+            },
+        ],
+    });
     state
 }
 
@@ -674,11 +689,13 @@ fn workflow_screens_render_without_a_provider() {
             scope,
             context: false,
             options: vec![SignatureOption {
-                parameters: pkcs11_client::SignatureParameters {
-                    algorithm: pkcs11_client::SignatureAlgorithm::RsaPkcs1,
-                    digest: pkcs11_client::DigestAlgorithm::Sha256,
-                    pss: None,
-                },
+                parameters: crate::backend::SignatureProfile::Classical(
+                    pkcs11_client::SignatureParameters {
+                        algorithm: pkcs11_client::SignatureAlgorithm::RsaPkcs1,
+                        digest: pkcs11_client::DigestAlgorithm::Sha256,
+                        pss: None,
+                    },
+                ),
                 plan: Some((
                     pkcs11_client::MechanismType::SHA256_RSA_PKCS,
                     pkcs11_client::HashLocation::Token,
@@ -801,11 +818,14 @@ fn identity_read_failures_remain_distinguishable_in_the_inspector() {
 #[test]
 fn text_attributes_are_displayed_verbatim() {
     let mut state = populated_state();
-    state.object_details = Some(vec![crate::backend::MetadataField {
-        name: "Application",
-        status: "available",
-        value: Some("true".into()),
-    }]);
+    state.object_details = Some(crate::backend::ObjectDetails {
+        key_type: Some(pkcs11_client::KeyType::RSA),
+        fields: vec![crate::backend::MetadataField {
+            name: "Application",
+            status: "available",
+            value: Some("true".into()),
+        }],
+    });
     let mut ui = iced_test::simulator(crate::views::object::detail(&state));
     assert!(ui.find("true").is_ok());
     assert!(ui.find("Yes").is_err());
@@ -846,6 +866,7 @@ fn primary_actions_stay_visible_at_supported_window_sizes() {
                 &[
                     "task-Some(Generate)",
                     "task-Some(Import)",
+                    "task-Some(ImportMlKem)",
                     "task-Some(Random)",
                 ]
             };
@@ -909,4 +930,502 @@ fn refreshing_objects_drops_the_old_operation_form_and_rejects_late_choices() {
     });
     assert!(state.crypto_form.is_none());
     assert_eq!(state.current_operation, Some(refresh));
+}
+
+#[test]
+fn selecting_aes_clears_signing_authentication_and_disables_its_control() {
+    use crate::backend::GenerationKind;
+    use crate::state::KeyChoice;
+    use pkcs11_client::{AesKeyPurpose, AesKeySize, KeyKind};
+    fn generation() -> UiState {
+        let mut state = state();
+        state.loaded_modules[0].tokens[0].login = LoginState::User;
+        state.token_page = TokenPage::Operations;
+        state.presentation.task = Some(ManagementTask::Generate);
+        let signing = KeyChoice(GenerationKind::Signing(KeyKind::Rsa { bits: 2048 }));
+        let aes = KeyChoice(GenerationKind::Aes(
+            AesKeySize::Bits256,
+            AesKeyPurpose::Wrapping,
+        ));
+        state.management.keys = vec![signing, aes];
+        state.management.key = Some(signing);
+        state.management.always_authenticate = true;
+        state
+    }
+    let app = run(
+        generation,
+        &[
+            "click \"RSA 2048 — signing\"",
+            "type tab",
+            "type enter",
+            "click \"Require authentication for every signature\"",
+        ],
+    );
+    assert!(matches!(
+        app.state.management.key,
+        Some(KeyChoice(GenerationKind::Aes(_, _)))
+    ));
+    assert!(!app.state.management.always_authenticate);
+    assert!(app.state.current_operation.is_none());
+    for dark in [false, true] {
+        render_screen(&app.state, "generate-aes", 900, 600, dark);
+    }
+}
+
+#[test]
+fn selecting_ml_kem_clears_ml_dsa_authentication_and_disables_its_control() {
+    use crate::backend::GenerationKind;
+    use crate::state::KeyChoice;
+    use pkcs11_client::{MlDsaParameterSet, MlKemParameterSet};
+    fn generation() -> UiState {
+        let mut state = state();
+        state.loaded_modules[0].tokens[0].login = LoginState::User;
+        state.token_page = TokenPage::Operations;
+        state.presentation.task = Some(ManagementTask::Generate);
+        let signing = KeyChoice(GenerationKind::MlDsa(MlDsaParameterSet::MlDsa65));
+        let kem = KeyChoice(GenerationKind::MlKem(MlKemParameterSet::MlKem768));
+        state.management.keys = vec![signing, kem];
+        state.management.key = Some(signing);
+        state
+    }
+    let app = run(
+        generation,
+        &["click \"Require authentication for every signature\""],
+    );
+    assert!(app.state.management.always_authenticate);
+    for dark in [false, true] {
+        render_screen(&app.state, "generate-ml-dsa", 900, 600, dark);
+    }
+    let app = run(
+        generation,
+        &[
+            "click \"Require authentication for every signature\"",
+            "click \"ML-DSA-65 — signing\"",
+            "type tab",
+            "type enter",
+            "click \"Require authentication for every signature\"",
+        ],
+    );
+    assert_eq!(
+        app.state.management.key,
+        Some(KeyChoice(GenerationKind::MlKem(
+            MlKemParameterSet::MlKem768
+        )))
+    );
+    assert!(!app.state.management.always_authenticate);
+    assert!(app.state.current_operation.is_none());
+    for dark in [false, true] {
+        render_screen(&app.state, "generate-ml-kem", 900, 600, dark);
+    }
+}
+
+#[test]
+fn pqc_public_export_is_keyboard_accessible_without_login() {
+    fn public(family: &str) -> UiState {
+        let mut state = populated_state();
+        state.loaded_modules[0].tokens[0].login = LoginState::Public;
+        state.token_page = TokenPage::Objects;
+        state.selected_object = Some(ResourceId(4));
+        state.objects[1].label = format!("{family} public key");
+        state.object_details = Some(crate::backend::ObjectDetails {
+            key_type: Some(if family == "CKK_ML_DSA" {
+                pkcs11_client::KeyType::ML_DSA
+            } else {
+                pkcs11_client::KeyType::ML_KEM
+            }),
+            fields: vec![
+                crate::backend::MetadataField {
+                    name: "Key type",
+                    status: "available",
+                    value: Some(family.into()),
+                },
+                crate::backend::MetadataField {
+                    name: "Private",
+                    status: "available",
+                    value: Some("false".into()),
+                },
+            ],
+        });
+        state
+    }
+    fn ml_dsa() -> UiState {
+        public("CKK_ML_DSA")
+    }
+    fn ml_kem() -> UiState {
+        public("CKK_ML_KEM")
+    }
+    for (initial, name) in [
+        (ml_dsa as fn() -> UiState, "ml-dsa-public-export"),
+        (ml_kem as fn() -> UiState, "ml-kem-public-export"),
+    ] {
+        let app = run_focused(initial, &[], Some("export-public-object"));
+        assert!(app.state.can_export());
+        assert_eq!(
+            app.state.presentation.focused,
+            Some(iced::widget::Id::new("export-public-object"))
+        );
+        assert!(app.state.current_operation.is_none());
+        for dark in [false, true] {
+            render_screen(&app.state, name, 1060, 900, dark);
+        }
+    }
+}
+
+#[test]
+fn ml_dsa_signing_form_accepts_utf8_context_and_disallows_classical_hashing() {
+    fn signing() -> UiState {
+        use crate::backend::{
+            BackendCommand, BackendEvent, BackendResult, CryptoMode, SignatureOption,
+            SignatureProfile,
+        };
+        let mut state = populated_state();
+        state.token_page = TokenPage::Objects;
+        state.object_details.as_mut().unwrap().key_type = Some(pkcs11_client::KeyType::ML_DSA);
+        state.object_details.as_mut().unwrap().fields[0].value = Some("CKK_ML_DSA".into());
+        let BackendCommand::CryptoOptions { id, scope, .. } =
+            state.open_crypto(CryptoMode::Sign).unwrap()
+        else {
+            panic!("ML-DSA choices")
+        };
+        state.event(BackendEvent::Completed {
+            id,
+            result: Ok(BackendResult::CryptoOptions {
+                scope,
+                context: true,
+                options: vec![SignatureOption {
+                    parameters: SignatureProfile::MlDsa(pkcs11_client::MlDsaParameterSet::MlDsa65),
+                    plan: None,
+                }],
+            }),
+        });
+        state
+    }
+    let mut app = run_focused(
+        signing,
+        &["type \"domain-é\""],
+        Some("input-ML-DSA domain context (UTF-8, 0–255 bytes)"),
+    );
+    let form = app.state.crypto_form.as_ref().unwrap();
+    assert_eq!(form.domain_context, "domain-é");
+    let id = form.id;
+    let _ = app.update(Message::CryptoPolicy { id, software: true });
+    assert!(!app.state.crypto_form.as_ref().unwrap().software_hashing);
+    assert!(app.state.current_operation.is_none());
+    for dark in [false, true] {
+        render_screen(&app.state, "sign-ml-dsa", 1060, 900, dark);
+    }
+    let _ = app.update(Message::DismissCrypto(id));
+    assert!(app.state.crypto_form.is_none());
+}
+
+#[test]
+fn object_views_show_only_actions_for_the_observed_key_type() {
+    use iced::advanced::widget::{Id, Operation, operation::Focusable};
+    use pkcs11_client::KeyType as K;
+    struct Ids(Vec<Id>);
+    impl Operation for Ids {
+        fn traverse(&mut self, operate: &mut dyn FnMut(&mut dyn Operation)) {
+            operate(self);
+        }
+        fn focusable(&mut self, id: Option<&Id>, _: iced::Rectangle, _: &mut dyn Focusable) {
+            self.0.extend(id.cloned());
+        }
+    }
+    for (object, kind, expected) in [
+        (3, Some(K::RSA), vec!["Sign", "Decrypt"]),
+        (3, Some(K::EC), vec!["Sign", "Derive"]),
+        (3, Some(K::ML_DSA), vec!["Sign"]),
+        (3, Some(K::ML_KEM), vec!["Decapsulate"]),
+        (4, Some(K::RSA), vec!["Encrypt"]),
+        (4, Some(K::EC), vec![]),
+        (4, Some(K::ML_DSA), vec![]),
+        (4, Some(K::ML_KEM), vec!["Encapsulate"]),
+        (
+            6,
+            Some(K::AES),
+            vec!["Encrypt", "Decrypt", "Wrap", "Unwrap"],
+        ),
+        (6, Some(K::GENERIC_SECRET), vec!["Hkdf"]),
+        (3, None, vec![]),
+    ] {
+        let mut state = populated_state();
+        state.token_page = TokenPage::Objects;
+        state.selected_object = Some(ResourceId(object));
+        state.object_details.as_mut().unwrap().key_type = kind;
+        let mut renderer = iced::Renderer::new(iced::Font::DEFAULT, iced::Pixels(16.0));
+        let mut ui = iced_test::runtime::UserInterface::build(
+            crate::views::main::view(&state),
+            Size::new(1060.0, 900.0),
+            iced_test::runtime::user_interface::Cache::default(),
+            &mut renderer,
+        );
+        let mut ids = Ids(Vec::new());
+        ui.operate(&renderer, &mut ids);
+        for action in [
+            "Sign",
+            "Encrypt",
+            "Decrypt",
+            "Derive",
+            "Wrap",
+            "Unwrap",
+            "Encapsulate",
+            "Decapsulate",
+            "Hkdf",
+        ] {
+            assert_eq!(
+                ids.0.contains(&Id::from(format!("crypto-{action}"))),
+                expected.contains(&action),
+                "{object} {kind:?} {action}"
+            );
+        }
+    }
+}
+
+#[test]
+fn aes_gcm_file_form_accepts_nonce_and_aad_without_running_crypto() {
+    fn gcm() -> UiState {
+        use crate::backend::{
+            BackendCommand, BackendEvent, BackendResult, CipherParameters, CryptoMode,
+        };
+        let mut state = state();
+        state.loaded_modules[0].tokens[0].login = LoginState::User;
+        state.token_page = TokenPage::Objects;
+        let mut key = object(4, "AES encryption key");
+        key.class = Some(pkcs11_client::ObjectClass::SECRET_KEY);
+        key.uri = Some("pkcs11:serial=A;id=%04;type=secret-key".into());
+        state.object_details = Some(crate::backend::ObjectDetails {
+            fields: Vec::new(),
+            key_type: Some(pkcs11_client::KeyType::AES),
+        });
+        state.objects = vec![key];
+        state.selected_object = Some(ResourceId(4));
+        let BackendCommand::CryptoOptions { id, scope, .. } =
+            state.open_cipher(CryptoMode::Encrypt).unwrap()
+        else {
+            panic!("options")
+        };
+        state.event(BackendEvent::Completed {
+            id,
+            result: Ok(BackendResult::CipherOptions {
+                scope,
+                choices: vec![CipherParameters::AesGcm(
+                    pkcs11_client::AesGcmCapabilities {
+                        key_size: pkcs11_client::AesKeySize::Bits256,
+                    },
+                )],
+            }),
+        });
+        state
+    }
+    let app = run_focused(
+        gcm,
+        &[
+            "type \"0102030405060708090a0b0c\"",
+            "type tab",
+            "type \"context.bin\"",
+        ],
+        Some("input-Nonce (24 hexadecimal digits)"),
+    );
+    let form = app.state.cipher_form.as_ref().unwrap();
+    assert_eq!(form.nonce, "0102030405060708090a0b0c");
+    assert_eq!(form.aad, "context.bin");
+    assert!(app.state.current_operation.is_none());
+    for dark in [false, true] {
+        render_screen(&app.state, "aes-gcm-encrypt", 1060, 720, dark);
+    }
+}
+
+#[test]
+fn ml_dsa_verification_form_accepts_context_without_authentication() {
+    fn verification() -> UiState {
+        use crate::backend::{
+            BackendCommand, BackendEvent, BackendResult, CryptoMode, SignatureOption,
+            SignatureProfile,
+        };
+        let mut state = populated_state();
+        state.token_page = TokenPage::Objects;
+        state.selected_object = Some(ResourceId(5));
+        state.object_details.as_mut().unwrap().key_type = None;
+        state.loaded_modules[0].tokens[0].login = LoginState::Public;
+        let BackendCommand::CryptoOptions { id, scope, .. } =
+            state.open_crypto(CryptoMode::Verify).unwrap()
+        else {
+            panic!("verification choices")
+        };
+        state.event(BackendEvent::Completed {
+            id,
+            result: Ok(BackendResult::CryptoOptions {
+                scope,
+                context: false,
+                options: vec![SignatureOption {
+                    parameters: SignatureProfile::MlDsa(pkcs11_client::MlDsaParameterSet::MlDsa87),
+                    plan: None,
+                }],
+            }),
+        });
+        state
+    }
+    let mut app = run_focused(
+        verification,
+        &["type \"domain-é\""],
+        Some("input-ML-DSA domain context (UTF-8, 0–255 bytes)"),
+    );
+    let form = app.state.crypto_form.as_ref().unwrap();
+    assert_eq!(form.domain_context, "domain-é");
+    assert!(!form.context_required);
+    let id = form.id;
+    let _ = app.update(Message::CryptoPin {
+        id,
+        pin: "ignored-secret-canary".into(),
+    });
+    assert!(
+        secrecy::ExposeSecret::expose_secret(&app.state.crypto_form.as_ref().unwrap().pin)
+            .is_empty()
+    );
+    for dark in [false, true] {
+        render_screen(&app.state, "verify-ml-dsa", 1060, 900, dark);
+    }
+    let _ = app.update(Message::DismissCrypto(id));
+    assert!(app.state.crypto_form.is_none());
+}
+
+fn ml_kem_form(mode: crate::backend::CryptoMode) -> UiState {
+    use crate::backend::{BackendCommand, BackendEvent, BackendResult, CryptoMode, KeyProfile};
+    let mut state = populated_state();
+    state.token_page = TokenPage::Objects;
+    state.selected_object = Some(ResourceId(if mode == CryptoMode::Encapsulate {
+        4
+    } else {
+        3
+    }));
+    state.object_details.as_mut().unwrap().key_type = Some(pkcs11_client::KeyType::ML_KEM);
+    let BackendCommand::CryptoOptions { id, scope, .. } = state.open_key_operation(mode).unwrap()
+    else {
+        panic!("ML-KEM choices")
+    };
+    state.event(BackendEvent::Completed {
+        id,
+        result: Ok(BackendResult::KeyOptions {
+            scope,
+            profile: KeyProfile::MlKem(pkcs11_client::MlKemParameterSet::MlKem768),
+        }),
+    });
+    state
+}
+#[test]
+fn ml_kem_forms_accept_keyboard_input_and_render_both_directions() {
+    fn encapsulate() -> UiState {
+        ml_kem_form(crate::backend::CryptoMode::Encapsulate)
+    }
+    fn decapsulate() -> UiState {
+        ml_kem_form(crate::backend::CryptoMode::Decapsulate)
+    }
+    for (initial, name) in [
+        (encapsulate as fn() -> UiState, "encapsulate-ml-kem"),
+        (decapsulate as fn() -> UiState, "decapsulate-ml-kem"),
+    ] {
+        let mut app = run_focused(
+            initial,
+            &["type \"shared secret\"", "type tab", "type \"D75601\""],
+            Some("input-New secret key label"),
+        );
+        let form = app.state.key_form.as_ref().unwrap();
+        assert_eq!(form.label, "shared secret");
+        assert_eq!(form.key_id, "D75601");
+        let id = form.id;
+        for dark in [false, true] {
+            render_screen(&app.state, name, 1060, 900, dark);
+        }
+        let _ = app.update(Message::DismissKeyOperation(id));
+        assert!(app.state.key_form.is_none());
+        assert!(app.state.current_operation.is_none());
+    }
+}
+
+#[test]
+fn ml_kem_public_import_accepts_keyboard_input_and_discards_picker_on_task_change() {
+    fn initial() -> UiState {
+        let mut state = populated_state();
+        state.token_page = TokenPage::Operations;
+        state.presentation.task = Some(ManagementTask::ImportMlKem);
+        state
+    }
+    let mut app = run_focused(
+        initial,
+        &["type \"Peer key\"", "type tab", "type \"D75701\""],
+        Some("input-Public key label (1–128 UTF-8 bytes)"),
+    );
+    assert_eq!(app.state.management.ml_kem_label, "Peer key");
+    assert_eq!(app.state.management.ml_kem_id, "D75701");
+    for dark in [false, true] {
+        render_screen(&app.state, "import-ml-kem", 1060, 900, dark);
+    }
+    let (picker, _) = app.state.begin_ml_kem_file().unwrap();
+    let _ = app.update(Message::Ui(Action::Task(Some(ManagementTask::Import))));
+    let _ = app.update(Message::ObjectFilePicked {
+        id: picker,
+        path: Some("obsolete.der".into()),
+    });
+    assert!(app.state.management.ml_kem_path.is_empty());
+    assert!(app.state.management.certificate_path.is_empty());
+    let _ = app.update(Message::Ui(Action::Task(None)));
+    app.state.presentation.width = 900.0;
+    for dark in [false, true] {
+        render_screen(&app.state, "operations-with-peer-import", 900, 600, dark);
+    }
+}
+
+#[test]
+fn hkdf_form_accepts_context_and_output_choices_without_exposing_key_values() {
+    fn initial() -> UiState {
+        use crate::backend::{BackendCommand, BackendEvent, BackendResult, CryptoMode, KeyProfile};
+        let mut state = populated_state();
+        state.token_page = TokenPage::Objects;
+        state.selected_object = Some(ResourceId(6));
+        state.object_details.as_mut().unwrap().key_type =
+            Some(pkcs11_client::KeyType::GENERIC_SECRET);
+        let BackendCommand::CryptoOptions { id, scope, .. } =
+            state.open_key_operation(CryptoMode::Hkdf).unwrap()
+        else {
+            panic!("HKDF options")
+        };
+        state.event(BackendEvent::Completed {
+            id,
+            result: Ok(BackendResult::KeyOptions {
+                scope,
+                profile: KeyProfile::Hkdf(pkcs11_client::HkdfCapabilities {
+                    digest: pkcs11_client::DigestAlgorithm::Sha256,
+                    input_length: 32,
+                }),
+            }),
+        });
+        state
+    }
+    let mut app = run_focused(
+        initial,
+        &["type \"public protocol é\""],
+        Some("input-Protocol context (UTF-8, optional, up to 4096 bytes)"),
+    );
+    assert_eq!(
+        app.state.key_form.as_ref().unwrap().hkdf.info,
+        "public protocol é"
+    );
+    let id = app.state.key_form.as_ref().unwrap().id;
+    for dark in [false, true] {
+        render_screen(&app.state, "derive-hkdf-aes", 1060, 900, dark);
+    }
+    let _ = app.update(Message::HkdfOutput {
+        id,
+        output: crate::state::HkdfOutputChoice::DerivationSecret,
+    });
+    for dark in [false, true] {
+        render_screen(&app.state, "derive-hkdf-secret", 1060, 900, dark);
+    }
+    let _ = app.update(Message::DismissKeyOperation(id));
+    assert!(app.state.key_form.is_none());
+    let _ = app.update(Message::HkdfOutput {
+        id,
+        output: crate::state::HkdfOutputChoice::Aes128,
+    });
+    assert!(app.state.key_form.is_none());
 }

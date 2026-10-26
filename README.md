@@ -39,7 +39,7 @@ software crypto provider selection stay outside runtime.
   discover tokens and objects, pool sessions, plan signing and execute token operations.
 - [pkcs11-client](crates/pkcs11-client/README.md): look up resources, inspect and
   manage objects, sign messages, and verify key/certificate associations.
-- [pkcs11ctl](crates/pkcs11ctl/README.md): inspect modules and tokens, sign,
+- [pkcs11ctl](crates/pkcs11ctl/README.md): inspect modules and tokens, sign and verify,
   manage keys and certificates, and administer token PINs from the command line.
 - [pkcs11-rustls-adapter](crates/pkcs11-rustls-adapter/README.md): use token keys
   with rustls signing traits and server/client certificate resolvers.
@@ -54,27 +54,60 @@ signing-key generation, object deletion/relabeling, and token/PIN initialization
 and changes. Certificate binding verifies that a selected private key matches a
 certificate and checks each subsequent bound signature.
 
+The CLI can also verify signatures using a DER certificate file without loading a
+module, verify against a token certificate, and save token-generated random bytes.
+
+Runtime and client support pure ML-DSA-44/65/87 key generation, signing, token
+verification and public-key SPKI export. Requests use explicit parameter sets,
+contexts and hedging choices. The client also verifies signatures in software
+and binds token private keys to ML-DSA certificates, checking each subsequent
+bound signature. The CLI exposes these workflows, including offline certificate
+verification and context authentication.
+
+Runtime and client also support ML-KEM-512/768/1024 key generation, encapsulation
+and decapsulation, with RFC 9935 public-key import/export. Raw shared secrets remain sensitive and nonextractable on the
+token, with only further derivation permitted. Typed HKDF extract-and-expand
+creates nonextractable AES keys or further derivation secrets on the same token.
+The CLI exposes ML-KEM generation, public-key exchange, encapsulation,
+decapsulation and HKDF derivation. A P-256 || ML-KEM-768 application combiner
+derives token-held keys using HKDF-SHA512; callers supply authenticated component
+secrets and protocol context. It does not define a wire protocol.
+
 The TLS adapter supports server and mutual authentication with TLS 1.3 and optional
-TLS 1.2. Supported signing keys are RSA and EC P-256/P-384/P-521; TLS use also
-requires verification support from the application's crypto provider. See the
+TLS 1.2. RSA and EC P-256/P-384/P-521 work across those versions; ML-DSA
+authentication requires TLS 1.3. An optional hybrid-only provider policy requires
+X25519MLKEM768 and prevents classical key-exchange fallback. TLS key exchange
+and its key schedule run in the application's crypto provider; signing keys stay
+on the token. TLS use requires verification support from that provider. See the
 [signing and TLS examples](docs/examples.md) for runnable programs.
 
 RSA-OAEP encryption/decryption supports SHA-2 with a matching MGF1 digest and
 empty label. It processes one RSA block. Raw ECDH creates token-held generic
 secrets on P-256/P-384/P-521; AES key wrapping and unwrapping use RFC 3394.
-KDF application and private-key import are not implemented. Certificate parsing and binding do not validate
+Runtime and client generate derivation-only EC pairs and AES keys restricted to
+encryption/decryption or wrapping/unwrapping. A shared client capability query
+reports generation choices for the CLI and GUI. Both expose ECDH and AES
+generation with explicit purposes.
+AES-GCM is available through the libraries, CLI and desktop with 12-byte
+caller-managed nonces, full 16-byte tags and authenticated, zeroizing plaintext
+output. File workflows use raw ciphertext followed by the tag, with a separate
+nonce and optional AAD file. Plaintext is limited to 16 MiB.
+Private-key import is not implemented. Certificate parsing and binding do not validate
 certificate trust; applications configure trust separately.
 
 The desktop application loads and unloads modules, enumerates slots and tokens,
 and browses visible objects and advertised mechanisms with filters and metadata
 details. USER/SO login and logout support host PINs and token-protected
 authentication paths. Refresh updates inventories and clears stale selections.
-The GUI also generates signing key pairs, imports DER certificates, confirms
-object deletion, exports public objects, signs files and verifies signatures
-against selected certificates. It can also save bytes from a token's random
-generator, encrypt/decrypt small RSA-OAEP payloads, derive ECDH secrets, and
-wrap/unwrap AES keys with permitted keys. Administration supports confirmed token
-initialization, USER PIN initialization/reset, and USER/SO PIN changes with host PINs.
+The GUI also generates RSA/EC and ML-DSA signing pairs, ML-KEM pairs, ECDH pairs
+and AES keys, imports DER certificates and ML-KEM public keys, confirms
+object deletion, exports public objects, signs files with RSA/EC or ML-DSA keys,
+and verifies RSA/EC or ML-DSA signatures against selected certificates. It can also save bytes from a token's random
+generator, encrypt/decrypt AES-GCM files or small RSA-OAEP payloads, derive ECDH
+secrets, wrap/unwrap AES keys with permitted keys, and encapsulate/decapsulate
+ML-KEM secrets. HKDF derives AES or derivation-only keys without exporting key values.
+Administration supports confirmed token initialization, USER PIN initialization/reset, and USER/SO PIN changes with host PINs.
+Hybrid KEM workflows remain available through the libraries and CLI.
 
 ## Development
 
@@ -86,9 +119,8 @@ cargo fmt --all -- --check
 cargo check --workspace --all-targets --locked
 python3 tools/check-dependencies.py
 cargo clippy --workspace --all-targets --locked -- -D warnings
-cargo test --workspace --locked
 cargo run -p pkcs11ctl -- --help
-./tools/test-softhsm.sh
+./tools/test.sh
 bash tools/test-fuzz.sh
 ```
 
@@ -99,8 +131,9 @@ Desktop uses Iced `tiny-skia`, `thread-pool`, `wayland`, `advanced` and
 `linux-theme-detection`, with default features disabled. `iced_aw` enables only
 `badge` and `spinner`. Linux requires Wayland.
 
-[Test commands and configuration](tests/README.md) cover unit, property and
-SoftHSM integration tests. [Fuzzing](fuzz/README.md) describes the separate fuzz workspace.
+[Test commands and provider setup](tests/README.md) cover the default suite,
+including classical, PQC, hybrid and desktop integration tests.
+[Fuzzing](fuzz/README.md) describes the separate fuzz workspace.
 
 ## License
 

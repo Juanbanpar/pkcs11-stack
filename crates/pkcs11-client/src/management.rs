@@ -5,8 +5,8 @@ use crate::{
 };
 use pkcs11_runtime::{
     Attribute, AttributeInfo, AttributeType, AttributeValues, Authentication, CertificateType,
-    KeyKind, LibraryInfo, MechanismInfo, MechanismType, Module, Object, ObjectClass, ObjectRef,
-    Session, SessionMode, SessionPool, SessionState, SlotInfo, TokenInfo,
+    KeyKind, KeyType, LibraryInfo, MechanismInfo, MechanismType, Module, Object, ObjectClass,
+    ObjectRef, Session, SessionMode, SessionPool, SessionState, SlotInfo, TokenInfo,
 };
 use secrecy::{ExposeSecret, SecretString};
 use std::{num::NonZeroUsize, path::Path, sync::Arc};
@@ -291,6 +291,8 @@ impl ManagementSession<'_> {
     }
     /// Export only public certificate/data values or public keys as SPKI DER.
     /// Private/secret key classes and CKA_PRIVATE objects are rejected before value reads.
+    /// RSA, named EC, ML-DSA and ML-KEM keys use their observed key type; unsupported
+    /// types fail without trying another encoder. Export does not authenticate the key's owner.
     pub fn export_public(&mut self, reference: &ObjectRef) -> Result<Vec<u8>, Error> {
         let object = self.session.resolve(reference)?;
         let identity = object.read_attributes(&[AttributeType::Class, AttributeType::Private])?;
@@ -321,6 +323,15 @@ impl ManagementSession<'_> {
                     .ok_or(Error::MissingAttributeStatus)
             }
             ObjectClass::PUBLIC_KEY => {
+                let attributes = object.read_attributes(&[AttributeType::KeyType])?;
+                let kind = attributes
+                    .expose_values()
+                    .iter()
+                    .find_map(|value| match value {
+                        Attribute::KeyType(kind) => Some(*kind),
+                        _ => None,
+                    })
+                    .ok_or(Error::UnsupportedExport)?;
                 let key = crate::PublicKeyRef::new(
                     reference
                         .uri()
@@ -328,11 +339,35 @@ impl ManagementSession<'_> {
                         .parse()
                         .map_err(pkcs11_runtime::Error::from)?,
                 )?;
-                let metadata = key.public_metadata(&mut self.session)?;
-                crate::public_export::encode_public_key(metadata)
+                match kind {
+                    KeyType::RSA | KeyType::EC => self.export_classical_public_key(&key),
+                    KeyType::ML_DSA => self.export_ml_dsa_public_key(&key),
+                    KeyType::ML_KEM => self.export_ml_kem_public_key(&key),
+                    _ => Err(Error::UnsupportedExport),
+                }
             }
             _ => Err(Error::UnsupportedExport),
         }
+    }
+    /// Export a public, non-private RSA or named EC key as SPKI DER.
+    /// Rejects other algorithms rather than selecting a PQC encoder.
+    pub fn export_classical_public_key(
+        &mut self,
+        key: &crate::PublicKeyRef,
+    ) -> Result<Vec<u8>, Error> {
+        let object = self.session.resolve(key.as_object_ref())?;
+        let identity = object.read_attributes(&[AttributeType::Class, AttributeType::Private])?;
+        if !identity
+            .expose_values()
+            .contains(&Attribute::Class(ObjectClass::PUBLIC_KEY))
+            || !identity
+                .expose_values()
+                .contains(&Attribute::Private(false))
+        {
+            return Err(Error::UnsupportedExport);
+        }
+        let metadata = key.public_metadata(&mut self.session)?;
+        crate::public_export::encode_public_key(metadata)
     }
     /// Query actual token-wide login state through this live session.
     pub fn state(&self) -> Result<SessionState, Error> {

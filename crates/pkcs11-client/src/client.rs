@@ -41,7 +41,7 @@ impl<'m> Client<'m> {
     pub fn close(self) -> Result<(), Error> {
         Ok(self.pool.close()?)
     }
-    /// Application policy used for every signing operation and binding probe.
+    /// Policy for RSA/EC signing and binding. ML-DSA calls take their own policy.
     pub fn policy(&self) -> &SigningPolicy {
         &self.policy
     }

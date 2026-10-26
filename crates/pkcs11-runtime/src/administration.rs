@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-use crate::{Attribute, Error, KeyKind, NamedCurve, Object, Session, SessionMode, error::backend};
+use crate::{Attribute, Error, KeyKind, Object, Session, SessionMode, error::backend};
 use cryptoki::mechanism::Mechanism;
 use secrecy::SecretString;
 
@@ -83,11 +83,9 @@ impl<'m> Session<'m> {
                 Mechanism::RsaPkcsKeyPairGen
             }
             KeyKind::Ec(curve) => {
-                public.push(Attribute::EcParams(match curve {
-                    NamedCurve::P256 => vec![6, 8, 42, 134, 72, 206, 61, 3, 1, 7],
-                    NamedCurve::P384 => vec![6, 5, 43, 129, 4, 0, 34],
-                    NamedCurve::P521 => vec![6, 5, 43, 129, 4, 0, 35],
-                }));
+                public.push(Attribute::EcParams(crate::generation::curve_parameters(
+                    curve,
+                )));
                 Mechanism::EccKeyPairGen
             }
         };

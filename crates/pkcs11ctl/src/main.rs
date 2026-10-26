@@ -1,10 +1,15 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 #![forbid(unsafe_code)]
 //! PKCS#11 command-line workflows over the client library.
+mod aes_gcm;
 mod args;
+mod generation;
 mod inspect;
+mod key_establishment;
+mod ml_dsa;
 mod operations;
 mod support;
+use secrecy::ExposeSecret;
 use std::process::ExitCode;
 use support::*;
 
@@ -12,8 +17,15 @@ fn execute(matches: &clap::ArgMatches) -> Result<()> {
     let (name, m) = matches
         .subcommand()
         .ok_or_else(|| usage("missing command"))?;
-    let module_path = need(matches, "module")?;
+    if get(m, "certificate-file").is_none() {
+        need(matches, "module")?;
+    }
     let inputs = operations::Inputs::load(name, m)?;
+    if let Some(certificate) = &inputs.verification_certificate {
+        let value = operations::verify(certificate, m, &inputs)?;
+        return emit(name, value, get(matches, "format") == Some("json"));
+    }
+    let module_path = need(matches, "module")?;
     let target = if let Some(path) = get(m, "output") {
         Some(BinaryOutput::open(path)?)
     } else {
@@ -30,6 +42,9 @@ fn execute(matches: &clap::ArgMatches) -> Result<()> {
         operations::Output::Binary(bytes) => target
             .ok_or_else(|| usage("missing output destination"))?
             .write(&bytes),
+        operations::Output::SecretBinary(bytes) => target
+            .ok_or_else(|| usage("missing output destination"))?
+            .write(bytes.expose_secret()),
     }
 }
 fn main() -> ExitCode {

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-use crate::{inspect, support::*};
+use crate::{aes_gcm, generation, inspect, key_establishment, ml_dsa, support::*};
 use clap::ArgMatches;
 use pkcs11_client::{
-    AttributeType, DigestAlgorithm, HashingPolicy, KeyKind, NamedCurve, Provider, PssParameters,
+    AttributeType, DigestAlgorithm, HashingPolicy, Provider, PssParameters, RandomRequest,
     SessionMode, SignInput, SignRequest, SignatureAlgorithm, SigningPolicy, object_reference,
     validate_token_uri,
 };
@@ -12,8 +12,9 @@ use std::num::NonZeroUsize;
 pub(crate) enum Output {
     Structured(Value),
     Binary(Vec<u8>),
+    SecretBinary(pkcs11_client::RandomBytes),
 }
-fn digest(value: &str) -> DigestAlgorithm {
+pub(crate) fn digest(value: &str) -> DigestAlgorithm {
     match value {
         "sha256" => DigestAlgorithm::Sha256,
         "sha384" => DigestAlgorithm::Sha384,
@@ -34,7 +35,8 @@ fn request<'a>(m: &ArgMatches, bytes: &'a [u8]) -> Result<SignRequest<'a>> {
     let algorithm = match need(m, "algorithm")? {
         "rsa-pkcs1" => SignatureAlgorithm::RsaPkcs1,
         "rsa-pss" => SignatureAlgorithm::RsaPss,
-        _ => SignatureAlgorithm::Ecdsa,
+        "ecdsa" => SignatureAlgorithm::Ecdsa,
+        _ => return Err(usage("expected a classical signature algorithm")),
     };
     let pss = if algorithm == SignatureAlgorithm::RsaPss {
         Some(PssParameters {
@@ -63,25 +65,55 @@ fn request<'a>(m: &ArgMatches, bytes: &'a [u8]) -> Result<SignRequest<'a>> {
         pss,
     })
 }
+pub(crate) enum VerificationCertificate {
+    Classical(pkcs11_client::Certificate),
+    MlDsa(pkcs11_client::MlDsaCertificate),
+}
 // Validate non-provider inputs and load files before initializing a library or logging in.
 pub(crate) struct Inputs {
+    pub aes_gcm: Option<aes_gcm::Inputs>,
     pub credential: Credential,
     pub context: Credential,
     pub new_pin: Option<secrecy::SecretString>,
     pub bytes: Vec<u8>,
     pub certificate_document: Option<pkcs11_client::CertificateDocument>,
+    pub verification_certificate: Option<VerificationCertificate>,
+    pub domain_context: Vec<u8>,
+    pub signature: Vec<u8>,
+    pub random: Option<RandomRequest>,
     pub so: bool,
+    pub establishment: key_establishment::Inputs,
 }
 impl Inputs {
     pub fn load(name: &str, m: &ArgMatches) -> Result<Self> {
+        let ml_dsa = ml_dsa::selected(m);
+        if ml_dsa {
+            ml_dsa::validate_options(m)?;
+        } else if get(m, "context-file").is_some() || get(m, "hedging").is_some() {
+            return Err(usage(
+                "context-file and hedging require an ML-DSA algorithm",
+            ));
+        }
+        if name == "export" && ml_dsa && uri(m, "object")?.path_attribute("type") != Some(b"public")
+        {
+            return Err(usage("ML-DSA SPKI export requires type=public"));
+        }
         let credential = Credential::load(m, "pin-file", "protected-path")?;
         let context = Credential::load(m, "context-pin-file", "context-protected-path")?;
         let so = get(m, "role") == Some("so");
         if so
-            && matches!(
-                name,
-                "certificate" | "capabilities" | "plan" | "bind" | "sign" | "generate"
-            )
+            && (aes_gcm::selected(name)
+                || key_establishment::selected(name)
+                || matches!(
+                    name,
+                    "certificate"
+                        | "capabilities"
+                        | "plan"
+                        | "bind"
+                        | "sign"
+                        | "verify"
+                        | "generate"
+                ))
         {
             return Err(usage("this command uses the USER role"));
         }
@@ -101,14 +133,67 @@ impl Inputs {
         } else {
             None
         };
-        let bytes = if let Some(path) = get(m, "input") {
-            input(path)?
+        if name == "verify" && get(m, "input") == Some("-") && get(m, "signature") == Some("-") {
+            return Err(usage("only one verification input may read stdin"));
+        }
+        let aes_gcm = aes_gcm::Inputs::load(name, m)?;
+        let bytes = if aes_gcm::selected(name) {
+            vec![]
+        } else if let Some(path) = get(m, "input") {
+            if let Some(limit) = key_establishment::input_limit(name, m)? {
+                bounded_input(path, limit)?
+            } else if name == "verify" || ml_dsa {
+                bounded_input(path, 64 * 1024 * 1024)?
+            } else {
+                input(path)?
+            }
         } else {
             vec![]
         };
-        if matches!(name, "sign" | "plan") {
-            request(m, &bytes)?;
+        let domain_context = match get(m, "context-file") {
+            Some("-") => return Err(usage("context-file requires a file path")),
+            Some(path) => bounded_input(path, 255)?,
+            None => vec![],
+        };
+        if matches!(name, "sign" | "plan" | "verify") {
+            if ml_dsa {
+                ml_dsa::request(m, &bytes, &domain_context)?;
+            } else {
+                request(m, &bytes)?;
+            }
         }
+        let signature = if name == "verify" {
+            bounded_input(need(m, "signature")?, 16 * 1024)?
+        } else {
+            vec![]
+        };
+        let verification_certificate = if let Some(path) = get(m, "certificate-file") {
+            if path == "-" {
+                return Err(usage("certificate-file requires a file path"));
+            }
+            let der = bounded_input(path, 1024 * 1024)?;
+            let certificate = if ml_dsa {
+                let certificate = pkcs11_client::MlDsaCertificate::from_der(der)?;
+                certificate.validate_signing_request(&ml_dsa::request(
+                    m,
+                    &bytes,
+                    &domain_context,
+                )?)?;
+                VerificationCertificate::MlDsa(certificate)
+            } else {
+                let certificate = pkcs11_client::Certificate::from_der(der)?;
+                certificate.validate_signing_request(&request(m, &bytes)?)?;
+                VerificationCertificate::Classical(certificate)
+            };
+            Some(certificate)
+        } else {
+            None
+        };
+        let random = if name == "random" {
+            Some(RandomRequest::new(number(m, "length")?)?)
+        } else {
+            None
+        };
         let certificate_document = if name == "import" && get(m, "kind") == Some("cert") {
             Some(pkcs11_client::CertificateDocument::from_der(bytes.clone())?)
         } else {
@@ -118,7 +203,7 @@ impl Inputs {
             unhex(id)?;
         }
         if name == "generate" {
-            generation_kind(m)?;
+            generation::validate(m)?;
         }
         if name == "diagnose" && !(1..=64).contains(&number(m, "pool-size")?) {
             return Err(usage("pool size must be 1..=64"));
@@ -128,7 +213,7 @@ impl Inputs {
                 inspect::attribute_type(n)?;
             }
         }
-        for selector in ["token", "object", "key", "certificate"] {
+        for selector in ["token", "object", "key", "certificate", "post-quantum"] {
             if get(m, selector).is_some() {
                 let parsed = uri(m, selector)?;
                 if selector == "key" && parsed.path_attribute("type") != Some(b"private") {
@@ -155,15 +240,40 @@ impl Inputs {
                 return Err(usage("token label exceeds 32 UTF-8 bytes"));
             }
         }
+        let establishment = key_establishment::Inputs::load(name, m, &bytes)?;
         Ok(Self {
+            aes_gcm,
+            establishment,
             credential,
             context,
             new_pin,
             bytes,
             certificate_document,
+            verification_certificate,
+            domain_context,
+            signature,
+            random,
             so,
         })
     }
+}
+pub(crate) fn verify(
+    certificate: &VerificationCertificate,
+    m: &ArgMatches,
+    inputs: &Inputs,
+) -> Result<Value> {
+    match certificate {
+        VerificationCertificate::Classical(certificate) => {
+            certificate.verify_signature(&request(m, &inputs.bytes)?, &inputs.signature)?;
+        }
+        VerificationCertificate::MlDsa(certificate) => {
+            certificate.verify_signature(
+                &ml_dsa::request(m, &inputs.bytes, &inputs.domain_context)?,
+                &inputs.signature,
+            )?;
+        }
+    }
+    Ok(json!({"verified":true,"trust_validated":false}))
 }
 fn expected_token(m: &ArgMatches) -> Result<pkcs11_client::Pkcs11Uri> {
     let expected = uri(m, "expected-token")?;
@@ -178,28 +288,6 @@ fn expected_token(m: &ArgMatches) -> Result<pkcs11_client::Pkcs11Uri> {
         ));
     }
     Ok(expected)
-}
-fn generation_kind(m: &ArgMatches) -> Result<KeyKind> {
-    let kind = need(m, "kind")?;
-    if kind != "rsa" && get(m, "bits").is_some() {
-        return Err(usage("--bits applies only to RSA"));
-    }
-    Ok(match kind {
-        "rsa" => {
-            let bits = if get(m, "bits").is_some() {
-                number(m, "bits")?
-            } else {
-                2048
-            };
-            if !(2048..=16384).contains(&bits) || bits % 8 != 0 {
-                return Err(usage("RSA size must be 2048..=16384 and divisible by 8"));
-            }
-            KeyKind::Rsa { bits }
-        }
-        "p256" => KeyKind::Ec(NamedCurve::P256),
-        "p384" => KeyKind::Ec(NamedCurve::P384),
-        _ => KeyKind::Ec(NamedCurve::P521),
-    })
 }
 pub(crate) fn run(
     module: &mut Provider,
@@ -252,7 +340,7 @@ pub(crate) fn run(
             )?;
             json!({"initialized":true})
         }
-        "certificate" | "capabilities" | "plan" | "bind" | "sign" => {
+        "certificate" | "capabilities" | "plan" | "bind" | "sign" | "verify" => {
             return client_command(module, name, m, inputs);
         }
         _ => return management_command(module, name, m, inputs),
@@ -267,6 +355,8 @@ fn client_command(
 ) -> Result<Output> {
     let selector = if name == "certificate" {
         "object"
+    } else if name == "verify" {
+        "certificate"
     } else {
         "key"
     };
@@ -281,7 +371,20 @@ fn client_operation(
     m: &ArgMatches,
     inputs: &Inputs,
 ) -> Result<Output> {
+    if ml_dsa::selected(m) {
+        return ml_dsa::client_operation(client, name, m, inputs);
+    }
     let auth = || inputs.credential.auth(false);
+    if name == "verify" {
+        return verify(
+            &VerificationCertificate::Classical(
+                client.certificate(uri(m, "certificate")?, auth())?,
+            ),
+            m,
+            inputs,
+        )
+        .map(Output::Structured);
+    }
     if name == "certificate" {
         let cert = client.certificate(uri(m, "object")?, auth())?;
         return Ok(Output::Structured(
@@ -334,12 +437,15 @@ fn management_command(
     } else {
         token_uri(uri(m, "object")?)?
     };
+    if name == "generation-options" {
+        return generation::options(module, m).map(Output::Structured);
+    }
     if name == "mechanisms" {
         let mut items = vec![];
         for entry in module.mechanisms(&location)? {
             let mechanism = entry.mechanism;
             let info = entry.info;
-            items.push(json!({"name":format!("{mechanism:?}"),"min_key_size":info.min_key_size(),"max_key_size":info.max_key_size(),"sign":info.sign(),"verify":info.verify(),"encrypt":info.encrypt(),"decrypt":info.decrypt(),"generate":info.generate(),"generate_key_pair":info.generate_key_pair(),"wrap":info.wrap(),"unwrap":info.unwrap(),"derive":info.derive(),"hardware":info.hardware()}));
+            items.push(json!({"name":format!("{mechanism:?}"),"min_key_size":info.min_key_size(),"max_key_size":info.max_key_size(),"sign":info.sign(),"verify":info.verify(),"encrypt":info.encrypt(),"decrypt":info.decrypt(),"generate":info.generate(),"generate_key_pair":info.generate_key_pair(),"wrap":info.wrap(),"unwrap":info.unwrap(),"derive":info.derive(),"encapsulate":info.encapsulate(),"decapsulate":info.decapsulate(),"hardware":info.hardware()}));
         }
         return Ok(Output::Structured(json!(items)));
     }
@@ -359,10 +465,11 @@ fn management_command(
             json!({"capacity":diagnostic.capacity,"exhaustion_verified":diagnostic.exhaustion_verified,"reuse_verified":diagnostic.reuse_verified,"session_state":format!("{:?}",diagnostic.session_state)}),
         ));
     }
-    let mutation = matches!(
-        name,
-        "init-pin" | "set-pin" | "generate" | "import" | "delete" | "set-label"
-    );
+    let mutation = key_establishment::mutation(name)
+        || matches!(
+            name,
+            "init-pin" | "set-pin" | "generate" | "import" | "delete" | "set-label"
+        );
     let mut session = module.management(
         &location,
         if mutation || inputs.so {
@@ -384,7 +491,22 @@ fn management_operation(
     m: &ArgMatches,
     inputs: &Inputs,
 ) -> Result<Output> {
+    if aes_gcm::selected(name) {
+        return aes_gcm::operation(session, name, m, inputs.aes_gcm.as_ref());
+    }
+    if key_establishment::selected(name) {
+        return key_establishment::operation(session, name, m, inputs);
+    }
     let value = match name {
+        "random" => {
+            return Ok(Output::SecretBinary(
+                session.generate_random(
+                    inputs
+                        .random
+                        .ok_or_else(|| usage("missing random request"))?,
+                )?,
+            ));
+        }
         "objects" => {
             let token_uri = session.token_uri()?;
             let mut objects = vec![];
@@ -408,8 +530,18 @@ fn management_operation(
         }
         "export" => {
             let reference = object_reference(uri(m, "object")?)?;
-            let bytes = if reference.uri().path_attribute("type") == Some(b"public") {
-                session.export_public(&reference)?
+            let bytes = if get(m, "key-family") == Some("ml-kem") {
+                let key = pkcs11_client::PublicKeyRef::new(uri(m, "object")?)
+                    .map_err(pkcs11_client::Error::from)?;
+                session.export_ml_kem_public_key(&key)?
+            } else if ml_dsa::selected(m) {
+                let key = pkcs11_client::PublicKeyRef::new(uri(m, "object")?)
+                    .map_err(pkcs11_client::Error::from)?;
+                session.export_ml_dsa_public_key(&key)?
+            } else if reference.uri().path_attribute("type") == Some(b"public") {
+                let key = pkcs11_client::PublicKeyRef::new(uri(m, "object")?)
+                    .map_err(pkcs11_client::Error::from)?;
+                session.export_classical_public_key(&key)?
             } else {
                 session.export_value(&reference)?
             };
@@ -434,20 +566,20 @@ fn management_operation(
             )?;
             json!({"pin_changed":true})
         }
-        "generate" => {
-            let id = unhex(need(m, "id")?)?;
-            let kind = generation_kind(m)?;
-            session.generate_signing_key_pair(
-                kind,
-                &id,
-                need(m, "label")?.as_bytes(),
-                flag(m, "always-authenticate"),
-            )?;
-            json!({"generated":true,"key":inspect::key_kind(kind),"id_hex":hex(&id),"label":need(m,"label")?,"extractable":false})
-        }
+        "generate" => generation::generate(session, m)?,
         "import" => {
             let id = unhex(need(m, "id")?)?;
-            if need(m, "kind")? == "cert" {
+            if need(m, "kind")? == "ml-kem" {
+                session.import_ml_kem_public_key(
+                    inputs
+                        .establishment
+                        .public_key
+                        .as_ref()
+                        .ok_or_else(|| usage("missing ML-KEM public key"))?,
+                    &id,
+                    need(m, "label")?.as_bytes(),
+                )?;
+            } else if need(m, "kind")? == "cert" {
                 session.import_certificate(
                     inputs
                         .certificate_document

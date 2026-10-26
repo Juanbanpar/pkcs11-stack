@@ -3,10 +3,29 @@
 #![doc = include_str!("../README.md")]
 
 mod administration;
+mod aes_gcm;
+pub use aes_gcm::{
+    AES_GCM_MAXIMUM_AAD, AES_GCM_MAXIMUM_PLAINTEXT, AES_GCM_NONCE_LENGTH, AES_GCM_TAG_LENGTH,
+    AesGcmCapabilities, AesGcmDecryptRequest, AesGcmEncryptRequest, AesGcmOperation,
+};
 mod encryption;
+mod generation;
+pub use generation::{AesKeyPurpose, AesKeyRequest, AesKeySize, EcdhKeyPairRequest};
+mod hkdf;
+mod hybrid;
 mod key_operations;
+mod ml_dsa;
+mod ml_kem;
 pub use encryption::{RsaCipherOperation, RsaOaepCapabilities};
+pub use hkdf::{HkdfCapabilities, HkdfOutput, HkdfRequest};
 pub use key_operations::{EcdhDerivation, KeyOperation, KeyOperationProfile};
+pub use ml_dsa::{
+    MlDsaCapabilities, MlDsaHedging, MlDsaParameterSet, MlDsaPublicKey, MlDsaRequest,
+    MlDsaSigningPolicy,
+};
+pub use ml_kem::{
+    MlKemCapabilities, MlKemOperation, MlKemParameterSet, MlKemPublicKey, MlKemRequest,
+};
 mod error;
 mod module;
 mod pool;
@@ -22,7 +41,7 @@ pub use session::{AttributeValues, Authentication, Object, ObjectRef, Pin, Sessi
 pub use cryptoki::{
     context::Info as LibraryInfo,
     mechanism::{MechanismInfo, MechanismType},
-    object::{Attribute, AttributeInfo, AttributeType, CertificateType, ObjectClass},
+    object::{Attribute, AttributeInfo, AttributeType, CertificateType, KeyType, ObjectClass},
     session::{SessionInfo, SessionState},
     slot::{Slot, SlotInfo, TokenInfo},
 };

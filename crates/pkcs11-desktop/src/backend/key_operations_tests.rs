@@ -67,7 +67,10 @@ fn software_token_derivation_wrapping_unwrapping_permissions_and_failures() {
         BackendResult::KeyOptions { profile, .. } => profile,
         _ => panic!("profile"),
     };
-    assert_eq!(profile, KeyOperationProfile::AesKeyWrap(32));
+    assert_eq!(
+        profile,
+        KeyProfile::Classical(KeyOperationProfile::AesKeyWrap(32))
+    );
     let output = directory.join("wrapped");
     let target = object(&objects, "transferable", ObjectClass::SECRET_KEY);
     objects = managed(
@@ -133,7 +136,7 @@ fn software_token_derivation_wrapping_unwrapping_permissions_and_failures() {
         None,
     );
     let unwrapped = object(&objects, "unwrapped", ObjectClass::SECRET_KEY);
-    let fields = registry.inspect(module, token, unwrapped).unwrap();
+    let fields = registry.inspect(module, token, unwrapped).unwrap().fields;
     for (name, value) in [
         ("Sensitive", "true"),
         ("Extractable", "false"),
@@ -258,7 +261,10 @@ fn software_token_derivation_wrapping_unwrapping_permissions_and_failures() {
             BackendResult::KeyOptions { profile, .. } => profile,
             _ => panic!("profile"),
         };
-        assert_eq!(profile, KeyOperationProfile::EcdhRaw(expected));
+        assert_eq!(
+            profile,
+            KeyProfile::Classical(KeyOperationProfile::EcdhRaw(expected))
+        );
         objects = managed(
             registry.key_operation(
                 current,
@@ -272,7 +278,7 @@ fn software_token_derivation_wrapping_unwrapping_permissions_and_failures() {
             None,
         );
         let created = object(&objects, "shared-secret", ObjectClass::SECRET_KEY);
-        let fields = registry.inspect(module, token, created).unwrap();
+        let fields = registry.inspect(module, token, created).unwrap().fields;
         for (name, value) in [
             ("Sensitive", "true"),
             ("Extractable", "false"),
@@ -310,7 +316,9 @@ fn software_token_derivation_wrapping_unwrapping_permissions_and_failures() {
     objects = managed(
         registry.key_operation(
             current,
-            KeyOperationProfile::EcdhRaw(pkcs11_client::NamedCurve::P256),
+            KeyProfile::Classical(KeyOperationProfile::EcdhRaw(
+                pkcs11_client::NamedCurve::P256,
+            )),
             KeyJob::Derive {
                 peer: fixtures.join("03-public.der"),
                 id: vec![0x91],

@@ -69,6 +69,7 @@ impl Error {
             Self::UnsupportedExport | Self::InvalidRandomLength => ErrorKind::Input,
             Self::MissingAttributeStatus | Self::ProviderInUse => ErrorKind::Runtime,
             Self::Runtime(error) => match error {
+                Runtime::SignatureMismatch => ErrorKind::Client,
                 Runtime::NotFound(_) | Runtime::Ambiguous { .. } => ErrorKind::Selection,
                 Runtime::InvalidParameters(_)
                 | Runtime::InvalidObjectReference
@@ -80,7 +81,9 @@ impl Error {
                 | Runtime::ProtectedPathUnavailable
                 | Runtime::ReadWriteRequired
                 | Runtime::RandomUnavailable => ErrorKind::Policy,
-                Runtime::UnsupportedCipher | Runtime::UnsupportedKeyOperation => ErrorKind::Policy,
+                Runtime::UnsupportedCipher
+                | Runtime::UnsupportedKeyOperation
+                | Runtime::UnsupportedAesGcm => ErrorKind::Policy,
                 _ => ErrorKind::Runtime,
             },
             _ => ErrorKind::Client,
@@ -97,6 +100,10 @@ mod tests {
         assert_eq!(Error::MissingAttributeStatus.kind(), ErrorKind::Runtime);
         assert_eq!(Error::UnsupportedExport.kind(), ErrorKind::Input);
         assert_eq!(Error::InvalidRandomLength.kind(), ErrorKind::Input);
+        assert_eq!(
+            Error::Runtime(pkcs11_runtime::Error::SignatureMismatch).kind(),
+            ErrorKind::Client
+        );
         assert_eq!(
             Error::Runtime(pkcs11_runtime::Error::RandomUnavailable).kind(),
             ErrorKind::Policy

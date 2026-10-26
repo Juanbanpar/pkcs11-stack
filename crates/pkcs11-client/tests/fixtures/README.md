@@ -11,5 +11,16 @@ EC signatures use ASN.1 DER; unit tests convert to the runtime's fixed-width for
 Every signature covers the exact bytes of `message.txt`, including its newline.
 Ed25519 supplies an unsupported-key certificate case.
 
+`mldsa44`, `mldsa65` and `mldsa87` contain ML-DSA certificates, SPKI public keys,
+and raw message signatures generated with OpenSSL 3.5.9 by
+`tools/generate-ml-dsa-fixtures.sh`. The `.sig` files use an empty context;
+`.context.sig` uses `fixture-context`. They sign the same `message.txt` as the
+classical fixtures. The generator removes its temporary private keys on exit.
+Set `PKCS11_TEST_PQC_OPENSSL` to select an OpenSSL executable with ML-DSA support.
+
 `.gitattributes` disables text conversion for fixture data, so Windows checkouts
 preserve the signed message, certificates and signatures byte for byte.
+
+`mlkem512.spki.der`, `mlkem768.spki.der` and `mlkem1024.spki.der` are RFC 9935
+public keys generated with OpenSSL 3.5.9 by `tools/generate-ml-kem-fixtures.sh`.
+The generator removes its temporary private keys on exit.

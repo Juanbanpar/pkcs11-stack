@@ -71,7 +71,13 @@ fn software_token_oaep_interoperability_permissions_and_file_failures() {
     let mut objects = registry.objects(module, token).unwrap();
     let encrypt = scope(module, token, &objects, CryptoMode::Encrypt);
     let choices = match registry.cipher_options(encrypt).unwrap() {
-        BackendResult::CipherOptions { choices, .. } => choices,
+        BackendResult::CipherOptions { choices, .. } => choices
+            .into_iter()
+            .map(|choice| match choice {
+                CipherParameters::Oaep(choice) => choice,
+                _ => panic!("OAEP choice"),
+            })
+            .collect::<Vec<_>>(),
         _ => panic!("choices"),
     };
     assert_eq!(choices.len(), 3);
@@ -118,7 +124,8 @@ fn software_token_oaep_interoperability_permissions_and_file_failures() {
         let result = registry.cipher(
             current,
             CipherJob {
-                choice,
+                aes_gcm: None,
+                choice: CipherParameters::Oaep(choice),
                 input: input.clone(),
                 output: ciphertext.clone(),
             },
@@ -174,7 +181,8 @@ fn software_token_oaep_interoperability_permissions_and_file_failures() {
             registry.cipher(
                 target,
                 CipherJob {
-                    choice,
+                    aes_gcm: None,
+                    choice: CipherParameters::Oaep(choice),
                     input: ciphertext.clone(),
                     output: decrypted.clone(),
                 },
@@ -211,7 +219,8 @@ fn software_token_oaep_interoperability_permissions_and_file_failures() {
             registry.cipher(
                 target,
                 CipherJob {
-                    choice,
+                    aes_gcm: None,
+                    choice: CipherParameters::Oaep(choice),
                     input: independent_cipher,
                     output: output.clone(),
                 },
@@ -228,7 +237,8 @@ fn software_token_oaep_interoperability_permissions_and_file_failures() {
             registry.cipher(
                 target,
                 CipherJob {
-                    choice,
+                    aes_gcm: None,
+                    choice: CipherParameters::Oaep(choice),
                     input: ciphertext.clone(),
                     output: decrypted.clone(),
                 },
@@ -244,7 +254,8 @@ fn software_token_oaep_interoperability_permissions_and_file_failures() {
             registry.cipher(
                 target,
                 CipherJob {
-                    choice,
+                    aes_gcm: None,
+                    choice: CipherParameters::Oaep(choice),
                     input: bad,
                     output: failed.clone(),
                 },
@@ -260,7 +271,8 @@ fn software_token_oaep_interoperability_permissions_and_file_failures() {
             registry.cipher(
                 target,
                 CipherJob {
-                    choice,
+                    aes_gcm: None,
+                    choice: CipherParameters::Oaep(choice),
                     input: too_large,
                     output: rejected.clone(),
                 },

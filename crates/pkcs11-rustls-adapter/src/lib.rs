@@ -5,11 +5,12 @@
 mod config;
 mod credentials;
 mod encoding;
+mod ml_dsa;
 mod resolvers;
 mod schemes;
 mod signing;
 
-pub use config::server_config_builder;
+pub use config::{hybrid_tls13_provider, server_config_builder};
 pub use credentials::{CredentialSource, Credentials, PinInput};
 pub use resolvers::{ClientResolver, ServerResolver};
 pub use signing::Credential;
@@ -18,6 +19,9 @@ pub use signing::Credential;
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum Error {
+    /// The application provider cannot supply the required hybrid TLS 1.3 policy.
+    #[error("application provider lacks X25519MLKEM768 or TLS 1.3 suites")]
+    HybridKeyExchangeUnavailable,
     /// Runtime discovery, policy, authentication or signing failure.
     #[error(transparent)]
     Runtime(#[from] pkcs11_runtime::Error),

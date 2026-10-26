@@ -108,6 +108,7 @@ Borrowed runtime APIs remain available to other callers.
 | EC P-256 | ECDSA P-256/SHA-256 |
 | EC P-384 | ECDSA P-384/SHA-384 |
 | EC P-521 | ECDSA P-521/SHA-512, when the application provider supports verification |
+| ML-DSA-44/65/87 | Matching ML-DSA parameter set; TLS 1.3 only |
 
 Offers intersect runtime capabilities/policy and provider verification algorithms.
 RSA-PSS uses matching MGF1 hash and digest-sized salt. The adapter passes unhashed
@@ -124,6 +125,50 @@ is absent; unknown SNI fails. `ClientResolver` uses application order, compatibl
 schemes and exact DER issuer-name hints from the configured chain. Empty hints
 allow any compatible identity. Callers remain responsible for chain ordering.
 
+## ML-DSA for TLS 1.3
+
+Use `Credential::load_ml_dsa` with `MlDsaSigningPolicy` instead of the classical
+`Credential::load`/`SigningPolicy` pair. Pools, credential sources, leaf-first
+chains and resolvers are shared. ML-DSA-44, ML-DSA-65 and ML-DSA-87 each advertise
+only their corresponding TLS signature scheme. TLS 1.2 is not supported for these
+identities.
+
+The application provider must supply verification for the leaf's parameter set;
+AWS-LC supports it, while ring does not. Certificate, policy and provider checks
+precede credential acquisition. Loading performs one binding signature and verifies
+it; each subsequent signature is checked against the retained leaf. A reused
+selector with a replacement key therefore fails verification.
+
+Signing uses pure ML-DSA with required hedging and an empty FIPS 204 context, as
+specified by the [ML-DSA TLS draft](https://datatracker.ietf.org/doc/html/draft-ietf-tls-mldsa-06).
+Rustls supplies the complete CertificateVerify message, including its TLS context;
+the adapter does not prehash it. Required hedging has no deterministic fallback.
+Always-authenticate keys use the credential source's separate context PIN.
+
+ML-DSA authentication and hybrid key exchange are separate choices. Configure
+`hybrid_tls13_provider(&provider)` clones the application's provider, retaining
+only X25519MLKEM768 and TLS 1.3 cipher suites. It fails when either is unavailable.
+Use the returned provider in both client and server builders with TLS 1.3:
+
+```no_run
+# fn configure(application_provider: &rustls::crypto::CryptoProvider) -> Result<(), Box<dyn std::error::Error>> {
+let provider = pkcs11_rustls_adapter::hybrid_tls13_provider(application_provider)?;
+let client = rustls::ClientConfig::builder_with_provider(provider.clone())
+    .with_protocol_versions(&[&rustls::version::TLS13])?;
+let server = pkcs11_rustls_adapter::server_config_builder(
+    provider, &[&rustls::version::TLS13],
+)?;
+# let _ = (client, server);
+# Ok(())
+# }
+```
+
+Continue configuring trust, resolvers and authentication as usual. Peers offering
+only classical groups cannot negotiate. The source provider is unchanged and no
+global provider is installed. TLS key exchange and its key schedule execute in
+the supplied provider, not on the token. This policy is independent of the
+runtime/client application combiner.
+
 ## Examples and tests
 
 Runnable [TLS server and client examples](../../docs/examples.md) use loopback
@@ -136,7 +181,17 @@ cargo check -p pkcs11-rustls-adapter --lib --features tls12 --locked
 ./tools/test-softhsm.sh
 ```
 
-Unit tests cover scheme selection, encoding and redaction. SoftHSM tests perform
-TLS 1.2/1.3 handshakes, including trust failures, concurrent connections, pool
-exhaustion and key replacement. The test provider, ring, does not verify P-521;
-P-521 credentials require a provider that does.
+Unit tests cover scheme selection, ML-DSA certificate parameters, encoding and
+redaction. AWS-LC is enabled only as a development dependency for ML-DSA tests;
+production still selects no provider. Classical SoftHSM tests perform TLS 1.2/1.3
+handshakes, including trust failures, concurrent connections, pool exhaustion and
+key replacement. Those tests use ring, which does not verify P-521; P-521
+credentials require a provider that does.
+
+The required PQC lane tests all ML-DSA parameter sets with token-backed server and
+mutual TLS 1.3 authentication, an ML-DSA certificate issuer and X25519MLKEM768
+key exchange. It also covers always-authenticate keys, missing provider support,
+policy rejection before credentials, classical-only peer rejection in both
+directions, trust failure, TLS 1.2 rejection, pool
+exhaustion and key replacement. Run it with the provider configuration in the
+[workspace test instructions](../../tests/README.md#pqc-provider-compatibility).

@@ -129,6 +129,19 @@ pub(crate) fn input(path: &str) -> Result<Vec<u8>> {
     }
     Ok(bytes)
 }
+pub(crate) fn bounded_input(path: &str, maximum: usize) -> Result<Vec<u8>> {
+    let reader: Box<dyn Read> = if path == "-" {
+        Box::new(std::io::stdin())
+    } else {
+        Box::new(File::open(path)?)
+    };
+    let mut bytes = Vec::new();
+    reader.take(maximum as u64 + 1).read_to_end(&mut bytes)?;
+    if bytes.len() > maximum {
+        return Err(usage("input exceeds this operation's size limit"));
+    }
+    Ok(bytes)
+}
 fn pin_file(path: &str) -> Result<SecretString> {
     let mut bytes = Zeroizing::new(Vec::new());
     File::open(path)?.take(65537).read_to_end(&mut bytes)?;

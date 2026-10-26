@@ -35,7 +35,7 @@ impl State {
         verify(&self.provider, &self.leaf, scheme, message, signature)
     }
 }
-fn verify(
+pub(crate) fn verify(
     provider: &CryptoProvider,
     leaf: &CertificateDer<'_>,
     scheme: SignatureScheme,
@@ -140,7 +140,7 @@ impl Signer for TokenSigner {
 /// Binding and every subsequent signature are verified with the supplied provider.
 /// This does not validate chain trust, dates, usage or revocation; peers/rustls do so.
 pub struct Credential {
-    certified: Arc<CertifiedKey>,
+    pub(crate) certified: Arc<CertifiedKey>,
     pub(crate) issuers: Vec<Vec<u8>>,
 }
 impl fmt::Debug for Credential {
@@ -155,7 +155,7 @@ impl Credential {
     ///
     /// The source is invoked once. Planning picks a policy/provider-supported TLS
     /// scheme before signing; failure is never retried. The chain must be leaf-first.
-    /// Only rsaEncryption and named-curve EC leaf keys are accepted initially.
+    /// Accepts rsaEncryption and named-curve EC leaf keys. Use `load_ml_dsa` for ML-DSA.
     pub fn load(
         pool: Arc<SessionPool<'static>>,
         key: PrivateKeyRef,
@@ -200,18 +200,7 @@ impl Credential {
             None
         };
         let spki = public.to_der().map_err(|_| Error::InvalidCertificate)?;
-        let mut issuers = Vec::new();
-        for cert in &chain {
-            let parsed = x509_cert::Certificate::from_der(cert.as_ref())
-                .map_err(|_| Error::InvalidCertificate)?;
-            issuers.push(
-                parsed
-                    .tbs_certificate
-                    .issuer
-                    .to_der()
-                    .map_err(|_| Error::InvalidCertificate)?,
-            );
-        }
+        let issuers = chain_issuers(&chain)?;
         let credentials = source.credentials()?;
         let mut lease = pool.try_acquire(credentials.authentication())?;
         let capabilities = lease.session().key_capabilities(&key)?;
@@ -263,4 +252,18 @@ impl Credential {
     pub(crate) fn compatible(&self, schemes: &[SignatureScheme]) -> bool {
         self.certified.key.choose_scheme(schemes).is_some()
     }
+}
+
+pub(crate) fn chain_issuers(chain: &[CertificateDer<'_>]) -> Result<Vec<Vec<u8>>, Error> {
+    chain
+        .iter()
+        .map(|cert| {
+            x509_cert::Certificate::from_der(cert.as_ref())
+                .map_err(|_| Error::InvalidCertificate)?
+                .tbs_certificate
+                .issuer
+                .to_der()
+                .map_err(|_| Error::InvalidCertificate)
+        })
+        .collect()
 }

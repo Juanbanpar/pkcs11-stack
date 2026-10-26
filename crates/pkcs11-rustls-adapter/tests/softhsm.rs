@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! Full TLS handshakes against isolated, nonextractable software-token keys.
+mod common;
+use common::transfer;
 use pkcs11_runtime::{
     Attribute, AttributeType, Authentication, HashingPolicy, KeyKind, Module, ObjectRef, Pin,
     PrivateKeyRef, SessionMode, SessionPool, SigningPolicy,
@@ -102,21 +104,6 @@ fn configs(
         None => sb.with_no_client_auth().with_cert_resolver(server),
     };
     (Arc::new(client), Arc::new(server))
-}
-fn transfer(c: &mut ClientConnection, s: &mut ServerConnection) -> Result<(), rustls::Error> {
-    let mut wire = Vec::new();
-    if c.wants_write() {
-        c.write_tls(&mut wire).unwrap();
-        s.read_tls(&mut wire.as_slice()).unwrap();
-        s.process_new_packets()?;
-    }
-    wire.clear();
-    if s.wants_write() {
-        s.write_tls(&mut wire).unwrap();
-        c.read_tls(&mut wire.as_slice()).unwrap();
-        c.process_new_packets()?;
-    }
-    Ok(())
 }
 fn handshake(
     client: Arc<ClientConfig>,

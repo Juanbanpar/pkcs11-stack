@@ -36,11 +36,14 @@ fn details_result(object: u64, value: &str) -> BackendResult {
         module: ResourceId(1),
         token: ResourceId(2),
         object: ResourceId(object),
-        fields: vec![MetadataField {
-            name: "Key type",
-            status: "available",
-            value: Some(value.into()),
-        }],
+        details: ObjectDetails {
+            key_type: Some(pkcs11_client::KeyType::RSA),
+            fields: vec![MetadataField {
+                name: "Key type",
+                status: "available",
+                value: Some(value.into()),
+            }],
+        },
     }
 }
 #[test]
@@ -87,7 +90,9 @@ fn object_details_are_lazy_and_latest_selection_wins() {
     state.event(complete(a, details_result(4, "A")));
     assert_eq!(state.selected_object, Some(ResourceId(5)));
     assert_eq!(
-        state.object_details.as_ref().unwrap()[0].value.as_deref(),
+        state.object_details.as_ref().unwrap().fields[0]
+            .value
+            .as_deref(),
         Some("B")
     );
     state.show_page(TokenPage::Overview);
@@ -626,7 +631,7 @@ fn logout_clears_private_metadata_and_cannot_be_cancelled() {
     state.loaded_modules[0].tokens[0].login = LoginState::User;
     state.objects = vec![object_entry(4, "private")];
     state.selected_object = Some(ResourceId(4));
-    state.object_details = Some(Vec::new());
+    state.object_details = Some(crate::backend::ObjectDetails::default());
     let id = state.logout().unwrap().id();
     assert!(state.objects.is_empty());
     assert!(state.object_details.is_none());
@@ -669,7 +674,7 @@ fn managing() -> UiState {
 fn generation_choices_are_scoped_and_invalid_forms_do_not_enqueue_mutations() {
     let mut state = managing();
     let request = state.show_page(TokenPage::Operations).unwrap().id();
-    let kind = pkcs11_client::KeyKind::Rsa { bits: 2048 };
+    let kind = crate::backend::GenerationKind::Signing(pkcs11_client::KeyKind::Rsa { bits: 2048 });
     state.event(complete(
         request,
         BackendResult::Capabilities {
@@ -758,11 +763,14 @@ fn late_file_picker_and_management_results_cannot_restore_an_old_token() {
     state.token_page = TokenPage::Objects;
     state.objects = vec![object_entry(4, "public")];
     state.selected_object = Some(ResourceId(4));
-    state.object_details = Some(vec![MetadataField {
-        name: "Private",
-        status: "available",
-        value: Some("false".into()),
-    }]);
+    state.object_details = Some(crate::backend::ObjectDetails {
+        key_type: Some(pkcs11_client::KeyType::RSA),
+        fields: vec![MetadataField {
+            name: "Private",
+            status: "available",
+            value: Some("false".into()),
+        }],
+    });
     let (picker, _) = state.begin_object_file(true).unwrap();
     let operation = state
         .object_file_picked(picker, Some(PathBuf::from("new.der")))
@@ -791,11 +799,14 @@ fn private_or_ambiguous_objects_never_offer_export_and_import_validation_is_loca
     entry.class = Some(pkcs11_client::ObjectClass::PRIVATE_KEY);
     state.objects = vec![entry];
     state.selected_object = Some(ResourceId(4));
-    state.object_details = Some(vec![MetadataField {
-        name: "Private",
-        status: "available",
-        value: Some("false".into()),
-    }]);
+    state.object_details = Some(crate::backend::ObjectDetails {
+        key_type: Some(pkcs11_client::KeyType::RSA),
+        fields: vec![MetadataField {
+            name: "Private",
+            status: "available",
+            value: Some("false".into()),
+        }],
+    });
     assert!(!state.can_export());
     state.objects[0].class = Some(pkcs11_client::ObjectClass::DATA);
     state.objects[0].ambiguous = true;
@@ -803,7 +814,7 @@ fn private_or_ambiguous_objects_never_offer_export_and_import_validation_is_loca
     state.request_delete();
     assert!(state.dialog.is_none());
     state.objects[0].ambiguous = false;
-    state.object_details.as_mut().unwrap()[0].value = Some("true".into());
+    state.object_details.as_mut().unwrap().fields[0].value = Some("true".into());
     assert!(!state.can_export());
     state.show_page(TokenPage::Operations);
     state.management.certificate_id = "01".into();
@@ -817,6 +828,42 @@ fn private_or_ambiguous_objects_never_offer_export_and_import_validation_is_loca
             ..
         })
     ));
+}
+
+#[test]
+fn pqc_public_export_picker_is_scoped_to_the_selected_object_without_login() {
+    for family in ["CKK_ML_DSA", "CKK_ML_KEM"] {
+        let mut state = browsing();
+        state.token_page = TokenPage::Objects;
+        state.objects = vec![object_entry(4, "PQC public key"), object_entry(5, "other")];
+        state.selected_object = Some(ResourceId(4));
+        state.object_details = Some(crate::backend::ObjectDetails {
+            key_type: Some(pkcs11_client::KeyType::RSA),
+            fields: vec![
+                MetadataField {
+                    name: "Key type",
+                    status: "available",
+                    value: Some(family.into()),
+                },
+                MetadataField {
+                    name: "Private",
+                    status: "available",
+                    value: Some("false".into()),
+                },
+            ],
+        });
+        assert_eq!(state.token().unwrap().login, LoginState::Public);
+        assert!(state.can_export());
+        let (picker, _) = state.begin_object_file(true).unwrap();
+        state.select_object(ResourceId(5));
+        assert!(
+            state
+                .object_file_picked(picker, Some(PathBuf::from("obsolete.der")))
+                .is_none()
+        );
+        assert_eq!(state.selected_object, Some(ResourceId(5)));
+        assert!(!state.can_export());
+    }
 }
 
 fn crypto_state(
@@ -845,11 +892,13 @@ fn crypto_state(
             scope,
             context: mode == CryptoMode::Sign,
             options: vec![SignatureOption {
-                parameters: pkcs11_client::SignatureParameters {
-                    algorithm: pkcs11_client::SignatureAlgorithm::RsaPkcs1,
-                    digest: pkcs11_client::DigestAlgorithm::Sha256,
-                    pss: None,
-                },
+                parameters: crate::backend::SignatureProfile::Classical(
+                    pkcs11_client::SignatureParameters {
+                        algorithm: pkcs11_client::SignatureAlgorithm::RsaPkcs1,
+                        digest: pkcs11_client::DigestAlgorithm::Sha256,
+                        pss: None,
+                    },
+                ),
                 plan: None,
             }],
         },
@@ -979,6 +1028,236 @@ fn ambiguous_or_wrong_class_objects_do_not_open_crypto_forms() {
     state.objects[0].class = Some(pkcs11_client::ObjectClass::PUBLIC_KEY);
     assert!(state.open_crypto(CryptoMode::Sign).is_none());
     assert!(state.open_crypto(CryptoMode::Verify).is_none());
+}
+
+#[test]
+fn key_actions_follow_typed_metadata_instead_of_labels_or_formatted_fields() {
+    use crate::backend::CryptoMode::*;
+    use pkcs11_client::{KeyType as K, ObjectClass as C};
+    for (class, kind, sign, encrypt, decrypt, derive, wrap) in [
+        (
+            C::PRIVATE_KEY,
+            Some(K::RSA),
+            true,
+            false,
+            true,
+            false,
+            false,
+        ),
+        (C::PRIVATE_KEY, Some(K::EC), true, false, false, true, false),
+        (
+            C::PRIVATE_KEY,
+            Some(K::ML_DSA),
+            true,
+            false,
+            false,
+            false,
+            false,
+        ),
+        (
+            C::PRIVATE_KEY,
+            Some(K::ML_KEM),
+            false,
+            false,
+            false,
+            false,
+            false,
+        ),
+        (
+            C::PUBLIC_KEY,
+            Some(K::RSA),
+            false,
+            true,
+            false,
+            false,
+            false,
+        ),
+        (
+            C::PUBLIC_KEY,
+            Some(K::ML_DSA),
+            false,
+            false,
+            false,
+            false,
+            false,
+        ),
+        (
+            C::PUBLIC_KEY,
+            Some(K::ML_KEM),
+            false,
+            false,
+            false,
+            false,
+            false,
+        ),
+        (
+            C::PUBLIC_KEY,
+            Some(K::EC),
+            false,
+            false,
+            false,
+            false,
+            false,
+        ),
+        (C::SECRET_KEY, Some(K::AES), false, true, true, false, true),
+        (
+            C::SECRET_KEY,
+            Some(K::GENERIC_SECRET),
+            false,
+            false,
+            false,
+            false,
+            false,
+        ),
+        (C::PRIVATE_KEY, None, false, false, false, false, false),
+    ] {
+        let mut state = managing();
+        state.token_page = TokenPage::Objects;
+        let mut object = object_entry(4, "RSA label is not a key type");
+        object.class = Some(class);
+        state.objects = vec![object];
+        state.selected_object = Some(ResourceId(4));
+        state.object_details = Some(ObjectDetails {
+            key_type: kind,
+            fields: vec![MetadataField {
+                name: "Key type",
+                status: "available",
+                value: Some("CKK_RSA".into()),
+            }],
+        });
+        assert_eq!(state.can_open_crypto(Sign), sign, "{class:?} {kind:?}");
+        assert_eq!(state.can_open_cipher(Encrypt), encrypt);
+        assert_eq!(state.can_open_cipher(Decrypt), decrypt);
+        assert_eq!(state.can_open_key_operation(Derive), derive);
+        assert_eq!(state.can_open_key_operation(Wrap), wrap);
+        assert_eq!(state.can_open_key_operation(Unwrap), wrap);
+        assert_eq!(
+            state.can_open_key_operation(Encapsulate),
+            class == C::PUBLIC_KEY && kind == Some(K::ML_KEM)
+        );
+        assert_eq!(
+            state.can_open_key_operation(Decapsulate),
+            class == C::PRIVATE_KEY && kind == Some(K::ML_KEM)
+        );
+        assert_eq!(
+            state.can_open_key_operation(Hkdf),
+            class == C::SECRET_KEY && matches!(kind, Some(K::GENERIC_SECRET | K::HKDF))
+        );
+        state.object_details = None;
+        assert!(!state.can_open_crypto(Sign));
+        assert!(!state.can_open_cipher(Encrypt));
+        assert!(!state.can_open_key_operation(Derive));
+        assert!(!state.can_open_key_operation(Encapsulate));
+        assert!(!state.can_open_key_operation(Decapsulate));
+    }
+}
+
+fn ml_dsa_state(
+    mode: crate::backend::CryptoMode,
+) -> (UiState, RequestId, crate::backend::CryptoScope) {
+    use crate::backend::{CryptoMode, SignatureOption, SignatureProfile};
+    let (mut state, old, _) = crypto_state(mode);
+    state.dismiss_crypto(old);
+    state.object_details.as_mut().unwrap().key_type = Some(pkcs11_client::KeyType::ML_DSA);
+    let BackendCommand::CryptoOptions { id, scope, .. } = state.open_crypto(mode).unwrap() else {
+        panic!("choices")
+    };
+    state.event(complete(
+        id,
+        BackendResult::CryptoOptions {
+            scope,
+            context: mode == CryptoMode::Sign,
+            options: vec![SignatureOption {
+                parameters: SignatureProfile::MlDsa(pkcs11_client::MlDsaParameterSet::MlDsa65),
+                plan: None,
+            }],
+        },
+    ));
+    (state, id, scope)
+}
+
+#[test]
+fn ml_dsa_context_counts_utf8_bytes_and_submission_moves_the_pin_once() {
+    use crate::backend::SignatureProfile;
+    use secrecy::ExposeSecret;
+    let (mut state, id, _) = ml_dsa_state(crate::backend::CryptoMode::Sign);
+    assert!(state.crypto_policy(id, true).is_none());
+    assert!(!state.crypto_form.as_ref().unwrap().software_hashing);
+    assert!(
+        state
+            .crypto_picker(id, CryptoField::DomainContext)
+            .is_none()
+    );
+    state.crypto_edit(id, CryptoField::Input, "message".into());
+    state.crypto_edit(id, CryptoField::Signature, "signature".into());
+    state.crypto_edit(id, CryptoField::DomainContext, "é".repeat(128));
+    state.crypto_pin(id, "ml-dsa-secret-canary".into());
+    assert!(state.submit_crypto(id).is_none());
+    assert_eq!(
+        state.notification,
+        Some(Notification::Error(BackendError::MlDsaContext))
+    );
+    assert!(
+        state
+            .crypto_form
+            .as_ref()
+            .unwrap()
+            .pin
+            .expose_secret()
+            .is_empty()
+    );
+    let domain = format!("{}a", "é".repeat(127));
+    state.crypto_edit(id, CryptoField::DomainContext, domain.clone());
+    state.crypto_pin(id, "ml-dsa-secret-canary".into());
+    let BackendCommand::Crypto { job, .. } = state.submit_crypto(id).unwrap() else {
+        panic!("sign")
+    };
+    assert_eq!(
+        job.parameters,
+        SignatureProfile::MlDsa(pkcs11_client::MlDsaParameterSet::MlDsa65)
+    );
+    assert_eq!(job.domain_context, domain.as_bytes());
+    assert!(!job.software_hashing);
+    assert!(
+        matches!(job.context, Some(SecretInput::Value(ref pin)) if pin.expose_secret() == "ml-dsa-secret-canary")
+    );
+    assert!(state.crypto_form.is_none());
+    assert!(!state.can_cancel());
+}
+
+#[test]
+fn stale_ml_dsa_metadata_and_choices_cannot_change_the_selected_key() {
+    use crate::backend::SignatureProfile;
+    let (mut state, id, scope) = ml_dsa_state(crate::backend::CryptoMode::Sign);
+    state.crypto_edit(id, CryptoField::DomainContext, "old domain".into());
+    state.crypto_pin(id, "ml-dsa-secret-canary".into());
+    state.select_token(ResourceId(1), ResourceId(3));
+    state.event(complete(
+        id,
+        BackendResult::CryptoOptions {
+            scope,
+            context: true,
+            options: vec![crate::backend::SignatureOption {
+                parameters: SignatureProfile::MlDsa(pkcs11_client::MlDsaParameterSet::MlDsa65),
+                plan: None,
+            }],
+        },
+    ));
+    state.event(complete(
+        id,
+        BackendResult::ObjectDetails {
+            module: scope.module,
+            token: scope.token,
+            object: scope.object,
+            details: ObjectDetails {
+                fields: Vec::new(),
+                key_type: Some(pkcs11_client::KeyType::ML_DSA),
+            },
+        },
+    ));
+    assert!(state.crypto_form.is_none());
+    assert!(state.object_details.is_none());
+    assert!(state.object_key_type().is_none());
 }
 
 #[cfg(unix)]
@@ -1116,7 +1395,8 @@ fn cipher_state(
         pkcs11_client::ObjectClass::PRIVATE_KEY
     });
     state.event(complete(list, objects_result(2, vec![object])));
-    state.select_object(ResourceId(4));
+    let inspect = state.select_object(ResourceId(4)).unwrap().id();
+    state.event(complete(inspect, details_result(4, "RSA")));
     let BackendCommand::CryptoOptions { id, scope, .. } = state.open_cipher(mode).unwrap() else {
         panic!("cipher options");
     };
@@ -1124,11 +1404,13 @@ fn cipher_state(
         id,
         BackendResult::CipherOptions {
             scope,
-            choices: vec![pkcs11_client::OaepChoice {
-                digest: pkcs11_client::DigestAlgorithm::Sha256,
-                maximum_plaintext: 190,
-                ciphertext_length: 256,
-            }],
+            choices: vec![crate::backend::CipherParameters::Oaep(
+                pkcs11_client::OaepChoice {
+                    digest: pkcs11_client::DigestAlgorithm::Sha256,
+                    maximum_plaintext: 190,
+                    ciphertext_length: 256,
+                },
+            )],
         },
     ));
     (state, id, scope)
@@ -1149,7 +1431,9 @@ fn cipher_forms_validate_and_submit_once_without_restoring_a_navigated_token() {
     };
     assert_eq!(actual, scope);
     assert_eq!(job.input, PathBuf::from("cipher.bin"));
-    assert_eq!(job.choice.maximum_plaintext, 190);
+    assert!(
+        matches!(job.choice,crate::backend::CipherParameters::Oaep(choice) if choice.maximum_plaintext == 190)
+    );
     assert!(state.cipher_form.is_none());
     assert!(!state.can_cancel());
     assert!(!state.can_submit());
@@ -1232,7 +1516,8 @@ fn failed_cipher_choice_loading_stops_and_clears_on_form_changes() {
     assert!(state.cipher_form.as_ref().unwrap().loaded);
     assert!(state.cipher_form.as_ref().unwrap().choices.is_empty());
     assert!(state.current_operation.is_none());
-    state.select_object(ResourceId(4));
+    let inspect = state.select_object(ResourceId(4)).unwrap().id();
+    state.event(complete(inspect, details_result(4, "RSA")));
     state.objects[0].class = Some(pkcs11_client::ObjectClass::PRIVATE_KEY);
     state.open_crypto(crate::backend::CryptoMode::Sign);
     assert!(state.cipher_form.is_none());
@@ -1248,6 +1533,11 @@ fn key_state(
     } else {
         pkcs11_client::ObjectClass::SECRET_KEY
     });
+    state.object_details.as_mut().unwrap().key_type = Some(if mode == CryptoMode::Derive {
+        pkcs11_client::KeyType::EC
+    } else {
+        pkcs11_client::KeyType::AES
+    });
     let mut target = object_entry(5, "target");
     target.class = Some(pkcs11_client::ObjectClass::SECRET_KEY);
     state.objects.push(target);
@@ -1260,7 +1550,13 @@ fn key_state(
     } else {
         pkcs11_client::KeyOperationProfile::AesKeyWrap(32)
     };
-    state.event(complete(id, BackendResult::KeyOptions { scope, profile }));
+    state.event(complete(
+        id,
+        BackendResult::KeyOptions {
+            scope,
+            profile: crate::backend::KeyProfile::Classical(profile),
+        },
+    ));
     (state, id, scope)
 }
 #[test]
@@ -1315,7 +1611,9 @@ fn key_profiles_picker_and_errors_are_scoped_to_the_current_form() {
         id,
         BackendResult::KeyOptions {
             scope,
-            profile: pkcs11_client::KeyOperationProfile::EcdhRaw(pkcs11_client::NamedCurve::P256),
+            profile: crate::backend::KeyProfile::Classical(
+                pkcs11_client::KeyOperationProfile::EcdhRaw(pkcs11_client::NamedCurve::P256),
+            ),
         },
     ));
     state.key_picked(picker, Some("late".into()));
@@ -1574,4 +1872,631 @@ fn stale_cleanup_inventory_preserves_other_modules_and_newer_work() {
     ));
     assert_eq!(state.loaded_modules.len(), 1);
     assert_eq!(state.objects[0].label, "current");
+}
+
+#[test]
+fn non_signing_generation_rejects_stale_authentication_and_bounds_before_enqueue() {
+    use crate::backend::GenerationKind;
+    use pkcs11_client::{AesKeyPurpose, AesKeySize, NamedCurve};
+    for kind in [
+        GenerationKind::Ecdh(NamedCurve::P384),
+        GenerationKind::Aes(AesKeySize::Bits256, AesKeyPurpose::Wrapping),
+    ] {
+        let mut state = managing();
+        state.management.always_authenticate = true;
+        let request = state.show_page(TokenPage::Operations).unwrap().id();
+        state.event(complete(
+            request,
+            BackendResult::Capabilities {
+                module: ResourceId(1),
+                token: ResourceId(2),
+                keys: vec![kind],
+            },
+        ));
+        assert!(!state.management.always_authenticate);
+        state.management.key_id = "01".into();
+        state.management.key_label = "x".repeat(129);
+        assert!(state.generate().is_none());
+        state.management.key_label = "key".into();
+        state.management.always_authenticate = true;
+        assert!(state.generate().is_none());
+        state.management.always_authenticate = false;
+        let request = state.generate().unwrap();
+        assert!(
+            matches!(request, BackendCommand::Manage { action: crate::backend::ManagementAction::Generate { kind: actual, always_authenticate: false, .. }, .. } if actual == kind)
+        );
+        assert!(!state.can_cancel());
+    }
+}
+
+#[test]
+fn pqc_generation_checks_identity_and_authentication_before_enqueue() {
+    use crate::backend::{GenerationKind, ManagementAction};
+    use pkcs11_client::{MlDsaParameterSet, MlKemParameterSet};
+    for kind in [
+        GenerationKind::MlDsa(MlDsaParameterSet::MlDsa44),
+        GenerationKind::MlDsa(MlDsaParameterSet::MlDsa65),
+        GenerationKind::MlDsa(MlDsaParameterSet::MlDsa87),
+        GenerationKind::MlKem(MlKemParameterSet::MlKem512),
+        GenerationKind::MlKem(MlKemParameterSet::MlKem768),
+        GenerationKind::MlKem(MlKemParameterSet::MlKem1024),
+    ] {
+        let mut state = managing();
+        let request = state.show_page(TokenPage::Operations).unwrap().id();
+        state.event(complete(
+            request,
+            BackendResult::Capabilities {
+                module: ResourceId(1),
+                token: ResourceId(2),
+                keys: vec![kind],
+            },
+        ));
+        state.management.key_id = "01".into();
+        assert!(state.generate().is_none());
+        state.management.key_label = "PQC key".into();
+        state.management.key_id = "zz".into();
+        assert!(state.generate().is_none());
+        state.management.key_id = "01".into();
+        state.management.always_authenticate = true;
+        if !kind.supports_context_authentication() {
+            assert!(state.generate().is_none());
+            state.management.always_authenticate = false;
+        }
+        state.loaded_modules[0].tokens[0].login = LoginState::SecurityOfficer;
+        assert!(state.generate().is_none());
+        state.loaded_modules[0].tokens[0].login = LoginState::User;
+        state.loaded_modules[0].tokens[0].write_protected = true;
+        assert!(state.generate().is_none());
+        state.loaded_modules[0].tokens[0].write_protected = false;
+        let command = state.generate().unwrap();
+        assert!(matches!(command, BackendCommand::Manage {
+            action: ManagementAction::Generate { kind: selected, id, label, always_authenticate }, ..
+        } if selected == kind && id == [1] && label == b"PQC key"
+            && always_authenticate == kind.supports_context_authentication()));
+        assert!(state.management.key_label.is_empty());
+        assert!(state.management.key_id.is_empty());
+        assert!(!state.can_cancel());
+    }
+}
+
+#[test]
+fn late_pqc_choices_cannot_replace_refreshed_classical_choices() {
+    use crate::backend::GenerationKind;
+    let mut state = managing();
+    let old = state.show_page(TokenPage::Operations).unwrap().id();
+    state.cancel();
+    let fresh = state.read_capabilities().unwrap().id();
+    let classical = GenerationKind::Signing(pkcs11_client::KeyKind::Rsa { bits: 2048 });
+    state.event(complete(
+        fresh,
+        BackendResult::Capabilities {
+            module: ResourceId(1),
+            token: ResourceId(2),
+            keys: vec![classical],
+        },
+    ));
+    state.event(complete(
+        old,
+        BackendResult::Capabilities {
+            module: ResourceId(1),
+            token: ResourceId(2),
+            keys: vec![GenerationKind::MlKem(
+                pkcs11_client::MlKemParameterSet::MlKem768,
+            )],
+        },
+    ));
+    assert_eq!(
+        state.management.keys,
+        vec![crate::state::KeyChoice(classical)]
+    );
+}
+
+fn aes_cipher_state() -> (UiState, RequestId, crate::backend::CryptoScope) {
+    use crate::backend::{CipherParameters, CryptoMode};
+    let (mut state, id, _) = cipher_state(CryptoMode::Encrypt);
+    state.dismiss_cipher(id);
+    state.objects[0].class = Some(pkcs11_client::ObjectClass::SECRET_KEY);
+    state.object_details.as_mut().unwrap().key_type = Some(pkcs11_client::KeyType::AES);
+    let BackendCommand::CryptoOptions { id, scope, .. } =
+        state.open_cipher(CryptoMode::Encrypt).unwrap()
+    else {
+        panic!("options")
+    };
+    state.event(complete(
+        id,
+        BackendResult::CipherOptions {
+            scope,
+            choices: vec![CipherParameters::AesGcm(
+                pkcs11_client::AesGcmCapabilities {
+                    key_size: pkcs11_client::AesKeySize::Bits256,
+                },
+            )],
+        },
+    ));
+    (state, id, scope)
+}
+#[test]
+fn aes_gcm_forms_validate_nonce_and_clear_parameters_after_submission() {
+    let (mut state, id, scope) = aes_cipher_state();
+    state.cipher_edit(id, CipherField::Input, "plain".into());
+    state.cipher_edit(id, CipherField::Output, "encrypted".into());
+    for nonce in [
+        "",
+        "00",
+        "zzzzzzzzzzzzzzzzzzzzzzzz",
+        " 010101010101010101010101 ",
+    ] {
+        state.cipher_edit(id, CipherField::Nonce, nonce.into());
+        assert!(state.submit_cipher(id).is_none());
+    }
+    assert!(state.cipher_picker(id, CipherField::Nonce).is_none());
+    let (picker, save) = state.cipher_picker(id, CipherField::Aad).unwrap();
+    assert!(!save);
+    state.cipher_picked(picker, Some(PathBuf::from("context")));
+    state.cipher_edit(id, CipherField::Nonce, "010101010101010101010101".into());
+    let BackendCommand::Cipher {
+        job, scope: actual, ..
+    } = state.submit_cipher(id).unwrap()
+    else {
+        panic!("cipher")
+    };
+    assert_eq!(actual, scope);
+    let gcm = job.aes_gcm.unwrap();
+    assert_eq!(gcm.nonce, [1; 12]);
+    assert_eq!(gcm.aad, Some("context".into()));
+    assert!(state.cipher_form.is_none());
+    assert!(!state.can_cancel());
+}
+#[test]
+fn aes_gcm_forms_reject_late_choices_and_aad_pickers_after_navigation() {
+    let (mut state, id, scope) = aes_cipher_state();
+    let (picker, _) = state.cipher_picker(id, CipherField::Aad).unwrap();
+    state.cipher_edit(id, CipherField::Nonce, "010101010101010101010101".into());
+    state.select_token(ResourceId(1), ResourceId(3));
+    state.cipher_picked(picker, Some("obsolete-context".into()));
+    assert!(state.cipher_form.is_none());
+    state.event(complete(
+        id,
+        BackendResult::CipherOptions {
+            scope,
+            choices: vec![],
+        },
+    ));
+    assert!(state.cipher_form.is_none());
+    assert!(state.submit_cipher(id).is_none());
+}
+
+#[test]
+fn aes_gcm_secret_key_operations_require_user_login() {
+    let (mut state, id, _) = aes_cipher_state();
+    state.loaded_modules[0].tokens[0].login = LoginState::Public;
+    assert!(!state.can_open_cipher(crate::backend::CryptoMode::Encrypt));
+    assert!(!state.can_open_cipher(crate::backend::CryptoMode::Decrypt));
+    assert!(state.submit_cipher(id).is_none());
+}
+
+#[test]
+fn ml_dsa_verification_context_edits_cancel_stale_success_without_authentication() {
+    use crate::backend::CryptoMode;
+    let (mut state, id, scope) = ml_dsa_state(CryptoMode::Verify);
+    state.loaded_modules[0].tokens[0].login = LoginState::Public;
+    state.crypto_edit(id, CryptoField::Input, "message".into());
+    state.crypto_edit(id, CryptoField::Signature, "signature".into());
+    state.crypto_edit(id, CryptoField::DomainContext, "é".repeat(128));
+    assert!(state.submit_crypto(id).is_none());
+    assert_eq!(
+        state.notification,
+        Some(Notification::Error(BackendError::MlDsaContext))
+    );
+    let context = format!("{}a", "é".repeat(127));
+    state.crypto_edit(id, CryptoField::DomainContext, context.clone());
+    state.crypto_pin(id, "ignored-verification-pin".into());
+    let BackendCommand::Crypto {
+        id: pending, job, ..
+    } = state.submit_crypto(id).unwrap()
+    else {
+        panic!("verification")
+    };
+    assert_eq!(job.domain_context, context.as_bytes());
+    assert!(job.context.is_none());
+    assert!(!job.software_hashing);
+    assert!(state.crypto_form.is_some());
+    state.crypto_edit(id, CryptoField::DomainContext, "changed".into());
+    state.event(complete(pending, BackendResult::Verified { scope }));
+    assert_ne!(state.notification, Some(Notification::SignatureVerified));
+    let current = state.submit_crypto(id).unwrap().id();
+    state.event(complete(current, BackendResult::Verified { scope }));
+    assert_eq!(state.notification, Some(Notification::SignatureVerified));
+    state.crypto_edit(id, CryptoField::DomainContext, String::new());
+    assert!(state.notification.is_none());
+    let current = state.submit_crypto(id).unwrap().id();
+    state.select_token(ResourceId(1), ResourceId(3));
+    state.event(complete(current, BackendResult::Verified { scope }));
+    assert!(state.crypto_form.is_none());
+    assert_ne!(state.notification, Some(Notification::SignatureVerified));
+}
+
+fn kem_state(
+    mode: crate::backend::CryptoMode,
+) -> (UiState, RequestId, crate::backend::CryptoScope) {
+    use crate::backend::{CryptoMode, KeyProfile};
+    let (mut state, old, _) = key_state(CryptoMode::Derive);
+    state.dismiss_key_operation(old);
+    state.objects[0].class = Some(if mode == CryptoMode::Encapsulate {
+        pkcs11_client::ObjectClass::PUBLIC_KEY
+    } else {
+        pkcs11_client::ObjectClass::PRIVATE_KEY
+    });
+    state.object_details.as_mut().unwrap().key_type = Some(pkcs11_client::KeyType::ML_KEM);
+    let BackendCommand::CryptoOptions { id, scope, .. } = state.open_key_operation(mode).unwrap()
+    else {
+        panic!("ML-KEM capabilities")
+    };
+    state.event(complete(
+        id,
+        BackendResult::KeyOptions {
+            scope,
+            profile: KeyProfile::MlKem(pkcs11_client::MlKemParameterSet::MlKem768),
+        },
+    ));
+    (state, id, scope)
+}
+
+#[test]
+fn ml_kem_forms_require_typed_keys_login_writable_tokens_and_valid_identities() {
+    use crate::backend::{CryptoMode, KeyJob, KeyProfile};
+    for mode in [CryptoMode::Encapsulate, CryptoMode::Decapsulate] {
+        let (mut state, id, _) = kem_state(mode);
+        assert!(state.submit_key_operation(id).is_none());
+        let field = if mode == CryptoMode::Encapsulate {
+            KeyField::Output
+        } else {
+            KeyField::Input
+        };
+        let other = if mode == CryptoMode::Encapsulate {
+            KeyField::Input
+        } else {
+            KeyField::Output
+        };
+        assert!(state.key_picker(id, other).is_none());
+        state.key_edit(id, field, "ciphertext.bin".into());
+        state.key_edit(id, KeyField::Label, "é".repeat(65));
+        state.key_edit(id, KeyField::Id, "D75601".into());
+        assert!(state.submit_key_operation(id).is_none());
+        state.key_edit(id, KeyField::Label, "é".repeat(64));
+        state.key_edit(id, KeyField::Id, "AA".repeat(129));
+        assert!(state.submit_key_operation(id).is_none());
+        state.key_edit(id, KeyField::Id, "GG".into());
+        assert!(state.submit_key_operation(id).is_none());
+        state.key_edit(id, KeyField::Id, "D75601".into());
+        state.loaded_modules[0].tokens[0].write_protected = true;
+        assert!(!state.can_open_key_operation(mode));
+        assert!(state.submit_key_operation(id).is_none());
+        state.loaded_modules[0].tokens[0].write_protected = false;
+        state.loaded_modules[0].tokens[0].login = LoginState::Public;
+        assert!(state.submit_key_operation(id).is_none());
+        state.loaded_modules[0].tokens[0].login = LoginState::User;
+        state.object_details.as_mut().unwrap().key_type = Some(pkcs11_client::KeyType::RSA);
+        assert!(state.submit_key_operation(id).is_none());
+        state.object_details.as_mut().unwrap().key_type = Some(pkcs11_client::KeyType::ML_KEM);
+        state.key_form.as_mut().unwrap().profile = Some(KeyProfile::Classical(
+            pkcs11_client::KeyOperationProfile::AesKeyWrap(32),
+        ));
+        assert!(state.submit_key_operation(id).is_none());
+        state.key_form.as_mut().unwrap().profile = Some(KeyProfile::MlKem(
+            pkcs11_client::MlKemParameterSet::MlKem768,
+        ));
+        let BackendCommand::KeyOperation { job, profile, .. } =
+            state.submit_key_operation(id).unwrap()
+        else {
+            panic!("ML-KEM job")
+        };
+        assert!(matches!(
+            profile,
+            KeyProfile::MlKem(pkcs11_client::MlKemParameterSet::MlKem768)
+        ));
+        match job {
+            KeyJob::Encapsulate { output, id, label } => {
+                assert_eq!(mode, CryptoMode::Encapsulate);
+                assert_eq!(output, PathBuf::from("ciphertext.bin"));
+                assert_eq!(id, [0xD7, 0x56, 1]);
+                assert_eq!(label.len(), 128);
+            }
+            KeyJob::Decapsulate { input, id, label } => {
+                assert_eq!(mode, CryptoMode::Decapsulate);
+                assert_eq!(input, PathBuf::from("ciphertext.bin"));
+                assert_eq!(id, [0xD7, 0x56, 1]);
+                assert_eq!(label.len(), 128);
+            }
+            _ => panic!("ML-KEM job direction"),
+        }
+        assert!(state.key_form.is_none());
+        assert!(!state.can_cancel());
+        assert!(!state.can_submit());
+    }
+}
+
+#[test]
+fn ml_kem_choices_pickers_and_mutation_results_cannot_restore_obsolete_selection() {
+    use crate::backend::{CryptoMode, KeyProfile};
+    for mode in [CryptoMode::Encapsulate, CryptoMode::Decapsulate] {
+        let (mut state, id, scope) = kem_state(mode);
+        let field = if mode == CryptoMode::Encapsulate {
+            KeyField::Output
+        } else {
+            KeyField::Input
+        };
+        let (picker, save) = state.key_picker(id, field).unwrap();
+        assert_eq!(save, mode == CryptoMode::Encapsulate);
+        state.key_edit(id, field, "current".into());
+        state.key_picked(picker, Some("old".into()));
+        let form = state.key_form.as_ref().unwrap();
+        assert_eq!(if save { &form.output } else { &form.input }, "current");
+        state.key_edit(id, KeyField::Label, "new-secret".into());
+        state.key_edit(id, KeyField::Id, "01".into());
+        let request = state.submit_key_operation(id).unwrap().id();
+        state.select_token(ResourceId(1), ResourceId(3));
+        state.event(complete(
+            request,
+            BackendResult::Managed {
+                module: scope.module,
+                token: scope.token,
+                modules: state.loaded_modules.clone(),
+                objects: Some(vec![object_entry(99, "obsolete secret")]),
+                error: None,
+            },
+        ));
+        state.event(complete(
+            id,
+            BackendResult::KeyOptions {
+                scope,
+                profile: KeyProfile::MlKem(pkcs11_client::MlKemParameterSet::MlKem512),
+            },
+        ));
+        state.key_picked(picker, Some("late".into()));
+        assert!(state.key_form.is_none());
+        assert!(state.objects.is_empty());
+        assert_eq!(state.selected_token, Some(ResourceId(3)));
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn ml_kem_file_pickers_preserve_native_paths() {
+    use crate::backend::{CryptoMode, KeyJob};
+    use std::os::unix::ffi::OsStringExt;
+    for mode in [CryptoMode::Encapsulate, CryptoMode::Decapsulate] {
+        let (mut state, id, _) = kem_state(mode);
+        let path = PathBuf::from(std::ffi::OsString::from_vec(
+            b"ciphertext-\xff.bin".to_vec(),
+        ));
+        let field = if mode == CryptoMode::Encapsulate {
+            KeyField::Output
+        } else {
+            KeyField::Input
+        };
+        let (picker, _) = state.key_picker(id, field).unwrap();
+        state.key_picked(picker, Some(path.clone()));
+        state.key_edit(id, KeyField::Label, "secret".into());
+        state.key_edit(id, KeyField::Id, "01".into());
+        let BackendCommand::KeyOperation { job, .. } = state.submit_key_operation(id).unwrap()
+        else {
+            panic!("ML-KEM job")
+        };
+        match job {
+            KeyJob::Encapsulate { output, .. } => assert_eq!(output, path),
+            KeyJob::Decapsulate { input, .. } => assert_eq!(input, path),
+            _ => panic!("ML-KEM job"),
+        }
+    }
+}
+
+#[test]
+fn ml_kem_public_import_validates_identity_and_rejects_stale_pickers() {
+    let mut state = managing();
+    state.token_page = TokenPage::Operations;
+    assert!(state.import_ml_kem().is_none());
+    state.edit_management(ManagementField::MlKemPath, "peer.der".into());
+    state.edit_management(ManagementField::MlKemLabel, "é".repeat(65));
+    state.edit_management(ManagementField::MlKemId, "D75701".into());
+    assert!(state.import_ml_kem().is_none());
+    state.edit_management(ManagementField::MlKemLabel, "é".repeat(64));
+    state.edit_management(ManagementField::MlKemId, "AA".repeat(129));
+    assert!(state.import_ml_kem().is_none());
+    state.edit_management(ManagementField::MlKemId, "GG".into());
+    assert!(state.import_ml_kem().is_none());
+    state.edit_management(ManagementField::MlKemId, "D75701".into());
+    let (picker, _) = state.begin_ml_kem_file().unwrap();
+    state.edit_management(ManagementField::MlKemPath, "current.der".into());
+    state.object_file_picked(picker, Some("old.der".into()));
+    assert_eq!(state.management.ml_kem_path, "current.der");
+    state.loaded_modules[0].tokens[0].write_protected = true;
+    assert!(state.begin_ml_kem_file().is_none());
+    assert!(state.import_ml_kem().is_none());
+    state.loaded_modules[0].tokens[0].write_protected = false;
+    state.loaded_modules[0].tokens[0].login = LoginState::Public;
+    assert!(state.import_ml_kem().is_none());
+    state.loaded_modules[0].tokens[0].login = LoginState::User;
+    let BackendCommand::Manage {
+        action: crate::backend::ManagementAction::ImportMlKem { path, id, label },
+        ..
+    } = state.import_ml_kem().unwrap()
+    else {
+        panic!("import")
+    };
+    assert_eq!(path, PathBuf::from("current.der"));
+    assert_eq!(id, [0xD7, 0x57, 1]);
+    assert_eq!(label.len(), 128);
+    assert!(!state.can_cancel());
+    assert!(state.management.ml_kem_path.is_empty());
+}
+
+#[cfg(unix)]
+#[test]
+fn ml_kem_import_picker_preserves_native_paths_and_ignores_navigation_and_shutdown() {
+    use std::os::unix::ffi::OsStringExt;
+    for shutdown in [false, true] {
+        let mut state = managing();
+        state.token_page = TokenPage::Operations;
+        let path = PathBuf::from(std::ffi::OsString::from_vec(b"peer-\xff.der".to_vec()));
+        let (picker, _) = state.begin_ml_kem_file().unwrap();
+        state.object_file_picked(picker, Some(path.clone()));
+        state.edit_management(ManagementField::MlKemLabel, "peer".into());
+        state.edit_management(ManagementField::MlKemId, "01".into());
+        let BackendCommand::Manage {
+            action: crate::backend::ManagementAction::ImportMlKem { path: actual, .. },
+            ..
+        } = state.import_ml_kem().unwrap()
+        else {
+            panic!("import")
+        };
+        assert_eq!(actual, path);
+        let mut state = managing();
+        state.token_page = TokenPage::Operations;
+        let (picker, _) = state.begin_ml_kem_file().unwrap();
+        if shutdown {
+            state.begin_shutdown();
+        } else {
+            state.select_token(ResourceId(1), ResourceId(3));
+        }
+        state.object_file_picked(picker, Some(path));
+        assert!(state.management.picked_ml_kem.is_none());
+    }
+}
+
+fn hkdf_state(
+    digest: pkcs11_client::DigestAlgorithm,
+) -> (UiState, RequestId, crate::backend::CryptoScope) {
+    use crate::backend::{CryptoMode, KeyProfile};
+    let (mut state, old, _) = key_state(CryptoMode::Derive);
+    state.dismiss_key_operation(old);
+    state.objects[0].class = Some(pkcs11_client::ObjectClass::SECRET_KEY);
+    state.object_details.as_mut().unwrap().key_type = Some(pkcs11_client::KeyType::GENERIC_SECRET);
+    let BackendCommand::CryptoOptions { id, scope, .. } =
+        state.open_key_operation(CryptoMode::Hkdf).unwrap()
+    else {
+        panic!("HKDF capabilities")
+    };
+    state.event(complete(
+        id,
+        BackendResult::KeyOptions {
+            scope,
+            profile: KeyProfile::Hkdf(pkcs11_client::HkdfCapabilities {
+                digest,
+                input_length: digest.output_len(),
+            }),
+        },
+    ));
+    (state, id, scope)
+}
+#[test]
+fn hkdf_forms_validate_public_inputs_outputs_and_submit_typed_jobs_once() {
+    use crate::backend::{KeyJob, KeyProfile};
+    use pkcs11_client::{DigestAlgorithm, HkdfOutput};
+    for digest in [
+        DigestAlgorithm::Sha256,
+        DigestAlgorithm::Sha384,
+        DigestAlgorithm::Sha512,
+    ] {
+        for output in HkdfOutputChoice::ALL {
+            let (mut state, id, _) = hkdf_state(digest);
+            assert!(state.key_picker(id, KeyField::Input).is_none());
+            assert!(state.key_picker(id, KeyField::Output).is_none());
+            assert!(state.submit_key_operation(id).is_none());
+            state.key_edit(id, KeyField::Label, "new key".into());
+            state.key_edit(id, KeyField::Id, "D75901".into());
+            state.hkdf_output(id, output);
+            for salt in ["a".to_string(), "zz".to_string(), "AA".repeat(4097)] {
+                state.key_edit(id, KeyField::Salt, salt);
+                assert!(state.submit_key_operation(id).is_none());
+                assert_eq!(
+                    state.notification,
+                    Some(Notification::Error(BackendError::HkdfInput))
+                );
+            }
+            state.key_edit(id, KeyField::Salt, "00fF".into());
+            state.key_edit(id, KeyField::Info, "é".repeat(2049));
+            assert!(state.submit_key_operation(id).is_none());
+            state.key_edit(id, KeyField::Info, "é".repeat(2048));
+            if output == HkdfOutputChoice::DerivationSecret {
+                for length in [
+                    "0".to_string(),
+                    "NaN".to_string(),
+                    (255 * digest.output_len() + 1).to_string(),
+                ] {
+                    state.key_edit(id, KeyField::Length, length);
+                    assert!(state.submit_key_operation(id).is_none());
+                }
+                state.key_edit(
+                    id,
+                    KeyField::Length,
+                    (255 * digest.output_len()).to_string(),
+                );
+            }
+            let BackendCommand::KeyOperation {
+                profile: KeyProfile::Hkdf(caps),
+                job: KeyJob::Hkdf(job),
+                ..
+            } = state.submit_key_operation(id).unwrap()
+            else {
+                panic!("HKDF request")
+            };
+            assert_eq!(caps.digest, digest);
+            assert_eq!(job.salt, [0, 255]);
+            assert_eq!(job.info.len(), 4096);
+            assert_eq!(job.id, [0xD7, 0x59, 1]);
+            assert_eq!(
+                job.output,
+                match output {
+                    HkdfOutputChoice::Aes128 => HkdfOutput::Aes128,
+                    HkdfOutputChoice::Aes192 => HkdfOutput::Aes192,
+                    HkdfOutputChoice::Aes256 => HkdfOutput::Aes256,
+                    HkdfOutputChoice::DerivationSecret => HkdfOutput::DerivationSecret {
+                        length: 255 * digest.output_len()
+                    },
+                }
+            );
+            assert!(!state.can_cancel());
+            assert!(state.key_form.is_none());
+        }
+    }
+}
+#[test]
+fn hkdf_authentication_scope_and_stale_choices_are_rechecked_before_submission() {
+    use crate::backend::{CryptoMode, KeyProfile};
+    let (mut state, id, scope) = hkdf_state(pkcs11_client::DigestAlgorithm::Sha256);
+    state.key_edit(id, KeyField::Label, "new key".into());
+    state.key_edit(id, KeyField::Id, "01".into());
+    state.loaded_modules[0].tokens[0].write_protected = true;
+    assert!(state.submit_key_operation(id).is_none());
+    state.loaded_modules[0].tokens[0].write_protected = false;
+    state.loaded_modules[0].tokens[0].login = LoginState::Public;
+    assert!(!state.can_open_key_operation(CryptoMode::Hkdf));
+    state.loaded_modules[0].tokens[0].login = LoginState::User;
+    state.select_token(ResourceId(1), ResourceId(3));
+    state.event(complete(
+        id,
+        BackendResult::KeyOptions {
+            scope,
+            profile: KeyProfile::Hkdf(pkcs11_client::HkdfCapabilities {
+                digest: pkcs11_client::DigestAlgorithm::Sha256,
+                input_length: 32,
+            }),
+        },
+    ));
+    state.hkdf_output(id, HkdfOutputChoice::DerivationSecret);
+    state.key_edit(id, KeyField::Salt, "stale".into());
+    assert!(state.key_form.is_none());
+    let (mut state, id, _) = hkdf_state(pkcs11_client::DigestAlgorithm::Sha256);
+    state.key_edit(id, KeyField::Label, "new key".into());
+    state.key_edit(id, KeyField::Id, "01".into());
+    let BackendCommand::KeyOperation {
+        job: crate::backend::KeyJob::Hkdf(job),
+        ..
+    } = state.submit_key_operation(id).unwrap()
+    else {
+        panic!("HKDF request")
+    };
+    assert!(job.salt.is_empty());
+    assert!(job.info.is_empty());
 }

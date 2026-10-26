@@ -6,8 +6,8 @@ use crate::{
     },
     state::{
         AdministrationField, AdministrationPinField, CipherChoice, CipherField, CryptoField,
-        Dialog, FilePurpose, KeyChoice, KeyField, ManagementField, Notification, RandomField,
-        Screen, SignatureChoice, TokenPage, UiState, WrapTarget,
+        Dialog, FilePurpose, HkdfOutputChoice, KeyChoice, KeyField, ManagementField, Notification,
+        RandomField, Screen, SignatureChoice, TokenPage, UiState, WrapTarget,
     },
     views,
 };
@@ -35,6 +35,10 @@ pub enum Message {
     SubmitAdministration(RequestId),
     DismissAdministration(RequestId),
     OpenKeyOperation(CryptoMode),
+    HkdfOutput {
+        id: RequestId,
+        output: HkdfOutputChoice,
+    },
     KeyEdit {
         id: RequestId,
         field: KeyField,
@@ -149,6 +153,8 @@ pub enum Message {
     AlwaysAuthenticate(bool),
     Generate,
     ImportCertificate,
+    ImportMlKem,
+    ChooseMlKem,
     ChooseCertificate,
     ExportObject,
     ObjectFilePicked {
@@ -190,6 +196,7 @@ impl std::fmt::Debug for Message {
             Self::ReviewAdministration(_) => "ReviewAdministration",
             Self::SubmitAdministration(_) => "SubmitAdministration",
             Self::DismissAdministration(_) => "DismissAdministration",
+            Self::HkdfOutput { .. } => "HkdfOutput",
             Self::OpenKeyOperation(_) => "OpenKeyOperation",
             Self::KeyEdit { .. } => "KeyEdit",
             Self::KeyTarget { .. } => "KeyTarget",
@@ -238,6 +245,8 @@ impl std::fmt::Debug for Message {
             Self::AlwaysAuthenticate(_) => "AlwaysAuthenticate",
             Self::Generate => "Generate",
             Self::ImportCertificate => "ImportCertificate",
+            Self::ImportMlKem => "ImportMlKem",
+            Self::ChooseMlKem => "ChooseMlKem",
             Self::ChooseCertificate => "ChooseCertificate",
             Self::ExportObject => "ExportObject",
             Self::ObjectFilePicked { .. } => "ObjectFilePicked",
@@ -336,6 +345,7 @@ impl App {
                 let command = self.state.open_key_operation(mode);
                 self.submit(command);
             }
+            Message::HkdfOutput { id, output } => self.state.hkdf_output(id, output),
             Message::KeyEdit { id, field, value } => self.state.key_edit(id, field, value),
             Message::KeyTarget { id, target } => self.state.key_target(id, target),
             Message::KeyPicked { id, path } => self.state.key_picked(id, path),
@@ -351,12 +361,12 @@ impl App {
                             let dialog = rfd::AsyncFileDialog::new();
                             let file = if save {
                                 dialog
-                                    .set_title("Save wrapped AES key to a new file")
+                                    .set_title("Save key operation output to a new file")
                                     .save_file()
                                     .await
                             } else {
                                 dialog
-                                    .set_title("Select peer public key or wrapped AES key")
+                                    .set_title("Select key operation input file")
                                     .pick_file()
                                     .await
                             };
@@ -525,15 +535,28 @@ impl App {
             Message::GenerationKey(key) => {
                 if self.state.can_submit() && self.state.management.keys.contains(&key) {
                     self.state.management.key = Some(key);
+                    if !key.0.supports_context_authentication() {
+                        self.state.management.always_authenticate = false;
+                    }
                 }
             }
             Message::AlwaysAuthenticate(value) => {
-                if self.state.can_submit() {
+                if self.state.can_submit()
+                    && self
+                        .state
+                        .management
+                        .key
+                        .is_some_and(|key| key.0.supports_context_authentication())
+                {
                     self.state.management.always_authenticate = value;
                 }
             }
             Message::Generate => {
                 let command = self.state.generate();
+                self.submit(command);
+            }
+            Message::ImportMlKem => {
+                let command = self.state.import_ml_kem();
                 self.submit(command);
             }
             Message::ImportCertificate => {
@@ -545,15 +568,24 @@ impl App {
                 let command = self.state.confirm_delete(id);
                 self.submit(command);
             }
-            Message::ChooseCertificate | Message::ExportObject => {
-                if let Some((id, purpose)) = self
-                    .state
-                    .begin_object_file(matches!(message, Message::ExportObject))
-                {
+            Message::ChooseCertificate | Message::ChooseMlKem | Message::ExportObject => {
+                let request = if matches!(message, Message::ChooseMlKem) {
+                    self.state.begin_ml_kem_file()
+                } else {
+                    self.state
+                        .begin_object_file(matches!(message, Message::ExportObject))
+                };
+                if let Some((id, purpose)) = request {
                     return Task::perform(
                         async move {
                             let dialog = rfd::AsyncFileDialog::new();
                             let file = match purpose {
+                                FilePurpose::MlKem => {
+                                    dialog
+                                        .set_title("Select an ML-KEM SPKI DER public key")
+                                        .pick_file()
+                                        .await
+                                }
                                 FilePurpose::Certificate => {
                                     dialog
                                         .set_title("Select a DER certificate")

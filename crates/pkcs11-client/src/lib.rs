@@ -3,7 +3,12 @@
 #![doc = include_str!("../README.md")]
 
 mod administration;
+mod aes_gcm;
 pub use administration::TokenInitializationTarget;
+pub use aes_gcm::{
+    AES_GCM_MAXIMUM_AAD, AES_GCM_MAXIMUM_PLAINTEXT, AES_GCM_NONCE_LENGTH, AES_GCM_TAG_LENGTH,
+    AesGcmCapabilities, AesGcmDecryptRequest, AesGcmEncryptRequest, AesGcmOperation,
+};
 mod certificate;
 mod encryption;
 mod key_operations;
@@ -16,7 +21,22 @@ pub use pkcs11_runtime::RsaCipherOperation;
 mod client;
 mod error;
 mod generation;
+pub use generation::{
+    AesKeyPurpose, AesKeyRequest, AesKeySize, EcdhKeyPairRequest, GenerationCapabilities,
+};
+mod hkdf;
 mod management;
+mod ml_dsa;
+mod ml_dsa_certificate;
+mod ml_kem;
+pub use ml_dsa_certificate::{MlDsaCertificate, MlDsaIdentity, MlDsaVerifyingKey};
+pub use ml_kem::MlKemPublicKey;
+pub use pkcs11_runtime::{HkdfCapabilities, HkdfOutput, HkdfRequest};
+pub use pkcs11_runtime::{
+    MlDsaCapabilities, MlDsaHedging, MlDsaParameterSet, MlDsaPublicKey, MlDsaRequest,
+    MlDsaSigningPolicy,
+};
+pub use pkcs11_runtime::{MlKemCapabilities, MlKemOperation, MlKemParameterSet, MlKemRequest};
 mod object_locator;
 mod public_export;
 mod random;
@@ -33,7 +53,7 @@ pub use object_locator::object_locator;
 pub use pkcs11_locator::Pkcs11Uri;
 pub use pkcs11_runtime::{
     Attribute, AttributeInfo, AttributeType, AttributeValues, Authentication, CertificateRef,
-    DigestAlgorithm, HashLocation, HashingPolicy, KeyCapabilities, KeyKind, LibraryInfo,
+    DigestAlgorithm, HashLocation, HashingPolicy, KeyCapabilities, KeyKind, KeyType, LibraryInfo,
     MechanismInfo, MechanismType, Module, NamedCurve, ObjectClass, ObjectRef, Pin, PrivateKeyRef,
     PssParameters, PublicKeyMetadata, PublicKeyRef, SessionMode, SessionPool, SessionState,
     SignInput, SignPlan, SignRequest, SignatureAlgorithm, SigningMechanism, SigningPolicy,
