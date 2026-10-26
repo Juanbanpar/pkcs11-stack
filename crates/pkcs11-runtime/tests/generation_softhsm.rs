@@ -8,8 +8,9 @@ use cryptoki::{
 };
 use pkcs11_runtime::{
     AesKeyPurpose, AesKeyRequest, AesKeySize, Attribute, AttributeInfo, AttributeType,
-    Authentication, EcdhDerivation, EcdhKeyPairRequest, Error, KeyOperation, Module, NamedCurve,
-    ObjectClass, ObjectRef, Pin, SessionMode,
+    Authentication, DigestAlgorithm, EcdhDerivation, EcdhKeyPairRequest, Error, KeyKind,
+    KeyOperation, Module, NamedCurve, ObjectClass, ObjectRef, Pin, PrivateKeyRef, PublicKeyRef,
+    SessionMode, SignInput, SignRequest, SignatureAlgorithm, SigningPolicy,
 };
 use secrecy::SecretString;
 fn reference(id: &[u8], kind: &str) -> ObjectRef {
@@ -27,6 +28,142 @@ fn inspect(object: &pkcs11_runtime::Object<'_, '_>, expected: &[Attribute]) {
     for attribute in expected {
         assert!(attrs.expose_values().contains(attribute));
     }
+}
+#[test]
+#[ignore = "requires tools/test-softhsm.sh disposable token"]
+fn signing_generation_disables_other_uses_and_preserves_signing() {
+    assert_eq!(std::env::var("PKCS11_TEST_ISOLATED").as_deref(), Ok("1"));
+    let path = std::env::var_os("PKCS11_TEST_MODULE").unwrap();
+    let module = Module::load(&path).unwrap();
+    let token = module
+        .resolve_token_uri(&"pkcs11:token=client-test".parse().unwrap())
+        .unwrap();
+    let slot = token.slot();
+    let pin = SecretString::from("12345678");
+    let mut session = token.open_session(SessionMode::ReadWrite).unwrap();
+    session
+        .authenticate(Authentication::User(Pin::Value(&pin)))
+        .unwrap();
+    let message = b"signing-purpose regression";
+    let mut signatures = Vec::new();
+    for (index, kind) in [
+        KeyKind::Rsa { bits: 2048 },
+        KeyKind::Ec(NamedCurve::P256),
+        KeyKind::Ec(NamedCurve::P384),
+        KeyKind::Ec(NamedCurve::P521),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let id = format!("signing-purpose-{index}").into_bytes();
+        {
+            let (public, private) = session
+                .generate_signing_key_pair(kind, &id, &id, false)
+                .unwrap();
+            inspect(
+                &public,
+                &[
+                    Attribute::Verify(true),
+                    Attribute::VerifyRecover(false),
+                    Attribute::Encrypt(false),
+                    Attribute::Wrap(false),
+                    Attribute::Derive(false),
+                ],
+            );
+            inspect(
+                &private,
+                &[
+                    Attribute::Sign(true),
+                    Attribute::SignRecover(false),
+                    Attribute::Decrypt(false),
+                    Attribute::Unwrap(false),
+                    Attribute::Derive(false),
+                    Attribute::Sensitive(true),
+                    Attribute::Extractable(false),
+                ],
+            );
+        }
+        let key = PrivateKeyRef::new(reference(&id, "private").uri().to_string().parse().unwrap())
+            .unwrap();
+        let request = SignRequest {
+            algorithm: match kind {
+                KeyKind::Rsa { .. } => SignatureAlgorithm::RsaPkcs1,
+                KeyKind::Ec(_) => SignatureAlgorithm::Ecdsa,
+            },
+            digest: DigestAlgorithm::Sha256,
+            input: SignInput::Message(message),
+            pss: None,
+        };
+        let signature = session
+            .sign(&key, &request, &SigningPolicy::default(), None)
+            .unwrap();
+        if matches!(kind, KeyKind::Rsa { .. }) {
+            let public =
+                PublicKeyRef::new(reference(&id, "public").uri().to_string().parse().unwrap())
+                    .unwrap();
+            assert!(matches!(
+                session.encrypt_rsa_oaep(&public, DigestAlgorithm::Sha256, message),
+                Err(Error::UnsupportedCipher)
+            ));
+            assert!(matches!(
+                session.decrypt_rsa_oaep(&key, DigestAlgorithm::Sha256, &[0; 256]),
+                Err(Error::UnsupportedCipher)
+            ));
+            session.info().unwrap();
+        }
+        signatures.push((kind, id, signature));
+    }
+    session.close().unwrap();
+    drop(token);
+    module.finalize().unwrap();
+
+    // Check provider enforcement and verify signatures independently of runtime planning.
+    let raw = Pkcs11::new(&path).unwrap();
+    raw.initialize(CInitializeArgs::new(CInitializeFlags::OS_LOCKING_OK))
+        .unwrap();
+    let session = raw.open_rw_session(slot).unwrap();
+    session.login(UserType::User, Some(&pin)).unwrap();
+    for (kind, id, signature) in signatures {
+        let public = session
+            .find_objects(&[
+                Attribute::Class(ObjectClass::PUBLIC_KEY),
+                Attribute::Id(id.clone()),
+            ])
+            .unwrap();
+        assert_eq!(public.len(), 1);
+        let mechanism = match kind {
+            KeyKind::Rsa { .. } => Mechanism::Sha256RsaPkcs,
+            KeyKind::Ec(_) => Mechanism::EcdsaSha256,
+        };
+        session
+            .verify(&mechanism, public[0], message, &signature)
+            .unwrap();
+        if matches!(kind, KeyKind::Rsa { .. }) {
+            assert!(matches!(
+                session.encrypt(&Mechanism::RsaPkcs, public[0], message),
+                Err(cryptoki::error::Error::Pkcs11(
+                    cryptoki::error::RvError::KeyFunctionNotPermitted,
+                    _
+                ))
+            ));
+            let private = session
+                .find_objects(&[
+                    Attribute::Class(ObjectClass::PRIVATE_KEY),
+                    Attribute::Id(id),
+                ])
+                .unwrap();
+            assert_eq!(private.len(), 1);
+            assert!(matches!(
+                session.decrypt(&Mechanism::RsaPkcs, private[0], &[0; 256]),
+                Err(cryptoki::error::Error::Pkcs11(
+                    cryptoki::error::RvError::KeyFunctionNotPermitted,
+                    _
+                ))
+            ));
+        }
+    }
+    session.close().unwrap();
+    raw.finalize().unwrap();
 }
 #[test]
 #[ignore = "requires tools/test-softhsm.sh disposable token"]

@@ -40,6 +40,7 @@ impl<'m> Session<'m> {
     }
     /// Generate a persistent RSA or named EC signing pair with a shared label/ID.
     /// Private keys are sensitive and nonextractable. No mechanism fallback occurs.
+    /// Encryption, decryption, transfer, recovery and derivation permissions are disabled.
     /// RSA is bounded to 2048..=16384 bits; provider bounds may be narrower.
     pub fn generate_signing_key_pair(
         &mut self,
@@ -57,6 +58,10 @@ impl<'m> Session<'m> {
             Attribute::Label(label.to_vec()),
             Attribute::Id(id.to_vec()),
             Attribute::Verify(true),
+            Attribute::VerifyRecover(false),
+            Attribute::Encrypt(false),
+            Attribute::Wrap(false),
+            Attribute::Derive(false),
         ];
         let private = vec![
             Attribute::Token(true),
@@ -66,6 +71,10 @@ impl<'m> Session<'m> {
             Attribute::Sensitive(true),
             Attribute::Extractable(false),
             Attribute::Sign(true),
+            Attribute::SignRecover(false),
+            Attribute::Decrypt(false),
+            Attribute::Unwrap(false),
+            Attribute::Derive(false),
             Attribute::AlwaysAuthenticate(always_authenticate),
         ];
         let mechanism = match kind {
