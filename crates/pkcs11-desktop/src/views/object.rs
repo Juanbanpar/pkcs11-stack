@@ -91,7 +91,15 @@ pub fn detail(state: &UiState) -> Element<'_, Message> {
                 );
             }
             if kind == Some(KeyType::ML_KEM) {
-                actions = actions.push(muted("Use pkcs11ctl for ML-KEM operations."));
+                actions = actions.push(
+                    button("Decapsulate ML-KEM secret…")
+                        .width(Length::Fill)
+                        .on_press_maybe(
+                            state
+                                .can_open_key_operation(CryptoMode::Decapsulate)
+                                .then_some(Message::OpenKeyOperation(CryptoMode::Decapsulate)),
+                        ),
+                );
             }
             if !state
                 .token()
@@ -123,6 +131,23 @@ pub fn detail(state: &UiState) -> Element<'_, Message> {
                             .then_some(Message::OpenCipher(CryptoMode::Encrypt)),
                     ),
             )
+        }
+        Some(ObjectClass::PUBLIC_KEY) if kind == Some(KeyType::ML_KEM) => {
+            actions = actions.push(
+                button("Encapsulate ML-KEM secret…")
+                    .width(Length::Fill)
+                    .style(button::primary)
+                    .on_press_maybe(
+                        state
+                            .can_open_key_operation(CryptoMode::Encapsulate)
+                            .then_some(Message::OpenKeyOperation(CryptoMode::Encapsulate)),
+                    ),
+            );
+            if !state.can_manage() {
+                actions = actions.push(muted(
+                    "Creating a shared secret requires USER login on a writable token.",
+                ));
+            }
         }
         Some(ObjectClass::SECRET_KEY) if kind == Some(KeyType::AES) => {
             actions = actions

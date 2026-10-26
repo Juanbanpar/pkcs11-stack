@@ -351,12 +351,12 @@ impl App {
                             let dialog = rfd::AsyncFileDialog::new();
                             let file = if save {
                                 dialog
-                                    .set_title("Save wrapped AES key to a new file")
+                                    .set_title("Save key operation output to a new file")
                                     .save_file()
                                     .await
                             } else {
                                 dialog
-                                    .set_title("Select peer public key or wrapped AES key")
+                                    .set_title("Select key operation input file")
                                     .pick_file()
                                     .await
                             };

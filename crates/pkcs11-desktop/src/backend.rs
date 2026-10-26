@@ -12,8 +12,9 @@ pub use administration::{AdministrationAction, AdministrationKind};
 mod authentication;
 mod browse;
 mod cipher;
+mod kem;
 mod key_operations;
-pub use key_operations::KeyJob;
+pub use key_operations::{KeyJob, KeyProfile};
 mod crypto;
 pub use cipher::{AesGcmFiles, CipherJob, CipherParameters};
 mod management;
@@ -126,7 +127,7 @@ pub enum BackendCommand {
     KeyOperation {
         id: RequestId,
         scope: CryptoScope,
-        profile: pkcs11_client::KeyOperationProfile,
+        profile: KeyProfile,
         job: KeyJob,
     },
     Cipher {
@@ -241,7 +242,7 @@ impl BackendCommand {
 pub enum BackendResult {
     KeyOptions {
         scope: CryptoScope,
-        profile: pkcs11_client::KeyOperationProfile,
+        profile: KeyProfile,
     },
     CipherOptions {
         scope: CryptoScope,
@@ -355,10 +356,10 @@ impl BackendError {
                 "Administration failed. Changes may still have applied. No retry was made; check token status before authenticating again."
             }
             Self::KeyOperationUnavailable => {
-                "Select a permitted EC derivation key or AES wrapping key after USER login. Creating keys requires a writable token."
+                "Select a permitted EC, AES or ML-KEM key after USER login. Creating secrets requires a writable token."
             }
             Self::KeyOperationInput => {
-                "Provide one EC SPKI DER peer key, or one 24/32/40-byte AES wrapped blob, with a new key label and hexadecimal ID."
+                "Check the operation files, new secret label and hexadecimal ID. EC needs SPKI DER, AES needs a 24/32/40-byte wrapped blob, and ML-KEM ciphertext must match the displayed parameter set."
             }
             Self::OaepParametersRejected => {
                 "The provider rejected these OAEP digest parameters. No digest downgrade or fallback was attempted."

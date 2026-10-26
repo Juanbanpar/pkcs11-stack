@@ -166,7 +166,9 @@ fn software_token_typed_generation_permissions_and_use() {
             let list = objects(
                 registry.key_operation(
                     scope,
-                    pkcs11_client::KeyOperationProfile::EcdhRaw(curve),
+                    super::KeyProfile::Classical(pkcs11_client::KeyOperationProfile::EcdhRaw(
+                        curve,
+                    )),
                     KeyJob::Derive {
                         peer: path,
                         id: vec![0xA6, index as u8],
@@ -190,7 +192,9 @@ fn software_token_typed_generation_permissions_and_use() {
             let list = objects(
                 registry.key_operation(
                     scope,
-                    pkcs11_client::KeyOperationProfile::AesKeyWrap(size.length()),
+                    super::KeyProfile::Classical(pkcs11_client::KeyOperationProfile::AesKeyWrap(
+                        size.length(),
+                    )),
                     KeyJob::Wrap {
                         target: object(&list, "transferable", ObjectClass::SECRET_KEY),
                         output: wrapped.clone(),
@@ -208,7 +212,9 @@ fn software_token_typed_generation_permissions_and_use() {
             objects(
                 registry.key_operation(
                     scope,
-                    pkcs11_client::KeyOperationProfile::AesKeyWrap(size.length()),
+                    super::KeyProfile::Classical(pkcs11_client::KeyOperationProfile::AesKeyWrap(
+                        size.length(),
+                    )),
                     KeyJob::Unwrap {
                         input: wrapped,
                         id: vec![0xA6, index as u8],

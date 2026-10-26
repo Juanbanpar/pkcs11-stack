@@ -1134,11 +1134,11 @@ fn object_views_show_only_actions_for_the_observed_key_type() {
         (3, Some(K::RSA), vec!["Sign", "Decrypt"]),
         (3, Some(K::EC), vec!["Sign", "Derive"]),
         (3, Some(K::ML_DSA), vec!["Sign"]),
-        (3, Some(K::ML_KEM), vec![]),
+        (3, Some(K::ML_KEM), vec!["Decapsulate"]),
         (4, Some(K::RSA), vec!["Encrypt"]),
         (4, Some(K::EC), vec![]),
         (4, Some(K::ML_DSA), vec![]),
-        (4, Some(K::ML_KEM), vec![]),
+        (4, Some(K::ML_KEM), vec!["Encapsulate"]),
         (
             6,
             Some(K::AES),
@@ -1160,7 +1160,16 @@ fn object_views_show_only_actions_for_the_observed_key_type() {
         );
         let mut ids = Ids(Vec::new());
         ui.operate(&renderer, &mut ids);
-        for action in ["Sign", "Encrypt", "Decrypt", "Derive", "Wrap", "Unwrap"] {
+        for action in [
+            "Sign",
+            "Encrypt",
+            "Decrypt",
+            "Derive",
+            "Wrap",
+            "Unwrap",
+            "Encapsulate",
+            "Decapsulate",
+        ] {
             assert_eq!(
                 ids.0.contains(&Id::from(format!("crypto-{action}"))),
                 expected.contains(&action),
@@ -1276,4 +1285,57 @@ fn ml_dsa_verification_form_accepts_context_without_authentication() {
     }
     let _ = app.update(Message::DismissCrypto(id));
     assert!(app.state.crypto_form.is_none());
+}
+
+fn ml_kem_form(mode: crate::backend::CryptoMode) -> UiState {
+    use crate::backend::{BackendCommand, BackendEvent, BackendResult, CryptoMode, KeyProfile};
+    let mut state = populated_state();
+    state.token_page = TokenPage::Objects;
+    state.selected_object = Some(ResourceId(if mode == CryptoMode::Encapsulate {
+        4
+    } else {
+        3
+    }));
+    state.object_details.as_mut().unwrap().key_type = Some(pkcs11_client::KeyType::ML_KEM);
+    let BackendCommand::CryptoOptions { id, scope, .. } = state.open_key_operation(mode).unwrap()
+    else {
+        panic!("ML-KEM choices")
+    };
+    state.event(BackendEvent::Completed {
+        id,
+        result: Ok(BackendResult::KeyOptions {
+            scope,
+            profile: KeyProfile::MlKem(pkcs11_client::MlKemParameterSet::MlKem768),
+        }),
+    });
+    state
+}
+#[test]
+fn ml_kem_forms_accept_keyboard_input_and_render_both_directions() {
+    fn encapsulate() -> UiState {
+        ml_kem_form(crate::backend::CryptoMode::Encapsulate)
+    }
+    fn decapsulate() -> UiState {
+        ml_kem_form(crate::backend::CryptoMode::Decapsulate)
+    }
+    for (initial, name) in [
+        (encapsulate as fn() -> UiState, "encapsulate-ml-kem"),
+        (decapsulate as fn() -> UiState, "decapsulate-ml-kem"),
+    ] {
+        let mut app = run_focused(
+            initial,
+            &["type \"shared secret\"", "type tab", "type \"D75601\""],
+            Some("input-New secret key label"),
+        );
+        let form = app.state.key_form.as_ref().unwrap();
+        assert_eq!(form.label, "shared secret");
+        assert_eq!(form.key_id, "D75601");
+        let id = form.id;
+        for dark in [false, true] {
+            render_screen(&app.state, name, 1060, 900, dark);
+        }
+        let _ = app.update(Message::DismissKeyOperation(id));
+        assert!(app.state.key_form.is_none());
+        assert!(app.state.current_operation.is_none());
+    }
 }

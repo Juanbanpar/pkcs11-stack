@@ -1131,10 +1131,20 @@ fn key_actions_follow_typed_metadata_instead_of_labels_or_formatted_fields() {
         assert_eq!(state.can_open_key_operation(Derive), derive);
         assert_eq!(state.can_open_key_operation(Wrap), wrap);
         assert_eq!(state.can_open_key_operation(Unwrap), wrap);
+        assert_eq!(
+            state.can_open_key_operation(Encapsulate),
+            class == C::PUBLIC_KEY && kind == Some(K::ML_KEM)
+        );
+        assert_eq!(
+            state.can_open_key_operation(Decapsulate),
+            class == C::PRIVATE_KEY && kind == Some(K::ML_KEM)
+        );
         state.object_details = None;
         assert!(!state.can_open_crypto(Sign));
         assert!(!state.can_open_cipher(Encrypt));
         assert!(!state.can_open_key_operation(Derive));
+        assert!(!state.can_open_key_operation(Encapsulate));
+        assert!(!state.can_open_key_operation(Decapsulate));
     }
 }
 
@@ -1536,7 +1546,13 @@ fn key_state(
     } else {
         pkcs11_client::KeyOperationProfile::AesKeyWrap(32)
     };
-    state.event(complete(id, BackendResult::KeyOptions { scope, profile }));
+    state.event(complete(
+        id,
+        BackendResult::KeyOptions {
+            scope,
+            profile: crate::backend::KeyProfile::Classical(profile),
+        },
+    ));
     (state, id, scope)
 }
 #[test]
@@ -1591,7 +1607,9 @@ fn key_profiles_picker_and_errors_are_scoped_to_the_current_form() {
         id,
         BackendResult::KeyOptions {
             scope,
-            profile: pkcs11_client::KeyOperationProfile::EcdhRaw(pkcs11_client::NamedCurve::P256),
+            profile: crate::backend::KeyProfile::Classical(
+                pkcs11_client::KeyOperationProfile::EcdhRaw(pkcs11_client::NamedCurve::P256),
+            ),
         },
     ));
     state.key_picked(picker, Some("late".into()));
@@ -2092,4 +2110,179 @@ fn ml_dsa_verification_context_edits_cancel_stale_success_without_authentication
     state.event(complete(current, BackendResult::Verified { scope }));
     assert!(state.crypto_form.is_none());
     assert_ne!(state.notification, Some(Notification::SignatureVerified));
+}
+
+fn kem_state(
+    mode: crate::backend::CryptoMode,
+) -> (UiState, RequestId, crate::backend::CryptoScope) {
+    use crate::backend::{CryptoMode, KeyProfile};
+    let (mut state, old, _) = key_state(CryptoMode::Derive);
+    state.dismiss_key_operation(old);
+    state.objects[0].class = Some(if mode == CryptoMode::Encapsulate {
+        pkcs11_client::ObjectClass::PUBLIC_KEY
+    } else {
+        pkcs11_client::ObjectClass::PRIVATE_KEY
+    });
+    state.object_details.as_mut().unwrap().key_type = Some(pkcs11_client::KeyType::ML_KEM);
+    let BackendCommand::CryptoOptions { id, scope, .. } = state.open_key_operation(mode).unwrap()
+    else {
+        panic!("ML-KEM capabilities")
+    };
+    state.event(complete(
+        id,
+        BackendResult::KeyOptions {
+            scope,
+            profile: KeyProfile::MlKem(pkcs11_client::MlKemParameterSet::MlKem768),
+        },
+    ));
+    (state, id, scope)
+}
+
+#[test]
+fn ml_kem_forms_require_typed_keys_login_writable_tokens_and_valid_identities() {
+    use crate::backend::{CryptoMode, KeyJob, KeyProfile};
+    for mode in [CryptoMode::Encapsulate, CryptoMode::Decapsulate] {
+        let (mut state, id, _) = kem_state(mode);
+        assert!(state.submit_key_operation(id).is_none());
+        let field = if mode == CryptoMode::Encapsulate {
+            KeyField::Output
+        } else {
+            KeyField::Input
+        };
+        let other = if mode == CryptoMode::Encapsulate {
+            KeyField::Input
+        } else {
+            KeyField::Output
+        };
+        assert!(state.key_picker(id, other).is_none());
+        state.key_edit(id, field, "ciphertext.bin".into());
+        state.key_edit(id, KeyField::Label, "é".repeat(65));
+        state.key_edit(id, KeyField::Id, "D75601".into());
+        assert!(state.submit_key_operation(id).is_none());
+        state.key_edit(id, KeyField::Label, "é".repeat(64));
+        state.key_edit(id, KeyField::Id, "AA".repeat(129));
+        assert!(state.submit_key_operation(id).is_none());
+        state.key_edit(id, KeyField::Id, "GG".into());
+        assert!(state.submit_key_operation(id).is_none());
+        state.key_edit(id, KeyField::Id, "D75601".into());
+        state.loaded_modules[0].tokens[0].write_protected = true;
+        assert!(!state.can_open_key_operation(mode));
+        assert!(state.submit_key_operation(id).is_none());
+        state.loaded_modules[0].tokens[0].write_protected = false;
+        state.loaded_modules[0].tokens[0].login = LoginState::Public;
+        assert!(state.submit_key_operation(id).is_none());
+        state.loaded_modules[0].tokens[0].login = LoginState::User;
+        state.object_details.as_mut().unwrap().key_type = Some(pkcs11_client::KeyType::RSA);
+        assert!(state.submit_key_operation(id).is_none());
+        state.object_details.as_mut().unwrap().key_type = Some(pkcs11_client::KeyType::ML_KEM);
+        state.key_form.as_mut().unwrap().profile = Some(KeyProfile::Classical(
+            pkcs11_client::KeyOperationProfile::AesKeyWrap(32),
+        ));
+        assert!(state.submit_key_operation(id).is_none());
+        state.key_form.as_mut().unwrap().profile = Some(KeyProfile::MlKem(
+            pkcs11_client::MlKemParameterSet::MlKem768,
+        ));
+        let BackendCommand::KeyOperation { job, profile, .. } =
+            state.submit_key_operation(id).unwrap()
+        else {
+            panic!("ML-KEM job")
+        };
+        assert!(matches!(
+            profile,
+            KeyProfile::MlKem(pkcs11_client::MlKemParameterSet::MlKem768)
+        ));
+        match job {
+            KeyJob::Encapsulate { output, id, label } => {
+                assert_eq!(mode, CryptoMode::Encapsulate);
+                assert_eq!(output, PathBuf::from("ciphertext.bin"));
+                assert_eq!(id, [0xD7, 0x56, 1]);
+                assert_eq!(label.len(), 128);
+            }
+            KeyJob::Decapsulate { input, id, label } => {
+                assert_eq!(mode, CryptoMode::Decapsulate);
+                assert_eq!(input, PathBuf::from("ciphertext.bin"));
+                assert_eq!(id, [0xD7, 0x56, 1]);
+                assert_eq!(label.len(), 128);
+            }
+            _ => panic!("ML-KEM job direction"),
+        }
+        assert!(state.key_form.is_none());
+        assert!(!state.can_cancel());
+        assert!(!state.can_submit());
+    }
+}
+
+#[test]
+fn ml_kem_choices_pickers_and_mutation_results_cannot_restore_obsolete_selection() {
+    use crate::backend::{CryptoMode, KeyProfile};
+    for mode in [CryptoMode::Encapsulate, CryptoMode::Decapsulate] {
+        let (mut state, id, scope) = kem_state(mode);
+        let field = if mode == CryptoMode::Encapsulate {
+            KeyField::Output
+        } else {
+            KeyField::Input
+        };
+        let (picker, save) = state.key_picker(id, field).unwrap();
+        assert_eq!(save, mode == CryptoMode::Encapsulate);
+        state.key_edit(id, field, "current".into());
+        state.key_picked(picker, Some("old".into()));
+        let form = state.key_form.as_ref().unwrap();
+        assert_eq!(if save { &form.output } else { &form.input }, "current");
+        state.key_edit(id, KeyField::Label, "new-secret".into());
+        state.key_edit(id, KeyField::Id, "01".into());
+        let request = state.submit_key_operation(id).unwrap().id();
+        state.select_token(ResourceId(1), ResourceId(3));
+        state.event(complete(
+            request,
+            BackendResult::Managed {
+                module: scope.module,
+                token: scope.token,
+                modules: state.loaded_modules.clone(),
+                objects: Some(vec![object_entry(99, "obsolete secret")]),
+                error: None,
+            },
+        ));
+        state.event(complete(
+            id,
+            BackendResult::KeyOptions {
+                scope,
+                profile: KeyProfile::MlKem(pkcs11_client::MlKemParameterSet::MlKem512),
+            },
+        ));
+        state.key_picked(picker, Some("late".into()));
+        assert!(state.key_form.is_none());
+        assert!(state.objects.is_empty());
+        assert_eq!(state.selected_token, Some(ResourceId(3)));
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn ml_kem_file_pickers_preserve_native_paths() {
+    use crate::backend::{CryptoMode, KeyJob};
+    use std::os::unix::ffi::OsStringExt;
+    for mode in [CryptoMode::Encapsulate, CryptoMode::Decapsulate] {
+        let (mut state, id, _) = kem_state(mode);
+        let path = PathBuf::from(std::ffi::OsString::from_vec(
+            b"ciphertext-\xff.bin".to_vec(),
+        ));
+        let field = if mode == CryptoMode::Encapsulate {
+            KeyField::Output
+        } else {
+            KeyField::Input
+        };
+        let (picker, _) = state.key_picker(id, field).unwrap();
+        state.key_picked(picker, Some(path.clone()));
+        state.key_edit(id, KeyField::Label, "secret".into());
+        state.key_edit(id, KeyField::Id, "01".into());
+        let BackendCommand::KeyOperation { job, .. } = state.submit_key_operation(id).unwrap()
+        else {
+            panic!("ML-KEM job")
+        };
+        match job {
+            KeyJob::Encapsulate { output, .. } => assert_eq!(output, path),
+            KeyJob::Decapsulate { input, .. } => assert_eq!(input, path),
+            _ => panic!("ML-KEM job"),
+        }
+    }
 }

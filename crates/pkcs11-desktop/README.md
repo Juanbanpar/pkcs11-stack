@@ -86,8 +86,7 @@ bytes. Existing public/private IDs are rejected for ECDH pairs, and secret IDs f
 AES, without a uniqueness guarantee against concurrent writers. Signing pairs
 and ML-KEM pairs permit duplicate IDs; ambiguous selectors are rejected. Key
 pairs share their ID and label. ML-KEM does not permit per-operation PIN
-authentication. Use `pkcs11ctl` for KEM operations; those workflows are not yet
-exposed in the desktop.
+authentication.
 
 Certificate import accepts one X.509 DER file up to 16 MiB and an explicit label/ID.
 It parses certificate metadata without establishing trust or binding the
@@ -110,8 +109,9 @@ and export finish before another operation can start; navigation remains availab
 
 Key actions follow the key type read with the selected object's attributes:
 RSA offers signing and OAEP, EC offers signing and ECDH, ML-DSA offers signing,
-and AES offers GCM and wrapping. ML-KEM and generic secret keys do not offer those
-actions. Permissions and provider capabilities are checked again in the worker.
+AES offers GCM and wrapping, and ML-KEM offers encapsulation or decapsulation
+according to the object class. Generic secrets do not offer those actions.
+Permissions and provider capabilities are checked again in the worker.
 
 To sign a file, log in as USER and select an unambiguous private key on **Objects**.
 For RSA/EC, choose **Sign file**, select a client-provided SHA-2 signature choice, and provide
@@ -224,6 +224,29 @@ sudo apt-get install pkg-config libxkbcommon-dev libwayland-dev libegl1-mesa-dev
 
 ## Derivation and key transfer
 
+After USER login on a writable token, select an ML-KEM public key and choose
+**Encapsulate ML-KEM secret**. Enter a new secret label, hexadecimal ID and
+ciphertext output path. To receive a ciphertext, select the corresponding ML-KEM
+private key and choose **Decapsulate ML-KEM secret**, then provide the ciphertext
+file and a new secret label/ID. The key determines ML-KEM-512/768/1024; the worker
+checks its current parameter set, permissions and provider capabilities before use.
+
+Both operations create a persistent private, sensitive, nonextractable 32-byte
+generic secret with derivation permission only. Labels and IDs require 1–128
+bytes; existing secret IDs are rejected. Shared-secret bytes never leave the
+token. Encapsulation writes only raw public ciphertext, after checked session
+closure, to a new file. Decapsulation requires exactly 768, 1088 or 1568 bytes
+for ML-KEM-512, 768 or 1024 respectively and reads the input without modification.
+ML-KEM implicit rejection can accept a changed ciphertext of the correct length
+and produce a different secret. Completion does not confirm agreement or
+peer identity. Always-authenticate decapsulation keys are unsupported.
+
+Authenticate the peer and apply the protocol's KDF before using a raw secret.
+Use the client or CLI for public-key import, HKDF and hybrid KEM workflows;
+these are not exposed in the desktop. Failed encapsulation, session closure or
+output writes may leave a token object and an empty or partial ciphertext file.
+Existing files are preserved. Refresh the inventory before retrying.
+
 After USER login, select an EC private key with derivation permission and choose
 **Derive ECDH secret**. Supply a peer public key in SPKI DER, a new label and a
 hexadecimal ID. The client validates the peer point and requires the same named
@@ -246,10 +269,10 @@ Choose **Unwrap AES key** on an AES key with unwrapping permission, select a
 24/32/40-byte wrapped file, and provide a new label and hexadecimal ID. It creates
 an AES-128/192/256 token key with encryption/decryption permission only. The key
 is private, sensitive and nonextractable. Existing secret key IDs are rejected.
-Unwrapping and derivation require a writable token. The app does not generate
-wrapping or ECDH base keys yet; provision compatible keys separately.
+Unwrapping and derivation require a writable token. Generate ECDH and AES wrapping
+keys from **Operations** when the provider advertises those choices.
 
-All three operations execute once on the worker and refresh inventories on
+All key operations execute once on the worker and refresh inventories on
 success or failure. Once submitted, they cannot be cancelled or superseded.
 Navigation remains available. There is no retry or rollback: a failed provider
 call or session close may still leave a created object. Refresh before retrying.
@@ -309,7 +332,9 @@ PKCS11_TEST_DESKTOP=1 ./tools/test-softhsm.sh
 
 The required PQC provider CI job also runs desktop generation tests for all six
 ML-DSA/ML-KEM parameter sets, private-key permissions, authentication settings and
-public export without login. Export tests also reject private keys and stale
+public export without login. ML-KEM operation tests cover ciphertext lengths,
+implicit rejection, derivation-only secret permissions, duplicate IDs, authentication
+and file preservation. Export tests also reject private keys and stale
 object IDs, preserve existing files and check Unix file permissions.
 
 ## License

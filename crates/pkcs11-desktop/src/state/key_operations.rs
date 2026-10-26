@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use super::*;
-use crate::backend::{CryptoMode, CryptoScope, KeyJob};
-use pkcs11_client::{KeyOperationProfile, KeyType, ObjectClass};
+use crate::backend::{CryptoMode, CryptoScope, KeyJob, KeyProfile};
+use pkcs11_client::{KeyType, ObjectClass};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum KeyField {
     Input,
@@ -23,7 +23,7 @@ impl std::fmt::Display for WrapTarget {
 pub struct KeyForm {
     pub id: RequestId,
     pub scope: CryptoScope,
-    pub profile: Option<KeyOperationProfile>,
+    pub profile: Option<KeyProfile>,
     pub loaded: bool,
     pub input: String,
     pub output: String,
@@ -49,6 +49,15 @@ impl UiState {
                         CryptoMode::Derive => {
                             object.class == Some(ObjectClass::PRIVATE_KEY)
                                 && self.object_key_type() == Some(KeyType::EC)
+                        }
+                        CryptoMode::Encapsulate | CryptoMode::Decapsulate => {
+                            object.class
+                                == Some(if mode == CryptoMode::Encapsulate {
+                                    ObjectClass::PUBLIC_KEY
+                                } else {
+                                    ObjectClass::PRIVATE_KEY
+                                })
+                                && self.object_key_type() == Some(KeyType::ML_KEM)
                         }
                         CryptoMode::Wrap | CryptoMode::Unwrap => {
                             object.class == Some(ObjectClass::SECRET_KEY)
@@ -144,7 +153,14 @@ impl UiState {
         if !self.can_submit()
             || form.id != id
             || form.picker.is_some()
-            || !matches!(field, KeyField::Input | KeyField::Output)
+            || !matches!(
+                (form.scope.mode, field),
+                (CryptoMode::Wrap | CryptoMode::Encapsulate, KeyField::Output)
+                    | (
+                        CryptoMode::Derive | CryptoMode::Unwrap | CryptoMode::Decapsulate,
+                        KeyField::Input
+                    )
+            )
         {
             return None;
         }
@@ -193,7 +209,9 @@ impl UiState {
             return None;
         }
         let identity = management::identifier(&form.key_id);
-        let valid = form.profile.is_some()
+        let valid = form
+            .profile
+            .is_some_and(|profile| profile.supports(form.scope.mode))
             && form.loaded
             && match form.scope.mode {
                 CryptoMode::Wrap => {
@@ -203,9 +221,15 @@ impl UiState {
                             .as_ref()
                             .is_some_and(|target| form.targets.contains(target))
                 }
-                CryptoMode::Derive | CryptoMode::Unwrap => {
-                    !form.input.is_empty()
-                        && !form.label.is_empty()
+                CryptoMode::Derive
+                | CryptoMode::Unwrap
+                | CryptoMode::Encapsulate
+                | CryptoMode::Decapsulate => {
+                    (if form.scope.mode == CryptoMode::Encapsulate {
+                        !form.output.is_empty()
+                    } else {
+                        !form.input.is_empty()
+                    }) && !form.label.is_empty()
                         && form.label.len() <= 128
                         && identity.as_ref().is_some_and(|id| id.len() <= 128)
                 }
@@ -228,6 +252,18 @@ impl UiState {
             },
             CryptoMode::Derive => KeyJob::Derive {
                 peer: input,
+                id: identity?,
+                label: form.label.into_bytes(),
+            },
+            CryptoMode::Encapsulate => KeyJob::Encapsulate {
+                output: form
+                    .picked_output
+                    .unwrap_or_else(|| PathBuf::from(form.output)),
+                id: identity?,
+                label: form.label.into_bytes(),
+            },
+            CryptoMode::Decapsulate => KeyJob::Decapsulate {
+                input,
                 id: identity?,
                 label: form.label.into_bytes(),
             },
