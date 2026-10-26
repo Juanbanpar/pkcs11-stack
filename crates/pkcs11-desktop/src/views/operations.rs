@@ -122,6 +122,7 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
         text(match state.management.key.map(|key| key.0) {
             Some(crate::backend::GenerationKind::MlDsa(_)) => "ML-DSA signing pair. The private key is sensitive and nonextractable. Select the private key on Objects to sign a file, or the public key to export it.",
             Some(crate::backend::GenerationKind::MlKem(_)) => "ML-KEM encapsulation/decapsulation pair. The private key is sensitive and nonextractable. Select either key on Objects for ML-KEM operations, or export the public key.",
+            Some(crate::backend::GenerationKind::RsaEncryption(_)) => "Encryption/decryption-only RSA pair. The private key is sensitive and nonextractable; signing, wrapping and derivation are disabled. ID and label: 1–128 bytes each.",
             Some(crate::backend::GenerationKind::Ecdh(_)) => "Derivation-only EC pair. The private key is sensitive and nonextractable. ID and label: 1–128 bytes each.",
             Some(crate::backend::GenerationKind::Aes(_, pkcs11_client::AesKeyPurpose::Encryption)) => "Private, sensitive, nonextractable AES key for encryption/decryption only. ID and label: 1–128 bytes each.",
             Some(crate::backend::GenerationKind::Aes(_, pkcs11_client::AesKeyPurpose::Wrapping)) => "Private, sensitive, nonextractable AES key for wrapping/unwrapping only. Targets must permit export. ID and label: 1–128 bytes each.",
