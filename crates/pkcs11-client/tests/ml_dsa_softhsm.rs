@@ -19,10 +19,9 @@ fn openssl(args: &[&str]) {
 }
 
 #[test]
-#[ignore = "requires PKCS11_TEST_REQUIRE_PQC=1 tools/test-softhsm.sh"]
+#[ignore = "requires tools/test-ml-dsa.sh"]
 fn client_ml_dsa_signing_binding_and_public_export() {
     assert_eq!(std::env::var("PKCS11_TEST_ISOLATED").as_deref(), Ok("1"));
-    assert_eq!(std::env::var("PKCS11_TEST_REQUIRE_PQC").as_deref(), Ok("1"));
     let root = PathBuf::from(std::env::var_os("PKCS11_CLIENT_TEST_DIR").unwrap());
     let token = "pkcs11:token=pqc-test".parse().unwrap();
     let provider = Provider::load(std::env::var_os("PKCS11_TEST_MODULE").unwrap()).unwrap();

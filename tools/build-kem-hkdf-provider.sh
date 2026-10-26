@@ -16,8 +16,9 @@ fetch() {
 }
 fetch openssl https://github.com/openssl/openssl.git 45e844fa2a14ec92d146bd8f5778ac130b6625fb
 cd "$scratch/openssl"
-./Configure no-shared no-tests no-docs -fPIC
+./Configure --prefix="$prefix/openssl" --libdir=lib no-shared no-tests no-docs -fPIC
 make -j2
+make install_sw
 fetch kryoptic https://github.com/latchset/kryoptic.git f997876ff40740992ff3b51d92665e08ac4fbfc2
 cd "$scratch/kryoptic"
 # Upstream has no Cargo.lock. Resolve its dependencies before the locked build.

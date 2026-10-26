@@ -1,5 +1,25 @@
 # Testing
 
+The default test command includes unit, property, documentation and provider tests,
+including ML-DSA, ML-KEM, hybrid key exchange and the desktop backend. Build the
+trusted software providers once, then run:
+
+```sh
+bash tools/build-pqc-softhsm.sh /absolute/path/to/softhsm-pqc
+./tools/build-kem-hkdf-provider.sh /absolute/path/to/kdf-provider
+PKCS11_TEST_MODULE=/absolute/path/to/softhsm-pqc/lib/softhsm/libsofthsm2.so \
+SOFTHSM2_UTIL=/absolute/path/to/softhsm-pqc/bin/softhsm2-util \
+PKCS11_TEST_PQC_OPENSSL=/absolute/path/to/softhsm-pqc/openssl/bin/openssl \
+PKCS11_TEST_KDF_MODULE=/absolute/path/to/kdf-provider/libkryoptic_pkcs11.so \
+./tools/test.sh
+```
+
+Install SoftHSM, OpenSC, OpenSSL and NSS softoken for the runners below. Provider
+builds additionally require Git, a C/C++ toolchain, Make, Perl, Autoconf, Automake,
+Libtool, Clang/libclang, pkg-config and SQLite development files. Desktop requires
+its normal native build dependencies. All token stores are temporary. Missing
+PQC support fails the relevant suite; no PQC or desktop opt-in flag is used.
+
 Run unit, property and documentation tests without a PKCS#11 module:
 
 ```sh
@@ -41,40 +61,37 @@ For another SoftHSM installation:
 PKCS11_TEST_MODULE=/path/to/libsofthsm2.so SOFTHSM2_UTIL=/path/to/softhsm2-util ./tools/test-softhsm.sh
 ```
 
-Set `PKCS11_TEST_DESKTOP=1` to include desktop backend integration without opening
-a window.
+Desktop backend integration runs without opening a window.
 
 Set `PKCS11_TEST_REQUIRE_EC_MULTIPART=1` to require combined multipart ECDSA support.
 CI tests both packaged SoftHSM and a pinned upstream build with that support.
 
 ### PQC provider compatibility
 
-Build the pinned OpenSSL 3.5.9 and SoftHSM sources with ML-DSA and ML-KEM enabled,
-then run the classical workflows and the required PQC tests:
+The ML-DSA runner uses pinned, unmodified OpenSSL 3.5.9 and SoftHSM sources.
+The separate ML-KEM runner uses the unmodified Kryoptic build:
 
 ```sh
 bash tools/build-pqc-softhsm.sh /absolute/path/to/softhsm-pqc
-PKCS11_TEST_REQUIRE_PQC=1 \
 PKCS11_TEST_PQC_OPENSSL=/absolute/path/to/softhsm-pqc/openssl/bin/openssl \
 PKCS11_TEST_MODULE=/absolute/path/to/softhsm-pqc/lib/softhsm/libsofthsm2.so \
 SOFTHSM2_UTIL=/absolute/path/to/softhsm-pqc/bin/softhsm2-util \
-./tools/test-softhsm.sh
+./tools/test-ml-dsa.sh
+
+PKCS11_TEST_KDF_MODULE=/absolute/path/to/kdf-provider/libkryoptic_pkcs11.so \
+PKCS11_TEST_PQC_OPENSSL=/absolute/path/to/kdf-provider/openssl/bin/openssl \
+./tools/test-ml-kem.sh
 ```
 
 Building requires Git, a C/C++ toolchain, Make, Perl, Autoconf, Automake and
 Libtool. OpenSSL uses static PIC libraries, so the test module does not require
 changes to the system OpenSSL installation or library search path.
 
-The `pqc-provider` CI job requires ML-DSA-44/65/87 signing and verification, context
-handling, rejection of altered messages, and ML-KEM-512/768/1024 encapsulation and
-decapsulation. It checks ciphertext/signature sizes and nonextractability of
-private keys and shared secrets. A one-block AES round trip proves the KEM secrets
-agree without exporting them. Missing mechanisms or entry points fail the job.
-
-The pinned SoftHSM revision reports ML-KEM private-key lengths as mechanism bounds,
-contrary to PKCS#11 3.2 sections 6.68.4/5. The build script applies a two-line source
-correction to the isolated provider. Compatibility tests check public-key byte
-bounds; runtime rejects incorrect metadata without a vendor-specific fallback.
+The `pqc-provider` and `kem-hkdf-provider` CI jobs require ML-DSA-44/65/87 and
+ML-KEM-512/768/1024 across the libraries, CLI and desktop. TLS tests also require
+hybrid key exchange. Missing mechanisms, parameter sets or entry points fail.
+SoftHSM's advertised ML-KEM bounds are incorrect, so ML-KEM runs on Kryoptic;
+no provider source patch or runtime metadata workaround is applied.
 
 Typed ML-KEM tests cover all parameter sets, key permissions, allowed mechanisms,
 read-only sessions, duplicate secret IDs, expected-parameter checks and ciphertext
@@ -133,7 +150,7 @@ requires hash-length input under the PKCS#11 profile; it is tested separately be
 
 ## Persistent ML-KEM and HKDF
 
-Build the pinned Kryoptic and OpenSSL sources, then run runtime/client/CLI tests:
+Build the pinned Kryoptic and OpenSSL sources, then run runtime/client/CLI/desktop tests:
 
 ```sh
 ./tools/build-kem-hkdf-provider.sh /absolute/path/to/kdf-provider

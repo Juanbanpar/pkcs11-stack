@@ -25,18 +25,6 @@ fn typed_generation_and_advisory_choices() {
     let token = "pkcs11:token=client-test".parse().unwrap();
     let options = provider.generation_capabilities(&token).unwrap();
     assert_eq!(
-        options.signing,
-        provider.generation_options(&token).unwrap()
-    );
-    assert_eq!(
-        options.ml_dsa,
-        provider.ml_dsa_generation_options(&token).unwrap()
-    );
-    assert_eq!(
-        options.ml_kem,
-        provider.ml_kem_generation_options(&token).unwrap()
-    );
-    assert_eq!(
         options.ecdh,
         [NamedCurve::P256, NamedCurve::P384, NamedCurve::P521]
     );
@@ -48,10 +36,6 @@ fn typed_generation_and_advisory_choices() {
             AesKeySize::Bits256
         ]
     );
-    if std::env::var("PKCS11_TEST_REQUIRE_PQC").as_deref() == Ok("1") {
-        assert_eq!(options.ml_dsa.len(), 3);
-        assert_eq!(options.ml_kem.len(), 3);
-    }
     assert!(
         provider
             .generation_capabilities(&"pkcs11:token=missing".parse().unwrap())

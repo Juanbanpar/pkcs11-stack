@@ -144,10 +144,9 @@ fn handshake(
     Err(rustls::Error::General("test handshake stalled".into()))
 }
 #[test]
-#[ignore = "requires PKCS11_TEST_REQUIRE_PQC=1 tools/test-softhsm.sh"]
+#[ignore = "requires tools/test-ml-dsa.sh"]
 fn token_ml_dsa_tls13_authentication_and_hybrid_exchange() {
     assert_eq!(std::env::var("PKCS11_TEST_ISOLATED").as_deref(), Ok("1"));
-    assert_eq!(std::env::var("PKCS11_TEST_REQUIRE_PQC").as_deref(), Ok("1"));
     let module_path = std::env::var("PKCS11_TEST_MODULE").unwrap();
     let out =
         Command::new(std::env::var_os("SOFTHSM2_UTIL").unwrap_or_else(|| "softhsm2-util".into()))

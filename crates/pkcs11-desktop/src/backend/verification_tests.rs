@@ -149,8 +149,8 @@ fn certificate_dispatch_and_ml_dsa_file_verification_are_provider_free() {
 }
 
 #[test]
-#[ignore = "requires the isolated SoftHSM runner"]
-fn software_token_ml_dsa_certificates_verify_without_login_or_token_mechanisms() {
+#[ignore = "requires tools/test-softhsm.sh"]
+fn software_token_certificates_verify_without_login_or_token_mechanisms() {
     assert_eq!(std::env::var("PKCS11_TEST_ISOLATED").as_deref(), Ok("1"));
     let mut registry = Registry::default();
     let module = registry

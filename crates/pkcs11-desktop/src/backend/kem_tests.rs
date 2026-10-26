@@ -104,7 +104,7 @@ fn kem_directions_profiles_and_unknown_targets_fail_without_file_effects() {
 }
 
 #[test]
-#[ignore = "requires tools/test-softhsm.sh; ML-KEM execution required with PKCS11_TEST_REQUIRE_PQC=1"]
+#[ignore = "requires tools/test-ml-kem.sh"]
 fn software_token_ml_kem_files_permissions_implicit_rejection_and_failures() {
     assert_eq!(std::env::var("PKCS11_TEST_ISOLATED").as_deref(), Ok("1"));
     let mut registry = Registry::default();
@@ -132,16 +132,14 @@ fn software_token_ml_kem_files_permissions_implicit_rejection_and_failures() {
             }
         })
         .collect();
-    if std::env::var("PKCS11_TEST_REQUIRE_PQC").as_deref() == Ok("1") {
-        assert_eq!(
-            parameters,
-            [
-                MlKemParameterSet::MlKem512,
-                MlKemParameterSet::MlKem768,
-                MlKemParameterSet::MlKem1024
-            ]
-        );
-    }
+    assert_eq!(
+        parameters,
+        [
+            MlKemParameterSet::MlKem512,
+            MlKemParameterSet::MlKem768,
+            MlKemParameterSet::MlKem1024
+        ]
+    );
     registry
         .login(
             module,
@@ -399,7 +397,7 @@ fn software_token_ml_kem_files_permissions_implicit_rejection_and_failures() {
 }
 
 #[test]
-#[ignore = "requires tools/test-softhsm.sh; public-key import required with PKCS11_TEST_REQUIRE_PQC=1"]
+#[ignore = "requires tools/test-ml-kem.sh"]
 fn software_token_ml_kem_import_validates_files_identity_authentication_and_duplicates() {
     assert_eq!(std::env::var("PKCS11_TEST_ISOLATED").as_deref(), Ok("1"));
     let mut registry = Registry::default();
@@ -421,16 +419,13 @@ fn software_token_ml_kem_import_validates_files_identity_authentication_and_dupl
         .iter()
         .filter(|kind| matches!(kind, GenerationKind::MlKem(_)))
         .count();
-    if std::env::var("PKCS11_TEST_REQUIRE_PQC").as_deref() == Ok("1") {
-        assert_eq!(supported, 3);
-    }
+    assert_eq!(supported, 3);
     let root = std::env::temp_dir().join(format!("desktop-ml-kem-import-{}", std::process::id()));
     std::fs::create_dir(&root).unwrap();
     let fixtures =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../pkcs11-client/tests/fixtures");
     for (index, name) in ["mlkem512", "mlkem768", "mlkem1024"]
         .into_iter()
-        .take(supported)
         .enumerate()
     {
         let path = fixtures.join(format!("{name}.spki.der"));

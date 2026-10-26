@@ -8,10 +8,9 @@ use pkcs11_runtime::{
 use secrecy::SecretString;
 
 #[test]
-#[ignore = "requires PKCS11_TEST_REQUIRE_PQC=1 tools/test-softhsm.sh"]
+#[ignore = "requires tools/test-ml-dsa.sh"]
 fn ml_dsa_runtime_permissions_context_and_authentication() {
     assert_eq!(std::env::var("PKCS11_TEST_ISOLATED").as_deref(), Ok("1"));
-    assert_eq!(std::env::var("PKCS11_TEST_REQUIRE_PQC").as_deref(), Ok("1"));
     let module = Module::load(std::env::var_os("PKCS11_TEST_MODULE").unwrap()).unwrap();
     let token = module
         .resolve_token_uri(&"pkcs11:token=pqc-test".parse().unwrap())

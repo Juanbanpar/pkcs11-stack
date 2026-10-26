@@ -2,6 +2,7 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
 
 permissions:
@@ -221,8 +222,6 @@ jobs:
         run: |
           sudo apt-get install --yes cmake pkg-config libxkbcommon-dev libwayland-dev libegl1-mesa-dev
       - name: Isolated runtime, client, CLI, TLS and desktop workflows
-        env:
-          PKCS11_TEST_DESKTOP: "1"
         run: ./tools/test-softhsm.sh
 
   pqc-provider:
@@ -236,16 +235,14 @@ jobs:
           rustup default stable
           sudo apt-get update
           sudo apt-get install --yes cmake autoconf automake libtool g++ make perl openssl opensc pkg-config libxkbcommon-dev libwayland-dev libegl1-mesa-dev
-      - name: Build pinned OpenSSL and SoftHSM with required PQC support
+      - name: Build unmodified OpenSSL and SoftHSM with ML-DSA
         run: bash tools/build-pqc-softhsm.sh "$RUNNER_TEMP/softhsm-pqc"
-      - name: Require ML-DSA and ML-KEM through libraries, CLI and desktop
+      - name: Require ML-DSA through libraries, CLI, TLS and desktop
         env:
-          PKCS11_TEST_REQUIRE_PQC: "1"
-          PKCS11_TEST_DESKTOP: "1"
           PKCS11_TEST_PQC_OPENSSL: ${{ runner.temp }}/softhsm-pqc/openssl/bin/openssl
           PKCS11_TEST_MODULE: ${{ runner.temp }}/softhsm-pqc/lib/softhsm/libsofthsm2.so
           SOFTHSM2_UTIL: ${{ runner.temp }}/softhsm-pqc/bin/softhsm2-util
-        run: ./tools/test-softhsm.sh
+        run: ./tools/test-ml-dsa.sh
 
   hkdf-provider:
     runs-on: ubuntu-latest
@@ -270,11 +267,14 @@ jobs:
           rustup toolchain install stable --no-self-update --profile minimal
           rustup default stable
           sudo apt-get update
-          sudo apt-get install --yes clang libclang-dev pkg-config libsqlite3-dev g++ make perl openssl libxkbcommon-dev libwayland-dev libegl1-mesa-dev
+          sudo apt-get install --yes clang libclang-dev pkg-config libsqlite3-dev g++ make perl openssl opensc libxkbcommon-dev libwayland-dev libegl1-mesa-dev
       - name: Build pinned Kryoptic and OpenSSL with ML-KEM, ECDH and HKDF
         run: ./tools/build-kem-hkdf-provider.sh "$RUNNER_TEMP/kdf-provider"
       - name: Require library, CLI and desktop KEM/HKDF workflows on the same token
         env:
-          PKCS11_TEST_DESKTOP: '1'
           PKCS11_TEST_KDF_MODULE: ${{ runner.temp }}/kdf-provider/libkryoptic_pkcs11.so
-        run: ./tools/test-kem-hkdf.sh
+          PKCS11_TEST_PQC_OPENSSL: ${{ runner.temp }}/kdf-provider/openssl/bin/openssl
+          PKCS11_TEST_KDF_OPENSSL: ${{ runner.temp }}/kdf-provider/openssl/bin/openssl
+        run: |
+          ./tools/test-ml-kem.sh
+          ./tools/test-kem-hkdf.sh

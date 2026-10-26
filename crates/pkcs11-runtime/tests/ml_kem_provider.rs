@@ -39,10 +39,9 @@ fn secret(index: usize, direction: u8) -> ObjectRef {
     .unwrap()
 }
 #[test]
-#[ignore = "requires PKCS11_TEST_REQUIRE_PQC=1 tools/test-softhsm.sh"]
+#[ignore = "requires tools/test-ml-kem.sh"]
 fn typed_ml_kem_permissions_outputs_and_secret_agreement() {
     assert_eq!(std::env::var("PKCS11_TEST_ISOLATED").as_deref(), Ok("1"));
-    assert_eq!(std::env::var("PKCS11_TEST_REQUIRE_PQC").as_deref(), Ok("1"));
     let path = std::env::var_os("PKCS11_TEST_MODULE").unwrap();
     let module = Module::load(&path).unwrap();
     let token = module

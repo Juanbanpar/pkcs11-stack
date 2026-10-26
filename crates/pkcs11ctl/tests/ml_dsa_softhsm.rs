@@ -60,10 +60,9 @@ fn openssl(args: &[&str]) {
 }
 
 #[test]
-#[ignore = "requires PKCS11_TEST_REQUIRE_PQC=1 tools/test-softhsm.sh"]
+#[ignore = "requires tools/test-ml-dsa.sh"]
 fn ml_dsa_cli_generation_signing_binding_and_verification() {
     assert_eq!(std::env::var("PKCS11_TEST_ISOLATED").as_deref(), Ok("1"));
-    assert_eq!(std::env::var("PKCS11_TEST_REQUIRE_PQC").as_deref(), Ok("1"));
     let root = PathBuf::from(std::env::var_os("PKCS11_CLIENT_TEST_DIR").unwrap()).join("cli-pqc");
     std::fs::create_dir(&root).unwrap();
     let f = Fixture {

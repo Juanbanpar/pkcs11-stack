@@ -22,7 +22,7 @@ fn job(
 }
 
 #[test]
-#[ignore = "requires tools/test-softhsm.sh; ML-DSA execution required with PKCS11_TEST_REQUIRE_PQC=1"]
+#[ignore = "requires tools/test-ml-dsa.sh"]
 fn software_token_ml_dsa_signing_context_authentication_and_output_contracts() {
     assert_eq!(std::env::var("PKCS11_TEST_ISOLATED").as_deref(), Ok("1"));
     let root = PathBuf::from(std::env::var_os("PKCS11_CLIENT_TEST_DIR").unwrap())
@@ -50,16 +50,14 @@ fn software_token_ml_dsa_signing_context_authentication_and_output_contracts() {
             _ => None,
         })
         .collect();
-    if std::env::var("PKCS11_TEST_REQUIRE_PQC").as_deref() == Ok("1") {
-        assert_eq!(
-            parameters,
-            [
-                MlDsaParameterSet::MlDsa44,
-                MlDsaParameterSet::MlDsa65,
-                MlDsaParameterSet::MlDsa87
-            ]
-        );
-    }
+    assert_eq!(
+        parameters,
+        [
+            MlDsaParameterSet::MlDsa44,
+            MlDsaParameterSet::MlDsa65,
+            MlDsaParameterSet::MlDsa87
+        ]
+    );
     registry
         .login(
             module,

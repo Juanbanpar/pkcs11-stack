@@ -353,10 +353,11 @@ shutdown, lazy details, ambiguous objects, metadata redaction and isolated SoftH
 module/object/mechanism, USER/SO authentication, object management, signing/verification, AES-GCM, RSA-OAEP, ECDH and RFC 3394 workflows:
 
 ```sh
-PKCS11_TEST_DESKTOP=1 ./tools/test-softhsm.sh
+./tools/test-softhsm.sh
 ```
 
-The required PQC provider CI job also runs desktop generation tests for all six
+The workspace [default test suite](../../tests/README.md) includes desktop tests
+without opt-in flags. Required ML-DSA and ML-KEM provider jobs cover all six
 ML-DSA/ML-KEM parameter sets, private-key permissions, authentication settings and
 public export without login. ML-KEM operation tests cover ciphertext lengths,
 implicit rejection, derivation-only secret permissions, duplicate IDs, authentication
@@ -371,7 +372,7 @@ permissions, duplicate IDs, login requirements and stale references. Run it with
 a trusted provider supporting persistent ML-KEM, HKDF and AES-GCM:
 
 ```sh
-PKCS11_TEST_DESKTOP=1 PKCS11_TEST_KDF_MODULE=/path/to/libkryoptic_pkcs11.so ./tools/test-kem-hkdf.sh
+PKCS11_TEST_KDF_MODULE=/path/to/libkryoptic_pkcs11.so ./tools/test-kem-hkdf.sh
 ```
 
 ## License

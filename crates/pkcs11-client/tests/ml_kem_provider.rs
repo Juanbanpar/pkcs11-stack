@@ -8,10 +8,9 @@ use pkcs11_client::{
 use secrecy::SecretString;
 
 #[test]
-#[ignore = "requires PKCS11_TEST_REQUIRE_PQC=1 tools/test-softhsm.sh"]
+#[ignore = "requires tools/test-ml-kem.sh"]
 fn client_ml_kem_generation_and_shared_secret_lifecycle() {
     assert_eq!(std::env::var("PKCS11_TEST_ISOLATED").as_deref(), Ok("1"));
-    assert_eq!(std::env::var("PKCS11_TEST_REQUIRE_PQC").as_deref(), Ok("1"));
     let provider = Provider::load(std::env::var_os("PKCS11_TEST_MODULE").unwrap()).unwrap();
     let token = "pkcs11:token=pqc-test".parse().unwrap();
     let parameters = [

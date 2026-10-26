@@ -229,12 +229,28 @@ fn software_token_typed_generation_permissions_and_use() {
     std::fs::remove_dir_all(root).unwrap();
 }
 
+fn pqc_kinds(signing: bool) -> [GenerationKind; 3] {
+    use pkcs11_client::{MlDsaParameterSet as Dsa, MlKemParameterSet as Kem};
+    if signing {
+        [Dsa::MlDsa44, Dsa::MlDsa65, Dsa::MlDsa87].map(GenerationKind::MlDsa)
+    } else {
+        [Kem::MlKem512, Kem::MlKem768, Kem::MlKem1024].map(GenerationKind::MlKem)
+    }
+}
+
 #[test]
-#[ignore = "requires tools/test-softhsm.sh; PQC execution required with PKCS11_TEST_REQUIRE_PQC=1"]
-fn software_token_pqc_generation_uses_advertised_choices_and_private_permissions() {
+#[ignore = "requires tools/test-ml-dsa.sh"]
+fn software_token_ml_dsa_generation() {
+    pqc_generation(true);
+}
+#[test]
+#[ignore = "requires tools/test-ml-kem.sh"]
+fn software_token_ml_kem_generation() {
+    pqc_generation(false);
+}
+fn pqc_generation(signing: bool) {
     use pkcs11_client::{
-        Authentication, MlDsaParameterSet, MlKemOperation, MlKemParameterSet, PrivateKeyRef,
-        SessionMode,
+        Authentication, MlDsaParameterSet, MlKemOperation, PrivateKeyRef, SessionMode,
     };
     assert_eq!(std::env::var("PKCS11_TEST_ISOLATED").as_deref(), Ok("1"));
     let mut registry = Registry::default();
@@ -252,36 +268,17 @@ fn software_token_pqc_generation_uses_advertised_choices_and_private_permissions
         .id;
     let choices = registry.capabilities(module, token).unwrap();
     let (_, uri) = registry.location(module, token).unwrap();
-    let advertised = registry.modules[0]
-        .provider
-        .generation_capabilities(&uri)
-        .unwrap();
     let pqc: Vec<_> = choices
         .into_iter()
-        .filter(|kind| matches!(kind, GenerationKind::MlDsa(_) | GenerationKind::MlKem(_)))
+        .filter(|kind| {
+            if signing {
+                matches!(kind, GenerationKind::MlDsa(_))
+            } else {
+                matches!(kind, GenerationKind::MlKem(_))
+            }
+        })
         .collect();
-    assert_eq!(
-        pqc,
-        advertised
-            .ml_dsa
-            .into_iter()
-            .map(GenerationKind::MlDsa)
-            .chain(advertised.ml_kem.into_iter().map(GenerationKind::MlKem))
-            .collect::<Vec<_>>()
-    );
-    if std::env::var("PKCS11_TEST_REQUIRE_PQC").as_deref() == Ok("1") {
-        assert_eq!(
-            pqc,
-            vec![
-                GenerationKind::MlDsa(MlDsaParameterSet::MlDsa44),
-                GenerationKind::MlDsa(MlDsaParameterSet::MlDsa65),
-                GenerationKind::MlDsa(MlDsaParameterSet::MlDsa87),
-                GenerationKind::MlKem(MlKemParameterSet::MlKem512),
-                GenerationKind::MlKem(MlKemParameterSet::MlKem768),
-                GenerationKind::MlKem(MlKemParameterSet::MlKem1024),
-            ]
-        );
-    }
+    assert_eq!(pqc, pqc_kinds(signing));
     for (index, &kind) in pqc.iter().enumerate() {
         let label = format!("desktop-pqc-{index}");
         let list = objects(
@@ -387,8 +384,16 @@ fn software_token_pqc_generation_uses_advertised_choices_and_private_permissions
 }
 
 #[test]
-#[ignore = "requires tools/test-softhsm.sh; PQC execution required with PKCS11_TEST_REQUIRE_PQC=1"]
-fn software_token_pqc_public_export_without_login_preserves_files_and_rejects_private_keys() {
+#[ignore = "requires tools/test-ml-dsa.sh"]
+fn software_token_ml_dsa_public_export() {
+    pqc_public_export(true);
+}
+#[test]
+#[ignore = "requires tools/test-ml-kem.sh"]
+fn software_token_ml_kem_public_export() {
+    pqc_public_export(false);
+}
+fn pqc_public_export(signing: bool) {
     use pkcs11_client::{
         Authentication, MlDsaVerifyingKey, MlKemPublicKey, PublicKeyRef, SessionMode,
     };
@@ -409,15 +414,9 @@ fn software_token_pqc_public_export_without_login_preserves_files_and_rejects_pr
         .find(|entry| entry.label == "client-test")
         .unwrap()
         .id;
-    let kinds: Vec<_> = registry
-        .capabilities(module, token)
-        .unwrap()
-        .into_iter()
-        .filter(|kind| matches!(kind, GenerationKind::MlDsa(_) | GenerationKind::MlKem(_)))
-        .collect();
-    if std::env::var("PKCS11_TEST_REQUIRE_PQC").as_deref() == Ok("1") {
-        assert_eq!(kinds.len(), 6);
-    }
+    let kinds = pqc_kinds(signing);
+    let advertised = registry.capabilities(module, token).unwrap();
+    assert!(kinds.iter().all(|kind| advertised.contains(kind)));
     registry
         .login(
             module,

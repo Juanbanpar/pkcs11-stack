@@ -119,9 +119,8 @@ cargo fmt --all -- --check
 cargo check --workspace --all-targets --locked
 python3 tools/check-dependencies.py
 cargo clippy --workspace --all-targets --locked -- -D warnings
-cargo test --workspace --locked
 cargo run -p pkcs11ctl -- --help
-./tools/test-softhsm.sh
+./tools/test.sh
 bash tools/test-fuzz.sh
 ```
 
@@ -132,8 +131,9 @@ Desktop uses Iced `tiny-skia`, `thread-pool`, `wayland`, `advanced` and
 `linux-theme-detection`, with default features disabled. `iced_aw` enables only
 `badge` and `spinner`. Linux requires Wayland.
 
-[Test commands and configuration](tests/README.md) cover unit, property and
-SoftHSM integration tests. [Fuzzing](fuzz/README.md) describes the separate fuzz workspace.
+[Test commands and provider setup](tests/README.md) cover the default suite,
+including classical, PQC, hybrid and desktop integration tests.
+[Fuzzing](fuzz/README.md) describes the separate fuzz workspace.
 
 ## License
 

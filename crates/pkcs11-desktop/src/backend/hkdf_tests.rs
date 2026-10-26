@@ -105,7 +105,7 @@ fn hkdf_invalid_bounds_fail_before_resolving_a_module() {
     }
 }
 #[test]
-#[ignore = "requires tools/test-kem-hkdf.sh with PKCS11_TEST_DESKTOP=1"]
+#[ignore = "requires tools/test-kem-hkdf.sh"]
 fn persistent_hkdf_desktop_peer_exchange_output_profiles_and_failures() {
     assert_eq!(
         std::env::var("PKCS11_TEST_KDF_ISOLATED").as_deref(),
