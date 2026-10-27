@@ -9,6 +9,9 @@ Published crate SHA-256:
 
 Local changes:
 
+- `src/mechanism/hkdf.rs`: bind borrowed salt to the parameter lifetime and
+  return an empty slice for absent/empty info without constructing a slice from NULL.
+
 - `src/mechanism/mod.rs`: add typed RFC 5649 `AES_KEY_WRAP_KWP` using its
   standard ID and default IV, without aliasing deprecated `AES_KEY_WRAP_PAD`.
 

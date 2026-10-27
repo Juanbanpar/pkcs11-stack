@@ -3,6 +3,21 @@
 use pkcs11_runtime::MechanismType;
 
 #[test]
+fn hkdf_parameters_represent_individual_stages_without_null_slice_reads() {
+    use cryptoki::mechanism::hkdf::{HkdfParams, HkdfSalt};
+    let salt = [1, 2, 3];
+    let extract = HkdfParams::new(MechanismType::SHA256, Some(HkdfSalt::Data(&salt)), None);
+    assert!(extract.extract());
+    assert!(!extract.expand());
+    assert!(extract.info().is_empty());
+    assert!(matches!(extract.salt(), HkdfSalt::Data(bytes) if bytes == salt));
+    let expand = HkdfParams::new(MechanismType::SHA256, None, Some(&[]));
+    assert!(!expand.extract());
+    assert!(expand.expand());
+    assert!(expand.info().is_empty());
+}
+
+#[test]
 fn aes_kwp_has_the_standard_identifier_and_is_distinct_from_deprecated_pad() {
     let mechanism = cryptoki::mechanism::Mechanism::AesKeyWrapKwp;
     assert_eq!(*mechanism.mechanism_type(), 0x210B);

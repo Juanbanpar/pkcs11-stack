@@ -43,9 +43,21 @@ impl<'a> HkdfParams<'a> {
     /// * `salt` - The salt for the extract stage, skip extract if `None`.
     ///
     /// * `info` - The info string for the expand stage, skip expand if `None`.
+    ///
+    /// The parameters must not outlive borrowed salt or info bytes.
+    ///
+    /// ```compile_fail
+    /// use cryptoki::mechanism::{MechanismType, hkdf::{HkdfParams, HkdfSalt}};
+    /// let params;
+    /// {
+    ///     let salt = vec![1, 2, 3];
+    ///     params = HkdfParams::new(MechanismType::SHA256, Some(HkdfSalt::Data(&salt)), None);
+    /// }
+    /// let _ = params.salt();
+    /// ```
     pub fn new(
         prf_hash_mechanism: MechanismType,
-        salt: Option<HkdfSalt>,
+        salt: Option<HkdfSalt<'a>>,
         info: Option<&'a [u8]>,
     ) -> Self {
         Self {
@@ -116,6 +128,9 @@ impl<'a> HkdfParams<'a> {
 
     /// The info string for the expand stage.
     pub fn info(&self) -> &'a [u8] {
+        if self.inner.ulInfoLen == 0 {
+            return &[];
+        }
         unsafe { slice::from_raw_parts(self.inner.pInfo, self.inner.ulInfoLen as _) }
     }
 }
