@@ -1912,6 +1912,31 @@ impl KeyType {
         val: CKK_SHA224_HMAC,
     };
 
+    /// SHA-512/224 HMAC key
+    pub const SHA512_224_HMAC: KeyType = KeyType {
+        val: CKK_SHA512_224_HMAC,
+    };
+    /// SHA-512/256 HMAC key
+    pub const SHA512_256_HMAC: KeyType = KeyType {
+        val: CKK_SHA512_256_HMAC,
+    };
+    /// SHA3-224 HMAC key
+    pub const SHA3_224_HMAC: KeyType = KeyType {
+        val: CKK_SHA3_224_HMAC,
+    };
+    /// SHA3-256 HMAC key
+    pub const SHA3_256_HMAC: KeyType = KeyType {
+        val: CKK_SHA3_256_HMAC,
+    };
+    /// SHA3-384 HMAC key
+    pub const SHA3_384_HMAC: KeyType = KeyType {
+        val: CKK_SHA3_384_HMAC,
+    };
+    /// SHA3-512 HMAC key
+    pub const SHA3_512_HMAC: KeyType = KeyType {
+        val: CKK_SHA3_512_HMAC,
+    };
+
     /// SEED key
     pub const SEED: KeyType = KeyType { val: CKK_SEED };
 
@@ -2010,6 +2035,12 @@ impl KeyType {
             CKK_SHA384_HMAC => String::from(stringify!(CKK_SHA384_HMAC)),
             CKK_SHA512_HMAC => String::from(stringify!(CKK_SHA512_HMAC)),
             CKK_SHA224_HMAC => String::from(stringify!(CKK_SHA224_HMAC)),
+            CKK_SHA512_224_HMAC => String::from(stringify!(CKK_SHA512_224_HMAC)),
+            CKK_SHA512_256_HMAC => String::from(stringify!(CKK_SHA512_256_HMAC)),
+            CKK_SHA3_224_HMAC => String::from(stringify!(CKK_SHA3_224_HMAC)),
+            CKK_SHA3_256_HMAC => String::from(stringify!(CKK_SHA3_256_HMAC)),
+            CKK_SHA3_384_HMAC => String::from(stringify!(CKK_SHA3_384_HMAC)),
+            CKK_SHA3_512_HMAC => String::from(stringify!(CKK_SHA3_512_HMAC)),
             CKK_SEED => String::from(stringify!(CKK_SEED)),
             CKK_GOSTR3410 => String::from(stringify!(CKK_GOSTR3410)),
             CKK_GOSTR3411 => String::from(stringify!(CKK_GOSTR3411)),
@@ -2088,6 +2119,12 @@ impl TryFrom<CK_KEY_TYPE> for KeyType {
             CKK_SHA384_HMAC => Ok(KeyType::SHA384_HMAC),
             CKK_SHA512_HMAC => Ok(KeyType::SHA512_HMAC),
             CKK_SHA224_HMAC => Ok(KeyType::SHA224_HMAC),
+            CKK_SHA512_224_HMAC => Ok(KeyType::SHA512_224_HMAC),
+            CKK_SHA512_256_HMAC => Ok(KeyType::SHA512_256_HMAC),
+            CKK_SHA3_224_HMAC => Ok(KeyType::SHA3_224_HMAC),
+            CKK_SHA3_256_HMAC => Ok(KeyType::SHA3_256_HMAC),
+            CKK_SHA3_384_HMAC => Ok(KeyType::SHA3_384_HMAC),
+            CKK_SHA3_512_HMAC => Ok(KeyType::SHA3_512_HMAC),
             CKK_SEED => Ok(KeyType::SEED),
             CKK_GOSTR3410 => Ok(KeyType::GOSTR3410),
             CKK_GOSTR3411 => Ok(KeyType::GOSTR3411),

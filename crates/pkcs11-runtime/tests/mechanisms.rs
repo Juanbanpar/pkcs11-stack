@@ -53,6 +53,12 @@ fn hmac_key_types_preserve_distinct_standard_ids() {
         (KeyType::SHA384_HMAC, 0x2C),
         (KeyType::SHA512_HMAC, 0x2D),
         (KeyType::SHA224_HMAC, 0x2E),
+        (KeyType::SHA512_224_HMAC, 0x43),
+        (KeyType::SHA512_256_HMAC, 0x44),
+        (KeyType::SHA3_224_HMAC, 0x36),
+        (KeyType::SHA3_256_HMAC, 0x37),
+        (KeyType::SHA3_384_HMAC, 0x38),
+        (KeyType::SHA3_512_HMAC, 0x39),
     ] {
         assert_eq!(*key_type, raw);
         assert_eq!(KeyType::try_from(raw).unwrap(), key_type);

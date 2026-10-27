@@ -9,6 +9,10 @@ Published crate SHA-256:
 
 Local changes:
 
+- `src/mechanism/mod.rs`, `src/object.rs`: add parameterless full-tag
+  SHA-512/224, SHA-512/256 and SHA3-224/256/384/512 HMAC mechanisms,
+  matching key types and metadata names.
+
 - `src/object.rs`: correct SHA-384, SHA-512 and SHA-224 HMAC key-type IDs;
   they previously reused the SHA-256 HMAC constant.
 
