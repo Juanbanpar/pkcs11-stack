@@ -53,6 +53,8 @@ pub(crate) fn input_limit(name: &str, m: &ArgMatches) -> Result<Option<usize>> {
         Some(selected_parameter(m)?.ciphertext_length())
     } else if name == "derive-ecdh" {
         Some(1024)
+    } else if name == "import" && get(m, "kind") == Some("public-key") {
+        Some(4096)
     } else if name == "import" && get(m, "kind") == Some("ml-kem") {
         Some(2048)
     } else {

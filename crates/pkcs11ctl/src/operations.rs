@@ -78,6 +78,7 @@ pub(crate) struct Inputs {
     pub new_pin: Option<secrecy::SecretString>,
     pub bytes: zeroize::Zeroizing<Vec<u8>>,
     pub certificate_document: Option<pkcs11_client::CertificateDocument>,
+    pub public_key: Option<pkcs11_client::ClassicalPublicKey>,
     pub verification_certificate: Option<VerificationCertificate>,
     pub domain_context: Vec<u8>,
     pub signature: Vec<u8>,
@@ -213,6 +214,23 @@ impl Inputs {
         } else {
             None
         };
+        let public_key = if name == "import" && get(m, "kind") == Some("public-key") {
+            let key = pkcs11_client::ClassicalPublicKey::from_spki_der(&bytes)
+                .map_err(|_| usage("invalid RSA/EC SPKI DER public key"))?;
+            pkcs11_client::PublicKeyImportRequest {
+                key: &key,
+                purpose: public_key_purpose(m)?,
+                id: &unhex(need(m, "id")?)?,
+                label: need(m, "label")?.as_bytes(),
+            }
+            .validate()?;
+            Some(key)
+        } else {
+            if name == "import" && get(m, "purpose").is_some() {
+                return Err(usage("--purpose applies only to public-key import"));
+            }
+            None
+        };
         if let Some(id) = get(m, "id") {
             unhex(id)?;
         }
@@ -285,6 +303,7 @@ impl Inputs {
             new_pin,
             bytes: zeroize::Zeroizing::new(bytes),
             certificate_document,
+            public_key,
             verification_certificate,
             domain_context,
             signature,
@@ -324,6 +343,15 @@ fn expected_token(m: &ArgMatches) -> Result<pkcs11_client::Pkcs11Uri> {
         ));
     }
     Ok(expected)
+}
+fn public_key_purpose(m: &ArgMatches) -> Result<pkcs11_client::ClassicalPublicKeyPurpose> {
+    match get(m, "purpose") {
+        Some("verification") => Ok(pkcs11_client::ClassicalPublicKeyPurpose::Verification),
+        Some("encryption") => Ok(pkcs11_client::ClassicalPublicKeyPurpose::Encryption),
+        _ => Err(usage(
+            "public-key import requires --purpose verification|encryption",
+        )),
+    }
 }
 pub(crate) fn run(
     module: &mut Provider,
@@ -661,7 +689,20 @@ fn management_operation(
         "generate" => generation::generate(session, m)?,
         "import" => {
             let id = unhex(need(m, "id")?)?;
-            if need(m, "kind")? == "ml-kem" {
+            if need(m, "kind")? == "public-key" {
+                session.import_classical_public_key(&pkcs11_client::PublicKeyImportRequest {
+                    key: inputs
+                        .public_key
+                        .as_ref()
+                        .ok_or_else(|| usage("missing public key"))?,
+                    purpose: public_key_purpose(m)?,
+                    id: &id,
+                    label: need(m, "label")?.as_bytes(),
+                })?;
+                return Ok(Output::Structured(
+                    json!({"imported":true,"purpose":need(m,"purpose")?,"key":inspect::key_kind(inputs.public_key.as_ref().ok_or_else(|| usage("missing public key"))?.key_kind()),"id_hex":hex(&id)}),
+                ));
+            } else if need(m, "kind")? == "ml-kem" {
                 session.import_ml_kem_public_key(
                     inputs
                         .establishment

@@ -303,9 +303,13 @@ pub(crate) fn command() -> Command {
             "Require context authentication for each private-key operation",
         ));
     let import = Command::new("import")
-        .about("Import public certificate DER, ML-KEM SPKI DER or data bytes")
-        .arg(required("kind", "Object kind").value_parser(["cert", "data", "ml-kem"]))
-        .arg(required("input", "Input file; - reads stdin"));
+        .about("Import public certificate/key DER or data bytes")
+        .arg(required("kind", "Object kind").value_parser(["cert", "data", "ml-kem", "public-key"]))
+        .arg(required("input", "Input file; - reads stdin"))
+        .arg(
+            value("purpose", "Required for public-key import")
+                .value_parser(["verification", "encryption"]),
+        );
     let set_label = Command::new("set-label")
         .about("Relabel exactly one object")
         .arg(required("label", "New label"));

@@ -1380,3 +1380,76 @@ fn digest_rejects_missing_files_and_unknown_algorithms_before_module_loading() {
     ]);
     assert_eq!(output.status.code(), Some(2));
 }
+
+#[test]
+fn public_key_import_rejects_invalid_spki_purpose_and_identity_before_loading() {
+    let scratch = Scratch::new();
+    let input = scratch.0.join("public.der");
+    let cert = pkcs11_client::Certificate::from_der(
+        std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../pkcs11-client/tests/fixtures/p256.der"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    for (bytes, purpose, id) in [
+        (cert.spki_der().to_vec(), Some("encryption"), "01".into()),
+        (cert.spki_der().to_vec(), None, "01".into()),
+        (
+            cert.spki_der().to_vec(),
+            Some("verification"),
+            "01".repeat(129),
+        ),
+        (b"not DER".to_vec(), Some("verification"), "01".into()),
+        (vec![0; 4097], Some("verification"), "01".into()),
+    ] {
+        std::fs::write(&input, bytes).unwrap();
+        let mut args = vec![
+            "--module",
+            "/must-not-load",
+            "--format",
+            "json",
+            "import",
+            "--token",
+            "pkcs11:token=test",
+            "--kind",
+            "public-key",
+            "--input",
+            input.to_str().unwrap(),
+            "--id",
+            &id,
+            "--label",
+            "key",
+            "--confirm",
+        ];
+        if let Some(purpose) = purpose {
+            args.extend(["--purpose", purpose]);
+        }
+        let output = run(&args);
+        assert_eq!(output.status.code(), Some(2));
+        let failure: serde_json::Value = serde_json::from_slice(&output.stderr).unwrap();
+        assert_eq!(failure["error"]["kind"], "input");
+    }
+    let output = run(&[
+        "--module",
+        "/must-not-load",
+        "--format",
+        "json",
+        "import",
+        "--token",
+        "pkcs11:token=test",
+        "--kind",
+        "data",
+        "--input",
+        input.to_str().unwrap(),
+        "--purpose",
+        "verification",
+        "--id",
+        "01",
+        "--label",
+        "data",
+        "--confirm",
+    ]);
+    assert_eq!(output.status.code(), Some(2));
+}

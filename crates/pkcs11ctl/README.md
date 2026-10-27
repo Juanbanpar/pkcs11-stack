@@ -49,7 +49,7 @@ for current discovery and explicit initialization.
 | `init-pin --token URI --role so --pin-file PATH --new-pin-file PATH --confirm` | Initialize/reset USER PIN |
 | `set-pin --token URI --pin-file PATH --new-pin-file PATH --confirm` | Change the authenticated USER/SO PIN |
 | `generate --token URI --kind KIND --id HEX --label LABEL --confirm` | Persistent nonextractable signing/ECDH/ML-KEM pair or AES key |
-| `import --token URI --kind cert\|data --id HEX --label LABEL --input PATH --confirm` | Public certificate or data import |
+| `import --token URI --kind cert\|data\|ml-kem\|public-key --id HEX --label LABEL --input PATH --confirm` | Public certificate/key or data import; `public-key` requires `--purpose` |
 | `set-label --object URI --label LABEL --confirm` | Relabel exactly one object |
 | `delete --object URI --confirm` | Delete exactly one object |
 
@@ -314,6 +314,21 @@ client signing. The client parses subject/issuer/serial metadata for the runtime
 creation template; it does not validate certificate trust. Data bytes remain
 uninterpreted. `--id` maps to CKA_ID for certificates/keys and CKA_OBJECT_ID for data;
 select data objects by their label. Imported objects are persistent and public.
+
+`import --kind public-key` accepts one RSA or named EC SPKI DER document up to
+4096 bytes. It requires `--purpose verification|encryption`; encryption accepts
+RSA only. RSA sizes are 2048–16384 bits; EC curves are P-256/P-384/P-521.
+Restricted RSA-PSS keys and invalid components/points are rejected before module
+loading. RSA NULL parameters and EC point representation are normalized. The
+object is persistent and public, with wrapping, recovery and derivation disabled.
+Existing public-key IDs are rejected. A matching private/certificate ID does not
+establish association or trust, and those objects are not changed.
+
+```sh
+pkcs11ctl --module "$MODULE" import --token "$TOKEN_URI" --kind public-key \
+  --purpose verification --input peer.der --id 0601 --label peer-key \
+  --pin-file user.pin --confirm
+```
 
 `derive-ecdh` validates a P-256/P-384/P-521 peer SPKI DER public key and derives
 one persistent sensitive, nonextractable key. Select `--kdf null` with

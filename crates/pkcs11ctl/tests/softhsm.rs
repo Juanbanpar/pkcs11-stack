@@ -1239,3 +1239,152 @@ fn token_digests_stream_files_and_stdin() {
         "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
     );
 }
+
+#[test]
+#[ignore = "requires tools/test-softhsm.sh disposable store"]
+fn public_key_import_verifies_signatures_and_enforces_purpose() {
+    assert_eq!(std::env::var("PKCS11_TEST_ISOLATED").as_deref(), Ok("1"));
+    let root = PathBuf::from(std::env::var_os("PKCS11_CLIENT_TEST_DIR").unwrap());
+    let f = Fixture {
+        module: std::env::var("PKCS11_TEST_MODULE").unwrap(),
+        pin: root.join("public-import.pin").to_str().unwrap().into(),
+        so: String::new(),
+        root,
+    };
+    std::fs::write(&f.pin, b"12345678\n").unwrap();
+    let binary = |args: &[&str]| {
+        let output = f.run(args);
+        assert!(
+            output.status.success(),
+            "binary command failed: {}",
+            output.status
+        );
+        assert!(output.stdout.is_empty());
+        assert!(output.stderr.is_empty());
+    };
+    let message = f.path("public-import-message");
+    std::fs::write(&message, b"CLI public key import").unwrap();
+    // The earlier client replacement test changes the RSA key at ID 01.
+    for (source, algorithm) in [
+        ("05", "rsa-pkcs1"),
+        ("02", "ecdsa"),
+        ("03", "ecdsa"),
+        ("04", "ecdsa"),
+    ] {
+        let id = format!("FA10{source}");
+        let uri = format!("pkcs11:token=client-test;id=%FA%10%{source};type=public");
+        let input = f.path(&format!("{source}-public.der"));
+        let args = [
+            "import",
+            "--token",
+            "pkcs11:token=client-test",
+            "--kind",
+            "public-key",
+            "--purpose",
+            "verification",
+            "--input",
+            &input,
+            "--id",
+            &id,
+            "--label",
+            "CLI verification key",
+            "--pin-file",
+            &f.pin,
+            "--confirm",
+        ];
+        let imported = f.ok(&args);
+        assert_eq!(imported["purpose"], "verification");
+        f.fail(&args, 2);
+        let signature = f.path(&format!("public-import-{source}.sig"));
+        let private = format!("pkcs11:token=client-test;id=%{source};type=private");
+        binary(&[
+            "sign",
+            "--key",
+            &private,
+            "--algorithm",
+            algorithm,
+            "--digest",
+            "sha256",
+            "--hashing",
+            "software",
+            "--input",
+            &message,
+            "--output",
+            &signature,
+            "--pin-file",
+            &f.pin,
+        ]);
+        f.ok(&[
+            "verify-token",
+            "--key",
+            &uri,
+            "--algorithm",
+            algorithm,
+            "--digest",
+            "sha256",
+            "--hashing",
+            "software",
+            "--input",
+            &message,
+            "--signature",
+            &signature,
+        ]);
+        let exported = f.path(&format!("public-import-{source}.der"));
+        binary(&["export", "--object", &uri, "--output", &exported]);
+        assert_eq!(
+            std::fs::read(&exported).unwrap(),
+            std::fs::read(&input).unwrap()
+        );
+    }
+    let input = f.path("cipher-public.der");
+    f.ok(&[
+        "import",
+        "--token",
+        "pkcs11:token=client-test",
+        "--kind",
+        "public-key",
+        "--purpose",
+        "encryption",
+        "--input",
+        &input,
+        "--id",
+        "FA20",
+        "--label",
+        "CLI encryption key",
+        "--pin-file",
+        &f.pin,
+        "--confirm",
+    ]);
+    if std::env::var("PKCS11_TEST_REQUIRE_RSA_OAEP_SHA2").as_deref() == Ok("1") {
+        let ciphertext = f.path("public-import.cipher");
+        let recovered = f.path("public-import.plain");
+        binary(&[
+            "encrypt-rsa-oaep",
+            "--object",
+            "pkcs11:token=client-test;id=%FA%20;type=public",
+            "--digest",
+            "sha256",
+            "--input",
+            &message,
+            "--output",
+            &ciphertext,
+        ]);
+        binary(&[
+            "decrypt-rsa-oaep",
+            "--object",
+            "pkcs11:token=client-test;id=%20;type=private",
+            "--digest",
+            "sha256",
+            "--input",
+            &ciphertext,
+            "--output",
+            &recovered,
+            "--pin-file",
+            &f.pin,
+        ]);
+        assert_eq!(
+            std::fs::read(&recovered).unwrap(),
+            std::fs::read(&message).unwrap()
+        );
+    }
+}
