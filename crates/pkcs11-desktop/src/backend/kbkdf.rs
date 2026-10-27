@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use super::{BackendError, CryptoMode, CryptoScope, KeyJob, Registry, browse::read_session};
-use pkcs11_client::{DigestAlgorithm, KbkdfCapabilities, KbkdfOutput, KbkdfRequest, SessionMode};
+use pkcs11_client::{
+    DigestAlgorithm, KbkdfMode, KbkdfOptions, KbkdfOutput, KbkdfRequest, SessionMode,
+};
 pub struct KbkdfJob {
+    pub mode: KbkdfMode,
+    pub iv: Vec<u8>,
     pub digest: DigestAlgorithm,
     pub output: KbkdfOutput,
     pub kdf_label: Vec<u8>,
@@ -13,13 +17,17 @@ impl Registry {
     pub(super) fn kbkdf_action(
         &self,
         scope: CryptoScope,
-        profile: KbkdfCapabilities,
+        profile: KbkdfOptions,
         job: KeyJob,
     ) -> Result<(), BackendError> {
         let KeyJob::Kbkdf(job) = job else {
             return Err(BackendError::KeyOperationUnavailable);
         };
-        if scope.mode != CryptoMode::Kbkdf || !profile.supports(job.digest) {
+        if scope.mode != CryptoMode::Kbkdf
+            || !profile
+                .get(job.mode)
+                .is_some_and(|caps| caps.supports(job.digest))
+        {
             return Err(BackendError::KeyOperationUnavailable);
         }
         let request = KbkdfRequest {
@@ -30,7 +38,9 @@ impl Registry {
             id: &job.id,
             label: &job.label,
         };
-        request.validate().map_err(|_| BackendError::KbkdfInput)?;
+        request
+            .validate_with_mode(job.mode, &job.iv)
+            .map_err(|_| BackendError::KbkdfInput)?;
         let (index, uri, reference) = self.key_location(scope)?;
         read_session(
             &self.modules[index],
@@ -38,14 +48,14 @@ impl Registry {
             SessionMode::ReadWrite,
             |session| {
                 if session
-                    .kbkdf_capabilities(&reference)
+                    .kbkdf_options(&reference)
                     .map_err(|e| BackendError::from(&e))?
                     != profile
                 {
                     return Err(BackendError::KeyOperationUnavailable);
                 }
                 session
-                    .derive_kbkdf(&reference, &request)
+                    .derive_kbkdf_with_mode(&reference, &request, job.mode, &job.iv)
                     .map_err(|e| BackendError::from(&e))
             },
         )

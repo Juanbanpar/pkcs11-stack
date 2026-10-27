@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use super::{HkdfOutputChoice, UiState};
 use crate::backend::{BackendError, CryptoMode, KbkdfJob, KeyProfile, RequestId};
-use pkcs11_client::{DigestAlgorithm, KbkdfCapabilities, KbkdfOutput, KbkdfRequest};
+use pkcs11_client::{DigestAlgorithm, KbkdfMode, KbkdfOptions, KbkdfOutput, KbkdfRequest};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct KbkdfDigest(pub DigestAlgorithm);
 impl KbkdfDigest {
@@ -21,6 +21,8 @@ impl std::fmt::Display for KbkdfDigest {
     }
 }
 pub struct KbkdfForm {
+    pub mode: KbkdfMode,
+    pub iv: String,
     pub digest: KbkdfDigest,
     pub output: HkdfOutputChoice,
     pub length: String,
@@ -30,6 +32,8 @@ pub struct KbkdfForm {
 impl Default for KbkdfForm {
     fn default() -> Self {
         Self {
+            mode: KbkdfMode::Counter,
+            iv: String::new(),
             digest: KbkdfDigest(DigestAlgorithm::Sha256),
             output: HkdfOutputChoice::Aes256,
             length: "32".into(),
@@ -41,10 +45,26 @@ impl Default for KbkdfForm {
 impl KbkdfForm {
     pub(super) fn job(
         &self,
-        caps: KbkdfCapabilities,
+        options: KbkdfOptions,
         id: Option<&[u8]>,
         label: &str,
     ) -> Result<KbkdfJob, BackendError> {
+        let caps = options.get(self.mode).ok_or(BackendError::KbkdfInput)?;
+        if self.iv.trim().len() > 128 {
+            return Err(BackendError::KbkdfInput);
+        }
+        let iv = if self.mode == KbkdfMode::Feedback {
+            if self.iv.trim().is_empty() {
+                Vec::new()
+            } else {
+                super::management::identifier(&self.iv).ok_or(BackendError::KbkdfInput)?
+            }
+        } else {
+            if !self.iv.is_empty() {
+                return Err(BackendError::KbkdfInput);
+            }
+            Vec::new()
+        };
         if !caps.supports(self.digest.0) {
             return Err(BackendError::KbkdfInput);
         }
@@ -69,8 +89,12 @@ impl KbkdfForm {
             id,
             label: label.as_bytes(),
         };
-        request.validate().map_err(|_| BackendError::KbkdfInput)?;
+        request
+            .validate_with_mode(self.mode, &iv)
+            .map_err(|_| BackendError::KbkdfInput)?;
         Ok(KbkdfJob {
+            mode: self.mode,
+            iv,
             digest: request.digest,
             output,
             kdf_label: request.kdf_label.to_vec(),
@@ -81,6 +105,27 @@ impl KbkdfForm {
     }
 }
 impl UiState {
+    pub fn kbkdf_mode(&mut self, id: RequestId, mode: KbkdfMode) {
+        if !self.can_submit() {
+            return;
+        }
+        if let Some(form) = &mut self.key_form
+            && form.id == id
+            && form.scope.mode == CryptoMode::Kbkdf
+            && let Some(KeyProfile::Kbkdf(options)) = form.profile
+            && let Some(caps) = options.get(mode)
+        {
+            if form.kbkdf.mode != mode {
+                form.kbkdf.iv.clear();
+            }
+            form.kbkdf.mode = mode;
+            if !caps.supports(form.kbkdf.digest.0)
+                && let Some(digest) = KbkdfDigest::ALL.into_iter().find(|d| caps.supports(d.0))
+            {
+                form.kbkdf.digest = digest;
+            }
+        }
+    }
     pub fn kbkdf_digest(&mut self, id: RequestId, digest: KbkdfDigest) {
         if !self.can_submit() {
             return;
@@ -89,7 +134,9 @@ impl UiState {
             && form.id == id
             && form.scope.mode == CryptoMode::Kbkdf
             && let Some(KeyProfile::Kbkdf(caps)) = form.profile
-            && caps.supports(digest.0)
+            && caps
+                .get(form.kbkdf.mode)
+                .is_some_and(|caps| caps.supports(digest.0))
         {
             form.kbkdf.digest = digest;
         }

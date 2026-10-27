@@ -3093,92 +3093,136 @@ fn hkdf_salt_key_forms_validate_locators_conflicts_and_disabled_stages() {
 }
 
 #[test]
-fn counter_kdf_forms_select_only_supported_prfs_and_validate_typed_jobs() {
+fn kbkdf_mode_forms_select_only_supported_prfs_and_validate_typed_jobs() {
     use crate::backend::{CryptoMode, KeyJob, KeyProfile};
-    use pkcs11_client::{DigestAlgorithm, KbkdfCapabilities, KbkdfOutput};
-    for (index, digest) in [
-        DigestAlgorithm::Sha256,
-        DigestAlgorithm::Sha384,
-        DigestAlgorithm::Sha512,
-    ]
-    .into_iter()
-    .enumerate()
-    {
-        for output in HkdfOutputChoice::ALL {
-            let (mut state, old, _) = key_state(CryptoMode::Derive);
-            state.dismiss_key_operation(old);
-            state.objects[0].class = Some(pkcs11_client::ObjectClass::SECRET_KEY);
-            state.object_details.as_mut().unwrap().key_type =
-                Some(pkcs11_client::KeyType::try_from([0x2B, 0x2C, 0x2D][index]).unwrap());
-            let BackendCommand::CryptoOptions { id, scope, .. } =
-                state.open_key_operation(CryptoMode::Kbkdf).unwrap()
-            else {
-                panic!("counter options")
-            };
-            let caps = KbkdfCapabilities {
-                input_length: digest.output_len(),
-                sha256: index == 0,
-                sha384: index == 1,
-                sha512: index == 2,
-            };
-            state.event(complete(
-                id,
-                BackendResult::KeyOptions {
-                    scope,
-                    profile: KeyProfile::Kbkdf(caps),
-                },
-            ));
-            assert_eq!(state.key_form.as_ref().unwrap().kbkdf.digest.0, digest);
-            for candidate in KbkdfDigest::ALL {
-                if candidate.0 != digest {
-                    state.kbkdf_digest(id, candidate);
-                    assert_eq!(state.key_form.as_ref().unwrap().kbkdf.digest.0, digest);
+    use pkcs11_client::{DigestAlgorithm, KbkdfCapabilities, KbkdfMode, KbkdfOutput};
+    for mode in KbkdfMode::ALL {
+        for (index, digest) in [
+            DigestAlgorithm::Sha256,
+            DigestAlgorithm::Sha384,
+            DigestAlgorithm::Sha512,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            for output in HkdfOutputChoice::ALL {
+                let (mut state, old, _) = key_state(CryptoMode::Derive);
+                state.dismiss_key_operation(old);
+                state.objects[0].class = Some(pkcs11_client::ObjectClass::SECRET_KEY);
+                state.object_details.as_mut().unwrap().key_type =
+                    Some(pkcs11_client::KeyType::try_from([0x2B, 0x2C, 0x2D][index]).unwrap());
+                let BackendCommand::CryptoOptions { id, scope, .. } =
+                    state.open_key_operation(CryptoMode::Kbkdf).unwrap()
+                else {
+                    panic!("KDF options")
+                };
+                let caps = KbkdfCapabilities {
+                    input_length: digest.output_len(),
+                    sha256: index == 0,
+                    sha384: index == 1,
+                    sha512: index == 2,
+                };
+                state.event(complete(
+                    id,
+                    BackendResult::KeyOptions {
+                        scope,
+                        profile: KeyProfile::Kbkdf(pkcs11_client::KbkdfOptions {
+                            counter: (mode == KbkdfMode::Counter).then_some(caps),
+                            feedback: (mode == KbkdfMode::Feedback).then_some(caps),
+                        }),
+                    },
+                ));
+                assert_eq!(state.key_form.as_ref().unwrap().kbkdf.digest.0, digest);
+                assert_eq!(state.key_form.as_ref().unwrap().kbkdf.mode, mode);
+                let other = if mode == KbkdfMode::Counter {
+                    KbkdfMode::Feedback
+                } else {
+                    KbkdfMode::Counter
+                };
+                state.kbkdf_mode(id, other);
+                state.kbkdf_mode(RequestId(id.0 + 1), other);
+                assert_eq!(state.key_form.as_ref().unwrap().kbkdf.mode, mode);
+                state.key_edit(id, KeyField::Label, "KDF key".into());
+                state.key_edit(id, KeyField::Id, "FA8901".into());
+                if mode == KbkdfMode::Feedback {
+                    for bad in [
+                        "zz".into(),
+                        "a".into(),
+                        "a5".into(),
+                        "a5".repeat(65),
+                        "a5".repeat(digest.output_len() - 1),
+                    ] {
+                        state.key_edit(id, KeyField::KdfIv, bad);
+                        assert!(state.submit_key_operation(id).is_none());
+                    }
+                    state.key_edit(id, KeyField::KdfIv, "a5".repeat(digest.output_len()));
+                    state.kbkdf_mode(id, mode);
+                    assert_eq!(
+                        state.key_form.as_ref().unwrap().kbkdf.iv,
+                        "a5".repeat(digest.output_len())
+                    );
+                } else {
+                    state.key_edit(id, KeyField::KdfIv, "a5".repeat(32));
+                    assert!(state.key_form.as_ref().unwrap().kbkdf.iv.is_empty());
                 }
+                for candidate in KbkdfDigest::ALL {
+                    if candidate.0 != digest {
+                        state.kbkdf_digest(id, candidate);
+                        assert_eq!(state.key_form.as_ref().unwrap().kbkdf.digest.0, digest);
+                    }
+                }
+                state.kbkdf_output(id, output);
+                state.key_edit(id, KeyField::KdfLabel, "é".repeat(2049));
+                assert!(state.submit_key_operation(id).is_none());
+                state.key_edit(id, KeyField::KdfLabel, "protocol label".into());
+                state.key_edit(id, KeyField::Info, "x".repeat(4097));
+                assert!(state.submit_key_operation(id).is_none());
+                state.key_edit(id, KeyField::Info, "protocol context".into());
+                state.key_edit(RequestId(id.0 + 1), KeyField::KdfLabel, "stale".into());
+                assert_eq!(
+                    state.key_form.as_ref().unwrap().kbkdf.kdf_label,
+                    "protocol label"
+                );
+                if output == HkdfOutputChoice::DerivationSecret {
+                    for bad in ["0", "4097", "bad"] {
+                        state.key_edit(id, KeyField::Length, bad.into());
+                        assert!(state.submit_key_operation(id).is_none());
+                    }
+                    state.key_edit(id, KeyField::Length, "4096".into());
+                }
+                let BackendCommand::KeyOperation {
+                    job: KeyJob::Kbkdf(job),
+                    scope: actual,
+                    ..
+                } = state.submit_key_operation(id).unwrap()
+                else {
+                    panic!("KDF job")
+                };
+                assert_eq!(actual, scope);
+                assert_eq!(job.digest, digest);
+                assert_eq!(job.mode, mode);
+                assert_eq!(
+                    job.iv,
+                    if mode == KbkdfMode::Feedback {
+                        vec![0xA5; digest.output_len()]
+                    } else {
+                        Vec::new()
+                    }
+                );
+                assert_eq!(job.kdf_label, b"protocol label");
+                assert_eq!(job.context, b"protocol context");
+                assert_eq!(job.id, [0xFA, 0x89, 1]);
+                assert_eq!(
+                    job.output,
+                    match output {
+                        HkdfOutputChoice::Aes128 => KbkdfOutput::Aes128,
+                        HkdfOutputChoice::Aes192 => KbkdfOutput::Aes192,
+                        HkdfOutputChoice::Aes256 => KbkdfOutput::Aes256,
+                        HkdfOutputChoice::DerivationSecret =>
+                            KbkdfOutput::DerivationSecret { length: 4096 },
+                    }
+                );
             }
-            state.key_edit(id, KeyField::Label, "counter key".into());
-            state.key_edit(id, KeyField::Id, "FA8901".into());
-            state.kbkdf_output(id, output);
-            state.key_edit(id, KeyField::KdfLabel, "é".repeat(2049));
-            assert!(state.submit_key_operation(id).is_none());
-            state.key_edit(id, KeyField::KdfLabel, "protocol label".into());
-            state.key_edit(id, KeyField::Info, "x".repeat(4097));
-            assert!(state.submit_key_operation(id).is_none());
-            state.key_edit(id, KeyField::Info, "protocol context".into());
-            state.key_edit(RequestId(id.0 + 1), KeyField::KdfLabel, "stale".into());
-            assert_eq!(
-                state.key_form.as_ref().unwrap().kbkdf.kdf_label,
-                "protocol label"
-            );
-            if output == HkdfOutputChoice::DerivationSecret {
-                for bad in ["0", "4097", "bad"] {
-                    state.key_edit(id, KeyField::Length, bad.into());
-                    assert!(state.submit_key_operation(id).is_none());
-                }
-                state.key_edit(id, KeyField::Length, "4096".into());
-            }
-            let BackendCommand::KeyOperation {
-                job: KeyJob::Kbkdf(job),
-                scope: actual,
-                ..
-            } = state.submit_key_operation(id).unwrap()
-            else {
-                panic!("counter job")
-            };
-            assert_eq!(actual, scope);
-            assert_eq!(job.digest, digest);
-            assert_eq!(job.kdf_label, b"protocol label");
-            assert_eq!(job.context, b"protocol context");
-            assert_eq!(job.id, [0xFA, 0x89, 1]);
-            assert_eq!(
-                job.output,
-                match output {
-                    HkdfOutputChoice::Aes128 => KbkdfOutput::Aes128,
-                    HkdfOutputChoice::Aes192 => KbkdfOutput::Aes192,
-                    HkdfOutputChoice::Aes256 => KbkdfOutput::Aes256,
-                    HkdfOutputChoice::DerivationSecret =>
-                        KbkdfOutput::DerivationSecret { length: 4096 },
-                }
-            );
         }
     }
     let (mut state, old, _) = key_state(CryptoMode::Derive);

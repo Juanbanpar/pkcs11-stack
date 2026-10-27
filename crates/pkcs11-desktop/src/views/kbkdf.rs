@@ -9,6 +9,8 @@ use iced::{
     Element,
     widget::{column, container, row, text},
 };
+use pkcs11_client::KbkdfMode;
+
 pub fn view(state: &UiState) -> Element<'_, Message> {
     let Some(form) = &state.key_form else {
         return column![].into();
@@ -16,17 +18,36 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
     let id = form.id;
     let enabled = state.can_submit();
     let mut content = column![text("Derive an SP 800-108 key").size(22).font(EMPHASIS)].spacing(10);
+    let options = match form.profile {
+        Some(KeyProfile::Kbkdf(options)) => Some(options),
+        _ => None,
+    };
+    let modes: Vec<_> = KbkdfMode::ALL
+        .into_iter()
+        .filter(|mode| options.and_then(|o| o.get(*mode)).is_some())
+        .collect();
+    content = content.push(
+        pick_list(modes, Some(form.kbkdf.mode), move |mode| {
+            Message::KbkdfMode { id, mode }
+        })
+        .placeholder("SP800-108 mode")
+        .enabled(enabled && options.is_some()),
+    );
     let algorithms: Vec<_> = KbkdfDigest::ALL
         .into_iter()
-        .filter(|d| matches!(form.profile,Some(KeyProfile::Kbkdf(caps)) if caps.supports(d.0)))
+        .filter(|d| {
+            options
+                .and_then(|o| o.get(form.kbkdf.mode))
+                .is_some_and(|caps| caps.supports(d.0))
+        })
         .collect();
-    let description = match form.profile {
-        Some(KeyProfile::Kbkdf(caps)) => format!(
-            "{}-byte sensitive, nonextractable base key. Counter mode uses a 32-bit big-endian counter, a zero separator and a 32-bit output length in bits. Support and permissions are checked again before deriving.",
+    let description = match options.and_then(|o| o.get(form.kbkdf.mode)) {
+        Some(caps) => format!(
+            "{}-byte sensitive, nonextractable base key. Both modes use a 32-bit big-endian counter, a zero separator and a 32-bit output length in bits. Support and permissions are checked again before deriving.",
             caps.input_length,
         ),
-        _ if form.loaded => "No permitted counter-mode profile is available.".into(),
-        _ => "Reading counter-mode capabilities…".into(),
+        _ if form.loaded => "No permitted SP800-108 profile is available.".into(),
+        _ => "Reading SP800-108 capabilities…".into(),
     };
     content = content.push(text(description).size(14));
     content = content.push(
@@ -45,6 +66,20 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
         .placeholder("Output key purpose")
         .enabled(enabled),
     );
+    if form.kbkdf.mode == KbkdfMode::Feedback {
+        content = content.push(text("Feedback prepends the previous PRF output. An omitted IV supplies no initial bytes; a supplied IV must match the hash length.").size(14));
+        content = content.push(
+            text_input(
+                "Feedback IV (hexadecimal, optional, 32/48/64 bytes matching the hash)",
+                &form.kbkdf.iv,
+            )
+            .on_input_maybe(enabled.then_some(move |value| Message::KeyEdit {
+                id,
+                field: KeyField::KdfIv,
+                value,
+            })),
+        );
+    }
     for (field, label, value) in [
         (
             KeyField::Length,

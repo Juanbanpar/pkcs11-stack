@@ -20,7 +20,7 @@ pub enum KeyProfile {
     AesCmac(pkcs11_client::AesCmacCapabilities),
     AesWrapping(AesKeyWrapCapabilities),
     Hkdf(pkcs11_client::HkdfCapabilities),
-    Kbkdf(pkcs11_client::KbkdfCapabilities),
+    Kbkdf(pkcs11_client::KbkdfOptions),
     Classical(KeyOperationProfile),
     MlKem(pkcs11_client::MlKemParameterSet),
 }
@@ -185,7 +185,7 @@ impl Registry {
                     .map_err(|e| BackendError::from(&e))
             } else if scope.mode == CryptoMode::Kbkdf {
                 session
-                    .kbkdf_capabilities(&reference)
+                    .kbkdf_options(&reference)
                     .map(KeyProfile::Kbkdf)
                     .map_err(|e| BackendError::from(&e))
             } else if scope.mode == CryptoMode::Hkdf {

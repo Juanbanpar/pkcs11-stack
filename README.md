@@ -102,7 +102,7 @@ nonce and optional AAD file. Plaintext is limited to 16 MiB.
 Full-tag AES-CMAC and SHA-2/SHA-3 HMAC generation and native verification use
 dedicated sensitive, nonextractable authentication keys through the libraries,
 CLI and desktop. HMAC keys use the generic-secret generator available in 2.40.
-SP 800-108 counter mode derives AES or generic derivation keys with
+SP 800-108 counter and feedback modes derive AES or generic derivation keys with
 HMAC-SHA-256/384/512 through the libraries, CLI and desktop, using explicit protocol
 label/context.
 Private-key import is not implemented. Certificate parsing and binding do not validate

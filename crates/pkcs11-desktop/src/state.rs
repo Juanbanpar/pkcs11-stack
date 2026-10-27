@@ -703,10 +703,15 @@ impl UiState {
                             {
                                 form.hmac_algorithm = algorithm;
                             }
-                            if let crate::backend::KeyProfile::Kbkdf(caps) = profile
+                            if let crate::backend::KeyProfile::Kbkdf(options) = profile
+                                && let Some(mode) = pkcs11_client::KbkdfMode::ALL
+                                    .into_iter()
+                                    .find(|mode| options.get(*mode).is_some())
+                                && let Some(caps) = options.get(mode)
                                 && let Some(digest) =
                                     KbkdfDigest::ALL.into_iter().find(|d| caps.supports(d.0))
                             {
+                                form.kbkdf.mode = mode;
                                 form.kbkdf.digest = digest;
                             }
                             form.profile = Some(profile);

@@ -47,6 +47,10 @@ pub enum Message {
         id: RequestId,
         output: HkdfOutputChoice,
     },
+    KbkdfMode {
+        id: RequestId,
+        mode: pkcs11_client::KbkdfMode,
+    },
     KbkdfDigest {
         id: RequestId,
         digest: crate::state::KbkdfDigest,
@@ -252,6 +256,7 @@ impl std::fmt::Debug for Message {
             Self::EcdhOutput { .. } => "EcdhOutput",
             Self::HkdfOutput { .. } => "HkdfOutput",
             Self::HkdfMode { .. } => "HkdfMode",
+            Self::KbkdfMode { .. } => "KbkdfMode",
             Self::KbkdfDigest { .. } => "KbkdfDigest",
             Self::KbkdfOutput { .. } => "KbkdfOutput",
             Self::OpenKeyOperation(_) => "OpenKeyOperation",
@@ -420,6 +425,7 @@ impl App {
             Message::EcdhOutput { id, output } => self.state.ecdh_output(id, output),
             Message::HkdfOutput { id, output } => self.state.hkdf_output(id, output),
             Message::HkdfMode { id, mode } => self.state.hkdf_mode(id, mode),
+            Message::KbkdfMode { id, mode } => self.state.kbkdf_mode(id, mode),
             Message::KbkdfDigest { id, digest } => self.state.kbkdf_digest(id, digest),
             Message::KbkdfOutput { id, output } => self.state.kbkdf_output(id, output),
             Message::KeyEdit { id, field, value } => self.state.key_edit(id, field, value),

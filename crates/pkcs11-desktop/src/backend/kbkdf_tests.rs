@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use super::*;
 use crate::backend::{BackendResult, LoginRole, ManagementAction, ObjectEntry, SecretInput};
-use pkcs11_client::{AesGcmDecryptRequest, AesGcmEncryptRequest, DigestAlgorithm, KbkdfOutput};
+use pkcs11_client::{
+    AesGcmDecryptRequest, AesGcmEncryptRequest, DigestAlgorithm, KbkdfMode, KbkdfOutput,
+};
 use secrecy::ExposeSecret;
 use std::path::PathBuf;
 fn managed(result: BackendResult) -> Vec<ObjectEntry> {
@@ -19,6 +21,11 @@ fn managed(result: BackendResult) -> Vec<ObjectEntry> {
 #[test]
 #[ignore = "requires tools/test-kem-hkdf.sh SP800-108 provider"]
 fn persistent_kbkdf_desktop_rechecks_profiles_and_matches_runtime_outputs() {
+    for mode in KbkdfMode::ALL {
+        check_mode(mode);
+    }
+}
+fn check_mode(mode: KbkdfMode) {
     assert_eq!(
         std::env::var("PKCS11_TEST_KDF_ISOLATED").as_deref(),
         Ok("1")
@@ -71,6 +78,12 @@ fn persistent_kbkdf_desktop_rechecks_profiles_and_matches_runtime_outputs() {
             panic!("counter profile")
         };
         let job = || KbkdfJob {
+            mode,
+            iv: if mode == KbkdfMode::Feedback {
+                vec![0xA5; digest.output_len()]
+            } else {
+                Vec::new()
+            },
             digest,
             output: KbkdfOutput::Aes256,
             kdf_label: b"application".to_vec(),
@@ -81,13 +94,20 @@ fn persistent_kbkdf_desktop_rechecks_profiles_and_matches_runtime_outputs() {
         assert_eq!(
             registry.kbkdf_action(
                 scope,
-                KbkdfCapabilities {
-                    input_length: caps.input_length + 1,
-                    ..caps
+                {
+                    let mut stale = caps;
+                    stale.counter.as_mut().unwrap().input_length += 1;
+                    stale
                 },
                 KeyJob::Kbkdf(job())
             ),
             Err(BackendError::KeyOperationUnavailable)
+        );
+        let mut invalid_iv = job();
+        invalid_iv.iv = vec![0; 1];
+        assert_eq!(
+            registry.kbkdf_action(scope, caps, KeyJob::Kbkdf(invalid_iv)),
+            Err(BackendError::KbkdfInput)
         );
         let mut invalid = job();
         invalid.context = vec![0; 4097];
@@ -111,9 +131,16 @@ fn persistent_kbkdf_desktop_rechecks_profiles_and_matches_runtime_outputs() {
             .id;
         let reference = registry.reference(module, token, result).unwrap().0;
         let canonical = pkcs11_client::object_reference(
-            format!("pkcs11:token=kdf-test;id=%FA%82%{index:02X};type=secret-key")
-                .parse()
-                .unwrap(),
+            format!(
+                "pkcs11:token=kdf-test;id=%FA%{:02X}%{index:02X};type=secret-key",
+                if mode == KbkdfMode::Counter {
+                    0x82
+                } else {
+                    0x8A
+                }
+            )
+            .parse()
+            .unwrap(),
         )
         .unwrap();
         let (_, uri) = registry.location(module, token).unwrap();

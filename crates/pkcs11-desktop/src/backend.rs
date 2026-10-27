@@ -447,7 +447,7 @@ impl BackendError {
                 "Select an advertised key type and provide a label and a nonempty hexadecimal ID."
             }
             Self::KbkdfInput => {
-                "Check the SP800-108 PRF, label/context bounds, output length, object label and new hexadecimal ID."
+                "Check the SP800-108 mode, PRF, feedback IV length, label/context bounds, output length, object label and new hexadecimal ID."
             }
             Self::HkdfInput => {
                 "Check the HKDF output length, hexadecimal salt (at most 4096 bytes), UTF-8 context (at most 4096 bytes), label and new hexadecimal ID."

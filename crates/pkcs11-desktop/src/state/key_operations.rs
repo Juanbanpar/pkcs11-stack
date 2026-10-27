@@ -6,6 +6,7 @@ use pkcs11_client::{KeyType, ObjectClass};
 pub enum KeyField {
     Salt,
     KdfLabel,
+    KdfIv,
     SaltKey,
     Info,
     Length,
@@ -188,6 +189,12 @@ impl UiState {
         {
             form.picker = None;
             match field {
+                KeyField::KdfIv
+                    if form.scope.mode == CryptoMode::Kbkdf
+                        && form.kbkdf.mode == pkcs11_client::KbkdfMode::Feedback =>
+                {
+                    form.kbkdf.iv = value
+                }
                 KeyField::KdfLabel if form.scope.mode == CryptoMode::Kbkdf => {
                     form.kbkdf.kdf_label = value
                 }
@@ -209,6 +216,7 @@ impl UiState {
                 }
                 KeyField::Salt
                 | KeyField::SaltKey
+                | KeyField::KdfIv
                 | KeyField::KdfLabel
                 | KeyField::Info
                 | KeyField::Length => {}

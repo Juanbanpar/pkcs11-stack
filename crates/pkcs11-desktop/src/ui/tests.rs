@@ -1762,11 +1762,17 @@ fn counter_kdf_form_selects_prf_by_keyboard_and_keeps_protocol_inputs_separate()
             id,
             result: Ok(BackendResult::KeyOptions {
                 scope,
-                profile: KeyProfile::Kbkdf(pkcs11_client::KbkdfCapabilities {
-                    input_length: 32,
-                    sha256: true,
-                    sha384: true,
-                    sha512: true,
+                profile: KeyProfile::Kbkdf({
+                    let caps = pkcs11_client::KbkdfCapabilities {
+                        input_length: 32,
+                        sha256: true,
+                        sha384: true,
+                        sha512: true,
+                    };
+                    pkcs11_client::KbkdfOptions {
+                        counter: Some(caps),
+                        feedback: Some(caps),
+                    }
                 }),
             }),
         });
@@ -1806,6 +1812,52 @@ fn counter_kdf_form_selects_prf_by_keyboard_and_keeps_protocol_inputs_separate()
     for dark in [false, true] {
         render_screen(&app.state, "derive-kbkdf-secret", 1060, 900, dark);
     }
+    let mut feedback = run_focused(
+        initial,
+        &["type enter", "type tab", "type enter"],
+        Some("choice-SP800-108 mode"),
+    );
+    let feedback_id = feedback.state.key_form.as_ref().unwrap().id;
+    assert_eq!(
+        feedback.state.key_form.as_ref().unwrap().kbkdf.mode,
+        pkcs11_client::KbkdfMode::Feedback
+    );
+    let _ = feedback.update(Message::KeyEdit {
+        id: feedback_id,
+        field: crate::state::KeyField::KdfIv,
+        value: "a5".repeat(32),
+    });
+    for dark in [false, true] {
+        render_screen(&feedback.state, "derive-kbkdf-feedback", 1060, 900, dark);
+    }
+    let _ = feedback.update(Message::KbkdfMode {
+        id: feedback_id,
+        mode: pkcs11_client::KbkdfMode::Counter,
+    });
+    assert!(
+        feedback
+            .state
+            .key_form
+            .as_ref()
+            .unwrap()
+            .kbkdf
+            .iv
+            .is_empty()
+    );
+    let _ = feedback.update(Message::KbkdfMode {
+        id: feedback_id,
+        mode: pkcs11_client::KbkdfMode::Feedback,
+    });
+    assert!(
+        feedback
+            .state
+            .key_form
+            .as_ref()
+            .unwrap()
+            .kbkdf
+            .iv
+            .is_empty()
+    );
     let _ = app.update(Message::DismissKeyOperation(id));
     let _ = app.update(Message::KbkdfDigest {
         id,
