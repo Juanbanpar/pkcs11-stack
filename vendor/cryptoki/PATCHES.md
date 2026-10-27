@@ -9,6 +9,9 @@ Published crate SHA-256:
 
 Local changes:
 
+- `src/object.rs`: correct SHA-384, SHA-512 and SHA-224 HMAC key-type IDs;
+  they previously reused the SHA-256 HMAC constant.
+
 - `src/session/signing_macing.rs`: complete initialized single-part signing into
   caller-bounded storage without an output-length query or allocation.
 

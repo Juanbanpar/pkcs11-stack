@@ -44,3 +44,17 @@ fn standard_unknown_and_vendor_mechanism_ids_round_trip() {
         assert_eq!(*mechanism, raw);
     }
 }
+
+#[test]
+fn hmac_key_types_preserve_distinct_standard_ids() {
+    use pkcs11_runtime::KeyType;
+    for (key_type, raw) in [
+        (KeyType::SHA256_HMAC, 0x2B),
+        (KeyType::SHA384_HMAC, 0x2C),
+        (KeyType::SHA512_HMAC, 0x2D),
+        (KeyType::SHA224_HMAC, 0x2E),
+    ] {
+        assert_eq!(*key_type, raw);
+        assert_eq!(KeyType::try_from(raw).unwrap(), key_type);
+    }
+}
