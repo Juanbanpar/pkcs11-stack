@@ -193,10 +193,13 @@ fn software_token_typed_generation_permissions_and_use() {
             let list = objects(
                 registry.key_operation(
                     scope,
-                    super::KeyProfile::Classical(pkcs11_client::KeyOperationProfile::AesKeyWrap(
-                        size.length(),
-                    )),
+                    super::KeyProfile::AesWrapping(pkcs11_client::AesKeyWrapCapabilities {
+                        key_length: size.length(),
+                        kw: true,
+                        kwp: false,
+                    }),
                     KeyJob::Wrap {
+                        algorithm: pkcs11_client::AesKeyWrapAlgorithm::Kw,
                         target: object(&list, "transferable", ObjectClass::SECRET_KEY),
                         output: wrapped.clone(),
                     },
@@ -213,10 +216,13 @@ fn software_token_typed_generation_permissions_and_use() {
             objects(
                 registry.key_operation(
                     scope,
-                    super::KeyProfile::Classical(pkcs11_client::KeyOperationProfile::AesKeyWrap(
-                        size.length(),
-                    )),
+                    super::KeyProfile::AesWrapping(pkcs11_client::AesKeyWrapCapabilities {
+                        key_length: size.length(),
+                        kw: true,
+                        kwp: false,
+                    }),
                     KeyJob::Unwrap {
+                        algorithm: pkcs11_client::AesKeyWrapAlgorithm::Kw,
                         input: wrapped,
                         id: vec![0xA6, index as u8],
                         label: format!("desktop-unwrapped-{index}").into_bytes(),

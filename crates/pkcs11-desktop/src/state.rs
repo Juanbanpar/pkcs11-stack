@@ -687,6 +687,13 @@ impl UiState {
                 let error = match result {
                     Ok(BackendResult::KeyOptions { profile, .. }) => {
                         if let Some(form) = &mut self.key_form {
+                            if let crate::backend::KeyProfile::AesWrapping(caps) = profile {
+                                form.wrap_algorithm = if caps.kw {
+                                    pkcs11_client::AesKeyWrapAlgorithm::Kw
+                                } else {
+                                    pkcs11_client::AesKeyWrapAlgorithm::Kwp
+                                };
+                            }
                             form.profile = Some(profile);
                             form.loaded = true;
                         }

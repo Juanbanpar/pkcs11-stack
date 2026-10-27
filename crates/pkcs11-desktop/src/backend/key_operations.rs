@@ -4,8 +4,9 @@ use super::{
     browse::read_session,
 };
 use pkcs11_client::{
-    EcdhKdf, EcdhOutput, EcdhPeer, EcdhRequest, KeyOperation, KeyOperationProfile,
-    SecretKeyIdentity, SessionMode, SessionState, UnwrapRequest, WrapRequest,
+    AesKeyWrapAlgorithm, AesKeyWrapCapabilities, EcdhKdf, EcdhOutput, EcdhPeer, EcdhRequest,
+    KeyOperation, KeyOperationProfile, SecretKeyIdentity, SessionMode, SessionState, UnwrapRequest,
+    WrapRequest,
 };
 use std::{
     fs::File,
@@ -15,6 +16,7 @@ use std::{
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum KeyProfile {
+    AesWrapping(AesKeyWrapCapabilities),
     Hkdf(pkcs11_client::HkdfCapabilities),
     Classical(KeyOperationProfile),
     MlKem(pkcs11_client::MlKemParameterSet),
@@ -28,10 +30,7 @@ impl KeyProfile {
                     Self::Classical(KeyOperationProfile::EcdhRaw(_)),
                     CryptoMode::Derive
                 )
-                | (
-                    Self::Classical(KeyOperationProfile::AesKeyWrap(_)),
-                    CryptoMode::Wrap | CryptoMode::Unwrap
-                )
+                | (Self::AesWrapping(_), CryptoMode::Wrap | CryptoMode::Unwrap)
                 | (
                     Self::MlKem(_),
                     CryptoMode::Encapsulate | CryptoMode::Decapsulate
@@ -72,10 +71,12 @@ pub enum KeyJob {
         label: Vec<u8>,
     },
     Wrap {
+        algorithm: AesKeyWrapAlgorithm,
         target: ResourceId,
         output: PathBuf,
     },
     Unwrap {
+        algorithm: AesKeyWrapAlgorithm,
         input: PathBuf,
         id: Vec<u8>,
         label: Vec<u8>,
@@ -160,6 +161,11 @@ impl Registry {
                     .ml_kem_capabilities(&reference, super::kem::operation(scope.mode)?)
                     .map(|caps| KeyProfile::MlKem(caps.parameter_set))
                     .map_err(|e| BackendError::from(&e))
+            } else if matches!(scope.mode, CryptoMode::Wrap | CryptoMode::Unwrap) {
+                session
+                    .aes_key_wrap_options(&reference, operation(scope.mode)?)
+                    .map(KeyProfile::AesWrapping)
+                    .map_err(|e| BackendError::from(&e))
             } else {
                 session
                     .key_operation_options(&reference, operation(scope.mode)?)
@@ -178,14 +184,39 @@ impl Registry {
         if !selected.supports(scope.mode) {
             return Err(BackendError::KeyOperationUnavailable);
         }
-        let selected = match selected {
-            KeyProfile::Hkdf(profile) => return self.hkdf_action(scope, profile, job),
-            KeyProfile::Classical(profile) => profile,
-            KeyProfile::MlKem(parameter) => return self.kem_action(scope, parameter, job),
+        let algorithm = match &job {
+            KeyJob::Wrap { algorithm, .. } | KeyJob::Unwrap { algorithm, .. } => Some(*algorithm),
+            _ => None,
         };
+        match selected {
+            KeyProfile::AesWrapping(caps) if !algorithm.is_some_and(|a| caps.supports(a)) => {
+                return Err(BackendError::KeyOperationUnavailable);
+            }
+            KeyProfile::Hkdf(profile) => return self.hkdf_action(scope, profile, job),
+            KeyProfile::MlKem(parameter) => return self.kem_action(scope, parameter, job),
+            _ => {}
+        }
         let (index, uri, reference) = self.key_location(scope)?;
         let operation = operation(scope.mode)?;
         let module = &self.modules[index];
+        let recheck = |session: &mut pkcs11_client::ManagementSession<'_>| {
+            if let (KeyProfile::AesWrapping(expected), Some(algorithm)) = (selected, algorithm) {
+                let caps = session
+                    .aes_key_wrap_options(&reference, operation)
+                    .map_err(|e| BackendError::from(&e))?;
+                if caps.supports(algorithm) && expected.key_length == caps.key_length {
+                    return Ok(());
+                }
+            } else if let KeyProfile::Classical(expected) = selected
+                && session
+                    .key_operation_options(&reference, operation)
+                    .map_err(|e| BackendError::from(&e))?
+                    == expected
+            {
+                return Ok(());
+            }
+            Err(BackendError::KeyOperationUnavailable)
+        };
         let mode = if operation == KeyOperation::Wrap {
             module.read_mode(scope.token)?
         } else {
@@ -204,13 +235,7 @@ impl Registry {
                 let peer = EcdhPeer::from_spki_der(&read(&peer, 1024)?)
                     .map_err(|_| BackendError::KeyOperationInput)?;
                 read_session(module, &uri, mode, |session| {
-                    if session
-                        .key_operation_options(&reference, operation)
-                        .map_err(|e| BackendError::from(&e))?
-                        != selected
-                    {
-                        return Err(BackendError::KeyOperationUnavailable);
-                    }
+                    recheck(session)?;
                     session
                         .derive_ecdh(
                             &reference,
@@ -228,19 +253,24 @@ impl Registry {
                         .map_err(|e| BackendError::from(&e))
                 })
             }
-            (KeyOperation::Wrap, KeyJob::Wrap { target, output }) => {
+            (
+                KeyOperation::Wrap,
+                KeyJob::Wrap {
+                    target,
+                    output,
+                    algorithm,
+                },
+            ) => {
                 let target = self.reference(scope.module, scope.token, target)?.0;
                 let mut output = super::management::create_output(&output)?;
                 let bytes = read_session(module, &uri, mode, |session| {
-                    if session
-                        .key_operation_options(&reference, operation)
-                        .map_err(|e| BackendError::from(&e))?
-                        != selected
-                    {
-                        return Err(BackendError::KeyOperationUnavailable);
-                    }
+                    recheck(session)?;
                     session
-                        .wrap(&reference, &WrapRequest { target: &target })
+                        .wrap_with_algorithm(
+                            &reference,
+                            &WrapRequest { target: &target },
+                            algorithm,
+                        )
                         .map_err(|e| BackendError::from(&e))
                 })?;
                 output
@@ -248,21 +278,23 @@ impl Registry {
                     .and_then(|()| output.flush())
                     .map_err(|_| BackendError::FileWrite)
             }
-            (KeyOperation::Unwrap, KeyJob::Unwrap { input, id, label }) => {
+            (
+                KeyOperation::Unwrap,
+                KeyJob::Unwrap {
+                    input,
+                    id,
+                    label,
+                    algorithm,
+                },
+            ) => {
                 let bytes = read(&input, 40)?;
                 if ![24, 32, 40].contains(&bytes.len()) {
                     return Err(BackendError::KeyOperationInput);
                 }
                 read_session(module, &uri, mode, |session| {
-                    if session
-                        .key_operation_options(&reference, operation)
-                        .map_err(|e| BackendError::from(&e))?
-                        != selected
-                    {
-                        return Err(BackendError::KeyOperationUnavailable);
-                    }
+                    recheck(session)?;
                     session
-                        .unwrap(
+                        .unwrap_with_algorithm(
                             &reference,
                             &UnwrapRequest {
                                 wrapped: &bytes,
@@ -271,6 +303,7 @@ impl Registry {
                                     label: &label,
                                 },
                             },
+                            algorithm,
                         )
                         .map_err(|e| BackendError::from(&e))
                 })

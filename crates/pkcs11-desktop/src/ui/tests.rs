@@ -359,6 +359,54 @@ fn choice_keyboard_navigation_selects_typed_client_parameters() {
 }
 
 #[test]
+fn wrapping_algorithm_choice_is_keyboard_accessible_and_preserves_kwp() {
+    fn initial() -> UiState {
+        use crate::backend::{BackendCommand, BackendEvent, BackendResult, CryptoMode, KeyProfile};
+        let mut state = state();
+        state.loaded_modules[0].tokens[0].login = LoginState::User;
+        state.token_page = TokenPage::Objects;
+        let mut key = object(4, "AES wrapping key");
+        key.class = Some(pkcs11_client::ObjectClass::SECRET_KEY);
+        key.uri = Some("pkcs11:serial=A;id=%04;type=secret-key".into());
+        state.object_details = Some(crate::backend::ObjectDetails {
+            fields: vec![],
+            key_type: Some(pkcs11_client::KeyType::AES),
+        });
+        state.objects = vec![key];
+        state.selected_object = Some(ResourceId(4));
+        let BackendCommand::CryptoOptions { id, scope, .. } =
+            state.open_key_operation(CryptoMode::Wrap).unwrap()
+        else {
+            panic!("wrap options");
+        };
+        state.event(BackendEvent::Completed {
+            id,
+            result: Ok(BackendResult::KeyOptions {
+                scope,
+                profile: KeyProfile::AesWrapping(pkcs11_client::AesKeyWrapCapabilities {
+                    key_length: 32,
+                    kw: true,
+                    kwp: true,
+                }),
+            }),
+        });
+        state
+    }
+    let app = run_focused(
+        initial,
+        &["type enter", "type tab", "type enter"],
+        Some("choice-Wrapping algorithm"),
+    );
+    assert_eq!(
+        app.state.key_form.as_ref().unwrap().wrap_algorithm,
+        pkcs11_client::AesKeyWrapAlgorithm::Kwp
+    );
+    for dark in [false, true] {
+        render_screen(&app.state, "aes-kwp-wrap", 1060, 900, dark);
+    }
+}
+
+#[test]
 fn disappeared_focus_target_falls_back_to_a_visible_control() {
     fn missing_opener() -> UiState {
         let mut state = state();

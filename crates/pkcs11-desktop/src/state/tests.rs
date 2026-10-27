@@ -1579,18 +1579,76 @@ fn key_state(
         panic!("options");
     };
     let profile = if mode == CryptoMode::Derive {
-        pkcs11_client::KeyOperationProfile::EcdhRaw(pkcs11_client::NamedCurve::P256)
+        crate::backend::KeyProfile::Classical(pkcs11_client::KeyOperationProfile::EcdhRaw(
+            pkcs11_client::NamedCurve::P256,
+        ))
     } else {
-        pkcs11_client::KeyOperationProfile::AesKeyWrap(32)
+        crate::backend::KeyProfile::AesWrapping(pkcs11_client::AesKeyWrapCapabilities {
+            key_length: 32,
+            kw: true,
+            kwp: true,
+        })
+    };
+    state.event(complete(id, BackendResult::KeyOptions { scope, profile }));
+    (state, id, scope)
+}
+
+#[test]
+fn aes_key_wrap_selection_is_explicit_scoped_and_checked_before_submission() {
+    use crate::backend::{CryptoMode, KeyJob, KeyProfile};
+    use pkcs11_client::{AesKeyWrapAlgorithm, AesKeyWrapCapabilities};
+    let (mut state, id, _) = key_state(CryptoMode::Unwrap);
+    state.wrap_algorithm(RequestId(id.0 + 1), AesKeyWrapAlgorithm::Kwp);
+    assert_eq!(
+        state.key_form.as_ref().unwrap().wrap_algorithm,
+        AesKeyWrapAlgorithm::Kw
+    );
+    state.wrap_algorithm(id, AesKeyWrapAlgorithm::Kwp);
+    state.key_edit(id, KeyField::Input, "wrapped.bin".into());
+    state.key_edit(id, KeyField::Id, "F4B3".into());
+    state.key_edit(id, KeyField::Label, "unwrapped key".into());
+    state.key_form.as_mut().unwrap().profile =
+        Some(KeyProfile::AesWrapping(AesKeyWrapCapabilities {
+            key_length: 32,
+            kw: true,
+            kwp: false,
+        }));
+    assert!(state.submit_key_operation(id).is_none());
+    state.wrap_algorithm(id, AesKeyWrapAlgorithm::Kw);
+    let BackendCommand::KeyOperation {
+        job: KeyJob::Unwrap { algorithm, .. },
+        ..
+    } = state.submit_key_operation(id).unwrap()
+    else {
+        panic!("unwrap request");
+    };
+    assert_eq!(algorithm, AesKeyWrapAlgorithm::Kw);
+    let (mut state, _, _) = key_state(CryptoMode::Wrap);
+    let command = state.open_key_operation(CryptoMode::Wrap).unwrap();
+    let id = command.id();
+    let BackendCommand::CryptoOptions { scope, .. } = command else {
+        panic!("wrap options");
     };
     state.event(complete(
         id,
         BackendResult::KeyOptions {
             scope,
-            profile: crate::backend::KeyProfile::Classical(profile),
+            profile: KeyProfile::AesWrapping(AesKeyWrapCapabilities {
+                key_length: 16,
+                kw: false,
+                kwp: true,
+            }),
         },
     ));
-    (state, id, scope)
+    assert_eq!(
+        state.key_form.as_ref().unwrap().wrap_algorithm,
+        AesKeyWrapAlgorithm::Kwp
+    );
+    state.wrap_algorithm(id, AesKeyWrapAlgorithm::Kw);
+    assert_eq!(
+        state.key_form.as_ref().unwrap().wrap_algorithm,
+        AesKeyWrapAlgorithm::Kwp
+    );
 }
 #[test]
 fn key_operations_validate_forms_and_cannot_cancel_or_supersede_mutations() {

@@ -2,6 +2,174 @@
 use super::*;
 use crate::backend::{LoginRole, ObjectEntry, SecretInput};
 use pkcs11_client::{ObjectClass, Provider};
+#[test]
+#[ignore = "requires the disposable Kryoptic runner"]
+fn persistent_aes_wrap_desktop_algorithms_and_output_policy() {
+    assert_eq!(
+        std::env::var("PKCS11_TEST_KDF_ISOLATED").as_deref(),
+        Ok("1")
+    );
+    let root = PathBuf::from(std::env::var_os("PKCS11_TEST_KDF_DIR").unwrap());
+    let mut registry = Registry::default();
+    let module = registry
+        .load(&PathBuf::from(
+            std::env::var_os("PKCS11_TEST_KDF_MODULE").unwrap(),
+        ))
+        .unwrap();
+    let token = registry.modules[0]
+        .entry
+        .tokens
+        .iter()
+        .find(|t| t.label == "kdf-test")
+        .unwrap()
+        .id;
+    registry
+        .login(
+            module,
+            token,
+            LoginRole::User,
+            SecretInput::Value("12345678".into()),
+        )
+        .unwrap();
+    let mut objects = registry.objects(module, token).unwrap();
+    let scope = |objects: &[ObjectEntry], mode, label| CryptoScope {
+        module,
+        token,
+        object: object(objects, label, ObjectClass::SECRET_KEY),
+        mode,
+    };
+    let current = scope(&objects, CryptoMode::Wrap, "kwp-A0-0");
+    let profile = match registry.key_options(current).unwrap() {
+        BackendResult::KeyOptions { profile, .. } => profile,
+        _ => panic!("wrap choices"),
+    };
+    assert!(matches!(profile, KeyProfile::AesWrapping(caps) if caps.kw && caps.kwp));
+    for (index, algorithm) in [AesKeyWrapAlgorithm::Kw, AesKeyWrapAlgorithm::Kwp]
+        .into_iter()
+        .enumerate()
+    {
+        let output = root.join(format!("desktop-wrap-{index}"));
+        let expected = root.join(format!("desktop-wrap-{index}-expected"));
+        let input = root.join("desktop-wrap-public-vector");
+        std::fs::write(&input, (0..16).collect::<Vec<u8>>()).unwrap();
+        let args = [
+            "enc",
+            if algorithm == AesKeyWrapAlgorithm::Kw {
+                "-id-aes128-wrap"
+            } else {
+                "-id-aes128-wrap-pad"
+            },
+            "-K",
+            "000102030405060708090a0b0c0d0e0f",
+            "-iv",
+            if algorithm == AesKeyWrapAlgorithm::Kw {
+                "A6A6A6A6A6A6A6A6"
+            } else {
+                "A65959A6"
+            },
+            "-in",
+            input.to_str().unwrap(),
+            "-out",
+            expected.to_str().unwrap(),
+        ];
+        assert!(
+            std::process::Command::new("openssl")
+                .args(args)
+                .output()
+                .unwrap()
+                .status
+                .success()
+        );
+        let current = scope(&objects, CryptoMode::Wrap, "kwp-A0-0");
+        objects = managed(
+            registry.key_operation(
+                current,
+                profile,
+                KeyJob::Wrap {
+                    algorithm,
+                    target: object(&objects, "kwp-A1-0", ObjectClass::SECRET_KEY),
+                    output: output.clone(),
+                },
+            ),
+            None,
+        );
+        assert_eq!(
+            std::fs::read(&output).unwrap(),
+            std::fs::read(expected).unwrap()
+        );
+        let current = scope(&objects, CryptoMode::Unwrap, "kwp-A0-0");
+        objects = managed(
+            registry.key_operation(
+                current,
+                profile,
+                KeyJob::Unwrap {
+                    algorithm,
+                    input: output.clone(),
+                    id: vec![0xF4, 0xB1, index as u8],
+                    label: format!("desktop-unwrapped-{index}").into_bytes(),
+                },
+            ),
+            None,
+        );
+        let imported = object(
+            &objects,
+            &format!("desktop-unwrapped-{index}"),
+            ObjectClass::SECRET_KEY,
+        );
+        let fields = registry.inspect(module, token, imported).unwrap().fields;
+        for (name, value) in [
+            ("Sensitive", true),
+            ("Extractable", false),
+            ("Encrypt", true),
+            ("Decrypt", true),
+            ("Wrap", false),
+            ("Unwrap", false),
+            ("Derive", false),
+        ] {
+            assert!(fields.iter().any(|f| f.name == name
+                && f.value.as_deref() == Some(if value { "true" } else { "false" })));
+        }
+        let count = objects.len();
+        let current = scope(&objects, CryptoMode::Unwrap, "kwp-A0-0");
+        objects = managed(
+            registry.key_operation(
+                current,
+                profile,
+                KeyJob::Unwrap {
+                    algorithm: if algorithm == AesKeyWrapAlgorithm::Kw {
+                        AesKeyWrapAlgorithm::Kwp
+                    } else {
+                        AesKeyWrapAlgorithm::Kw
+                    },
+                    input: output,
+                    id: vec![0xF4, 0xB2, index as u8],
+                    label: b"invalid desktop unwrap".to_vec(),
+                },
+            ),
+            Some(BackendError::Client(pkcs11_client::ErrorKind::Runtime)),
+        );
+        assert_eq!(objects.len(), count);
+    }
+    let current = scope(&objects, CryptoMode::Wrap, "kwp-A2-2");
+    assert!(
+        matches!(registry.key_options(current).unwrap(), BackendResult::KeyOptions { profile: KeyProfile::AesWrapping(caps), .. } if !caps.kw && caps.kwp)
+    );
+    let rejected = root.join("desktop-wrap-forbidden");
+    managed(
+        registry.key_operation(
+            current,
+            profile,
+            KeyJob::Wrap {
+                algorithm: AesKeyWrapAlgorithm::Kwp,
+                target: object(&objects, "kwp-A2-0", ObjectClass::SECRET_KEY),
+                output: rejected.clone(),
+            },
+        ),
+        Some(BackendError::Client(pkcs11_client::ErrorKind::Policy)),
+    );
+    assert!(std::fs::read(&rejected).unwrap().is_empty());
+    registry.close().unwrap();
+}
 fn object(objects: &[ObjectEntry], label: &str, class: ObjectClass) -> ResourceId {
     objects
         .iter()
@@ -67,10 +235,7 @@ fn software_token_derivation_wrapping_unwrapping_permissions_and_failures() {
         BackendResult::KeyOptions { profile, .. } => profile,
         _ => panic!("profile"),
     };
-    assert_eq!(
-        profile,
-        KeyProfile::Classical(KeyOperationProfile::AesKeyWrap(32))
-    );
+    assert!(matches!(profile, KeyProfile::AesWrapping(caps) if caps.key_length == 32 && caps.kw));
     let output = directory.join("wrapped");
     let target = object(&objects, "transferable", ObjectClass::SECRET_KEY);
     objects = managed(
@@ -78,6 +243,7 @@ fn software_token_derivation_wrapping_unwrapping_permissions_and_failures() {
             wrapping,
             profile,
             KeyJob::Wrap {
+                algorithm: pkcs11_client::AesKeyWrapAlgorithm::Kw,
                 target,
                 output: output.clone(),
             },
@@ -100,6 +266,7 @@ fn software_token_derivation_wrapping_unwrapping_permissions_and_failures() {
             current,
             profile,
             KeyJob::Wrap {
+                algorithm: pkcs11_client::AesKeyWrapAlgorithm::Kw,
                 target,
                 output: output.clone(),
             },
@@ -115,6 +282,7 @@ fn software_token_derivation_wrapping_unwrapping_permissions_and_failures() {
             current,
             profile,
             KeyJob::Wrap {
+                algorithm: pkcs11_client::AesKeyWrapAlgorithm::Kw,
                 target,
                 output: rejected.clone(),
             },
@@ -128,6 +296,7 @@ fn software_token_derivation_wrapping_unwrapping_permissions_and_failures() {
             current,
             profile,
             KeyJob::Unwrap {
+                algorithm: pkcs11_client::AesKeyWrapAlgorithm::Kw,
                 input: output.clone(),
                 id: vec![0x80],
                 label: b"unwrapped".to_vec(),
@@ -213,6 +382,7 @@ fn software_token_derivation_wrapping_unwrapping_permissions_and_failures() {
             current,
             profile,
             KeyJob::Unwrap {
+                algorithm: pkcs11_client::AesKeyWrapAlgorithm::Kw,
                 input: output.clone(),
                 id: vec![0x80],
                 label: b"collision".to_vec(),
@@ -231,6 +401,7 @@ fn software_token_derivation_wrapping_unwrapping_permissions_and_failures() {
             current,
             profile,
             KeyJob::Unwrap {
+                algorithm: pkcs11_client::AesKeyWrapAlgorithm::Kw,
                 input: bad,
                 id: vec![0x81],
                 label: b"invalid".to_vec(),

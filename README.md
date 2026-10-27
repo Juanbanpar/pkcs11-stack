@@ -89,7 +89,7 @@ RSA-OAEP encryption/decryption supports independently selected SHA-2 OAEP/MGF1
 digests and binary labels. It processes one RSA block. Raw ECDH creates token-held generic
 secrets on P-256/P-384/P-521. Explicit ANSI X9.63 and NIST SP 800-56A SHA-2
 KDFs can instead produce AES keys or generic derivation secrets; AES key
-wrapping and unwrapping use RFC 3394.
+wrapping and unwrapping support explicit AES-KW (RFC 3394) and AES-KWP (RFC 5649).
 Runtime and client generate derivation-only EC pairs and AES keys restricted to
 encryption/decryption or wrapping/unwrapping. A shared client capability query
 reports generation choices for the CLI and GUI. Both expose ECDH and AES

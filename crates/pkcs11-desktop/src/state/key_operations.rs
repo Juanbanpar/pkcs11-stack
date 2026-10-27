@@ -24,6 +24,7 @@ impl std::fmt::Display for WrapTarget {
     }
 }
 pub struct KeyForm {
+    pub wrap_algorithm: pkcs11_client::AesKeyWrapAlgorithm,
     pub hkdf: HkdfForm,
     pub ecdh: super::ecdh::EcdhForm,
     pub id: RequestId,
@@ -107,6 +108,7 @@ impl UiState {
         let id = self.begin(OperationKind::CryptoOptions)?;
         self.clear_crypto_form();
         self.key_form = Some(KeyForm {
+            wrap_algorithm: pkcs11_client::AesKeyWrapAlgorithm::Kw,
             hkdf: HkdfForm::default(),
             ecdh: super::ecdh::EcdhForm::default(),
             id,
@@ -168,6 +170,18 @@ impl UiState {
             && form.targets.contains(&target)
         {
             form.target = Some(target);
+        }
+    }
+    pub fn wrap_algorithm(&mut self, id: RequestId, algorithm: pkcs11_client::AesKeyWrapAlgorithm) {
+        if !self.can_submit() {
+            return;
+        }
+        if let Some(form) = &mut self.key_form
+            && form.id == id
+            && let Some(KeyProfile::AesWrapping(caps)) = form.profile
+            && caps.supports(algorithm)
+        {
+            form.wrap_algorithm = algorithm;
         }
     }
     pub fn key_picker(&mut self, id: RequestId, field: KeyField) -> Option<(RequestId, bool)> {
@@ -246,7 +260,8 @@ impl UiState {
             && match form.scope.mode {
                 CryptoMode::Hkdf => hkdf_job.is_some(),
                 CryptoMode::Wrap => {
-                    !form.output.is_empty()
+                    matches!(form.profile, Some(KeyProfile::AesWrapping(caps)) if caps.supports(form.wrap_algorithm))
+                        && !form.output.is_empty()
                         && form
                             .target
                             .as_ref()
@@ -256,7 +271,9 @@ impl UiState {
                 | CryptoMode::Unwrap
                 | CryptoMode::Encapsulate
                 | CryptoMode::Decapsulate => {
-                    (form.scope.mode != CryptoMode::Derive || ecdh_parameters.is_some())
+                    (form.scope.mode != CryptoMode::Unwrap
+                        || matches!(form.profile, Some(KeyProfile::AesWrapping(caps)) if caps.supports(form.wrap_algorithm)))
+                        && (form.scope.mode != CryptoMode::Derive || ecdh_parameters.is_some())
                         && (if form.scope.mode == CryptoMode::Encapsulate {
                             !form.output.is_empty()
                         } else {
@@ -285,6 +302,7 @@ impl UiState {
         let job = match form.scope.mode {
             CryptoMode::Hkdf => KeyJob::Hkdf(hkdf_job?),
             CryptoMode::Wrap => KeyJob::Wrap {
+                algorithm: form.wrap_algorithm,
                 target: form.target?.id,
                 output: form
                     .picked_output
@@ -309,6 +327,7 @@ impl UiState {
                 label: form.label.into_bytes(),
             },
             CryptoMode::Unwrap => KeyJob::Unwrap {
+                algorithm: form.wrap_algorithm,
                 input,
                 id: identity?,
                 label: form.label.into_bytes(),

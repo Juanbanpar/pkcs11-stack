@@ -56,6 +56,10 @@ pub enum Message {
         id: RequestId,
         target: WrapTarget,
     },
+    WrapAlgorithm {
+        id: RequestId,
+        algorithm: pkcs11_client::AesKeyWrapAlgorithm,
+    },
     KeyBrowse {
         id: RequestId,
         field: KeyField,
@@ -234,6 +238,7 @@ impl std::fmt::Debug for Message {
             Self::OpenKeyOperation(_) => "OpenKeyOperation",
             Self::KeyEdit { .. } => "KeyEdit",
             Self::KeyTarget { .. } => "KeyTarget",
+            Self::WrapAlgorithm { .. } => "WrapAlgorithm",
             Self::KeyBrowse { .. } => "KeyBrowse",
             Self::KeyPicked { .. } => "KeyPicked",
             Self::SubmitKeyOperation(_) => "SubmitKeyOperation",
@@ -396,6 +401,7 @@ impl App {
             Message::HkdfOutput { id, output } => self.state.hkdf_output(id, output),
             Message::KeyEdit { id, field, value } => self.state.key_edit(id, field, value),
             Message::KeyTarget { id, target } => self.state.key_target(id, target),
+            Message::WrapAlgorithm { id, algorithm } => self.state.wrap_algorithm(id, algorithm),
             Message::KeyPicked { id, path } => self.state.key_picked(id, path),
             Message::SubmitKeyOperation(id) => {
                 let command = self.state.submit_key_operation(id);

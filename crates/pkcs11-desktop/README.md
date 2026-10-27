@@ -311,12 +311,16 @@ Select an AES key with wrapping permission and choose **Wrap AES key**. Select
 another secret key as the target and a new output file. The client requires an
 extractable AES-128/192/256 target and honors CKA_WRAP_WITH_TRUSTED. Candidates
 are checked on submission; the app never changes a key's extractability or trust
-policy. Wrapped output uses RFC 3394 with the default IV and contains no object
+policy. Select AES-KW (RFC 3394) or AES-KWP (RFC 5649) from the permitted choices.
+KW remains the default when available. Both use standard default IVs; KWP has
+its own mechanism and never substitutes deprecated `AES_KEY_WRAP_PAD`.
+Wrapped output contains no algorithm identifier or object
 metadata. Files are never overwritten; a failed operation may leave an empty or
 partial file.
 
 Choose **Unwrap AES key** on an AES key with unwrapping permission, select a
-24/32/40-byte wrapped file, and provide a new label and hexadecimal ID. It creates
+24/32/40-byte wrapped file, select the algorithm used for wrapping, and provide
+a new label and hexadecimal ID. It creates
 an AES-128/192/256 token key with encryption/decryption permission only. The key
 is private, sensitive and nonextractable. Existing secret key IDs are rejected.
 Unwrapping and derivation require a writable token. Generate ECDH and AES wrapping
