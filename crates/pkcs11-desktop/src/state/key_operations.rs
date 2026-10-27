@@ -5,6 +5,7 @@ use pkcs11_client::{KeyType, ObjectClass};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum KeyField {
     Salt,
+    SaltKey,
     Info,
     Length,
     Input,
@@ -173,13 +174,16 @@ impl UiState {
             form.picker = None;
             match field {
                 KeyField::Salt if form.scope.mode == CryptoMode::Hkdf => form.hkdf.salt = value,
+                KeyField::SaltKey if form.scope.mode == CryptoMode::Hkdf => {
+                    form.hkdf.salt_key = value
+                }
                 KeyField::Info if form.scope.mode == CryptoMode::Hkdf => form.hkdf.info = value,
                 KeyField::Length if form.scope.mode == CryptoMode::Hkdf => form.hkdf.length = value,
                 KeyField::Info if form.scope.mode == CryptoMode::Derive => form.ecdh.info = value,
                 KeyField::Length if form.scope.mode == CryptoMode::Derive => {
                     form.ecdh.length = value
                 }
-                KeyField::Salt | KeyField::Info | KeyField::Length => {}
+                KeyField::Salt | KeyField::SaltKey | KeyField::Info | KeyField::Length => {}
                 KeyField::Input => {
                     form.input = value;
                     form.picked_input = None;

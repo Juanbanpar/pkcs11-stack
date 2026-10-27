@@ -276,7 +276,7 @@ permit derivation. USER login on a writable token is required.
 
 The stage selector defaults to **Extract and expand**. **Extract PRK only**
 creates a hash-length derivation secret and hides the context and output controls.
-Select that secret for **Expand PRK only**, which hides the salt field. Switching
+Select that secret for **Expand PRK only**, which hides both salt fields. Switching
 stages clears parameters for the disabled stage; submitted requests reject any
 nonempty disabled input. Expansion assumes the base is a PRK established by the
 caller; matching key metadata cannot prove its origin.
@@ -285,10 +285,13 @@ For expansion, choose AES-128/192/256 for encryption/decryption, or a generic
 secret for further derivation with a length from 1 through 255 times the hash length. Outputs are
 persistent, private, sensitive and nonextractable. The provider may reject a
 specific output template. Provide a new label/ID of 1–128 bytes each; duplicate
-secret IDs are rejected. Optional salt uses hexadecimal bytes and protocol
-context uses UTF-8, each limited to 4096 bytes. Empty salt uses RFC 5869 zero
-salt. Agree on exact protocol inputs and output parameters with the peer; HKDF
-does not establish peer identity and this form is not a hybrid combiner or TLS
+secret IDs are rejected. Supply public salt in hexadecimal or a salt-key
+PKCS#11 URI from the same token. Supplying both is rejected. Salt keys must be
+sensitive, nonextractable generic/HKDF secrets of 1–4096 bytes with derivation
+permission and permitted HKDF use. The worker resolves them again; their values
+stay on the token. Public salt and UTF-8 protocol context are each limited to
+4096 bytes. With neither salt source, RFC 5869 zero salt is used. Agree on exact
+protocol inputs and output parameters with the peer; HKDF does not establish peer identity and this form is not a hybrid combiner or TLS
 key schedule. Base and output values remain on the token; there is no output
 file or software fallback.
 

@@ -1510,6 +1510,18 @@ fn hkdf_form_accepts_context_and_output_choices_without_exposing_key_values() {
         });
         state
     }
+    let app = run_focused(
+        initial,
+        &["type \"pkcs11:serial=DEV-0248;id=%02;type=secret-key\""],
+        Some("input-Salt key PKCS#11 URI (optional, same token; leave public salt empty)"),
+    );
+    assert_eq!(
+        app.state.key_form.as_ref().unwrap().hkdf.salt_key,
+        "pkcs11:serial=DEV-0248;id=%02;type=secret-key"
+    );
+    for dark in [false, true] {
+        render_screen(&app.state, "derive-hkdf-salt-key", 1060, 900, dark);
+    }
     let mut app = run_focused(
         initial,
         &["type \"public protocol é\""],

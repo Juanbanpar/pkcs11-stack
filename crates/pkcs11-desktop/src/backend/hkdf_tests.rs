@@ -48,6 +48,7 @@ fn scope(
 }
 fn job(output: HkdfOutput, index: u8, case: u8, direction: u8) -> KeyJob {
     KeyJob::Hkdf(HkdfJob {
+        salt_key: None,
         mode: pkcs11_client::HkdfMode::ExtractAndExpand,
         output,
         salt: vec![0, 1, 2, 0xFF],
@@ -94,6 +95,7 @@ fn hkdf_invalid_bounds_fail_before_resolving_a_module() {
                 scope,
                 caps,
                 KeyJob::Hkdf(HkdfJob {
+                    salt_key: None,
                     mode: pkcs11_client::HkdfMode::ExtractAndExpand,
                     salt,
                     info,
@@ -545,12 +547,20 @@ fn persistent_hkdf_desktop_individual_stages_and_combined_agree() {
                 HkdfOutput::Aes256
             };
             let make_job = || HkdfJob {
+                salt_key: (mode == HkdfMode::ExtractOnly).then(|| {
+                    pkcs11_client::object_reference(
+                        format!("pkcs11:token=kdf-test;id=%F8%53%{index:02X}%01;type=secret-key")
+                            .parse()
+                            .unwrap(),
+                    )
+                    .unwrap()
+                }),
                 mode,
                 output,
-                salt: if mode == HkdfMode::ExpandOnly {
-                    vec![]
+                salt: if mode == HkdfMode::ExtractAndExpand {
+                    vec![0x0C; digest.output_len()]
                 } else {
-                    b"desktop salt".to_vec()
+                    vec![]
                 },
                 info: if mode == HkdfMode::ExtractOnly {
                     vec![]

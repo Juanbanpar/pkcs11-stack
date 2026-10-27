@@ -74,6 +74,11 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
             &form.hkdf.salt,
         ),
         (
+            KeyField::SaltKey,
+            "Salt key PKCS#11 URI (optional, same token; leave public salt empty)",
+            &form.hkdf.salt_key,
+        ),
+        (
             KeyField::Info,
             "Protocol context (UTF-8, optional, up to 4096 bytes)",
             &form.hkdf.info,
@@ -85,7 +90,8 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
             &form.key_id,
         ),
     ] {
-        if (matches!(field, KeyField::Salt) && mode == pkcs11_client::HkdfMode::ExpandOnly)
+        if (matches!(field, KeyField::Salt | KeyField::SaltKey)
+            && mode == pkcs11_client::HkdfMode::ExpandOnly)
             || (matches!(field, KeyField::Info) && mode == pkcs11_client::HkdfMode::ExtractOnly)
         {
             continue;
@@ -97,7 +103,7 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
     }
     if mode != pkcs11_client::HkdfMode::ExpandOnly {
         content = content.push(
-            text("Salt is a public protocol input. An empty salt uses RFC 5869 zero salt.")
+            text("Choose public salt bytes or a token salt key. With neither, RFC 5869 zero salt is used. Token salt keys must permit derivation and HKDF; their values stay on the token.")
                 .size(14),
         );
     }

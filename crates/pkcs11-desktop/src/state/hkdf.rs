@@ -34,6 +34,7 @@ pub struct HkdfForm {
     pub output: HkdfOutputChoice,
     pub length: String,
     pub salt: String,
+    pub salt_key: String,
     pub info: String,
 }
 impl Default for HkdfForm {
@@ -43,6 +44,7 @@ impl Default for HkdfForm {
             output: HkdfOutputChoice::default(),
             length: "32".into(),
             salt: String::new(),
+            salt_key: String::new(),
             info: String::new(),
         }
     }
@@ -83,13 +85,30 @@ impl HkdfForm {
             id,
             label: label.as_bytes(),
         };
-        request
-            .validate_for_mode(self.mode)
-            .map_err(|_| BackendError::HkdfInput)?;
+        let salt_key = if self.salt_key.trim().is_empty() {
+            None
+        } else {
+            let uri: pkcs11_client::Pkcs11Uri = self
+                .salt_key
+                .trim()
+                .parse()
+                .map_err(|_| BackendError::HkdfInput)?;
+            if uri.path_attribute("type") != Some(b"secret-key") {
+                return Err(BackendError::HkdfInput);
+            }
+            Some(pkcs11_client::object_reference(uri).map_err(|_| BackendError::HkdfInput)?)
+        };
+        if salt_key.is_some() {
+            request.validate_with_salt_key(self.mode)
+        } else {
+            request.validate_for_mode(self.mode)
+        }
+        .map_err(|_| BackendError::HkdfInput)?;
         Ok(HkdfJob {
             mode: self.mode,
             output,
             salt,
+            salt_key,
             info: self.info.as_bytes().to_vec(),
             id: id.to_vec(),
             label: label.as_bytes().to_vec(),
@@ -114,6 +133,7 @@ impl UiState {
             }
             if mode == HkdfMode::ExpandOnly {
                 form.hkdf.salt.clear();
+                form.hkdf.salt_key.clear();
             }
         }
     }

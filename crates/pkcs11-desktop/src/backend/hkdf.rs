@@ -6,6 +6,7 @@ pub struct HkdfJob {
     pub mode: HkdfMode,
     pub output: HkdfOutput,
     pub salt: Vec<u8>,
+    pub salt_key: Option<pkcs11_client::ObjectRef>,
     pub info: Vec<u8>,
     pub id: Vec<u8>,
     pub label: Vec<u8>,
@@ -28,9 +29,12 @@ impl Registry {
             id: &job.id,
             label: &job.label,
         };
-        request
-            .validate_for_mode(job.mode)
-            .map_err(|_| BackendError::HkdfInput)?;
+        if job.salt_key.is_some() {
+            request.validate_with_salt_key(job.mode)
+        } else {
+            request.validate_for_mode(job.mode)
+        }
+        .map_err(|_| BackendError::HkdfInput)?;
         let (index, uri, reference) = self.key_location(scope)?;
         read_session(
             &self.modules[index],
@@ -44,9 +48,12 @@ impl Registry {
                 {
                     return Err(BackendError::KeyOperationUnavailable);
                 }
-                session
-                    .derive_hkdf_with_mode(&reference, &request, job.mode)
-                    .map_err(|e| BackendError::from(&e))
+                if let Some(salt_key) = &job.salt_key {
+                    session.derive_hkdf_with_salt_key(&reference, salt_key, &request, job.mode)
+                } else {
+                    session.derive_hkdf_with_mode(&reference, &request, job.mode)
+                }
+                .map_err(|e| BackendError::from(&e))
             },
         )
     }

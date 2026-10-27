@@ -3034,3 +3034,60 @@ fn hmac_forms_select_only_permitted_algorithms_and_keep_read_only_crypto() {
         }
     }
 }
+
+#[test]
+fn hkdf_salt_key_forms_validate_locators_conflicts_and_disabled_stages() {
+    use crate::backend::{KeyJob, KeyProfile};
+    use pkcs11_client::{DigestAlgorithm, HkdfMode};
+    let salt_key = "pkcs11:serial=A;id=%02;type=secret-key";
+    for mode in [HkdfMode::ExtractOnly, HkdfMode::ExtractAndExpand] {
+        let (mut state, id, _) = hkdf_state(DigestAlgorithm::Sha256);
+        state.hkdf_mode(id, mode);
+        state.key_edit(id, KeyField::Label, "salt key output".into());
+        state.key_edit(id, KeyField::Id, "F85701".into());
+        for invalid in [
+            "not-a-uri",
+            "pkcs11:serial=A;id=%02;type=public",
+            "pkcs11:serial=A;id=%02;type=secret-key?pin-value=secret-canary",
+        ] {
+            state.key_edit(id, KeyField::SaltKey, invalid.into());
+            assert!(state.submit_key_operation(id).is_none());
+            assert_eq!(
+                state.notification,
+                Some(Notification::Error(BackendError::HkdfInput))
+            );
+        }
+        state.key_edit(id, KeyField::SaltKey, salt_key.into());
+        state.key_edit(RequestId(id.0 + 1), KeyField::SaltKey, "stale".into());
+        assert_eq!(state.key_form.as_ref().unwrap().hkdf.salt_key, salt_key);
+        state.key_edit(id, KeyField::Salt, "01".into());
+        assert!(state.submit_key_operation(id).is_none());
+        state.key_edit(id, KeyField::Salt, String::new());
+        let BackendCommand::KeyOperation {
+            profile: KeyProfile::Hkdf(_),
+            job: KeyJob::Hkdf(job),
+            ..
+        } = state.submit_key_operation(id).unwrap()
+        else {
+            panic!("HKDF salt job")
+        };
+        assert_eq!(job.mode, mode);
+        assert!(job.salt.is_empty());
+        let selected = job.salt_key.unwrap();
+        assert_eq!(selected.uri().path_attribute("id"), Some(&[2][..]));
+        assert_eq!(
+            selected.uri().path_attribute("serial"),
+            Some(b"A".as_slice())
+        );
+    }
+    let (mut state, id, _) = hkdf_state(DigestAlgorithm::Sha256);
+    state.key_edit(id, KeyField::Label, "expand".into());
+    state.key_edit(id, KeyField::Id, "F85702".into());
+    state.key_edit(id, KeyField::SaltKey, salt_key.into());
+    state.hkdf_mode(id, HkdfMode::ExpandOnly);
+    assert!(state.key_form.as_ref().unwrap().hkdf.salt_key.is_empty());
+    state.key_edit(id, KeyField::SaltKey, salt_key.into());
+    assert!(state.submit_key_operation(id).is_none());
+    state.key_edit(id, KeyField::SaltKey, String::new());
+    assert!(state.submit_key_operation(id).is_some());
+}
