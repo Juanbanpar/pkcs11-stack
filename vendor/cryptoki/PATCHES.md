@@ -9,6 +9,9 @@ Published crate SHA-256:
 
 Local changes:
 
+- `src/mechanism/mod.rs`: add typed RFC 5649 `AES_KEY_WRAP_KWP` using its
+  standard ID and default IV, without aliasing deprecated `AES_KEY_WRAP_PAD`.
+
 - `src/mechanism/mod.rs`: preserve all numeric `CK_MECHANISM_TYPE` values,
   including identifiers without named execution variants. This also preserves
   unknown entries when decoding `CKA_ALLOWED_MECHANISMS` and `CKA_KEY_GEN_MECHANISM`.

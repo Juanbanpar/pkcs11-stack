@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use crate::{Error, ManagementSession, NamedCurve, ObjectRef};
 use p256::elliptic_curve::sec1::ToEncodedPoint;
-pub use pkcs11_runtime::{EcdhKdf, EcdhOutput, KeyOperation, KeyOperationProfile};
+pub use pkcs11_runtime::{
+    AesKeyWrapAlgorithm, AesKeyWrapCapabilities, EcdhKdf, EcdhOutput, KeyOperation,
+    KeyOperationProfile,
+};
 use x509_cert::{
     der::{Decode, Encode, asn1::ObjectIdentifier},
     spki::SubjectPublicKeyInfoOwned,
@@ -121,12 +124,12 @@ impl EcdhRequest<'_> {
         Ok(self.runtime_request().validate()?)
     }
 }
-/// RFC 3394 wrap request; the selected target must be an extractable AES key.
+/// AES wrap request; the selected target must be an extractable AES key.
 pub struct WrapRequest<'a> {
     /// Freshly resolved persistent target; no key value is read by the client.
     pub target: &'a ObjectRef,
 }
-/// RFC 3394 unwrap request; ciphertext contains key bytes only, without metadata.
+/// AES KW/KWP unwrap request; ciphertext contains key bytes only, without metadata.
 pub struct UnwrapRequest<'a> {
     /// Exactly 24/32/40 bytes for AES-128/192/256 respectively.
     pub wrapped: &'a [u8],
@@ -142,6 +145,44 @@ redacted!(
     UnwrapRequest
 );
 impl ManagementSession<'_> {
+    /// Advisory KW/KWP choices for Wrap or Unwrap; does not perform crypto or
+    /// inspect a future target. Execution resolves and checks permissions again.
+    pub fn aes_key_wrap_options(
+        &mut self,
+        key: &ObjectRef,
+        operation: KeyOperation,
+    ) -> Result<AesKeyWrapCapabilities, Error> {
+        Ok(self.session.aes_key_wrap_capabilities(key, operation)?)
+    }
+    /// Wrap once with explicit KW or KWP, preserving trust and extractability
+    /// policy. Default IV only; no metadata, downgrade or algorithm retry.
+    pub fn wrap_with_algorithm(
+        &mut self,
+        wrapping: &ObjectRef,
+        request: &WrapRequest<'_>,
+        algorithm: AesKeyWrapAlgorithm,
+    ) -> Result<Vec<u8>, Error> {
+        Ok(self
+            .session
+            .wrap_aes_key_with_algorithm(wrapping, request.target, algorithm)?)
+    }
+    /// Unwrap once into a sensitive, nonextractable AES encryption/decryption key.
+    /// Only 128/192/256-bit AES outputs are supported. Requires RW access.
+    /// Provider failures may have effects; no retry or rollback is performed.
+    pub fn unwrap_with_algorithm(
+        &mut self,
+        unwrapping: &ObjectRef,
+        request: &UnwrapRequest<'_>,
+        algorithm: AesKeyWrapAlgorithm,
+    ) -> Result<(), Error> {
+        Ok(self.session.unwrap_aes_key_with_algorithm(
+            unwrapping,
+            request.wrapped,
+            request.identity.id,
+            request.identity.label,
+            algorithm,
+        )?)
+    }
     /// Advisory profile after current key, permission and provider checks, with no mutation.
     pub fn key_operation_options(
         &mut self,

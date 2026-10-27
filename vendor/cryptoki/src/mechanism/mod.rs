@@ -73,6 +73,10 @@ impl MechanismType {
     pub const AES_KEY_WRAP_PAD: MechanismType = MechanismType {
         val: CKM_AES_KEY_WRAP_PAD,
     };
+    /// RFC 5649 AES key wrap with padding (distinct from deprecated KEY_WRAP_PAD).
+    pub const AES_KEY_WRAP_KWP: MechanismType = MechanismType {
+        val: CKM_AES_KEY_WRAP_KWP,
+    };
     /// AES-CTR mechanism
     pub const AES_CTR: MechanismType = MechanismType { val: CKM_AES_CTR };
     /// AES-GCM mechanism
@@ -879,6 +883,7 @@ impl MechanismType {
             }
             CKM_AES_KEY_WRAP => String::from(stringify!(CKM_AES_KEY_WRAP)),
             CKM_AES_KEY_WRAP_PAD => String::from(stringify!(CKM_AES_KEY_WRAP_PAD)),
+            CKM_AES_KEY_WRAP_KWP => String::from(stringify!(CKM_AES_KEY_WRAP_KWP)),
             CKM_RSA_PKCS_TPM_1_1 => String::from(stringify!(CKM_RSA_PKCS_TPM_1_1)),
             CKM_RSA_PKCS_OAEP_TPM_1_1 => String::from(stringify!(CKM_RSA_PKCS_OAEP_TPM_1_1)),
             CKM_EC_EDWARDS_KEY_PAIR_GEN => String::from(stringify!(CKM_EC_EDWARDS_KEY_PAIR_GEN)),
@@ -958,6 +963,7 @@ impl TryFrom<CK_MECHANISM_TYPE> for MechanismType {
             CKM_AES_ECB => Ok(MechanismType::AES_ECB),
             CKM_AES_KEY_WRAP => Ok(MechanismType::AES_KEY_WRAP),
             CKM_AES_KEY_WRAP_PAD => Ok(MechanismType::AES_KEY_WRAP_PAD),
+            CKM_AES_KEY_WRAP_KWP => Ok(MechanismType::AES_KEY_WRAP_KWP),
             CKM_AES_CTR => Ok(MechanismType::AES_CTR),
             CKM_AES_GCM => Ok(MechanismType::AES_GCM),
             CKM_AES_CBC_ENCRYPT_DATA => Ok(MechanismType::AES_CBC_ENCRYPT_DATA),
@@ -1076,6 +1082,8 @@ pub enum Mechanism<'a> {
     AesKeyWrap,
     /// AES key wrap with padding block
     AesKeyWrapPad,
+    /// RFC 5649 AES key wrap with the default alternative initial value.
+    AesKeyWrapKwp,
     /// AES-GCM mechanism
     AesGcm(aead::GcmParams<'a>),
     /// AES-GCM mechanism with message based API and parameters
@@ -1368,6 +1376,7 @@ impl Mechanism<'_> {
             Mechanism::AesCbcPad(_) => MechanismType::AES_CBC_PAD,
             Mechanism::AesKeyWrap => MechanismType::AES_KEY_WRAP,
             Mechanism::AesKeyWrapPad => MechanismType::AES_KEY_WRAP_PAD,
+            Mechanism::AesKeyWrapKwp => MechanismType::AES_KEY_WRAP_KWP,
             Mechanism::AesGcm(_) => MechanismType::AES_GCM,
             Mechanism::AesGcmMessage(_) => MechanismType::AES_GCM,
             Mechanism::AesCbcEncryptData(_) => MechanismType::AES_CBC_ENCRYPT_DATA,
@@ -1574,6 +1583,7 @@ impl From<&Mechanism<'_>> for CK_MECHANISM {
             | Mechanism::AesEcb
             | Mechanism::AesKeyWrap
             | Mechanism::AesKeyWrapPad
+            | Mechanism::AesKeyWrapKwp
             | Mechanism::AesCMac
             | Mechanism::RsaPkcsKeyPairGen
             | Mechanism::RsaPkcs

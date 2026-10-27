@@ -16,8 +16,8 @@ mod encryption;
 mod key_operations;
 pub use encryption::{DecryptRequest, EncryptRequest, OaepChoice, Plaintext};
 pub use key_operations::{
-    DeriveRequest, EcdhKdf, EcdhOutput, EcdhPeer, EcdhRequest, KeyOperation, KeyOperationProfile,
-    SecretKeyIdentity, UnwrapRequest, WrapRequest,
+    AesKeyWrapAlgorithm, AesKeyWrapCapabilities, DeriveRequest, EcdhKdf, EcdhOutput, EcdhPeer,
+    EcdhRequest, KeyOperation, KeyOperationProfile, SecretKeyIdentity, UnwrapRequest, WrapRequest,
 };
 pub use pkcs11_runtime::{RsaCipherOperation, RsaOaepParameters};
 mod client;

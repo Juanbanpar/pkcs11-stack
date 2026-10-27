@@ -3,6 +3,17 @@
 use pkcs11_runtime::MechanismType;
 
 #[test]
+fn aes_kwp_has_the_standard_identifier_and_is_distinct_from_deprecated_pad() {
+    let mechanism = cryptoki::mechanism::Mechanism::AesKeyWrapKwp;
+    assert_eq!(*mechanism.mechanism_type(), 0x210B);
+    assert_ne!(mechanism.mechanism_type(), MechanismType::AES_KEY_WRAP_PAD);
+    assert_eq!(
+        mechanism.mechanism_type().to_string(),
+        "CKM_AES_KEY_WRAP_KWP"
+    );
+}
+
+#[test]
 fn standard_unknown_and_vendor_mechanism_ids_round_trip() {
     for raw in [
         0x0000_1087, // CKM_AES_GCM, already supported by the binding.

@@ -383,6 +383,16 @@ Derivation and unwrapping require RW mode. Failed native operations invalidate
 the session; no retry or rollback is attempted. Provider templates and
 permissions may narrow these profiles. Blobs carry ciphertext only, not metadata.
 
+`aes_key_wrap_capabilities` queries KW and KWP separately for the selected Wrap
+or Unwrap direction. Both require current key permission, allowed mechanisms,
+provider flags/bounds and the native entry point. `wrap_aes_key_with_algorithm`
+and `unwrap_aes_key_with_algorithm` accept `AesKeyWrapAlgorithm::Kw` or `Kwp`.
+KWP uses `CKM_AES_KEY_WRAP_KWP`, not deprecated `CKM_AES_KEY_WRAP_PAD`.
+Both use their standard default IV. Only AES-128/192/256 targets and outputs are
+accepted, with 24/32/40-byte blobs. The selected algorithm must be conveyed
+separately and matched for unwrapping; no fallback or retry occurs. See
+[OASIS AES key wrap](https://docs.oasis-open.org/pkcs11/pkcs11-spec/v3.2/pkcs11-spec-v3.2.html#_Toc234407356).
+
 ## Token digests
 
 `HashAlgorithm` covers SHA-224/256/384/512, SHA-512/224, SHA-512/256 and

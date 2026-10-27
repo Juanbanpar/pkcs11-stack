@@ -543,6 +543,15 @@ is persistent, private, sensitive and nonextractable, with encryption/decryption
 permission only. Both use the default RFC 3394 IV; blobs contain no metadata.
 Provider wrapping/unwrapping templates remain authoritative.
 
+`aes_key_wrap_options` checks KW and KWP independently for Wrap or Unwrap.
+`wrap_with_algorithm` and `unwrap_with_algorithm` use the same request types
+with an explicit `AesKeyWrapAlgorithm::Kw` (RFC 3394) or `Kwp` (RFC 5649).
+KWP uses its own standard mechanism, not deprecated `AES_KEY_WRAP_PAD`.
+Default IVs only; AES-128/192/256 targets and outputs have 24/32/40-byte blobs.
+The blob carries no algorithm identifier, so callers must convey and match it.
+Existing `wrap`/`unwrap` calls retain KW behavior. All permission, trust and
+extractability checks remain in force; there is no algorithm substitution.
+
 New identities require nonempty ID/label fields of at most 128 bytes and reject
 existing token secret-key IDs. The check is not atomic against another process.
 Derivation and unwrapping require RW mode and provider authorization. Creation
