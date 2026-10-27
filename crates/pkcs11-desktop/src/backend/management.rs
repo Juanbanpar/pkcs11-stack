@@ -59,6 +59,12 @@ impl GenerationKind {
     }
 }
 pub enum ManagementAction {
+    ImportPublicKey {
+        path: PathBuf,
+        id: Vec<u8>,
+        label: Vec<u8>,
+        purpose: pkcs11_client::ClassicalPublicKeyPurpose,
+    },
     ImportMlKem {
         path: PathBuf,
         id: Vec<u8>,
@@ -192,6 +198,29 @@ impl Registry {
             }
             _ => None,
         };
+        let classical_public_key = match &action {
+            ManagementAction::ImportPublicKey {
+                path,
+                id,
+                label,
+                purpose,
+            } => {
+                let bytes = super::key_operations::read(path, 4096)
+                    .map_err(|_| BackendError::PublicKeyImportInput)?;
+                let key = pkcs11_client::ClassicalPublicKey::from_spki_der(&bytes)
+                    .map_err(|_| BackendError::PublicKeyImportInput)?;
+                pkcs11_client::PublicKeyImportRequest {
+                    key: &key,
+                    purpose: *purpose,
+                    id,
+                    label,
+                }
+                .validate()
+                .map_err(|_| BackendError::PublicKeyImportInput)?;
+                Some(key)
+            }
+            _ => None,
+        };
         let document = match &action {
             ManagementAction::ImportCertificate { path, .. } => Some(certificate(path)?),
             _ => None,
@@ -257,6 +286,14 @@ impl Registry {
                         }
                     }
                 }
+                ManagementAction::ImportPublicKey {
+                    id, label, purpose, ..
+                } => session.import_classical_public_key(&pkcs11_client::PublicKeyImportRequest {
+                    key: classical_public_key.as_ref().expect("validated public key"),
+                    purpose,
+                    id: &id,
+                    label: &label,
+                }),
                 ManagementAction::ImportMlKem { id, label, .. } => session
                     .import_ml_kem_public_key(
                         public_key.as_ref().expect("parsed public key"),
@@ -613,3 +650,7 @@ mod integration_tests {
         std::fs::remove_dir_all(directory).unwrap();
     }
 }
+
+#[cfg(test)]
+#[path = "public_import_tests.rs"]
+mod public_import_tests;

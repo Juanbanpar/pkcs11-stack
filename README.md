@@ -106,7 +106,7 @@ and browses visible objects and advertised mechanisms with filters and metadata
 details. USER/SO login and logout support host PINs and token-protected
 authentication paths. Refresh updates inventories and clears stale selections.
 The GUI also generates RSA/EC and ML-DSA signing pairs, ML-KEM pairs, ECDH pairs
-and AES keys, imports DER certificates and ML-KEM public keys, confirms
+and AES keys, imports DER certificates and RSA/EC/ML-KEM public keys, confirms
 object deletion, exports public objects, signs files with RSA/EC or ML-DSA keys,
 and verifies RSA/EC or ML-DSA signatures against selected certificates. It can also save bytes from a token's random
 generator, encrypt/decrypt AES-GCM files or small RSA-OAEP payloads, derive ECDH

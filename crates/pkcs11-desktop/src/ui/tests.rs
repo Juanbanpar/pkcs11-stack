@@ -868,7 +868,9 @@ fn primary_actions_stay_visible_at_supported_window_sizes() {
                 &[
                     "task-Some(Generate)",
                     "task-Some(Import)",
+                    "task-Some(ImportPublicKey)",
                     "task-Some(ImportMlKem)",
+                    "task-Some(Digest)",
                     "task-Some(Random)",
                 ]
             };
@@ -882,7 +884,7 @@ fn primary_actions_stay_visible_at_supported_window_sizes() {
                     area.y >= 0.0
                         && area.y + area.height <= height - 24.0
                         && area.x + area.width <= width,
-                    "primary action must be visible without scrolling: {name}"
+                    "primary action must be visible without scrolling: {name}, bounds={area:?}, window={width}x{height}"
                 );
             }
         }
@@ -1460,4 +1462,35 @@ fn digest_form_accepts_a_file_and_clears_stale_pickers_when_leaving() {
     });
     assert!(app.state.digest.path.is_empty());
     assert!(app.state.digest.result.is_none());
+}
+
+#[test]
+fn public_import_form_accepts_keyboard_input_and_explicit_purpose() {
+    fn initial() -> UiState {
+        let mut state = populated_state();
+        state.token_page = TokenPage::Operations;
+        state.presentation.task = Some(ManagementTask::ImportPublicKey);
+        state
+    }
+    let mut app = run_focused(
+        initial,
+        &["type \"Verification key\"", "type tab", "type \"FA01\""],
+        Some("input-Public key label (1–128 UTF-8 bytes)"),
+    );
+    assert_eq!(app.state.management.public_key.label, "Verification key");
+    assert_eq!(app.state.management.public_key.id, "FA01");
+    let _ = app.update(Message::PublicKeyPurpose(
+        crate::state::PublicKeyPurposeChoice(pkcs11_client::ClassicalPublicKeyPurpose::Encryption),
+    ));
+    for dark in [false, true] {
+        render_screen(&app.state, "import-rsa-ec-public", 1060, 900, dark);
+    }
+    let (picker, _) = app.state.begin_public_key_file().unwrap();
+    let _ = app.update(Message::Ui(Action::Task(Some(ManagementTask::ImportMlKem))));
+    let _ = app.update(Message::ObjectFilePicked {
+        id: picker,
+        path: Some("old.der".into()),
+    });
+    assert!(app.state.management.public_key.path.is_empty());
+    assert!(app.state.management.ml_kem_path.is_empty());
 }

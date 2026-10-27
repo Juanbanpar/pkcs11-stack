@@ -178,6 +178,9 @@ pub enum Message {
     AlwaysAuthenticate(bool),
     Generate,
     ImportCertificate,
+    ImportPublicKey,
+    PublicKeyPurpose(crate::state::PublicKeyPurposeChoice),
+    ChoosePublicKey,
     ImportMlKem,
     ChooseMlKem,
     ChooseCertificate,
@@ -280,6 +283,9 @@ impl std::fmt::Debug for Message {
             Self::AlwaysAuthenticate(_) => "AlwaysAuthenticate",
             Self::Generate => "Generate",
             Self::ImportCertificate => "ImportCertificate",
+            Self::ImportPublicKey => "ImportPublicKey",
+            Self::PublicKeyPurpose(_) => "PublicKeyPurpose",
+            Self::ChoosePublicKey => "ChoosePublicKey",
             Self::ImportMlKem => "ImportMlKem",
             Self::ChooseMlKem => "ChooseMlKem",
             Self::ChooseCertificate => "ChooseCertificate",
@@ -619,6 +625,11 @@ impl App {
                 let command = self.state.generate();
                 self.submit(command);
             }
+            Message::ImportPublicKey => {
+                let command = self.state.import_public_key();
+                self.submit(command);
+            }
+            Message::PublicKeyPurpose(purpose) => self.state.public_key_purpose(purpose),
             Message::ImportMlKem => {
                 let command = self.state.import_ml_kem();
                 self.submit(command);
@@ -632,8 +643,13 @@ impl App {
                 let command = self.state.confirm_delete(id);
                 self.submit(command);
             }
-            Message::ChooseCertificate | Message::ChooseMlKem | Message::ExportObject => {
-                let request = if matches!(message, Message::ChooseMlKem) {
+            Message::ChooseCertificate
+            | Message::ChooseMlKem
+            | Message::ChoosePublicKey
+            | Message::ExportObject => {
+                let request = if matches!(message, Message::ChoosePublicKey) {
+                    self.state.begin_public_key_file()
+                } else if matches!(message, Message::ChooseMlKem) {
                     self.state.begin_ml_kem_file()
                 } else {
                     self.state
@@ -644,6 +660,12 @@ impl App {
                         async move {
                             let dialog = rfd::AsyncFileDialog::new();
                             let file = match purpose {
+                                FilePurpose::PublicKey => {
+                                    dialog
+                                        .set_title("Select an RSA/EC SPKI DER public key")
+                                        .pick_file()
+                                        .await
+                                }
                                 FilePurpose::MlKem => {
                                     dialog
                                         .set_title("Select an ML-KEM SPKI DER public key")

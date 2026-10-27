@@ -2683,3 +2683,56 @@ fn digest_choices_picker_results_and_failures_follow_the_selected_token() {
     ));
     assert!(state.digest.algorithms.is_empty());
 }
+
+#[test]
+fn public_import_explicit_purpose_identity_bounds_and_picker_scope() {
+    use pkcs11_client::ClassicalPublicKeyPurpose as Purpose;
+    let mut state = managing();
+    state.token_page = TokenPage::Operations;
+    assert!(state.import_public_key().is_none());
+    state.edit_management(ManagementField::PublicKeyPath, "peer.der".into());
+    state.edit_management(ManagementField::PublicKeyLabel, "é".repeat(65));
+    state.edit_management(ManagementField::PublicKeyId, "AB01".into());
+    assert!(state.import_public_key().is_none());
+    state.edit_management(ManagementField::PublicKeyLabel, "Public key".into());
+    for id in ["AA".repeat(129), "GG".into(), "".into()] {
+        state.edit_management(ManagementField::PublicKeyId, id);
+        assert!(state.import_public_key().is_none());
+    }
+    state.edit_management(ManagementField::PublicKeyId, "AB01".into());
+    let (picker, _) = state.begin_public_key_file().unwrap();
+    state.edit_management(ManagementField::PublicKeyPath, "current.der".into());
+    state.object_file_picked(picker, Some("old.der".into()));
+    assert_eq!(state.management.public_key.path, "current.der");
+    state.public_key_purpose(PublicKeyPurposeChoice(Purpose::Encryption));
+    let BackendCommand::Manage {
+        action:
+            crate::backend::ManagementAction::ImportPublicKey {
+                path, id, purpose, ..
+            },
+        ..
+    } = state.import_public_key().unwrap()
+    else {
+        panic!("public import")
+    };
+    assert_eq!(path, PathBuf::from("current.der"));
+    assert_eq!(id, [0xAB, 1]);
+    assert_eq!(purpose, Purpose::Encryption);
+    assert!(!state.can_cancel());
+    assert!(state.management.public_key.path.is_empty());
+}
+#[cfg(unix)]
+#[test]
+fn public_import_picker_preserves_native_paths_and_rejects_navigation() {
+    use std::os::unix::ffi::OsStringExt;
+    let mut state = managing();
+    state.token_page = TokenPage::Operations;
+    let path = PathBuf::from(std::ffi::OsString::from_vec(b"public-\xff.der".to_vec()));
+    let (picker, _) = state.begin_public_key_file().unwrap();
+    state.object_file_picked(picker, Some(path.clone()));
+    assert_eq!(state.management.public_key.picked, Some(path));
+    let (picker, _) = state.begin_public_key_file().unwrap();
+    state.select_token(ResourceId(1), ResourceId(3));
+    state.object_file_picked(picker, Some("late.der".into()));
+    assert!(state.management.public_key.path.is_empty());
+}

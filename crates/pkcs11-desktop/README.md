@@ -68,17 +68,17 @@ portal, with a Zenity fallback.
 Manual path entry also works when no picker service is available. Modules are
 loaded only after an explicit Load action; paths are not saved or loaded on startup.
 
-Use **Operations** to choose a key generation, certificate import or random
-generation task. Each task opens its own form. Key generation and certificate
-import require USER login on a writable token. Generation uses the client's shared
+Use **Operations** to choose key generation, public object import, file hashing
+or random generation. Each task opens its own form. Key generation and public
+object import require USER login on a writable token. Generation uses the client's shared
 capability query to offer RSA/EC and ML-DSA-44/65/87 signing pairs,
 ML-KEM-512/768/1024 encapsulation/decapsulation pairs, P-256/P-384/P-521 ECDH pairs
 and AES-128/192/256 keys. Unsupported choices are omitted. Each choice names its
 purpose. ECDH private keys permit only derivation; AES keys permit either
 encryption/decryption or wrapping/unwrapping.
-Private and secret keys are sensitive and nonextractable. Per-signature
-authentication is available only for signing keys and clears when another purpose
-is selected. A provider may reject an advertised choice or template; operations
+Private and secret keys are sensitive and nonextractable. Per-operation
+authentication is available for signing and RSA decryption keys; the control
+clears when a purpose without that support is selected. A provider may reject an advertised choice or template; operations
 are never retried automatically.
 
 Supply a label and hexadecimal ID. ECDH/AES identity fields each require 1–128
@@ -87,6 +87,15 @@ AES, without a uniqueness guarantee against concurrent writers. Signing pairs
 and ML-KEM pairs permit duplicate IDs; ambiguous selectors are rejected. Key
 pairs share their ID and label. ML-KEM does not permit per-operation PIN
 authentication.
+
+Use **Import RSA/EC Public Key** for one SPKI DER file up to 4096 bytes.
+Choose signature verification or RSA encryption explicitly and supply a label
+and hexadecimal ID of 1–128 bytes each. RSA sizes are 2048–16384 bits; named
+curves are P-256/P-384/P-521. Invalid components/points, restricted RSA-PSS keys
+and unsupported curves are rejected. RSA parameters and EC points normalize to
+the client export representation. Wrapping, recovery and derivation are disabled;
+existing public-key IDs are rejected. Private/certificate objects sharing the ID
+are not changed or bound. Authenticate the key's owner separately.
 
 Use **Import ML-KEM Public Key** on **Operations** for one ML-KEM-512/768/1024
 SPKI DER file up to 2048 bytes. The parameter set comes from the encoded key;

@@ -367,6 +367,7 @@ pub enum BackendError {
     InvalidForm,
     FileRead,
     MlKemImportInput,
+    PublicKeyImportInput,
     HkdfInput,
     FileWrite,
     ExportUnavailable,
@@ -436,6 +437,9 @@ impl BackendError {
             }
             Self::HkdfInput => {
                 "Check the HKDF output length, hexadecimal salt (at most 4096 bytes), UTF-8 context (at most 4096 bytes), label and new hexadecimal ID."
+            }
+            Self::PublicKeyImportInput => {
+                "Choose a valid RSA/EC SPKI DER key and purpose, with a label and hexadecimal ID of 1–128 bytes."
             }
             Self::MlKemImportInput => {
                 "Provide one ML-KEM SPKI DER public key of at most 2048 bytes, a label of 1–128 UTF-8 bytes and an ID of 1–128 hexadecimal bytes."

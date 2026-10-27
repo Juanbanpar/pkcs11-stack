@@ -41,6 +41,7 @@ impl std::fmt::Debug for Action {
 pub enum ManagementTask {
     Digest,
     ImportMlKem,
+    ImportPublicKey,
     Generate,
     Import,
     Random,

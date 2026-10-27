@@ -55,8 +55,35 @@ impl std::fmt::Display for KeyChoice {
         }
     }
 }
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PublicKeyPurposeChoice(pub pkcs11_client::ClassicalPublicKeyPurpose);
+impl PublicKeyPurposeChoice {
+    pub const ALL: [Self; 2] = [
+        Self(pkcs11_client::ClassicalPublicKeyPurpose::Verification),
+        Self(pkcs11_client::ClassicalPublicKeyPurpose::Encryption),
+    ];
+}
+impl std::fmt::Display for PublicKeyPurposeChoice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self.0 {
+            pkcs11_client::ClassicalPublicKeyPurpose::Verification => {
+                "Signature verification (RSA/EC)"
+            }
+            pkcs11_client::ClassicalPublicKeyPurpose::Encryption => "Encryption (RSA only)",
+        })
+    }
+}
+#[derive(Default)]
+pub struct PublicKeyImportUi {
+    pub path: String,
+    pub id: String,
+    pub label: String,
+    pub purpose: PublicKeyPurposeChoice,
+    pub picked: Option<PathBuf>,
+}
 #[derive(Clone, Copy)]
 pub enum FilePurpose {
+    PublicKey,
     MlKem,
     Certificate,
     Export {
@@ -77,6 +104,7 @@ pub struct DeleteConfirmation {
 }
 #[derive(Default)]
 pub struct ManagementUi {
+    pub public_key: PublicKeyImportUi,
     pub ml_kem_label: String,
     pub ml_kem_id: String,
     pub ml_kem_path: String,
@@ -172,6 +200,36 @@ impl UiState {
             id,
             label: self.management.key_label.as_bytes().to_vec(),
             always_authenticate: self.management.always_authenticate,
+        };
+        self.begin_management(self.module()?.id, self.token()?.id, action)
+    }
+    pub fn public_key_purpose(&mut self, purpose: PublicKeyPurposeChoice) {
+        if self.can_manage() && self.token_page == TokenPage::Operations {
+            self.management.public_key.purpose = purpose;
+        }
+    }
+    pub fn import_public_key(&mut self) -> Option<BackendCommand> {
+        if !self.can_manage() || self.token_page != TokenPage::Operations {
+            return None;
+        }
+        let form = &self.management.public_key;
+        let id = identifier(&form.id);
+        if !id.as_ref().is_some_and(|id| id.len() <= 128)
+            || form.path.is_empty()
+            || form.label.is_empty()
+            || form.label.len() > 128
+        {
+            self.notification = Some(Notification::Error(BackendError::PublicKeyImportInput));
+            return None;
+        }
+        let action = ManagementAction::ImportPublicKey {
+            path: form
+                .picked
+                .clone()
+                .unwrap_or_else(|| form.path.clone().into()),
+            id: id?,
+            label: form.label.as_bytes().to_vec(),
+            purpose: form.purpose.0,
         };
         self.begin_management(self.module()?.id, self.token()?.id, action)
     }
@@ -313,6 +371,12 @@ impl UiState {
         };
         self.begin_management_file(purpose)
     }
+    pub fn begin_public_key_file(&mut self) -> Option<(RequestId, FilePurpose)> {
+        if self.token_page != TokenPage::Operations || !self.can_manage() {
+            return None;
+        }
+        self.begin_management_file(FilePurpose::PublicKey)
+    }
     pub fn begin_ml_kem_file(&mut self) -> Option<(RequestId, FilePurpose)> {
         if self.token_page != TokenPage::Operations || !self.can_manage() {
             return None;
@@ -344,6 +408,11 @@ impl UiState {
         let request = self.management.file_request.take()?;
         let path = path?;
         match request.purpose {
+            FilePurpose::PublicKey if self.token_page == TokenPage::Operations => {
+                self.management.public_key.path = path.to_string_lossy().into_owned();
+                self.management.public_key.picked = Some(path);
+                None
+            }
             FilePurpose::MlKem if self.token_page == TokenPage::Operations => {
                 self.management.ml_kem_path = path.to_string_lossy().into_owned();
                 self.management.picked_ml_kem = Some(path);
@@ -372,6 +441,9 @@ impl UiState {
 
 #[derive(Clone, Copy)]
 pub enum ManagementField {
+    PublicKeyPath,
+    PublicKeyId,
+    PublicKeyLabel,
     MlKemLabel,
     MlKemId,
     MlKemPath,
@@ -387,6 +459,13 @@ impl UiState {
             return;
         }
         match field {
+            ManagementField::PublicKeyLabel => self.management.public_key.label = value,
+            ManagementField::PublicKeyId => self.management.public_key.id = value,
+            ManagementField::PublicKeyPath => {
+                self.management.public_key.path = value;
+                self.management.public_key.picked = None;
+                self.management.file_request = None;
+            }
             ManagementField::MlKemLabel => self.management.ml_kem_label = value,
             ManagementField::MlKemId => self.management.ml_kem_id = value,
             ManagementField::MlKemPath => {

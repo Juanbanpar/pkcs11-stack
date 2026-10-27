@@ -6,7 +6,7 @@ use crate::ui::{
 };
 use crate::{
     app::Message,
-    state::{ManagementField, RandomField, UiState},
+    state::{ManagementField, PublicKeyPurposeChoice, RandomField, UiState},
 };
 use iced::{
     Element,
@@ -81,6 +81,12 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
             ),
             task_button(
                 lucide::upload(),
+                "Import RSA/EC Public Key",
+                requirement,
+                ManagementTask::ImportPublicKey
+            ),
+            task_button(
+                lucide::upload(),
                 "Import ML-KEM Public Key",
                 requirement,
                 ManagementTask::ImportMlKem
@@ -102,11 +108,20 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
                 ManagementTask::Random
             ),
         ]
-        .spacing(12)
+        .spacing(4)
         .max_width(850)
         .into();
     };
     let form: Element<'_, Message> = match task {
+        ManagementTask::ImportPublicKey => column![
+            text("Import RSA/EC public key").size(22).font(EMPHASIS), muted(hint),
+            row![text_input("RSA/EC public key file (SPKI DER)", &state.management.public_key.path).on_input_maybe(enabled.then_some(move |value| edit(ManagementField::PublicKeyPath, value))), button("Browse…").on_press_maybe((enabled && state.management.file_request.is_none()).then_some(Message::ChoosePublicKey))].spacing(10).align_y(iced::Alignment::End),
+            pick_list(PublicKeyPurposeChoice::ALL, Some(state.management.public_key.purpose), Message::PublicKeyPurpose).enabled(enabled),
+            text_input("Public key label (1–128 UTF-8 bytes)", &state.management.public_key.label).on_input_maybe(enabled.then_some(move |value| edit(ManagementField::PublicKeyLabel, value))),
+            text_input("Public key ID (1–128 hexadecimal bytes)", &state.management.public_key.id).on_input_maybe(enabled.then_some(move |value| edit(ManagementField::PublicKeyId, value))),
+            text("Accepts one SPKI DER public key up to 4096 bytes: RSA 2048–16384 or P-256/P-384/P-521. Verification or RSA encryption permissions are explicit; wrapping, recovery and derivation are disabled. Existing public-key IDs are rejected. Import does not establish identity, private-key possession or association with other objects sharing the ID.").size(14),
+            button("Import public key").style(button::primary).on_press_maybe(enabled.then_some(Message::ImportPublicKey)),
+        ].spacing(12).into(),
         ManagementTask::ImportMlKem => column![
             text("Import ML-KEM public key").size(22).font(EMPHASIS), muted(hint),
             row![text_input("ML-KEM public key file (SPKI DER)", &state.management.ml_kem_path).on_input_maybe(enabled.then_some(move |value| edit(ManagementField::MlKemPath, value))), button("Browse…").on_press_maybe((enabled && state.management.file_request.is_none()).then_some(Message::ChooseMlKem))].spacing(10).align_y(iced::Alignment::End),
