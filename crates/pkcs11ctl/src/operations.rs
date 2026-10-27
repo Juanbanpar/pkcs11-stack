@@ -76,7 +76,7 @@ pub(crate) enum VerificationCertificate {
 pub(crate) struct Inputs {
     pub aes_gcm: Option<aes_gcm::Inputs>,
     pub hmac_tag: Option<Vec<u8>>,
-    pub cmac_tag: Option<[u8; pkcs11_client::AES_CMAC_TAG_LENGTH]>,
+    pub cmac_tag: Option<Vec<u8>>,
     pub digest_file: Option<std::fs::File>,
     pub credential: Credential,
     pub context: Credential,
@@ -621,7 +621,7 @@ fn management_operation(
         return hmac::operation(session, name, m, &inputs.bytes, inputs.hmac_tag.as_deref());
     }
     if aes_cmac::selected(name) {
-        return aes_cmac::operation(session, name, m, &inputs.bytes, inputs.cmac_tag.as_ref());
+        return aes_cmac::operation(session, name, m, &inputs.bytes, inputs.cmac_tag.as_deref());
     }
     if aes_gcm::selected(name) {
         return aes_gcm::operation(session, name, m, inputs.aes_gcm.as_ref());

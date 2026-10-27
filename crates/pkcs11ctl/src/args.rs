@@ -301,7 +301,7 @@ pub(crate) fn command() -> Command {
                 "purpose",
                 "AES encryption/wrapping/authentication or RSA signing/encryption",
             )
-            .value_parser(["signing", "encryption", "wrapping", "authentication"])
+            .value_parser(["signing", "encryption", "wrapping", "authentication", "authentication-general"])
             .required_if_eq_any([
                 ("kind", "aes128"),
                 ("kind", "aes192"),
@@ -591,29 +591,41 @@ pub(crate) fn command() -> Command {
         )),
         auth(object(
             Command::new("aes-cmac-capabilities")
-                .about("Inspect native full-tag AES-CMAC support")
+                .about("Inspect native AES-CMAC support for the selected tag profile")
+                .arg(value(
+                    "tag-length",
+                    "Native general CMAC tag bytes (8–16); omitted uses full tag",
+                ))
                 .arg(required("operation", "MAC direction").value_parser(["generate", "verify"])),
         )),
         auth(object(
             Command::new("mac-aes-cmac")
-                .about("Generate a full AES-CMAC tag on the token")
+                .about("Generate an AES-CMAC tag on the token")
+                .arg(value(
+                    "tag-length",
+                    "Native general CMAC tag bytes (8–16); omitted uses full tag",
+                ))
                 .arg(required(
                     "input",
                     "Message file, at most 16 MiB; - reads stdin",
                 ))
-                .arg(required(
-                    "output",
-                    "New raw 16-byte tag file; - writes stdout",
-                )),
+                .arg(required("output", "New raw tag file; - writes stdout")),
         )),
         auth(object(
             Command::new("verify-aes-cmac")
-                .about("Verify a full AES-CMAC tag on the token")
+                .about("Verify an AES-CMAC tag on the token")
+                .arg(value(
+                    "tag-length",
+                    "Native general CMAC tag bytes (8–16); omitted uses full tag",
+                ))
                 .arg(required(
                     "input",
                     "Message file, at most 16 MiB; - reads stdin",
                 ))
-                .arg(required("tag-file", "Raw 16-byte tag file; no stdin")),
+                .arg(required(
+                    "tag-file",
+                    "Raw tag file of the selected length; no stdin",
+                )),
         )),
         auth(object(
             Command::new("kbkdf-capabilities")

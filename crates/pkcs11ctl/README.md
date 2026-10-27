@@ -552,8 +552,21 @@ the raw 16-byte tag to a new file or binary stdout (`--output -`). Existing outp
 are preserved. Messages may be empty and are limited to 16 MiB; `--input -` reads
 stdin. Tag input requires a file containing exactly 16 bytes, checked before module
 loading. A verification mismatch returns exit code 4 with no success output.
-Results are released after checked session closure. No truncation or software
+Results are released after checked session closure. No software MAC or
 fallback occurs. A shared-key MAC does not identify an individual signer.
+
+All three CMAC commands accept optional `--tag-length 8..16` to select native
+CKM_AES_CMAC_GENERAL. Omission preserves the full-tag mechanism and 16-byte
+contract. Tag files must exactly match the selected length. A 16-byte general
+tag still requires the general mechanism; rejection never falls back to full
+CMAC or another length. Agree on the length before communication and keep it
+fixed for that key's lifetime.
+
+Use `generate --kind aes256 --purpose authentication-general ...` for a separate
+private, sensitive, nonextractable key restricted to the general mechanism and
+MAC permissions. `generation-options` reports native compatible sizes in
+`aes_cmac_general_bits`. The original `authentication` purpose remains full-tag
+only. General tags use the token directly, without software truncation.
 
 ## HMAC
 

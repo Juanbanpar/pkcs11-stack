@@ -33,6 +33,7 @@ fn purpose(m: &ArgMatches) -> Result<AesKeyPurpose> {
         "encryption" => Ok(AesKeyPurpose::Encryption),
         "wrapping" => Ok(AesKeyPurpose::Wrapping),
         "authentication" => Ok(AesKeyPurpose::Authentication),
+        "authentication-general" => Ok(AesKeyPurpose::AuthenticationGeneral),
         _ => Err(usage("invalid AES purpose")),
     }
 }
@@ -193,7 +194,8 @@ pub(crate) fn options(provider: &Provider, m: &ArgMatches) -> Result<Value> {
         "aes":options.aes.into_iter().map(|size| match size {
             AesKeySize::Bits128=>"aes128", AesKeySize::Bits192=>"aes192", AesKeySize::Bits256=>"aes256"
         }).collect::<Vec<_>>(),
-        "aes_purposes":["encryption","wrapping","authentication"],
+        "aes_cmac_general_bits":options.aes_cmac_general.into_iter().map(|size| size.length()*8).collect::<Vec<_>>(),
+        "aes_purposes":["encryption","wrapping","authentication","authentication-general"],
         "hmac":options.hmac.into_iter().map(|a|a.to_string()).collect::<Vec<_>>(),
         "ml_dsa":options.ml_dsa.into_iter().map(ml_dsa::key_info).collect::<Vec<_>>(),
         "ml_kem":options.ml_kem.into_iter().map(key_establishment::key_info).collect::<Vec<_>>()
