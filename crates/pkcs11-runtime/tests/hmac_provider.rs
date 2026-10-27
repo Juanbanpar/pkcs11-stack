@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! Native HMAC interoperation and authentication-only key generation.
 use pkcs11_runtime::{
-    Attribute, AttributeType, Authentication, Error, HmacAlgorithm, HmacKeyRequest, KeyType,
-    MacOperation, MechanismType, Module, ObjectClass, ObjectRef, Pin, SessionMode,
+    Attribute, AttributeType, Authentication, Error, HmacAlgorithm, HmacKeyRequest, HmacTagProfile,
+    KeyType, MacOperation, MechanismType, Module, ObjectClass, ObjectRef, Pin, SessionMode,
 };
 use secrecy::SecretString;
 use std::{
@@ -136,6 +136,42 @@ fn hmac_openssl_key_types_lengths_permissions_and_generated_keys() {
                     let tag = ro.mac_hmac(&key, algorithm, &message).unwrap();
                     assert_eq!(tag, expected.stdout);
                     ro.verify_hmac(&key, algorithm, &message, &tag).unwrap();
+                    let options = ro.hmac_options(&key, MacOperation::Generate).unwrap();
+                    let general = options.general.is_some_and(|caps| caps.supports(algorithm));
+                    if kdf {
+                        assert!(general);
+                    }
+                    for tag_profile in HmacTagProfile::choices(algorithm).into_iter().skip(1) {
+                        if !general {
+                            assert!(matches!(
+                                ro.mac_hmac_with_profile(&key, algorithm, &message, tag_profile),
+                                Err(Error::UnsupportedMac)
+                            ));
+                            continue;
+                        }
+                        let expected = &expected.stdout[..tag_profile.tag_length(algorithm)];
+                        let tag = ro
+                            .mac_hmac_with_profile(&key, algorithm, &message, tag_profile)
+                            .unwrap();
+                        assert_eq!(tag, expected);
+                        ro.verify_hmac_with_profile(&key, algorithm, &message, &tag, tag_profile)
+                            .unwrap();
+                        let mut wrong = tag.clone();
+                        wrong[0] ^= 1;
+                        for supplied in [&[][..], wrong.as_slice(), &tag[..tag.len() - 1]] {
+                            assert!(matches!(
+                                ro.verify_hmac_with_profile(
+                                    &key,
+                                    algorithm,
+                                    &message,
+                                    supplied,
+                                    tag_profile
+                                ),
+                                Err(Error::MacMismatch)
+                            ));
+                            ro.info().unwrap();
+                        }
+                    }
                     let mut wrong = tag.clone();
                     wrong[0] ^= 1;
                     for tag in [&[][..], wrong.as_slice(), &tag[..tag.len() - 1]] {
@@ -214,6 +250,11 @@ fn hmac_openssl_key_types_lengths_permissions_and_generated_keys() {
                 setup.generate_hmac_key(&request),
                 Err(Error::UnsupportedMac)
             ));
+            assert!(token.hmac_general_generation_options().unwrap().is_empty());
+            assert!(matches!(
+                setup.generate_hmac_general_key(&request),
+                Err(Error::UnsupportedMac)
+            ));
             setup.info().unwrap();
             continue;
         }
@@ -264,6 +305,13 @@ fn hmac_openssl_key_types_lengths_permissions_and_generated_keys() {
         for a in HmacAlgorithm::ALL {
             assert_eq!(caps.supports(a), a == algorithm);
         }
+        assert!(
+            setup
+                .hmac_options(&key, MacOperation::Generate)
+                .unwrap()
+                .general
+                .is_none()
+        );
         let mut ro = token.open_session(SessionMode::ReadOnly).unwrap();
         assert!(matches!(
             ro.generate_hmac_key(&request),

@@ -27,7 +27,10 @@ mod kbkdf;
 pub use kbkdf::{KbkdfCapabilities, KbkdfMode, KbkdfOptions, KbkdfOutput, KbkdfRequest};
 mod hmac;
 mod mac;
-pub use hmac::{HMAC_MAXIMUM_MESSAGE, HmacAlgorithm, HmacCapabilities, HmacKeyRequest};
+pub use hmac::{
+    HMAC_MAXIMUM_MESSAGE, HmacAlgorithm, HmacCapabilities, HmacKeyRequest, HmacOptions,
+    HmacTagProfile,
+};
 mod hybrid;
 mod key_operations;
 mod ml_dsa;

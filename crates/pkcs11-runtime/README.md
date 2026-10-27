@@ -342,7 +342,19 @@ creating a comparison tag. Messages may be empty and are bounded to 16 MiB.
 Both work in RO sessions. Incorrect tag length or a completed verification
 mismatch returns `Error::MacMismatch` and leaves the session reusable. Other
 native failures, unwinds and malformed output invalidate it. Check session closure.
-No truncation, software fallback or algorithm substitution occurs.
+No software truncation, fallback or algorithm substitution occurs.
+
+`hmac_general_capabilities` inspects general-tag algorithms; `hmac_options`
+inspects full and general mechanisms independently. `mac_hmac_with_profile` and
+`verify_hmac_with_profile` accept `HmacTagProfile::Full` or
+`General { tag_length }`. General tags use the corresponding native
+CKM_*_HMAC_GENERAL and a CK_MAC_GENERAL_PARAMS byte length, including when the
+requested length equals the full hash output. No full-tag fallback occurs.
+The application accepts half the hash output through its full length:
+14–28, 16–32, 24–48 or 32–64 bytes. This applies the minimum recommended in
+[RFC 2104 section 5](https://www.rfc-editor.org/rfc/rfc2104.html#section-5);
+PKCS #11 itself permits shorter tags. Agree on one algorithm and tag length
+before communicating and keep them fixed for the key's lifetime.
 
 HMAC definitions do not assign units to mechanism key-size bounds, and providers
 may report 0/0. These fields are not interpreted as HMAC key limits. The provider
@@ -359,6 +371,10 @@ Duplicate secret IDs are rejected without a transaction against concurrent
 writers. Failure can leave persistent effects; no key value, retry or rollback
 is exposed. Advertised generation support does not promise HMAC acceptance. A provider
 reporting 0/0 generic-generation bounds has no positive-length generation choices.
+`hmac_general_generation_options` and `generate_hmac_general_key` apply the same
+checks and template policy while allowing only the selected general mechanism.
+The token's allowed-mechanism attribute does not encode a tag length; callers
+must enforce their agreed length. Existing full-tag keys retain their restriction.
 
 ## AES-CMAC
 

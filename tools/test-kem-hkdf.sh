@@ -29,6 +29,7 @@ cargo test -p pkcs11ctl --test aes_cmac --locked -- --ignored --test-threads=1
 cargo test -p pkcs11-desktop --locked -- software_token_cmac --ignored --test-threads=1
 cargo test -p pkcs11-runtime --test kbkdf_provider --locked -- --ignored --test-threads=1
 cargo test -p pkcs11-runtime --test hmac_provider --locked -- --ignored --test-threads=1
+cargo test -p pkcs11-client --test hmac_general_provider --locked -- general_hmac_client --ignored --test-threads=1
 cargo test -p pkcs11-client --test kbkdf_provider --locked -- --ignored --test-threads=1
 cargo test -p pkcs11ctl --test kbkdf --locked -- --ignored --test-threads=1
 cargo test -p pkcs11-desktop --locked -- persistent_kbkdf_desktop --ignored --test-threads=1

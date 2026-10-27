@@ -304,42 +304,82 @@ impl MechanismType {
     pub const SHA224_HMAC: MechanismType = MechanismType {
         val: CKM_SHA224_HMAC,
     };
+    /// General-length SHA224 HMAC mechanism
+    pub const SHA224_HMAC_GENERAL: MechanismType = MechanismType {
+        val: CKM_SHA224_HMAC_GENERAL,
+    };
     /// SHA256-HMAC mechanism
     pub const SHA256_HMAC: MechanismType = MechanismType {
         val: CKM_SHA256_HMAC,
+    };
+    /// General-length SHA256 HMAC mechanism
+    pub const SHA256_HMAC_GENERAL: MechanismType = MechanismType {
+        val: CKM_SHA256_HMAC_GENERAL,
     };
     /// SHA384-HMAC mechanism
     pub const SHA384_HMAC: MechanismType = MechanismType {
         val: CKM_SHA384_HMAC,
     };
+    /// General-length SHA384 HMAC mechanism
+    pub const SHA384_HMAC_GENERAL: MechanismType = MechanismType {
+        val: CKM_SHA384_HMAC_GENERAL,
+    };
     /// SHA512-HMAC mechanism
     pub const SHA512_HMAC: MechanismType = MechanismType {
         val: CKM_SHA512_HMAC,
+    };
+    /// General-length SHA512 HMAC mechanism
+    pub const SHA512_HMAC_GENERAL: MechanismType = MechanismType {
+        val: CKM_SHA512_HMAC_GENERAL,
     };
 
     /// SHA-512/224 HMAC mechanism
     pub const SHA512_224_HMAC: MechanismType = MechanismType {
         val: CKM_SHA512_224_HMAC,
     };
+    /// General-length SHA512_224 HMAC mechanism
+    pub const SHA512_224_HMAC_GENERAL: MechanismType = MechanismType {
+        val: CKM_SHA512_224_HMAC_GENERAL,
+    };
     /// SHA-512/256 HMAC mechanism
     pub const SHA512_256_HMAC: MechanismType = MechanismType {
         val: CKM_SHA512_256_HMAC,
+    };
+    /// General-length SHA512_256 HMAC mechanism
+    pub const SHA512_256_HMAC_GENERAL: MechanismType = MechanismType {
+        val: CKM_SHA512_256_HMAC_GENERAL,
     };
     /// SHA3-224 HMAC mechanism
     pub const SHA3_224_HMAC: MechanismType = MechanismType {
         val: CKM_SHA3_224_HMAC,
     };
+    /// General-length SHA3_224 HMAC mechanism
+    pub const SHA3_224_HMAC_GENERAL: MechanismType = MechanismType {
+        val: CKM_SHA3_224_HMAC_GENERAL,
+    };
     /// SHA3-256 HMAC mechanism
     pub const SHA3_256_HMAC: MechanismType = MechanismType {
         val: CKM_SHA3_256_HMAC,
+    };
+    /// General-length SHA3_256 HMAC mechanism
+    pub const SHA3_256_HMAC_GENERAL: MechanismType = MechanismType {
+        val: CKM_SHA3_256_HMAC_GENERAL,
     };
     /// SHA3-384 HMAC mechanism
     pub const SHA3_384_HMAC: MechanismType = MechanismType {
         val: CKM_SHA3_384_HMAC,
     };
+    /// General-length SHA3_384 HMAC mechanism
+    pub const SHA3_384_HMAC_GENERAL: MechanismType = MechanismType {
+        val: CKM_SHA3_384_HMAC_GENERAL,
+    };
     /// SHA3-512 HMAC mechanism
     pub const SHA3_512_HMAC: MechanismType = MechanismType {
         val: CKM_SHA3_512_HMAC,
+    };
+    /// General-length SHA3_512 HMAC mechanism
+    pub const SHA3_512_HMAC_GENERAL: MechanismType = MechanismType {
+        val: CKM_SHA3_512_HMAC_GENERAL,
     };
 
     // SHA-n key generation (for use with the corresponding HMAC mechanism)
@@ -1034,15 +1074,25 @@ impl TryFrom<CK_MECHANISM_TYPE> for MechanismType {
             CKM_SHA512_RSA_PKCS => Ok(MechanismType::SHA512_RSA_PKCS),
             CKM_SHA_1_HMAC => Ok(MechanismType::SHA1_HMAC),
             CKM_SHA224_HMAC => Ok(MechanismType::SHA224_HMAC),
+            CKM_SHA224_HMAC_GENERAL => Ok(MechanismType::SHA224_HMAC_GENERAL),
             CKM_SHA256_HMAC => Ok(MechanismType::SHA256_HMAC),
+            CKM_SHA256_HMAC_GENERAL => Ok(MechanismType::SHA256_HMAC_GENERAL),
             CKM_SHA384_HMAC => Ok(MechanismType::SHA384_HMAC),
+            CKM_SHA384_HMAC_GENERAL => Ok(MechanismType::SHA384_HMAC_GENERAL),
             CKM_SHA512_HMAC => Ok(MechanismType::SHA512_HMAC),
+            CKM_SHA512_HMAC_GENERAL => Ok(MechanismType::SHA512_HMAC_GENERAL),
             CKM_SHA512_224_HMAC => Ok(MechanismType::SHA512_224_HMAC),
+            CKM_SHA512_224_HMAC_GENERAL => Ok(MechanismType::SHA512_224_HMAC_GENERAL),
             CKM_SHA512_256_HMAC => Ok(MechanismType::SHA512_256_HMAC),
+            CKM_SHA512_256_HMAC_GENERAL => Ok(MechanismType::SHA512_256_HMAC_GENERAL),
             CKM_SHA3_224_HMAC => Ok(MechanismType::SHA3_224_HMAC),
+            CKM_SHA3_224_HMAC_GENERAL => Ok(MechanismType::SHA3_224_HMAC_GENERAL),
             CKM_SHA3_256_HMAC => Ok(MechanismType::SHA3_256_HMAC),
+            CKM_SHA3_256_HMAC_GENERAL => Ok(MechanismType::SHA3_256_HMAC_GENERAL),
             CKM_SHA3_384_HMAC => Ok(MechanismType::SHA3_384_HMAC),
+            CKM_SHA3_384_HMAC_GENERAL => Ok(MechanismType::SHA3_384_HMAC_GENERAL),
             CKM_SHA3_512_HMAC => Ok(MechanismType::SHA3_512_HMAC),
+            CKM_SHA3_512_HMAC_GENERAL => Ok(MechanismType::SHA3_512_HMAC_GENERAL),
             CKM_SHA_1_KEY_GEN => Ok(MechanismType::SHA1_KEY_GEN),
             CKM_SHA224_KEY_GEN => Ok(MechanismType::SHA224_KEY_GEN),
             CKM_SHA256_KEY_GEN => Ok(MechanismType::SHA256_KEY_GEN),
@@ -1292,24 +1342,44 @@ pub enum Mechanism<'a> {
     Sha1Hmac,
     /// SHA224-HMAC mechanism
     Sha224Hmac,
+    /// Native general-length SHA224 HMAC with a byte-length parameter.
+    Sha224HmacGeneral(MacGeneralParams),
     /// SHA256-HMAC mechanism
     Sha256Hmac,
+    /// Native general-length SHA256 HMAC with a byte-length parameter.
+    Sha256HmacGeneral(MacGeneralParams),
     /// SHA384-HMAC mechanism
     Sha384Hmac,
+    /// Native general-length SHA384 HMAC with a byte-length parameter.
+    Sha384HmacGeneral(MacGeneralParams),
     /// SHA512-HMAC mechanism
     Sha512Hmac,
+    /// Native general-length SHA512 HMAC with a byte-length parameter.
+    Sha512HmacGeneral(MacGeneralParams),
     /// SHA-512/224 HMAC mechanism
     Sha512_224Hmac,
+    /// Native general-length SHA512_224 HMAC with a byte-length parameter.
+    Sha512_224HmacGeneral(MacGeneralParams),
     /// SHA-512/256 HMAC mechanism
     Sha512_256Hmac,
+    /// Native general-length SHA512_256 HMAC with a byte-length parameter.
+    Sha512_256HmacGeneral(MacGeneralParams),
     /// SHA3-224 HMAC mechanism
     Sha3_224Hmac,
+    /// Native general-length SHA3_224 HMAC with a byte-length parameter.
+    Sha3_224HmacGeneral(MacGeneralParams),
     /// SHA3-256 HMAC mechanism
     Sha3_256Hmac,
+    /// Native general-length SHA3_256 HMAC with a byte-length parameter.
+    Sha3_256HmacGeneral(MacGeneralParams),
     /// SHA3-384 HMAC mechanism
     Sha3_384Hmac,
+    /// Native general-length SHA3_384 HMAC with a byte-length parameter.
+    Sha3_384HmacGeneral(MacGeneralParams),
     /// SHA3-512 HMAC mechanism
     Sha3_512Hmac,
+    /// Native general-length SHA3_512 HMAC with a byte-length parameter.
+    Sha3_512HmacGeneral(MacGeneralParams),
 
     // SHA-n key generation (for use with the corresponding HMAC mechanism)
     /// SHA-1 key generation mechanism
@@ -1489,15 +1559,25 @@ impl Mechanism<'_> {
 
             Mechanism::Sha1Hmac => MechanismType::SHA1_HMAC,
             Mechanism::Sha224Hmac => MechanismType::SHA224_HMAC,
+            Mechanism::Sha224HmacGeneral(_) => MechanismType::SHA224_HMAC_GENERAL,
             Mechanism::Sha256Hmac => MechanismType::SHA256_HMAC,
+            Mechanism::Sha256HmacGeneral(_) => MechanismType::SHA256_HMAC_GENERAL,
             Mechanism::Sha384Hmac => MechanismType::SHA384_HMAC,
+            Mechanism::Sha384HmacGeneral(_) => MechanismType::SHA384_HMAC_GENERAL,
             Mechanism::Sha512Hmac => MechanismType::SHA512_HMAC,
+            Mechanism::Sha512HmacGeneral(_) => MechanismType::SHA512_HMAC_GENERAL,
             Mechanism::Sha512_224Hmac => MechanismType::SHA512_224_HMAC,
+            Mechanism::Sha512_224HmacGeneral(_) => MechanismType::SHA512_224_HMAC_GENERAL,
             Mechanism::Sha512_256Hmac => MechanismType::SHA512_256_HMAC,
+            Mechanism::Sha512_256HmacGeneral(_) => MechanismType::SHA512_256_HMAC_GENERAL,
             Mechanism::Sha3_224Hmac => MechanismType::SHA3_224_HMAC,
+            Mechanism::Sha3_224HmacGeneral(_) => MechanismType::SHA3_224_HMAC_GENERAL,
             Mechanism::Sha3_256Hmac => MechanismType::SHA3_256_HMAC,
+            Mechanism::Sha3_256HmacGeneral(_) => MechanismType::SHA3_256_HMAC_GENERAL,
             Mechanism::Sha3_384Hmac => MechanismType::SHA3_384_HMAC,
+            Mechanism::Sha3_384HmacGeneral(_) => MechanismType::SHA3_384_HMAC_GENERAL,
             Mechanism::Sha3_512Hmac => MechanismType::SHA3_512_HMAC,
+            Mechanism::Sha3_512HmacGeneral(_) => MechanismType::SHA3_512_HMAC_GENERAL,
 
             Mechanism::Sha1KeyGen => MechanismType::SHA1_KEY_GEN,
             Mechanism::Sha224KeyGen => MechanismType::SHA224_KEY_GEN,
@@ -1602,6 +1682,16 @@ impl From<&Mechanism<'_>> for CK_MECHANISM {
             | Mechanism::XorBaseAndData(params) => make_mechanism(mechanism, params),
             Mechanism::ExtractKeyFromKey(params) => make_mechanism(mechanism, params),
             Mechanism::AesCMacGeneral(params) => make_mechanism(mechanism, params),
+            Mechanism::Sha3_512HmacGeneral(params) => make_mechanism(mechanism, params),
+            Mechanism::Sha3_384HmacGeneral(params) => make_mechanism(mechanism, params),
+            Mechanism::Sha3_256HmacGeneral(params) => make_mechanism(mechanism, params),
+            Mechanism::Sha3_224HmacGeneral(params) => make_mechanism(mechanism, params),
+            Mechanism::Sha512_256HmacGeneral(params) => make_mechanism(mechanism, params),
+            Mechanism::Sha512_224HmacGeneral(params) => make_mechanism(mechanism, params),
+            Mechanism::Sha512HmacGeneral(params) => make_mechanism(mechanism, params),
+            Mechanism::Sha384HmacGeneral(params) => make_mechanism(mechanism, params),
+            Mechanism::Sha256HmacGeneral(params) => make_mechanism(mechanism, params),
+            Mechanism::Sha224HmacGeneral(params) => make_mechanism(mechanism, params),
             Mechanism::HashMlDsa(params) => make_mechanism(mechanism, params),
             Mechanism::MlDsa(params)
             | Mechanism::HashMlDsaSha224(params)

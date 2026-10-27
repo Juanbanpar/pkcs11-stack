@@ -660,6 +660,20 @@ generation may leave effects; no rollback or retry occurs. Provider-specific key
 limits may reject a profile; no software MAC, truncation or downgrade is attempted.
 Existing derivation-only secrets do not gain MAC permissions.
 
+`hmac_options` reports full and general mechanisms independently;
+`hmac_general_capabilities` inspects general profiles only. The explicit
+`mac_hmac_with_profile` / `verify_hmac_with_profile` methods accept
+`HmacTagProfile::General { tag_length }`. Native general HMAC accepts this
+application's half-hash through full-hash lengths (14–28, 16–32, 24–48 or 32–64
+bytes). Full-length general tags still require the general mechanism and its
+permission. No software truncation or fallback occurs. Agree on one algorithm
+and length per key before communicating.
+
+`generation_capabilities().hmac_general` and `generate_hmac_general_key` expose
+hash-length secrets restricted to the chosen general mechanism. They retain the
+same key attributes and generation checks. Tag length is a protocol contract,
+not a token attribute. Existing generation and MAC methods retain full-tag behavior.
+
 ## AES-CMAC
 
 `ManagementSession::aes_cmac_capabilities(key, MacOperation::Generate|Verify)`

@@ -7,7 +7,7 @@ use cryptoki::{context::Function, mechanism::Mechanism, object::KeyType};
 
 /// Maximum single-part HMAC message size, in bytes (16 MiB).
 pub const HMAC_MAXIMUM_MESSAGE: usize = 16 * 1024 * 1024;
-/// Full-length SHA-2 or SHA-3 HMAC algorithm; no truncated or legacy profile is implicit.
+/// SHA-2 or SHA-3 HMAC algorithm; existing calls select full tags.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum HmacAlgorithm {
     /// HMAC-SHA-256 with a 32-byte tag.
@@ -73,6 +73,25 @@ impl HmacAlgorithm {
             Self::Sha3_512 => Mechanism::Sha3_512Hmac,
         }
     }
+    /// Standard general-length HMAC mechanism ID; support is checked separately.
+    pub fn general_mechanism(self) -> MechanismType {
+        self.general_parameters(self.tag_length()).mechanism_type()
+    }
+    fn general_parameters(self, length: usize) -> Mechanism<'static> {
+        let length = cryptoki::mechanism::misc::MacGeneralParams::new(length);
+        match self {
+            Self::Sha256 => Mechanism::Sha256HmacGeneral(length),
+            Self::Sha384 => Mechanism::Sha384HmacGeneral(length),
+            Self::Sha512 => Mechanism::Sha512HmacGeneral(length),
+            Self::Sha224 => Mechanism::Sha224HmacGeneral(length),
+            Self::Sha512_224 => Mechanism::Sha512_224HmacGeneral(length),
+            Self::Sha512_256 => Mechanism::Sha512_256HmacGeneral(length),
+            Self::Sha3_224 => Mechanism::Sha3_224HmacGeneral(length),
+            Self::Sha3_256 => Mechanism::Sha3_256HmacGeneral(length),
+            Self::Sha3_384 => Mechanism::Sha3_384HmacGeneral(length),
+            Self::Sha3_512 => Mechanism::Sha3_512HmacGeneral(length),
+        }
+    }
     fn key_type(self) -> KeyType {
         match self {
             Self::Sha256 => KeyType::SHA256_HMAC,
@@ -104,7 +123,83 @@ impl std::fmt::Display for HmacAlgorithm {
         })
     }
 }
-/// Current key length and permitted full-tag profiles for one MAC direction.
+/// Explicit native tag profile, independent of the selected hash algorithm.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum HmacTagProfile {
+    /// Full HMAC mechanism with no parameter; the backwards-compatible default.
+    #[default]
+    Full,
+    /// General HMAC mechanism with an explicit byte-length parameter.
+    General {
+        /// Requested length, at least half the hash output and at most its full length.
+        tag_length: usize,
+    },
+}
+impl HmacTagProfile {
+    /// Requested length in bytes. Validate before allocating or contacting a provider.
+    pub fn tag_length(self, algorithm: HmacAlgorithm) -> usize {
+        match self {
+            Self::Full => algorithm.tag_length(),
+            Self::General { tag_length } => tag_length,
+        }
+    }
+    /// Apply RFC 2104 section 5's half-hash minimum recommendation, without I/O.
+    /// All supported hashes exceed its additional 80-bit minimum.
+    pub fn validate(self, algorithm: HmacAlgorithm) -> Result<(), Error> {
+        if (algorithm.tag_length() / 2..=algorithm.tag_length())
+            .contains(&self.tag_length(algorithm))
+        {
+            Ok(())
+        } else {
+            Err(Error::InvalidParameters("HMAC tag length"))
+        }
+    }
+    /// Supported lengths for a hash, preferring full tags and longer general tags.
+    pub fn choices(algorithm: HmacAlgorithm) -> Vec<Self> {
+        std::iter::once(Self::Full)
+            .chain(
+                (algorithm.tag_length() / 2..=algorithm.tag_length())
+                    .rev()
+                    .map(|tag_length| Self::General { tag_length }),
+            )
+            .collect()
+    }
+    fn parameters(self, algorithm: HmacAlgorithm) -> Mechanism<'static> {
+        match self {
+            Self::Full => algorithm.parameters(),
+            Self::General { tag_length } => algorithm.general_parameters(tag_length),
+        }
+    }
+}
+impl std::fmt::Display for HmacTagProfile {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Full => f.write_str("Full tag"),
+            Self::General { tag_length } => write!(f, "{tag_length} bytes — general profile"),
+        }
+    }
+}
+/// Advisory full and general native profiles for one key and MAC direction.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HmacOptions {
+    /// Full-tag algorithms, if any are permitted and advertised.
+    pub full: Option<HmacCapabilities>,
+    /// General-tag algorithms, if any are permitted and advertised.
+    pub general: Option<HmacCapabilities>,
+}
+impl HmacOptions {
+    /// Whether the requested native profile is permitted. Execution rechecks it;
+    /// provider acceptance of an individual general length remains advisory.
+    pub fn supports(self, algorithm: HmacAlgorithm, profile: HmacTagProfile) -> bool {
+        profile.validate(algorithm).is_ok()
+            && match profile {
+                HmacTagProfile::Full => self.full,
+                HmacTagProfile::General { .. } => self.general,
+            }
+            .is_some_and(|caps| caps.supports(algorithm))
+    }
+}
+/// Current key length and permitted algorithms for one native profile and MAC direction.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct HmacCapabilities {
     /// Observed key length in bytes; this application accepts 16..=4096.
@@ -180,6 +275,7 @@ fn profile(
     object: &Object<'_, '_>,
     algorithm: HmacAlgorithm,
     operation: MacOperation,
+    general: bool,
 ) -> Result<usize, Error> {
     for (kind, expected) in [
         (
@@ -203,7 +299,11 @@ fn profile(
         _ => return Err(Error::UnsupportedMac),
     }
     let length = key_length(object)?;
-    let mechanism = algorithm.mechanism();
+    let mechanism = if general {
+        algorithm.general_mechanism()
+    } else {
+        algorithm.mechanism()
+    };
     if matches!(attribute(object, AttributeType::AllowedMechanisms, false)?, Some(Attribute::AllowedMechanisms(allowed)) if !allowed.is_empty() && !allowed.contains(&mechanism))
     {
         return Err(Error::UnsupportedMac);
@@ -236,11 +336,48 @@ fn validate_message(message: &[u8]) -> Result<(), Error> {
     }
     Ok(())
 }
+fn hmac_capabilities(
+    object: &Object<'_, '_>,
+    operation: MacOperation,
+    general: bool,
+) -> Result<HmacCapabilities, Error> {
+    let supported = |algorithm| match profile(object, algorithm, operation, general) {
+        Ok(_) => Ok(true),
+        Err(Error::UnsupportedMac) => Ok(false),
+        Err(e) => Err(e),
+    };
+    let mut caps = HmacCapabilities {
+        key_length: 0,
+        sha256: supported(HmacAlgorithm::Sha256)?,
+        sha384: supported(HmacAlgorithm::Sha384)?,
+        sha512: supported(HmacAlgorithm::Sha512)?,
+        sha224: supported(HmacAlgorithm::Sha224)?,
+        sha512_224: supported(HmacAlgorithm::Sha512_224)?,
+        sha512_256: supported(HmacAlgorithm::Sha512_256)?,
+        sha3_224: supported(HmacAlgorithm::Sha3_224)?,
+        sha3_256: supported(HmacAlgorithm::Sha3_256)?,
+        sha3_384: supported(HmacAlgorithm::Sha3_384)?,
+        sha3_512: supported(HmacAlgorithm::Sha3_512)?,
+    };
+    if !HmacAlgorithm::ALL.into_iter().any(|a| caps.supports(a)) {
+        return Err(Error::UnsupportedMac);
+    }
+    caps.key_length = key_length(object)?;
+    Ok(caps)
+}
 impl Token<'_> {
     /// Advertised generic-secret generation choices with native HMAC sign/verify support.
     /// Generic generation bounds are in bits; CKA_VALUE_LEN remains in bytes.
     /// Does not promise template or later HMAC operation acceptance.
     pub fn hmac_generation_options(&self) -> Result<Vec<HmacAlgorithm>, Error> {
+        self.hmac_generation(false)
+    }
+    /// Advertised generation choices restricted to general HMAC mechanisms.
+    /// Generated keys permit general tags only; their length must be agreed by callers.
+    pub fn hmac_general_generation_options(&self) -> Result<Vec<HmacAlgorithm>, Error> {
+        self.hmac_generation(true)
+    }
+    fn hmac_generation(&self, general: bool) -> Result<Vec<HmacAlgorithm>, Error> {
         if !self.module.raw()?.is_fn_supported(Function::GenerateKey)
             || !self
                 .mechanisms()?
@@ -264,12 +401,17 @@ impl Token<'_> {
         let mechanisms = self.mechanisms()?;
         let mut options = vec![];
         for algorithm in HmacAlgorithm::ALL {
+            let mechanism = if general {
+                algorithm.general_mechanism()
+            } else {
+                algorithm.mechanism()
+            };
             if info.generate()
                 && (info.min_key_size()..=info.max_key_size())
                     .contains(&(algorithm.tag_length() * 8))
-                && mechanisms.contains(&algorithm.mechanism())
+                && mechanisms.contains(&mechanism)
             {
-                let mac = self.mechanism_info(algorithm.mechanism())?;
+                let mac = self.mechanism_info(mechanism)?;
                 if mac.sign() && mac.verify() {
                     options.push(algorithm);
                 }
@@ -287,31 +429,39 @@ impl Session<'_> {
         key: &ObjectRef,
         operation: MacOperation,
     ) -> Result<HmacCapabilities, Error> {
+        hmac_capabilities(&self.resolve(key)?, operation, false)
+    }
+    /// Inspect both native profiles; omit unsupported profiles while propagating
+    /// provider/selection errors. No key values or cryptographic operations are read.
+    pub fn hmac_options(
+        &mut self,
+        key: &ObjectRef,
+        operation: MacOperation,
+    ) -> Result<HmacOptions, Error> {
         let object = self.resolve(key)?;
-        let supported = |algorithm| match profile(&object, algorithm, operation) {
-            Ok(_) => Ok(true),
-            Err(Error::UnsupportedMac) => Ok(false),
-            Err(e) => Err(e),
+        let inspect = |general| match hmac_capabilities(&object, operation, general) {
+            Ok(caps) => Ok(Some(caps)),
+            Err(Error::UnsupportedMac) => Ok(None),
+            Err(error) => Err(error),
         };
-        let mut caps = HmacCapabilities {
-            key_length: 0,
-            sha256: supported(HmacAlgorithm::Sha256)?,
-            sha384: supported(HmacAlgorithm::Sha384)?,
-            sha512: supported(HmacAlgorithm::Sha512)?,
-            sha224: supported(HmacAlgorithm::Sha224)?,
-            sha512_224: supported(HmacAlgorithm::Sha512_224)?,
-            sha512_256: supported(HmacAlgorithm::Sha512_256)?,
-            sha3_224: supported(HmacAlgorithm::Sha3_224)?,
-            sha3_256: supported(HmacAlgorithm::Sha3_256)?,
-            sha3_384: supported(HmacAlgorithm::Sha3_384)?,
-            sha3_512: supported(HmacAlgorithm::Sha3_512)?,
+        let options = HmacOptions {
+            full: inspect(false)?,
+            general: inspect(true)?,
         };
-        if !HmacAlgorithm::ALL.into_iter().any(|a| caps.supports(a)) {
+        if options.full.is_none() && options.general.is_none() {
             return Err(Error::UnsupportedMac);
         }
-        caps.key_length = key_length(&object)?;
-        Ok(caps)
+        Ok(options)
     }
+    /// Inspect permitted native general-tag algorithms without cryptography.
+    pub fn hmac_general_capabilities(
+        &mut self,
+        key: &ObjectRef,
+        operation: MacOperation,
+    ) -> Result<HmacCapabilities, Error> {
+        hmac_capabilities(&self.resolve(key)?, operation, true)
+    }
+
     /// Generate a full native HMAC once, with fixed-size output storage. Messages
     /// may be empty and are bounded to 16 MiB. RO sessions are permitted. No key
     /// values, truncation, software fallback or retries are exposed. Native errors,
@@ -322,12 +472,31 @@ impl Session<'_> {
         algorithm: HmacAlgorithm,
         message: &[u8],
     ) -> Result<Vec<u8>, Error> {
+        self.mac_hmac_with_profile(key, algorithm, message, HmacTagProfile::Full)
+    }
+    /// Generate an explicit full or general tag natively, without software truncation,
+    /// fallback or retries. General tags follow the half-hash minimum policy. Agree
+    /// the algorithm and length before communicating and keep them fixed per key.
+    /// Messages are bounded to 16 MiB; malformed output invalidates the session.
+    pub fn mac_hmac_with_profile(
+        &mut self,
+        key: &ObjectRef,
+        algorithm: HmacAlgorithm,
+        message: &[u8],
+        tag_profile: HmacTagProfile,
+    ) -> Result<Vec<u8>, Error> {
+        tag_profile.validate(algorithm)?;
         validate_message(message)?;
         let object = self.resolve(key)?;
-        profile(&object, algorithm, MacOperation::Generate)?;
+        profile(
+            &object,
+            algorithm,
+            MacOperation::Generate,
+            matches!(tag_profile, HmacTagProfile::General { .. }),
+        )?;
         let mut tag = [0; 64];
-        let tag = &mut tag[..algorithm.tag_length()];
-        crate::mac::generate_into(&object, &algorithm.parameters(), message, tag)?;
+        let tag = &mut tag[..tag_profile.tag_length(algorithm)];
+        crate::mac::generate_into(&object, &tag_profile.parameters(algorithm), message, tag)?;
         Ok(tag.to_vec())
     }
     /// Verify using CKA_VERIFY and the selected native full-tag HMAC mechanism.
@@ -341,13 +510,32 @@ impl Session<'_> {
         message: &[u8],
         tag: &[u8],
     ) -> Result<(), Error> {
+        self.verify_hmac_with_profile(key, algorithm, message, tag, HmacTagProfile::Full)
+    }
+    /// Verify using the selected native mechanism and exact agreed tag length.
+    /// Length/content mismatch leaves the session reusable; other native failures
+    /// invalidate it. No host regeneration, truncation, retry or fallback occurs.
+    pub fn verify_hmac_with_profile(
+        &mut self,
+        key: &ObjectRef,
+        algorithm: HmacAlgorithm,
+        message: &[u8],
+        tag: &[u8],
+        tag_profile: HmacTagProfile,
+    ) -> Result<(), Error> {
+        tag_profile.validate(algorithm)?;
         validate_message(message)?;
-        if tag.len() != algorithm.tag_length() {
+        if tag.len() != tag_profile.tag_length(algorithm) {
             return Err(Error::MacMismatch);
         }
         let object = self.resolve(key)?;
-        profile(&object, algorithm, MacOperation::Verify)?;
-        crate::mac::verify(&object, &algorithm.parameters(), message, tag)
+        profile(
+            &object,
+            algorithm,
+            MacOperation::Verify,
+            matches!(tag_profile, HmacTagProfile::General { .. }),
+        )?;
+        crate::mac::verify(&object, &tag_profile.parameters(algorithm), message, tag)
     }
     /// Generate one hash-length generic secret via CKM_GENERIC_SECRET_KEY_GEN,
     /// restricted to the selected HMAC mechanism and signing/verification only.
@@ -357,6 +545,22 @@ impl Session<'_> {
         &mut self,
         request: &HmacKeyRequest<'_>,
     ) -> Result<Object<'_, '_>, Error> {
+        self.generate_hmac(request, false)
+    }
+    /// Generate a hash-length secret restricted to the selected general HMAC
+    /// mechanism. RW mode is required; failures may leave persistent effects.
+    /// Tag lengths are not encoded in key attributes: callers must fix them per key.
+    pub fn generate_hmac_general_key(
+        &mut self,
+        request: &HmacKeyRequest<'_>,
+    ) -> Result<Object<'_, '_>, Error> {
+        self.generate_hmac(request, true)
+    }
+    fn generate_hmac(
+        &mut self,
+        request: &HmacKeyRequest<'_>,
+        general: bool,
+    ) -> Result<Object<'_, '_>, Error> {
         request.validate()?;
         self.validate()?;
         if self.mode != SessionMode::ReadWrite {
@@ -364,7 +568,7 @@ impl Session<'_> {
         }
         if !self
             .token()
-            .hmac_generation_options()?
+            .hmac_generation(general)?
             .contains(&request.algorithm)
         {
             return Err(Error::UnsupportedMac);
@@ -377,9 +581,11 @@ impl Session<'_> {
                 _ => (),
             }
         }
-        template.push(Attribute::AllowedMechanisms(vec![
-            request.algorithm.mechanism(),
-        ]));
+        template.push(Attribute::AllowedMechanisms(vec![if general {
+            request.algorithm.general_mechanism()
+        } else {
+            request.algorithm.mechanism()
+        }]));
         template.push(Attribute::ValueLen(
             request
                 .algorithm
@@ -400,6 +606,26 @@ impl Session<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn tag_policy_bounds_all_algorithms_before_native_use() {
+        for algorithm in HmacAlgorithm::ALL {
+            for profile in HmacTagProfile::choices(algorithm) {
+                profile.validate(algorithm).unwrap();
+            }
+            for tag_length in [
+                0,
+                algorithm.tag_length() / 2 - 1,
+                algorithm.tag_length() + 1,
+                usize::MAX,
+            ] {
+                assert!(
+                    HmacTagProfile::General { tag_length }
+                        .validate(algorithm)
+                        .is_err()
+                );
+            }
+        }
+    }
     #[test]
     fn request_identity_bounds_and_debug_do_not_expose_inputs() {
         let request = HmacKeyRequest {

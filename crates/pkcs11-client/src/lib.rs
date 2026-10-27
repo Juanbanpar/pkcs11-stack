@@ -36,7 +36,10 @@ mod hkdf;
 mod kbkdf;
 pub use pkcs11_runtime::{KbkdfCapabilities, KbkdfMode, KbkdfOptions, KbkdfOutput, KbkdfRequest};
 mod hmac;
-pub use pkcs11_runtime::{HMAC_MAXIMUM_MESSAGE, HmacAlgorithm, HmacCapabilities, HmacKeyRequest};
+pub use pkcs11_runtime::{
+    HMAC_MAXIMUM_MESSAGE, HmacAlgorithm, HmacCapabilities, HmacKeyRequest, HmacOptions,
+    HmacTagProfile,
+};
 mod management;
 mod ml_dsa;
 mod ml_dsa_certificate;
