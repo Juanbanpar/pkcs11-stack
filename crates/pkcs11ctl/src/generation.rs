@@ -59,6 +59,9 @@ fn signing(m: &ArgMatches) -> Result<KeyKind> {
 /// Validate before loading a provider or authenticating.
 pub(crate) fn validate(m: &ArgMatches) -> Result<()> {
     let kind = need(m, "kind")?;
+    if flag(m, "general-tag") && hmac(kind).is_none() {
+        return Err(usage("--general-tag applies only to HMAC key generation"));
+    }
     if kind != "rsa" && get(m, "bits").is_some() {
         return Err(usage("--bits applies only to RSA"));
     }
@@ -129,12 +132,18 @@ pub(crate) fn generate(session: &mut ManagementSession<'_>, m: &ArgMatches) -> R
     let id = unhex(need(m, "id")?)?;
     let label = need(m, "label")?.as_bytes();
     let key = if let Some(algorithm) = hmac(kind) {
-        session.generate_hmac_key(&HmacKeyRequest {
+        let request = HmacKeyRequest {
             algorithm,
             id: &id,
             label,
-        })?;
-        json!({"algorithm":algorithm.to_string(),"length":algorithm.tag_length(),"purpose":"authentication"})
+        };
+        let general = flag(m, "general-tag");
+        if general {
+            session.generate_hmac_general_key(&request)?;
+        } else {
+            session.generate_hmac_key(&request)?;
+        }
+        json!({"algorithm":algorithm.to_string(),"length":algorithm.tag_length(),"purpose":"authentication","general_tag":general})
     } else if let Some(curve) = curve(kind) {
         session.generate_ecdh_key_pair(&EcdhKeyPairRequest {
             curve,
@@ -196,6 +205,7 @@ pub(crate) fn options(provider: &Provider, m: &ArgMatches) -> Result<Value> {
         }).collect::<Vec<_>>(),
         "aes_cmac_general_bits":options.aes_cmac_general.into_iter().map(|size| size.length()*8).collect::<Vec<_>>(),
         "aes_purposes":["encryption","wrapping","authentication","authentication-general"],
+        "hmac_general":options.hmac_general.into_iter().map(|a|a.to_string()).collect::<Vec<_>>(),
         "hmac":options.hmac.into_iter().map(|a|a.to_string()).collect::<Vec<_>>(),
         "ml_dsa":options.ml_dsa.into_iter().map(ml_dsa::key_info).collect::<Vec<_>>(),
         "ml_kem":options.ml_kem.into_iter().map(key_establishment::key_info).collect::<Vec<_>>()

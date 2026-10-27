@@ -296,6 +296,7 @@ pub(crate) fn command() -> Command {
             "ml-kem-1024",
         ]))
         .arg(value("bits", "RSA modulus size; RSA only"))
+        .arg(flag("general-tag", "HMAC only: restrict the new key to its native general mechanism"))
         .arg(
             value(
                 "purpose",
@@ -540,14 +541,16 @@ pub(crate) fn command() -> Command {
         ))),
         auth(object(
             Command::new("hmac-capabilities")
-                .about("Inspect native full-tag HMAC support")
+                .about("Inspect native HMAC support")
+                .arg(flag("general-tag", "Inspect general mechanisms; omitted inspects full tags"))
                 .arg(required("operation", "MAC direction").value_parser(["generate", "verify"])),
         )),
         auth(object(
             Command::new("mac-hmac")
-                .about("Generate a full native HMAC")
+                .about("Generate a native HMAC")
+                .arg(value("tag-length", "Native general tag bytes: half the hash output through full length; omitted selects full tag"))
                 .arg(
-                    required("algorithm", "Full-tag HMAC profile").value_parser([
+                    required("algorithm", "HMAC hash algorithm").value_parser([
                         "hmac-sha256",
                         "hmac-sha384",
                         "hmac-sha512",
@@ -568,9 +571,10 @@ pub(crate) fn command() -> Command {
         )),
         auth(object(
             Command::new("verify-hmac")
-                .about("Verify a full native HMAC")
+                .about("Verify a native HMAC")
+                .arg(value("tag-length", "Native general tag bytes: half the hash output through full length; omitted selects full tag"))
                 .arg(
-                    required("algorithm", "Full-tag HMAC profile").value_parser([
+                    required("algorithm", "HMAC hash algorithm").value_parser([
                         "hmac-sha256",
                         "hmac-sha384",
                         "hmac-sha512",
@@ -587,7 +591,7 @@ pub(crate) fn command() -> Command {
                     "input",
                     "Message file, at most 16 MiB; - reads stdin",
                 ))
-                .arg(required("tag-file", "Full raw tag file; no stdin")),
+                .arg(required("tag-file", "Exact selected-length raw tag file; no stdin")),
         )),
         auth(object(
             Command::new("aes-cmac-capabilities")

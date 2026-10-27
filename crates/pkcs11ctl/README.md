@@ -589,13 +589,23 @@ profiles without producing a tag. Algorithms are `hmac-sha224`, `hmac-sha256`,
 use their distinct hash functions. The algorithm is explicit; no substitution occurs.
 Generation kinds of the same names create hash-length generic secrets restricted
 to the chosen HMAC. They take neither `--purpose` nor `--always-authenticate`.
-`generation-options` includes an advisory `hmac` list.
+`generation-options` includes advisory `hmac` and `hmac_general` lists.
+
+Pass `--tag-length N` to `mac-hmac` or `verify-hmac` to select native general HMAC.
+The application accepts half the hash output through its full length: 14–28,
+16–32, 24–48 or 32–64 bytes. Omission keeps the existing full-tag mechanism;
+even a full-length general tag requires the distinct general mechanism.
+`hmac-capabilities --general-tag` inspects general mechanisms. For generation,
+`generate --kind hmac-sha384 --general-tag ...` restricts the new key to its
+general mechanism. Existing full-tag keys retain their restriction. Agree on
+one algorithm and tag length per key before communicating; key attributes do
+not encode this length. No software truncation or fallback occurs.
 
 Existing generic and matching hash-specific HMAC keys must be sensitive,
 nonextractable, 16–4096 bytes long and permit the requested direction. Provider
 limits may reject a key. Message input may be empty and is bounded to 16 MiB;
 `--input -` reads stdin. Tag generation writes a new raw file or binary stdout.
-Verification requires an exact full-length tag file, checked before module loading;
+Verification requires an exact selected-length tag file, checked before module loading;
 `--tag-file -` is rejected. Mismatch returns exit code 4 without success output.
 Results follow checked session closure and module finalization; existing outputs
 are preserved. No truncation, software fallback or retry occurs.

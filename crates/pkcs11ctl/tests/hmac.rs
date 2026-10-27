@@ -50,6 +50,65 @@ fn hmac_preflight_rejects_shapes_before_loading() {
             assert!(out.stdout.is_empty());
         }
     }
+    for (algorithm, full) in [
+        ("hmac-sha224", 28),
+        ("hmac-sha256", 32),
+        ("hmac-sha384", 48),
+        ("hmac-sha512", 64),
+        ("hmac-sha512-224", 28),
+        ("hmac-sha512-256", 32),
+        ("hmac-sha3-224", 28),
+        ("hmac-sha3-256", 32),
+        ("hmac-sha3-384", 48),
+        ("hmac-sha3-512", 64),
+    ] {
+        for length in [0, full / 2 - 1, full + 1, usize::MAX] {
+            for command in ["mac-hmac", "verify-hmac"] {
+                let extra = if command == "mac-hmac" {
+                    "--output"
+                } else {
+                    "--tag-file"
+                };
+                let out = run(
+                    "/missing",
+                    &[
+                        command,
+                        "--object",
+                        "pkcs11:token=test;id=%01;type=secret-key",
+                        "--algorithm",
+                        algorithm,
+                        "--tag-length",
+                        &length.to_string(),
+                        "--input",
+                        "missing-message",
+                        extra,
+                        tag,
+                    ],
+                );
+                assert_eq!(out.status.code(), Some(2));
+                assert!(out.stdout.is_empty());
+            }
+        }
+    }
+    for kind in ["rsa", "aes128", "p256", "ml-kem-512"] {
+        let mut args = vec![
+            "generate",
+            "--token",
+            "pkcs11:token=test",
+            "--kind",
+            kind,
+            "--general-tag",
+            "--id",
+            "01",
+            "--label",
+            "key",
+            "--confirm",
+        ];
+        if kind == "aes128" {
+            args.extend(["--purpose", "authentication"]);
+        }
+        assert_eq!(run("/missing", &args).status.code(), Some(2));
+    }
     for kind in ["public", "private"] {
         let uri = format!("pkcs11:token=test;id=%01;type={kind}");
         assert_eq!(
