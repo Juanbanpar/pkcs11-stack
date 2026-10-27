@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-use crate::{aes_gcm, generation, inspect, key_establishment, ml_dsa, support::*};
+use crate::{aes_gcm, aes_key_wrap, generation, inspect, key_establishment, ml_dsa, support::*};
 use clap::ArgMatches;
 use pkcs11_client::{
     AttributeType, DigestAlgorithm, HashingPolicy, Provider, PssParameters, RandomRequest,
@@ -106,6 +106,7 @@ impl Inputs {
         let so = get(m, "role") == Some("so");
         if so
             && (aes_gcm::selected(name)
+                || aes_key_wrap::selected(name)
                 || key_establishment::selected(name)
                 || matches!(
                     name,
@@ -165,6 +166,8 @@ impl Inputs {
         } else if let Some(path) = get(m, "input") {
             if let Some(limit) = key_establishment::input_limit(name, m)? {
                 bounded_input(path, limit)?
+            } else if name == "unwrap-aes-key" {
+                bounded_input(path, 40)?
             } else if matches!(name, "encrypt-rsa-oaep" | "decrypt-rsa-oaep") {
                 bounded_input(path, 2048)?
             } else if matches!(name, "verify" | "verify-token") || ml_dsa {
@@ -304,6 +307,9 @@ impl Inputs {
             }
         }
         let establishment = key_establishment::Inputs::load(name, m, &bytes)?;
+        if aes_key_wrap::selected(name) {
+            aes_key_wrap::validate(name, m, &bytes)?;
+        }
         Ok(Self {
             aes_gcm,
             digest_file,
@@ -559,7 +565,13 @@ fn management_command(
     let mutation = key_establishment::mutation(name)
         || matches!(
             name,
-            "init-pin" | "set-pin" | "generate" | "import" | "delete" | "set-label"
+            "init-pin"
+                | "set-pin"
+                | "generate"
+                | "import"
+                | "delete"
+                | "set-label"
+                | "unwrap-aes-key"
         );
     let mut session = module.management(
         &location,
@@ -584,6 +596,9 @@ fn management_operation(
 ) -> Result<Output> {
     if aes_gcm::selected(name) {
         return aes_gcm::operation(session, name, m, inputs.aes_gcm.as_ref());
+    }
+    if aes_key_wrap::selected(name) {
+        return aes_key_wrap::operation(session, name, m, &inputs.bytes);
     }
     if key_establishment::selected(name) {
         return key_establishment::operation(session, name, m, inputs);

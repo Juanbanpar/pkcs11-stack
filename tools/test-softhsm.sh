@@ -23,7 +23,7 @@ cargo test -p pkcs11-runtime --test key_operations_softhsm --test digest_provide
 cargo test -p pkcs11-desktop --locked -- --ignored --test-threads=1 --skip persistent_hkdf_desktop --skip persistent_ecdh_desktop --skip ml_dsa --skip ml_kem
 bash tools/test-examples.sh client
 cargo test -p pkcs11-client --test softhsm --test administration_softhsm --test public_import_softhsm --test oaep_parameters_softhsm --test digest_provider --test generation_softhsm --test aes_gcm_provider --locked -- --ignored --test-threads=1
-cargo test -p pkcs11ctl --test softhsm --test aes_gcm --locked -- --ignored --test-threads=1
+cargo test -p pkcs11ctl --test softhsm --test aes_gcm --test key_wrap --locked -- --ignored --test-threads=1
 export PKCS11_TLS_TEST_DIR="$scratch/tls"
 mkdir "$PKCS11_TLS_TEST_DIR"
 bash tools/provision-tls-softhsm.sh

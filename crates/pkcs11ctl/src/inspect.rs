@@ -26,6 +26,12 @@ pub(crate) fn attribute_type(name: &str) -> Result<AttributeType> {
         "object-id" => AttributeType::ObjectId,
         "private" => AttributeType::Private,
         "sign" => AttributeType::Sign,
+        "verify" => AttributeType::Verify,
+        "encrypt" => AttributeType::Encrypt,
+        "decrypt" => AttributeType::Decrypt,
+        "wrap" => AttributeType::Wrap,
+        "unwrap" => AttributeType::Unwrap,
+        "derive" => AttributeType::Derive,
         "sensitive" => AttributeType::Sensitive,
         "extractable" => AttributeType::Extractable,
         "always-authenticate" => AttributeType::AlwaysAuthenticate,
@@ -68,6 +74,12 @@ fn attr_value(attribute: &Attribute) -> Value {
         | Attribute::EcPoint(v) => json!({"hex":hex(v)}),
         Attribute::Private(v)
         | Attribute::Sign(v)
+        | Attribute::Verify(v)
+        | Attribute::Encrypt(v)
+        | Attribute::Decrypt(v)
+        | Attribute::Wrap(v)
+        | Attribute::Unwrap(v)
+        | Attribute::Derive(v)
         | Attribute::Sensitive(v)
         | Attribute::Extractable(v)
         | Attribute::AlwaysAuthenticate(v) => json!(v),

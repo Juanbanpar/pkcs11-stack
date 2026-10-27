@@ -423,6 +423,38 @@ pub(crate) fn command() -> Command {
                 .about("List advertised multipart token hash algorithms"),
         )),
         auth(token(random)),
+        auth(object(
+            Command::new("key-wrap-capabilities")
+                .about("List advisory AES-KW/KWP choices for a wrapping key")
+                .arg(required("operation", "Direction").value_parser(["wrap", "unwrap"])),
+        )),
+        auth(object(
+            Command::new("wrap-aes-key")
+                .about("Wrap one extractable AES key with an explicit KW/KWP algorithm")
+                .arg(required("target", "Stable target AES secret-key URI"))
+                .arg(
+                    required("algorithm", "Key-wrap algorithm; default IV only")
+                        .value_parser(["kw", "kwp"]),
+                )
+                .arg(required(
+                    "output",
+                    "New wrapped-key file, or - for binary stdout",
+                )),
+        )),
+        mutation(auth(object(
+            Command::new("unwrap-aes-key")
+                .about("Unwrap one KW/KWP blob into a sensitive nonextractable AES key")
+                .arg(
+                    required("algorithm", "Algorithm used for wrapping")
+                        .value_parser(["kw", "kwp"]),
+                )
+                .arg(required(
+                    "input",
+                    "24/32/40-byte wrapped AES key; - reads stdin",
+                ))
+                .arg(required("id", "New secret-key ID in hexadecimal"))
+                .arg(required("label", "New secret-key label")),
+        ))),
         gcm(
             "encrypt-aes-gcm",
             "Encrypt at most 16 MiB once; output is ciphertext followed by a full tag",

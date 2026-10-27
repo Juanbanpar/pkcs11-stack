@@ -44,6 +44,9 @@ for current discovery and explicit initialization.
 | `random --token URI --length N --output PATH` | Token-generated random bytes |
 | `aes-gcm-capabilities --object URI --operation encrypt\|decrypt` | Current AES key permissions and provider support |
 | `encrypt-aes-gcm`, `decrypt-aes-gcm` | Bounded authenticated encryption/decryption; explicit nonce and optional AAD file |
+| `key-wrap-capabilities --object URI --operation wrap\|unwrap` | Advisory AES-KW/KWP choices for a secret key |
+| `wrap-aes-key --object URI --target URI --algorithm kw\|kwp --output PATH` | Wrap one extractable AES key |
+| `unwrap-aes-key --object URI --algorithm kw\|kwp --input PATH --id HEX --label LABEL --confirm` | Create a sensitive nonextractable AES encryption/decryption key |
 | `diagnose --token URI --pool-size N` | Bounded lease capacity/exhaustion/reuse and session role |
 | `init-token --slot ID --expected-token URI --label LABEL --so-pin-file PATH --confirm` | Initialize or erase a token |
 | `init-pin --token URI --role so --pin-file PATH --new-pin-file PATH --confirm` | Initialize/reset USER PIN |
@@ -58,7 +61,8 @@ available metadata cannot form a supported selector; other summaries remain
 available. Duplicate locators can still be ambiguous when passed to `inspect`.
 
 `inspect --attributes` accepts a comma-separated list: `class`, `label`, `id`,
-`object-id`, `private`, `sign`, `sensitive`, `extractable`, `always-authenticate`,
+`object-id`, `private`, `sign`, `verify`, `encrypt`, `decrypt`, `wrap`, `unwrap`,
+`derive`, `sensitive`, `extractable`, `always-authenticate`,
 `key-type`, `modulus`, `exponent`, `ec-params`, `ec-point`, `subject`, `issuer`,
 `serial`, `value`. Values are explicit; requesting `value` can reveal sensitive
 application data if the token permits it. Attribute statuses distinguish
@@ -68,6 +72,19 @@ request secret key material. `export` refuses private/secret-key classes. Public
 export validates RSA or P-256/P-384/P-521 public attributes and encodes SPKI DER;
 `--key-family ml-dsa` exports an ML-DSA public key instead;
 certificate/data export retains its raw-value behavior.
+
+## AES key transfer
+
+AES key transfer uses an explicit `--algorithm kw|kwp` and standard default IVs.
+Both object and target selectors require `type=secret-key`. The target must be
+an extractable AES-128/192/256 key permitted by the wrapping trust policy.
+Unwrap accepts 24/32/40-byte blobs, requires a new ID/label of 1–128 bytes and
+creates a persistent private, sensitive, nonextractable AES key with encryption/
+decryption permission only. Carry and match the algorithm separately: the blob
+contains no algorithm, ID, label or permissions. KWP never falls back to KW or
+deprecated `AES_KEY_WRAP_PAD`. Native failure may have effects; refresh before
+retrying. Output files are never overwritten, and binary output follows checked
+session closure and module finalization.
 
 ## Authentication
 

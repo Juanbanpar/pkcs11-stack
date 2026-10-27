@@ -2,6 +2,7 @@
 #![forbid(unsafe_code)]
 //! PKCS#11 command-line workflows over the client library.
 mod aes_gcm;
+mod aes_key_wrap;
 mod args;
 mod generation;
 mod inspect;

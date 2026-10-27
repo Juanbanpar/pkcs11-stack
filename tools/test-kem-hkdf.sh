@@ -24,6 +24,7 @@ export PKCS11_TEST_KDF_OPENSSL=${PKCS11_TEST_KDF_OPENSSL:-openssl}
 command -v "$PKCS11_TEST_KDF_OPENSSL" >/dev/null
 cargo test -p pkcs11-runtime --test hkdf_persistent --locked -- --ignored --test-threads=1
 cargo test -p pkcs11-client --test key_wrap_persistent --locked -- --ignored --test-threads=1
+cargo test -p pkcs11ctl --test key_wrap --locked -- --ignored --test-threads=1
 cargo test -p pkcs11-runtime --test digest_provider --locked -- --ignored --test-threads=1
 cargo test -p pkcs11-client --test digest_provider --locked -- --ignored --test-threads=1
 cargo test -p pkcs11-runtime --test hybrid_persistent --locked -- token_hybrid_construction_and_policy --ignored --test-threads=1

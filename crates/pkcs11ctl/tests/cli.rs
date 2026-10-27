@@ -7,6 +7,64 @@ use std::{
 };
 struct Scratch(PathBuf);
 #[test]
+fn key_wrap_validates_classes_algorithm_identity_and_blob_before_loading() {
+    let scratch = Scratch::new();
+    let input = scratch.0.join("wrapped");
+    for (length, id, label) in [
+        (23, "01".into(), "key".into()),
+        (41, "01".into(), "key".into()),
+        (24, "00".repeat(129), "key".into()),
+        (24, "01".into(), "x".repeat(129)),
+    ] {
+        std::fs::write(&input, vec![0; length]).unwrap();
+        let result = run(&[
+            "--module",
+            "/must-not-load",
+            "unwrap-aes-key",
+            "--object",
+            "pkcs11:token=t;id=%01;type=secret-key",
+            "--algorithm",
+            "kwp",
+            "--input",
+            input.to_str().unwrap(),
+            "--id",
+            &id,
+            "--label",
+            &label,
+            "--confirm",
+        ]);
+        assert_eq!(result.status.code(), Some(2));
+    }
+    let output = scratch.0.join("output");
+    for (object, target, algorithm) in [
+        ("secret-key", "public", "kw"),
+        ("public", "secret-key", "kwp"),
+        ("secret-key", "secret-key", "pad"),
+    ] {
+        let object = format!("pkcs11:token=t;id=%01;type={object}");
+        let target = format!("pkcs11:token=t;id=%02;type={target}");
+        assert_eq!(
+            run(&[
+                "--module",
+                "/must-not-load",
+                "wrap-aes-key",
+                "--object",
+                &object,
+                "--target",
+                &target,
+                "--algorithm",
+                algorithm,
+                "--output",
+                output.to_str().unwrap()
+            ])
+            .status
+            .code(),
+            Some(2)
+        );
+        assert!(!output.exists());
+    }
+}
+#[test]
 fn oaep_labels_are_validated_before_module_loading() {
     let dir = Scratch::new();
     let input = dir.0.join("input");
