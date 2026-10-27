@@ -17,6 +17,8 @@ pub struct GenerationCapabilities {
     pub ecdh: Vec<NamedCurve>,
     /// AES sizes for encryption, wrapping or CMAC authentication key templates.
     pub aes: Vec<AesKeySize>,
+    /// Algorithms for hash-length HMAC-only generic secret generation.
+    pub hmac: Vec<crate::HmacAlgorithm>,
     /// Pure ML-DSA parameter sets.
     pub ml_dsa: Vec<crate::MlDsaParameterSet>,
     /// ML-KEM parameter sets.
@@ -36,6 +38,7 @@ impl Provider {
             rsa_encryption: selected.rsa_encryption_generation_options()?,
             ecdh: selected.ecdh_generation_options()?,
             aes: selected.aes_generation_options()?,
+            hmac: selected.hmac_generation_options()?,
             ml_dsa: self.ml_dsa_generation_options(token)?,
             ml_kem: self.ml_kem_generation_options(token)?,
         })

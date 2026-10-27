@@ -12,6 +12,11 @@
 #ifndef FAULT
 #define FAULT 0
 #endif
+#ifndef MAC_MECHANISM
+#define MAC_MECHANISM CKM_AES_CMAC
+#define MAC_KEY_TYPE CKK_AES
+#define MAC_TAG_LENGTH 16
+#endif
 static int initialized, active;
 static CK_RV initialize(CK_VOID_PTR args) {
     (void)args;
@@ -47,7 +52,7 @@ static CK_RV token(CK_SLOT_ID slot, CK_TOKEN_INFO_PTR out) {
     out->flags = CKF_TOKEN_INITIALIZED; return CKR_OK;
 }
 static CK_RV mechanisms(CK_SLOT_ID slot, CK_MECHANISM_TYPE_PTR list, CK_ULONG_PTR count) {
-    (void)slot; if (list) list[0] = CKM_AES_CMAC; *count = 1; return CKR_OK;
+    (void)slot; if (list) list[0] = MAC_MECHANISM; *count = 1; return CKR_OK;
 }
 static CK_RV mechanism_info(CK_SLOT_ID slot, CK_MECHANISM_TYPE mechanism, CK_MECHANISM_INFO_PTR out) {
     (void)slot; (void)mechanism; memset(out, 0, sizeof(*out));
@@ -78,9 +83,9 @@ static CK_RV attributes(CK_SESSION_HANDLE s, CK_OBJECT_HANDLE h, CK_ATTRIBUTE_PT
             case CKA_LABEL: a[i].ulValueLen = 0; continue;
             case CKA_ID: length = 1; value = 1; break;
             case CKA_CLASS: value = CKO_SECRET_KEY; break;
-            case CKA_KEY_TYPE: value = CKK_AES; break;
-            case CKA_VALUE_LEN: value = 16; break;
-            case CKA_ALLOWED_MECHANISMS: value = CKM_AES_CMAC; break;
+            case CKA_KEY_TYPE: value = MAC_KEY_TYPE; break;
+            case CKA_VALUE_LEN: value = MAC_TAG_LENGTH; break;
+            case CKA_ALLOWED_MECHANISMS: value = MAC_MECHANISM; break;
             case CKA_TOKEN: case CKA_PRIVATE: case CKA_SENSITIVE: case CKA_SIGN: case CKA_VERIFY:
                 length = sizeof(CK_BBOOL);
                 value = !((FAULT == 12 && a[i].type == CKA_SIGN) || (FAULT == 13 && a[i].type == CKA_VERIFY)); break;
@@ -98,17 +103,17 @@ static CK_RV attributes(CK_SESSION_HANDLE s, CK_OBJECT_HANDLE h, CK_ATTRIBUTE_PT
 }
 static CK_RV sign_init(CK_SESSION_HANDLE s, CK_MECHANISM_PTR m, CK_OBJECT_HANDLE h) {
     (void)s; (void)h;
-    if (m->mechanism != CKM_AES_CMAC || m->pParameter || m->ulParameterLen) return CKR_MECHANISM_PARAM_INVALID;
+    if (m->mechanism != MAC_MECHANISM || m->pParameter || m->ulParameterLen) return CKR_MECHANISM_PARAM_INVALID;
     if (FAULT == 3) return CKR_DEVICE_ERROR;
     active = 1; return CKR_OK;
 }
 static CK_RV sign(CK_SESSION_HANDLE s, CK_BYTE_PTR d, CK_ULONG n, CK_BYTE_PTR out, CK_ULONG_PTR length) {
     (void)s; (void)d; (void)n;
     if (!active) return CKR_OPERATION_NOT_INITIALIZED;
-    if (!out || *length != 16) return CKR_ARGUMENTS_BAD;
+    if (!out || *length != MAC_TAG_LENGTH) return CKR_ARGUMENTS_BAD;
     if (FAULT == 4) return CKR_DEVICE_ERROR;
-    if (FAULT == 6) { *length = 17; return CKR_BUFFER_TOO_SMALL; }
-    memset(out, 0xAB, 16); *length = FAULT == 5 ? 15 : FAULT == 7 ? 17 : 16;
+    if (FAULT == 6) { *length = MAC_TAG_LENGTH + 1; return CKR_BUFFER_TOO_SMALL; }
+    memset(out, 0xAB, MAC_TAG_LENGTH); *length = FAULT == 5 ? MAC_TAG_LENGTH - 1 : FAULT == 7 ? MAC_TAG_LENGTH + 1 : MAC_TAG_LENGTH;
     active = 0; return CKR_OK;
 }
 static CK_RV verify_init(CK_SESSION_HANDLE s, CK_MECHANISM_PTR m, CK_OBJECT_HANDLE h) {
@@ -119,7 +124,7 @@ static CK_RV verify(CK_SESSION_HANDLE s, CK_BYTE_PTR d, CK_ULONG n, CK_BYTE_PTR 
     (void)s; (void)d; (void)n; active = 0;
     if (FAULT == 8) return CKR_DEVICE_ERROR;
     for (CK_ULONG i = 0; i < length; ++i) if (tag[i] != 0xAB) return CKR_SIGNATURE_INVALID;
-    return length == 16 ? CKR_OK : CKR_SIGNATURE_LEN_RANGE;
+    return length == MAC_TAG_LENGTH ? CKR_OK : CKR_SIGNATURE_LEN_RANGE;
 }
 static CK_FUNCTION_LIST functions = {
     .version = {2,40}, .C_Initialize = initialize, .C_Finalize = finalize,

@@ -631,6 +631,33 @@ rejection. Invalid lengths fail before crypto. Always-authenticate decapsulation
 is not implemented. No operation or authentication is retried;
 close the session before releasing ciphertext when cleanup must be checked.
 
+## HMAC
+
+`ManagementSession::hmac_capabilities(key, operation)` reports permitted
+`HmacAlgorithm::Sha256`, `Sha384` and `Sha512` profiles for generation or verification.
+`mac_hmac` generates a full tag and `verify_hmac` verifies it on the token.
+Generic and matching hash-specific HMAC secrets are supported, with 16–4096-byte
+keys, sensitivity, nonextractability and direction-specific permissions required.
+Messages may be empty and are limited to 16 MiB. A wrong-length or nonmatching tag
+returns `Error::MacMismatch` and leaves the session reusable. Other native failures
+invalidate it. RO sessions are supported; check closure before releasing results.
+
+```no_run
+use pkcs11_client::{Error, HmacAlgorithm, ManagementSession, ObjectRef};
+fn authenticate(session: &mut ManagementSession<'_>, key: &ObjectRef) -> Result<(), Error> {
+    let tag = session.mac_hmac(key, HmacAlgorithm::Sha384, b"protocol message")?;
+    session.verify_hmac(key, HmacAlgorithm::Sha384, b"protocol message", &tag)
+}
+```
+
+`generation_capabilities().hmac` reports generic-secret generation choices.
+`generate_hmac_key(HmacKeyRequest)` creates a persistent, private, sensitive,
+nonextractable hash-length generic secret permitting only the chosen HMAC and
+signing/verification. RW access and a new 1–128-byte ID/label are required. Failed
+generation may leave effects; no rollback or retry occurs. Provider-specific key
+limits may reject a profile; no software MAC, truncation or downgrade is attempted.
+Existing derivation-only secrets do not gain MAC permissions.
+
 ## AES-CMAC
 
 `ManagementSession::aes_cmac_capabilities(key, MacOperation::Generate|Verify)`

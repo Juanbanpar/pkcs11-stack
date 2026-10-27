@@ -32,6 +32,8 @@ pub use generation::{
     RsaEncryptionKeyPairRequest,
 };
 mod hkdf;
+mod hmac;
+pub use pkcs11_runtime::{HMAC_MAXIMUM_MESSAGE, HmacAlgorithm, HmacCapabilities, HmacKeyRequest};
 mod management;
 mod ml_dsa;
 mod ml_dsa_certificate;

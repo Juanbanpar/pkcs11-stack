@@ -1,14 +1,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use crate::{
     AesKeySize, Attribute, AttributeType, Error, MechanismType, ObjectClass, ObjectRef, Session,
-    error::backend, signing::attribute,
+    signing::attribute,
 };
-use cryptoki::{
-    context::Function,
-    error::{Error as NativeError, RvError},
-    mechanism::Mechanism,
-    object::KeyType,
-};
+use cryptoki::{context::Function, mechanism::Mechanism, object::KeyType};
 
 /// Full AES-CMAC tag length in bytes; truncation is not exposed.
 pub const AES_CMAC_TAG_LENGTH: usize = 16;
@@ -117,18 +112,8 @@ impl Session<'_> {
         validate_message(message.len())?;
         let object = self.resolve(key)?;
         capabilities(&object, MacOperation::Generate)?;
-        let raw = object.session.raw()?;
-        object.session.healthy.set(false);
-        raw.sign_init(&Mechanism::AesCMac, object.handle)
-            .map_err(|e| backend("AES CMAC init", e))?;
         let mut tag = [0; AES_CMAC_TAG_LENGTH];
-        let written = raw
-            .sign_initialized_into(message, &mut tag)
-            .map_err(|e| backend("AES CMAC", e))?;
-        if written != tag.len() {
-            return Err(Error::InvalidKeyOutput);
-        }
-        object.session.healthy.set(true);
+        crate::mac::generate_into(&object, &Mechanism::AesCMac, message, &mut tag)?;
         Ok(tag)
     }
     /// Verify using native CKM_AES_CMAC and CKA_VERIFY, without generating a tag.
@@ -147,22 +132,7 @@ impl Session<'_> {
         }
         let object = self.resolve(key)?;
         capabilities(&object, MacOperation::Verify)?;
-        let raw = object.session.raw()?;
-        object.session.healthy.set(false);
-        match raw.verify(&Mechanism::AesCMac, object.handle, message, tag) {
-            Ok(()) => {
-                object.session.healthy.set(true);
-                Ok(())
-            }
-            Err(NativeError::Pkcs11(
-                RvError::SignatureInvalid | RvError::SignatureLenRange,
-                Function::Verify,
-            )) => {
-                object.session.healthy.set(true);
-                Err(Error::MacMismatch)
-            }
-            Err(error) => Err(backend("AES CMAC verify", error)),
-        }
+        crate::mac::verify(&object, &Mechanism::AesCMac, message, tag)
     }
 }
 #[cfg(test)]

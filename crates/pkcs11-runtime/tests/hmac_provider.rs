@@ -1,0 +1,265 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+//! Native HMAC interoperation and authentication-only key generation.
+use pkcs11_runtime::{
+    Attribute, AttributeType, Authentication, Error, HmacAlgorithm, HmacKeyRequest, KeyType,
+    MacOperation, MechanismType, Module, ObjectClass, ObjectRef, Pin, SessionMode,
+};
+use secrecy::SecretString;
+use std::{
+    io::Write,
+    process::{Command, Stdio},
+};
+fn reference(token: &str, label: &str) -> ObjectRef {
+    ObjectRef::new(
+        format!("pkcs11:token={token};object={label};type=secret-key")
+            .parse()
+            .unwrap(),
+    )
+    .unwrap()
+}
+fn template(label: &str, kind: KeyType, value: Vec<u8>) -> Vec<Attribute> {
+    vec![
+        Attribute::Class(ObjectClass::SECRET_KEY),
+        Attribute::KeyType(kind),
+        Attribute::Token(true),
+        Attribute::Private(true),
+        Attribute::Sensitive(true),
+        Attribute::Extractable(false),
+        Attribute::Sign(true),
+        Attribute::Verify(true),
+        Attribute::Derive(false),
+        Attribute::Encrypt(false),
+        Attribute::Decrypt(false),
+        Attribute::Wrap(false),
+        Attribute::Unwrap(false),
+        Attribute::Id(label.as_bytes().to_vec()),
+        Attribute::Label(label.as_bytes().to_vec()),
+        Attribute::Value(value),
+    ]
+}
+#[test]
+#[ignore = "requires the disposable SoftHSM or Kryoptic runner"]
+fn hmac_openssl_key_types_lengths_permissions_and_generated_keys() {
+    let kdf = std::env::var("PKCS11_TEST_KDF_ISOLATED").as_deref() == Ok("1");
+    assert!(kdf || std::env::var("PKCS11_TEST_ISOLATED").as_deref() == Ok("1"));
+    let module = Module::load(
+        std::env::var_os(if kdf {
+            "PKCS11_TEST_KDF_MODULE"
+        } else {
+            "PKCS11_TEST_MODULE"
+        })
+        .unwrap(),
+    )
+    .unwrap();
+    let token_name = if kdf { "kdf-test" } else { "client-test" };
+    let token = module
+        .resolve_token_uri(&format!("pkcs11:token={token_name}").parse().unwrap())
+        .unwrap();
+    let pin = SecretString::from("12345678");
+    let mut setup = token.open_session(SessionMode::ReadWrite).unwrap();
+    setup
+        .authenticate(Authentication::User(Pin::Value(&pin)))
+        .unwrap();
+    for (index, (algorithm, kind)) in HmacAlgorithm::ALL
+        .into_iter()
+        .zip([
+            KeyType::SHA256_HMAC,
+            KeyType::SHA384_HMAC,
+            KeyType::SHA512_HMAC,
+        ])
+        .enumerate()
+    {
+        let generation = token.hmac_generation_options().unwrap();
+        if kdf {
+            // This pinned Kryoptic reports 0/0 generic-generation bounds. Keep
+            // that metadata failure distinct from HMAC execution support.
+            assert!(generation.is_empty());
+        } else {
+            assert!(generation.contains(&algorithm));
+        }
+        for (typed, kind) in [(false, KeyType::GENERIC_SECRET), (true, kind)] {
+            for length in if kdf && typed {
+                vec![algorithm.tag_length()]
+            } else if kdf {
+                vec![20, algorithm.tag_length(), 131]
+            } else {
+                vec![algorithm.tag_length(), 131]
+            } {
+                let label = format!("hmac-vector-{index}-{typed}-{length}");
+                setup
+                    .create_object(&template(&label, kind, vec![0x0B; length]))
+                    .unwrap_or_else(|error| {
+                        panic!("HMAC fixture {index}, typed={typed}, length={length}: {error}")
+                    });
+                let key = reference(token_name, &label);
+                let mut ro = token.open_session(SessionMode::ReadOnly).unwrap();
+                let caps = ro.hmac_capabilities(&key, MacOperation::Generate).unwrap();
+                assert_eq!(caps.key_length, length);
+                for a in HmacAlgorithm::ALL {
+                    assert_eq!(caps.supports(a), !typed || a == algorithm);
+                }
+                for message in [vec![], b"Hi There".to_vec(), vec![0xA5; 4097]] {
+                    let mut child = Command::new("openssl")
+                        .args([
+                            "dgst",
+                            &format!("-sha{}", algorithm.tag_length() * 8),
+                            "-mac",
+                            "HMAC",
+                            "-macopt",
+                            &format!("hexkey:{}", "0b".repeat(length)),
+                            "-binary",
+                        ])
+                        .stdin(Stdio::piped())
+                        .stdout(Stdio::piped())
+                        .stderr(Stdio::piped())
+                        .spawn()
+                        .unwrap();
+                    child.stdin.take().unwrap().write_all(&message).unwrap();
+                    let expected = child.wait_with_output().unwrap();
+                    assert!(expected.status.success());
+                    let tag = ro.mac_hmac(&key, algorithm, &message).unwrap();
+                    assert_eq!(tag, expected.stdout);
+                    ro.verify_hmac(&key, algorithm, &message, &tag).unwrap();
+                    let mut wrong = tag.clone();
+                    wrong[0] ^= 1;
+                    for tag in [&[][..], wrong.as_slice(), &tag[..tag.len() - 1]] {
+                        assert!(matches!(
+                            ro.verify_hmac(&key, algorithm, &message, tag),
+                            Err(Error::MacMismatch)
+                        ));
+                        ro.info().unwrap();
+                    }
+                    ro.verify_hmac(&key, algorithm, &message, &tag).unwrap();
+                }
+                ro.close().unwrap();
+            }
+        }
+        for (case, bad) in [
+            Attribute::Sign(false),
+            Attribute::Verify(false),
+            Attribute::Sensitive(false),
+            Attribute::Extractable(true),
+            Attribute::AllowedMechanisms(vec![MechanismType::HKDF_DERIVE]),
+            Attribute::Value(vec![0x0B; 15]),
+            Attribute::Value(vec![0x0B; 4097]),
+            Attribute::KeyType(KeyType::SHA224_HMAC),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let label = format!("hmac-policy-{index}-{case}");
+            let mut attrs = template(&label, KeyType::GENERIC_SECRET, vec![0x0B; 32]);
+            if let Some(attr) = attrs
+                .iter_mut()
+                .find(|a| a.attribute_type() == bad.attribute_type())
+            {
+                *attr = bad;
+            } else {
+                attrs.push(bad);
+            }
+            if case == 7 {
+                if let Some(Attribute::Value(value)) = attrs
+                    .iter_mut()
+                    .find(|a| a.attribute_type() == AttributeType::Value)
+                {
+                    *value = vec![0x0B; 28];
+                }
+            }
+            setup.create_object(&attrs).unwrap();
+            let key = reference(token_name, &label);
+            for op in [MacOperation::Generate, MacOperation::Verify] {
+                let permitted = (case == 0 && op == MacOperation::Verify)
+                    || (case == 1 && op == MacOperation::Generate);
+                assert_eq!(setup.hmac_capabilities(&key, op).is_ok(), permitted);
+                if !permitted {
+                    let result = if op == MacOperation::Generate {
+                        setup.mac_hmac(&key, algorithm, b"message").map(|_| ())
+                    } else {
+                        setup.verify_hmac(
+                            &key,
+                            algorithm,
+                            b"message",
+                            &vec![0; algorithm.tag_length()],
+                        )
+                    };
+                    assert!(matches!(result, Err(Error::UnsupportedMac)));
+                    setup.info().unwrap();
+                }
+            }
+        }
+        let label = format!("hmac-generated-{index}");
+        let request = HmacKeyRequest {
+            algorithm,
+            id: label.as_bytes(),
+            label: label.as_bytes(),
+        };
+        if kdf {
+            assert!(matches!(
+                setup.generate_hmac_key(&request),
+                Err(Error::UnsupportedMac)
+            ));
+            setup.info().unwrap();
+            continue;
+        }
+        {
+            let key = setup.generate_hmac_key(&request).unwrap();
+            let attrs = key
+                .read_attributes(&[
+                    AttributeType::KeyType,
+                    AttributeType::ValueLen,
+                    AttributeType::Sign,
+                    AttributeType::Verify,
+                    AttributeType::Derive,
+                    AttributeType::Encrypt,
+                    AttributeType::Decrypt,
+                    AttributeType::Wrap,
+                    AttributeType::Unwrap,
+                    AttributeType::Sensitive,
+                    AttributeType::Extractable,
+                    AttributeType::AllowedMechanisms,
+                ])
+                .unwrap();
+            let mechanism = [
+                MechanismType::SHA256_HMAC,
+                MechanismType::SHA384_HMAC,
+                MechanismType::SHA512_HMAC,
+            ][index];
+            for expected in [
+                Attribute::KeyType(KeyType::GENERIC_SECRET),
+                Attribute::ValueLen(algorithm.tag_length().try_into().unwrap()),
+                Attribute::Sign(true),
+                Attribute::Verify(true),
+                Attribute::Derive(false),
+                Attribute::Encrypt(false),
+                Attribute::Decrypt(false),
+                Attribute::Wrap(false),
+                Attribute::Unwrap(false),
+                Attribute::Sensitive(true),
+                Attribute::Extractable(false),
+                Attribute::AllowedMechanisms(vec![mechanism]),
+            ] {
+                assert!(attrs.expose_values().contains(&expected));
+            }
+        }
+        assert!(matches!(
+            setup.generate_hmac_key(&request),
+            Err(Error::InvalidParameters(_))
+        ));
+        let key = reference(token_name, &label);
+        let caps = setup
+            .hmac_capabilities(&key, MacOperation::Generate)
+            .unwrap();
+        for a in HmacAlgorithm::ALL {
+            assert_eq!(caps.supports(a), a == algorithm);
+        }
+        let mut ro = token.open_session(SessionMode::ReadOnly).unwrap();
+        assert!(matches!(
+            ro.generate_hmac_key(&request),
+            Err(Error::ReadWriteRequired)
+        ));
+        ro.close().unwrap();
+    }
+    setup.close().unwrap();
+    drop(token);
+    module.finalize().unwrap();
+}
