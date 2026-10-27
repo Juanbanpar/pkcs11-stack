@@ -24,7 +24,7 @@ use std::ptr::null_mut;
 use vendor_defined::VendorDefinedMechanism;
 
 use crate::error::Error;
-use crate::mechanism::misc::{ExtractParams, KeyDerivationStringData};
+use crate::mechanism::misc::{ExtractParams, KeyDerivationStringData, MacGeneralParams};
 use crate::mechanism::rsa::PkcsOaepParams;
 use crate::object::ObjectHandle;
 pub use mechanism_info::MechanismInfo;
@@ -89,6 +89,10 @@ impl MechanismType {
 
     /// AES-CMAC mechanism (See RFC 4493)
     pub const AES_CMAC: MechanismType = MechanismType { val: CKM_AES_CMAC };
+    /// General-length AES CMAC, with a native byte-length parameter.
+    pub const AES_CMAC_GENERAL: MechanismType = MechanismType {
+        val: CKM_AES_CMAC_GENERAL,
+    };
 
     /// AES-CFB128 mechanism
     pub const AES_CFB128: MechanismType = MechanismType {
@@ -997,6 +1001,7 @@ impl TryFrom<CK_MECHANISM_TYPE> for MechanismType {
             CKM_AES_GCM => Ok(MechanismType::AES_GCM),
             CKM_AES_CBC_ENCRYPT_DATA => Ok(MechanismType::AES_CBC_ENCRYPT_DATA),
             CKM_AES_CMAC => Ok(MechanismType::AES_CMAC),
+            CKM_AES_CMAC_GENERAL => Ok(MechanismType::AES_CMAC_GENERAL),
             CKM_AES_CFB128 => Ok(MechanismType::AES_CFB128),
             CKM_RSA_PKCS_KEY_PAIR_GEN => Ok(MechanismType::RSA_PKCS_KEY_PAIR_GEN),
             CKM_RSA_PKCS => Ok(MechanismType::RSA_PKCS),
@@ -1134,6 +1139,8 @@ pub enum Mechanism<'a> {
     AesCbcEncryptData(ekdf::AesCbcDeriveParams<'a>),
     /// AES CMAC (RFC 4493)
     AesCMac,
+    /// General-length AES CMAC, with an explicit native MAC byte length.
+    AesCMacGeneral(MacGeneralParams),
 
     // RSA
     /// PKCS #1 RSA key pair generation mechanism
@@ -1428,6 +1435,7 @@ impl Mechanism<'_> {
             Mechanism::AesGcmMessage(_) => MechanismType::AES_GCM,
             Mechanism::AesCbcEncryptData(_) => MechanismType::AES_CBC_ENCRYPT_DATA,
             Mechanism::AesCMac => MechanismType::AES_CMAC,
+            Mechanism::AesCMacGeneral(_) => MechanismType::AES_CMAC_GENERAL,
             Mechanism::RsaPkcsKeyPairGen => MechanismType::RSA_PKCS_KEY_PAIR_GEN,
             Mechanism::RsaPkcs => MechanismType::RSA_PKCS,
             Mechanism::RsaPkcsPss(_) => MechanismType::RSA_PKCS_PSS,
@@ -1593,6 +1601,7 @@ impl From<&Mechanism<'_>> for CK_MECHANISM {
             | Mechanism::ConcatenateDataAndBase(params)
             | Mechanism::XorBaseAndData(params) => make_mechanism(mechanism, params),
             Mechanism::ExtractKeyFromKey(params) => make_mechanism(mechanism, params),
+            Mechanism::AesCMacGeneral(params) => make_mechanism(mechanism, params),
             Mechanism::HashMlDsa(params) => make_mechanism(mechanism, params),
             Mechanism::MlDsa(params)
             | Mechanism::HashMlDsaSha224(params)

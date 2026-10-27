@@ -23,6 +23,8 @@ export PKCS11_TEST_KDF_MODULE="$module" PKCS11_TEST_KDF_ISOLATED=1
 export PKCS11_TEST_KDF_OPENSSL=${PKCS11_TEST_KDF_OPENSSL:-openssl}
 command -v "$PKCS11_TEST_KDF_OPENSSL" >/dev/null
 cargo test -p pkcs11-runtime --test hkdf_persistent --locked -- --ignored --test-threads=1
+cargo test -p pkcs11-runtime --test aes_cmac_provider --locked -- --ignored --test-threads=1
+cargo test -p pkcs11-client --test aes_cmac_provider --locked -- --ignored --test-threads=1
 cargo test -p pkcs11-runtime --test kbkdf_provider --locked -- --ignored --test-threads=1
 cargo test -p pkcs11-runtime --test hmac_provider --locked -- --ignored --test-threads=1
 cargo test -p pkcs11-client --test kbkdf_provider --locked -- --ignored --test-threads=1

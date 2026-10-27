@@ -61,3 +61,18 @@ impl ExtractParams {
         )
     }
 }
+
+/// Native CK_MAC_GENERAL_PARAMS: requested MAC length in bytes.
+#[derive(Debug, Clone, Copy)]
+#[repr(transparent)]
+pub struct MacGeneralParams(CK_MAC_GENERAL_PARAMS);
+impl MacGeneralParams {
+    /// Construct the native byte length; mechanism-specific bounds are checked by callers.
+    pub fn new(length: usize) -> Self {
+        Self(
+            length
+                .try_into()
+                .expect("MAC length does not fit in CK_ULONG"),
+        )
+    }
+}

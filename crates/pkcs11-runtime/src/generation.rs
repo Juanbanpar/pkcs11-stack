@@ -65,6 +65,8 @@ pub enum AesKeyPurpose {
     Wrapping,
     /// MAC generation/verification only, restricted to CKM_AES_CMAC.
     Authentication,
+    /// MAC generation/verification only, restricted to CKM_AES_CMAC_GENERAL.
+    AuthenticationGeneral,
 }
 /// Generate a persistent EC pair for derivation, with no signing permission.
 #[derive(Clone, Copy)]
@@ -139,6 +141,36 @@ fn sizes(enabled: bool, minimum: usize, maximum: usize) -> Vec<AesKeySize> {
     .collect()
 }
 impl Token<'_> {
+    /// AES sizes for native general-CMAC authentication key generation. Checks
+    /// generator bounds and general-CMAC flags, pointers and byte-based bounds;
+    /// individual tag lengths and template acceptance remain advisory.
+    pub fn aes_cmac_general_generation_options(&self) -> Result<Vec<AesKeySize>, Error> {
+        let sizes = self.aes_generation_options()?;
+        let mechanism = MechanismType::AES_CMAC_GENERAL;
+        let raw = self.module.raw()?;
+        if sizes.is_empty()
+            || !self.mechanisms()?.contains(&mechanism)
+            || [
+                Function::SignInit,
+                Function::Sign,
+                Function::VerifyInit,
+                Function::Verify,
+            ]
+            .into_iter()
+            .any(|function| !raw.is_fn_supported(function))
+        {
+            return Ok(Vec::new());
+        }
+        let info = self.mechanism_info(mechanism)?;
+        if !info.sign() || !info.verify() {
+            return Ok(Vec::new());
+        }
+        Ok(sizes
+            .into_iter()
+            .filter(|size| (info.min_key_size()..=info.max_key_size()).contains(&size.length()))
+            .collect())
+    }
+
     /// Common advertised RSA encryption-pair sizes. Generation support does not
     /// guarantee any OAEP digest profile or private-key template will be accepted.
     pub fn rsa_encryption_generation_options(&self) -> Result<Vec<usize>, Error> {
@@ -380,11 +412,12 @@ impl<'m> Session<'m> {
         if self.mode != SessionMode::ReadWrite {
             return Err(Error::ReadWriteRequired);
         }
-        if !self
-            .token()
-            .aes_generation_options()?
-            .contains(&request.size)
-        {
+        let sizes = if request.purpose == AesKeyPurpose::AuthenticationGeneral {
+            self.token().aes_cmac_general_generation_options()?
+        } else {
+            self.token().aes_generation_options()?
+        };
+        if !sizes.contains(&request.size) {
             return Err(Error::UnsupportedKeyOperation);
         }
         let mut template = self.new_secret_template(request.id, request.label, true)?;
@@ -396,13 +429,24 @@ impl<'m> Session<'m> {
                     *value = request.purpose == AesKeyPurpose::Wrapping;
                 }
                 Attribute::Sign(value) | Attribute::Verify(value) => {
-                    *value = request.purpose == AesKeyPurpose::Authentication;
+                    *value = matches!(
+                        request.purpose,
+                        AesKeyPurpose::Authentication | AesKeyPurpose::AuthenticationGeneral
+                    );
                 }
                 _ => {}
             }
         }
-        if request.purpose == AesKeyPurpose::Authentication {
-            template.push(Attribute::AllowedMechanisms(vec![MechanismType::AES_CMAC]));
+        match request.purpose {
+            AesKeyPurpose::Authentication => {
+                template.push(Attribute::AllowedMechanisms(vec![MechanismType::AES_CMAC]))
+            }
+            AesKeyPurpose::AuthenticationGeneral => {
+                template.push(Attribute::AllowedMechanisms(vec![
+                    MechanismType::AES_CMAC_GENERAL,
+                ]))
+            }
+            _ => {}
         }
         template.push(Attribute::ValueLen(
             request

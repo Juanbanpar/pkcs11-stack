@@ -671,8 +671,21 @@ or contents. It requires verification permission independently of generation.
 The AES secret must be sensitive and nonextractable. Messages may be empty and
 are limited to 16 MiB. RO sessions are supported. A completed verification mismatch
 leaves the session reusable; other native failures invalidate it. No key values,
-software MAC, truncation or retry are exposed. Check session closure before
-releasing the result. Generate a dedicated key using `AesKeyPurpose::Authentication`.
+software MAC or retry are exposed. Check session closure before releasing the
+result. Generate a dedicated key using `AesKeyPurpose::Authentication`.
+
+Use `aes_cmac_options(key, operation)` to inspect full/general profiles. The
+explicit `_with_profile` capability, generation and verification methods accept
+`AesCmacProfile::General { tag_length }` for native 8–16-byte tags. The original
+methods remain full-tag calls. Tags are generated and verified natively, with no
+software truncation or profile fallback. Invalid length parameters precede I/O;
+wrong tag length/content is a reusable mismatch. Native failures invalidate the
+session. Fix the agreed tag length for the key's lifetime and check closure.
+
+Generate a separate `AesKeyPurpose::AuthenticationGeneral` key for this profile;
+it permits only CKM_AES_CMAC_GENERAL and MAC operations. The shared generation
+capability query reports compatible sizes in `aes_cmac_general`. Existing
+`Authentication` keys remain restricted to full-tag CKM_AES_CMAC.
 
 ## HKDF
 

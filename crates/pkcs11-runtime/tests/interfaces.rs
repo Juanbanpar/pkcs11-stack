@@ -516,3 +516,82 @@ fn kbkdf_modes_native_fields_bit_bounds_and_failure_health() {
         module.finalize().unwrap();
     }
 }
+#[test]
+fn general_cmac_byte_parameters_permissions_bounded_outputs_and_failures() {
+    use pkcs11_runtime::{AesCmacProfile, Error, MacOperation, ObjectRef, SessionMode};
+    for tag_length in [8, 16] {
+        let profile = AesCmacProfile::General { tag_length };
+        for fault in 0..=15 {
+            let fixture = Fixture::from_source("cmac_general.c", V::V2_40, fault, false);
+            let module = fixture.load(InterfaceSelection::Auto).unwrap();
+            let token = module
+                .resolve_token_uri(&"pkcs11:token=cmac".parse().unwrap())
+                .unwrap();
+            let key = ObjectRef::new("pkcs11:token=cmac;id=%01;type=secret-key".parse().unwrap())
+                .unwrap();
+            for operation in [MacOperation::Generate, MacOperation::Verify] {
+                let mut session = token.open_session(SessionMode::ReadOnly).unwrap();
+                if fault == 0 {
+                    let options = session.aes_cmac_options(&key, operation).unwrap();
+                    assert!(!options.full && options.general);
+                    assert!(matches!(
+                        session.aes_cmac_capabilities(&key, operation),
+                        Err(Error::UnsupportedMac)
+                    ));
+                }
+                let unsupported = match operation {
+                    MacOperation::Generate => [1, 2, 12, 14].contains(&fault),
+                    MacOperation::Verify => [10, 11, 13, 15].contains(&fault),
+                };
+                if unsupported {
+                    assert!(matches!(
+                        session.aes_cmac_capabilities_with_profile(&key, operation, profile),
+                        Err(Error::UnsupportedMac)
+                    ));
+                    session.info().unwrap();
+                } else if operation == MacOperation::Generate {
+                    let result = session.mac_aes_cmac_with_profile(&key, b"message", profile);
+                    if [3, 4, 5, 6, 7].contains(&fault) {
+                        assert!(result.is_err());
+                        assert!(matches!(session.info(), Err(Error::Closed)));
+                    } else {
+                        assert_eq!(result.unwrap(), vec![0xAB; tag_length]);
+                        session.info().unwrap();
+                    }
+                } else if [3, 8, 9].contains(&fault) {
+                    assert!(
+                        session
+                            .verify_aes_cmac_with_profile(
+                                &key,
+                                b"message",
+                                &vec![0xAB; tag_length],
+                                profile
+                            )
+                            .is_err()
+                    );
+                    assert!(matches!(session.info(), Err(Error::Closed)));
+                } else {
+                    for tag in [&[][..], &[0; 16][..], &[0; 17][..]] {
+                        assert!(matches!(
+                            session.verify_aes_cmac_with_profile(&key, b"message", tag, profile),
+                            Err(Error::MacMismatch)
+                        ));
+                        session.info().unwrap();
+                    }
+                    session
+                        .verify_aes_cmac_with_profile(
+                            &key,
+                            b"message",
+                            &vec![0xAB; tag_length],
+                            profile,
+                        )
+                        .unwrap();
+                    session.info().unwrap();
+                }
+                session.close().unwrap();
+            }
+            drop(token);
+            module.finalize().unwrap();
+        }
+    }
+}

@@ -1,30 +1,62 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Full-tag CMAC against independent OpenSSL, including restrictive key policy.
+//! Full/general CMAC against independent OpenSSL, including restrictive key policy.
 use pkcs11_runtime::{
-    AesKeyPurpose, AesKeyRequest, AesKeySize, Attribute, AttributeType, Authentication, Error,
-    KeyType, MacOperation, MechanismType, Module, ObjectClass, ObjectRef, Pin, SessionMode,
+    AesCmacProfile, AesKeyPurpose, AesKeyRequest, AesKeySize, Attribute, AttributeType,
+    Authentication, Error, KeyType, MacOperation, MechanismType, Module, ObjectClass, ObjectRef,
+    Pin, SessionMode,
 };
 use secrecy::SecretString;
 use std::{
     io::Write,
     process::{Command, Stdio},
 };
+fn kdf_lane() -> bool {
+    std::env::var("PKCS11_TEST_KDF_ISOLATED").as_deref() == Ok("1")
+}
+fn token_label() -> &'static str {
+    if kdf_lane() {
+        "kdf-test"
+    } else {
+        "client-test"
+    }
+}
 fn reference(label: &str) -> ObjectRef {
     ObjectRef::new(
-        format!("pkcs11:token=client-test;object={label};type=secret-key")
-            .parse()
-            .unwrap(),
+        format!(
+            "pkcs11:token={};object={label};type=secret-key",
+            token_label()
+        )
+        .parse()
+        .unwrap(),
     )
     .unwrap()
 }
 #[test]
 #[ignore = "requires tools/test-softhsm.sh disposable store"]
 fn aes_cmac_independent_tags_permissions_generation_and_reuse() {
-    assert_eq!(std::env::var("PKCS11_TEST_ISOLATED").as_deref(), Ok("1"));
-    let module = Module::load(std::env::var_os("PKCS11_TEST_MODULE").unwrap()).unwrap();
+    assert!(kdf_lane() || std::env::var("PKCS11_TEST_ISOLATED").as_deref() == Ok("1"));
+    let module = Module::load(
+        std::env::var_os(if kdf_lane() {
+            "PKCS11_TEST_KDF_MODULE"
+        } else {
+            "PKCS11_TEST_MODULE"
+        })
+        .unwrap(),
+    )
+    .unwrap();
     let token = module
-        .resolve_token_uri(&"pkcs11:token=client-test".parse().unwrap())
+        .resolve_token_uri(&format!("pkcs11:token={}", token_label()).parse().unwrap())
         .unwrap();
+    let general_supported = token
+        .mechanisms()
+        .unwrap()
+        .contains(&MechanismType::AES_CMAC_GENERAL);
+    if kdf_lane() {
+        assert!(
+            general_supported,
+            "Kryoptic lane requires native general CMAC"
+        );
+    }
     let pin = SecretString::from("12345678");
     let mut setup = token.open_session(SessionMode::ReadWrite).unwrap();
     setup
@@ -35,6 +67,25 @@ fn aes_cmac_independent_tags_permissions_generation_and_reuse() {
         AesKeySize::Bits192,
         AesKeySize::Bits256,
     ] {
+        assert_eq!(
+            token
+                .aes_cmac_general_generation_options()
+                .unwrap()
+                .contains(&size),
+            general_supported
+        );
+        if !general_supported {
+            assert!(matches!(
+                setup.generate_aes_key(&AesKeyRequest {
+                    size,
+                    purpose: AesKeyPurpose::AuthenticationGeneral,
+                    id: b"unsupported-general",
+                    label: b"unsupported general"
+                }),
+                Err(Error::UnsupportedKeyOperation)
+            ));
+            setup.info().unwrap();
+        }
         let label = format!("cmac-vector-{}", size.length() * 8);
         let value = vec![0x42; size.length()];
         let base = vec![
@@ -75,6 +126,39 @@ fn aes_cmac_independent_tags_permissions_generation_and_reuse() {
             assert!(expected.status.success());
             let tag = session.mac_aes_cmac(&key, &message).unwrap();
             assert_eq!(tag.as_slice(), expected.stdout);
+            // Disposable vectors exercise all lengths; protocols fix one length per key.
+            let options = session
+                .aes_cmac_options(&key, MacOperation::Generate)
+                .unwrap();
+            assert!(options.full);
+            assert_eq!(options.general, general_supported);
+            for tag_length in (8..=16).filter(|_| general_supported) {
+                let profile = AesCmacProfile::General { tag_length };
+                let tag = session
+                    .mac_aes_cmac_with_profile(&key, &message, profile)
+                    .unwrap();
+                assert_eq!(tag, expected.stdout[..tag_length]);
+                session
+                    .verify_aes_cmac_with_profile(&key, &message, &tag, profile)
+                    .unwrap();
+                let mut wrong = tag.clone();
+                wrong[0] ^= 1;
+                for tag in [
+                    &[][..],
+                    wrong.as_slice(),
+                    &tag[..tag_length - 1],
+                    &[0; 17][..],
+                ] {
+                    assert!(matches!(
+                        session.verify_aes_cmac_with_profile(&key, &message, tag, profile),
+                        Err(Error::MacMismatch)
+                    ));
+                    session.info().unwrap();
+                }
+                session
+                    .verify_aes_cmac_with_profile(&key, &message, &tag, profile)
+                    .unwrap();
+            }
             session.verify_aes_cmac(&key, &message, &tag).unwrap();
             let mut wrong = tag;
             wrong[0] ^= 1;
@@ -122,48 +206,81 @@ fn aes_cmac_independent_tags_permissions_generation_and_reuse() {
                         .is_ok(),
                     supported
                 );
+                assert_eq!(
+                    setup
+                        .aes_cmac_capabilities_with_profile(
+                            &reference(&bad_label),
+                            op,
+                            AesCmacProfile::General { tag_length: 8 }
+                        )
+                        .is_ok(),
+                    supported && general_supported
+                );
             }
         }
-        let label = format!("cmac-generated-{}", size.length());
-        let request = AesKeyRequest {
-            size,
-            purpose: AesKeyPurpose::Authentication,
-            id: label.as_bytes(),
-            label: label.as_bytes(),
-        };
-        let key = setup.generate_aes_key(&request).unwrap();
-        let reads = key
-            .read_attributes(&[
-                AttributeType::Sign,
-                AttributeType::Verify,
-                AttributeType::Encrypt,
-                AttributeType::Decrypt,
-                AttributeType::Wrap,
-                AttributeType::Unwrap,
-                AttributeType::Derive,
-                AttributeType::Sensitive,
-                AttributeType::Extractable,
-                AttributeType::AllowedMechanisms,
-            ])
-            .unwrap();
-        for expected in [
-            Attribute::Sign(true),
-            Attribute::Verify(true),
-            Attribute::Encrypt(false),
-            Attribute::Decrypt(false),
-            Attribute::Wrap(false),
-            Attribute::Unwrap(false),
-            Attribute::Derive(false),
-            Attribute::Sensitive(true),
-            Attribute::Extractable(false),
-            Attribute::AllowedMechanisms(vec![MechanismType::AES_CMAC]),
-        ] {
-            assert!(reads.expose_values().contains(&expected));
+        for purpose in [
+            AesKeyPurpose::Authentication,
+            AesKeyPurpose::AuthenticationGeneral,
+        ]
+        .into_iter()
+        .filter(|purpose| *purpose != AesKeyPurpose::AuthenticationGeneral || general_supported)
+        {
+            let general = purpose == AesKeyPurpose::AuthenticationGeneral;
+            let label = format!("cmac-generated-{}-{general}", size.length());
+            let request = AesKeyRequest {
+                size,
+                purpose,
+                id: label.as_bytes(),
+                label: label.as_bytes(),
+            };
+            let key = setup.generate_aes_key(&request).unwrap();
+            let reads = key
+                .read_attributes(&[
+                    AttributeType::Sign,
+                    AttributeType::Verify,
+                    AttributeType::Encrypt,
+                    AttributeType::Decrypt,
+                    AttributeType::Wrap,
+                    AttributeType::Unwrap,
+                    AttributeType::Derive,
+                    AttributeType::Sensitive,
+                    AttributeType::Extractable,
+                    AttributeType::AllowedMechanisms,
+                ])
+                .unwrap();
+            for expected in [
+                Attribute::Sign(true),
+                Attribute::Verify(true),
+                Attribute::Encrypt(false),
+                Attribute::Decrypt(false),
+                Attribute::Wrap(false),
+                Attribute::Unwrap(false),
+                Attribute::Derive(false),
+                Attribute::Sensitive(true),
+                Attribute::Extractable(false),
+                Attribute::AllowedMechanisms(vec![if general {
+                    MechanismType::AES_CMAC_GENERAL
+                } else {
+                    MechanismType::AES_CMAC
+                }]),
+            ] {
+                assert!(reads.expose_values().contains(&expected));
+            }
+            let options = setup
+                .aes_cmac_options(&reference(&label), MacOperation::Generate)
+                .unwrap();
+            assert_eq!((options.full, options.general), (!general, general));
+            for profile in AesCmacProfile::ALL {
+                assert_eq!(
+                    options.supports(profile),
+                    matches!(profile, AesCmacProfile::General { .. }) == general
+                );
+            }
+            assert!(matches!(
+                setup.generate_aes_key(&request),
+                Err(Error::InvalidParameters(_))
+            ));
         }
-        assert!(matches!(
-            setup.generate_aes_key(&request),
-            Err(Error::InvalidParameters(_))
-        ));
     }
     setup.close().unwrap();
     drop(token);

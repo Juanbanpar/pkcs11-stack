@@ -52,6 +52,7 @@ impl std::fmt::Display for KeyChoice {
                     AesKeyPurpose::Encryption => "encryption/decryption",
                     AesKeyPurpose::Wrapping => "wrapping/unwrapping",
                     AesKeyPurpose::Authentication => "AES-CMAC authentication",
+                    AesKeyPurpose::AuthenticationGeneral => "AES-CMAC general authentication",
                 }
             ),
         }

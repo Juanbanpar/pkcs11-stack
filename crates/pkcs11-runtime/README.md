@@ -374,8 +374,24 @@ to 16 MiB. Both permit RO sessions and never read key values. Incorrect tag leng
 or a completed native verification mismatch returns `Error::MacMismatch`, leaving
 the session usable. Other native failures, unwinds and malformed outputs invalidate
 it. Generation uses fixed-size output storage without a provider-length allocation.
-Check session closure before releasing results. Truncated CMAC, software fallback
-and retries are not exposed. A shared-key MAC does not identify an individual signer.
+Check session closure before releasing results. Software fallback and retries are
+not exposed. A shared-key MAC does not identify an individual signer.
+
+`AesCmacProfile::General { tag_length }` selects native CKM_AES_CMAC_GENERAL
+through `aes_cmac_capabilities_with_profile`, `mac_aes_cmac_with_profile` and
+`verify_aes_cmac_with_profile`. This application accepts 8–16 bytes, including
+16-byte general tags; the original calls keep CKM_AES_CMAC without parameters.
+The token receives CK_MAC_GENERAL_PARAMS in bytes and produces/verifies the
+selected tag directly. No full-tag generation followed by software truncation
+occurs. Both profiles retain fixed 16-byte storage, exact native output bounds,
+direction-specific permissions and checked session cleanup.
+
+`aes_cmac_options` reports permitted full/general profiles. Unsupported profiles
+are omitted; selection/provider errors propagate. General support is advisory
+until the native call checks the selected length. Agree on a tag length before
+communication and keep it fixed for the key's lifetime, as specified in
+[RFC 4493 section 2.1](https://www.rfc-editor.org/rfc/rfc4493.html#section-2.1).
+A mismatch never changes the length or retries with another profile.
 
 ## ECDH and AES key generation
 
@@ -392,6 +408,10 @@ authentication disabled. AES keys are private, sensitive and nonextractable.
 `AesKeyPurpose::Encryption` permits encryption/decryption only; `Wrapping`
 permits wrapping/unwrapping only. `Authentication` permits MAC generation and
 verification only, restricted by CKA_ALLOWED_MECHANISMS to CKM_AES_CMAC.
+`AuthenticationGeneral` instead restricts the key to CKM_AES_CMAC_GENERAL.
+`aes_cmac_general_generation_options` intersects generator sizes with native
+general-CMAC support and bounds; generation rechecks it. Existing authentication
+keys keep their full-tag restriction.
 No key values are read or returned.
 
 Both requests require nonempty ID/label fields of at most 128 bytes. Generation
