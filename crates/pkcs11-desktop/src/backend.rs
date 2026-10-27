@@ -14,6 +14,8 @@ mod browse;
 mod cipher;
 mod cmac;
 mod hkdf;
+mod kbkdf;
+pub use kbkdf::KbkdfJob;
 mod hmac;
 mod kem;
 pub use hkdf::HkdfJob;
@@ -373,6 +375,7 @@ pub enum BackendError {
     MlKemImportInput,
     PublicKeyImportInput,
     HkdfInput,
+    KbkdfInput,
     FileWrite,
     ExportUnavailable,
     Client(ErrorKind),
@@ -442,6 +445,9 @@ impl BackendError {
             Self::ManagementUnavailable => "Log in as USER on a writable token to manage objects.",
             Self::InvalidForm => {
                 "Select an advertised key type and provide a label and a nonempty hexadecimal ID."
+            }
+            Self::KbkdfInput => {
+                "Check the SP800-108 PRF, label/context bounds, output length, object label and new hexadecimal ID."
             }
             Self::HkdfInput => {
                 "Check the HKDF output length, hexadecimal salt (at most 4096 bytes), UTF-8 context (at most 4096 bytes), label and new hexadecimal ID."

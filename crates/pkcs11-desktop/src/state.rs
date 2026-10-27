@@ -14,7 +14,9 @@ pub use administration::{AdministrationField, AdministrationForm, Administration
 mod cipher;
 mod ecdh;
 mod hkdf;
+mod kbkdf;
 pub use ecdh::EcdhChoice;
+pub use kbkdf::{KbkdfDigest, KbkdfForm};
 mod key_operations;
 pub use hkdf::{HkdfForm, HkdfOutputChoice};
 pub use key_operations::{KeyField, KeyForm, WrapTarget};
@@ -700,6 +702,12 @@ impl UiState {
                                     .find(|a| caps.supports(*a))
                             {
                                 form.hmac_algorithm = algorithm;
+                            }
+                            if let crate::backend::KeyProfile::Kbkdf(caps) = profile
+                                && let Some(digest) =
+                                    KbkdfDigest::ALL.into_iter().find(|d| caps.supports(d.0))
+                            {
+                                form.kbkdf.digest = digest;
                             }
                             form.profile = Some(profile);
                             form.loaded = true;

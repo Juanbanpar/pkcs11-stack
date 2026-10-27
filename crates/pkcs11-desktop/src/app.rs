@@ -47,6 +47,14 @@ pub enum Message {
         id: RequestId,
         output: HkdfOutputChoice,
     },
+    KbkdfDigest {
+        id: RequestId,
+        digest: crate::state::KbkdfDigest,
+    },
+    KbkdfOutput {
+        id: RequestId,
+        output: HkdfOutputChoice,
+    },
     HkdfMode {
         id: RequestId,
         mode: pkcs11_client::HkdfMode,
@@ -244,6 +252,8 @@ impl std::fmt::Debug for Message {
             Self::EcdhOutput { .. } => "EcdhOutput",
             Self::HkdfOutput { .. } => "HkdfOutput",
             Self::HkdfMode { .. } => "HkdfMode",
+            Self::KbkdfDigest { .. } => "KbkdfDigest",
+            Self::KbkdfOutput { .. } => "KbkdfOutput",
             Self::OpenKeyOperation(_) => "OpenKeyOperation",
             Self::KeyEdit { .. } => "KeyEdit",
             Self::KeyTarget { .. } => "KeyTarget",
@@ -410,6 +420,8 @@ impl App {
             Message::EcdhOutput { id, output } => self.state.ecdh_output(id, output),
             Message::HkdfOutput { id, output } => self.state.hkdf_output(id, output),
             Message::HkdfMode { id, mode } => self.state.hkdf_mode(id, mode),
+            Message::KbkdfDigest { id, digest } => self.state.kbkdf_digest(id, digest),
+            Message::KbkdfOutput { id, output } => self.state.kbkdf_output(id, output),
             Message::KeyEdit { id, field, value } => self.state.key_edit(id, field, value),
             Message::KeyTarget { id, target } => self.state.key_target(id, target),
             Message::HmacAlgorithm { id, algorithm } => self.state.hmac_algorithm(id, algorithm),

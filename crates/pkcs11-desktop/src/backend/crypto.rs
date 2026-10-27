@@ -22,6 +22,7 @@ pub enum CryptoMode {
     Mac,
     VerifyMac,
     Hkdf,
+    Kbkdf,
     Encapsulate,
     Decapsulate,
     Derive,
@@ -337,6 +338,7 @@ impl Registry {
             | CryptoMode::Mac
             | CryptoMode::VerifyMac
             | CryptoMode::Hkdf
+            | CryptoMode::Kbkdf
             | CryptoMode::Derive
             | CryptoMode::Wrap
             | CryptoMode::Unwrap

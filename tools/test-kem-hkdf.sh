@@ -27,6 +27,7 @@ cargo test -p pkcs11-runtime --test kbkdf_provider --locked -- --ignored --test-
 cargo test -p pkcs11-runtime --test hmac_provider --locked -- --ignored --test-threads=1
 cargo test -p pkcs11-client --test kbkdf_provider --locked -- --ignored --test-threads=1
 cargo test -p pkcs11ctl --test kbkdf --locked -- --ignored --test-threads=1
+cargo test -p pkcs11-desktop --locked -- persistent_kbkdf_desktop --ignored --test-threads=1
 cargo test -p pkcs11-client --test key_wrap_persistent --locked -- --ignored --test-threads=1
 cargo test -p pkcs11ctl --test key_wrap --locked -- --ignored --test-threads=1
 cargo test -p pkcs11-desktop --locked -- persistent_aes_wrap_desktop --ignored --test-threads=1

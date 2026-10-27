@@ -19,8 +19,8 @@ export PKCS11_CLIENT_TEST_DIR="$scratch/client"
 mkdir "$PKCS11_CLIENT_TEST_DIR"
 bash tools/provision-client-softhsm.sh
 cargo test -p pkcs11-runtime --test key_operations_softhsm --test digest_provider --test generation_softhsm --test aes_gcm_provider --test aes_cmac_provider --test hmac_provider --locked -- --ignored --test-threads=1
-# PQC and persistent HKDF have dedicated required provider runners.
-cargo test -p pkcs11-desktop --locked -- --ignored --test-threads=1 --skip persistent_hkdf_desktop --skip persistent_ecdh_desktop --skip persistent_aes_wrap_desktop --skip ml_dsa --skip ml_kem
+# PQC and persistent KDFs have dedicated required provider runners.
+cargo test -p pkcs11-desktop --locked -- --ignored --test-threads=1 --skip persistent_kbkdf_desktop --skip persistent_hkdf_desktop --skip persistent_ecdh_desktop --skip persistent_aes_wrap_desktop --skip ml_dsa --skip ml_kem
 bash tools/test-examples.sh client
 cargo test -p pkcs11-client --test softhsm --test administration_softhsm --test public_import_softhsm --test oaep_parameters_softhsm --test digest_provider --test generation_softhsm --test aes_gcm_provider --test aes_cmac_provider --test hmac_provider --locked -- --ignored --test-threads=1
 cargo test -p pkcs11ctl --test softhsm --test aes_gcm --test aes_cmac --test hmac --test key_wrap --locked -- --ignored --test-threads=1

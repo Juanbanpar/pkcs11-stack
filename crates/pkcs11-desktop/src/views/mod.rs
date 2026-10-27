@@ -10,4 +10,5 @@ mod token;
 pub mod welcome;
 
 pub mod hkdf;
+mod kbkdf;
 mod mac;

@@ -60,7 +60,8 @@ or formal conformance. Coverage is recorded per capability below.
 | HKDF token-held salt keys | Implemented | Runtime/client/CLI/desktop; extraction and combined derivation use native CKF_HKDF_SALT_KEY, same-session resolution and sensitive, nonextractable generic/HKDF salt keys of 1–4096 bytes with derivation permission. Kryoptic outputs match OpenSSL for all three hashes and short/hash-length/long salts. Client/CLI/desktop compare token and byte salts. Native fixtures check exact fields without value reads, permissions, lengths and failed-session handling. |
 | Full-tag SHA-2/SHA-3 HMAC | Implemented | Runtime/client/CLI/desktop; ten SHA-224/256/384/512, SHA-512/224, SHA-512/256 and SHA3-224/256/384/512 profiles, generic and matching typed keys, bounded full tags, algorithm-restricted generic key generation, permission rejection and reusable mismatches. SoftHSM/Kryoptic results match OpenSSL, including shorter Kryoptic keys. Kryoptic exercises all ten profiles; SoftHSM exercises its advertised subset. The pinned Kryoptic advertises 0/0 generic-generation bounds; generation is rejected there and exercised on SoftHSM. Native fixtures check missing pointers, flags and malformed outputs. HMAC key-type IDs have round-trip regressions. |
 | Full-tag AES-CMAC generation and verification | Implemented | Runtime/client/CLI/desktop; AES-128/192/256 and OpenSSL comparisons, authentication-only key generation, RO use, permission and allow-list rejection, verification mismatches and output preservation. Native fixtures check entry points, flags, fixed output bounds and failed-session handling. |
-| Remaining symmetric algorithms, MACs and KDF expansion | Pending | Existing AES-GCM, explicit KW/KWP, constrained HKDF and ECDH profiles. Additional/truncated HMAC profiles, GMAC, truncated CMAC, SP 800-108 and PBKDF2 remain pending. |
+| SP 800-108 counter-mode HMAC-SHA-2 | Implemented | Runtime/client/CLI/desktop; HMAC-SHA-256/384/512, 32-bit big-endian counter and output bit length, separator and one output key. Kryoptic results match OpenSSL for all AES sizes and generic outputs through 4096 bytes, empty/binary/maximum label/context and generic/typed bases. Native fixtures verify exact fields, bit-based bounds, permissions and failure health. Frontends check output agreement and stale selections. |
+| Remaining symmetric algorithms, MACs and KDF expansion | Pending | Existing AES-GCM, explicit KW/KWP, constrained HKDF and ECDH profiles. Additional/truncated HMAC profiles, GMAC, truncated CMAC, other SP 800-108 modes/PRFs and PBKDF2 remain pending. |
 | AES-KW/KWP key transfer | Implemented | Runtime/client/CLI/desktop; explicit selection and default IVs. Kryoptic/OpenSSL comparisons cover all AES wrapping/target sizes, output permissions, trust/extractability rejection, RO/duplicate-ID rejection, mismatches and tampering. SoftHSM retains the KW workflow. No deprecated PAD alias or fallback. |
 | HashML-DSA, SLH-DSA and additional TLS signatures | Pending | Existing pure ML-DSA and ML-KEM profiles remain supported. |
 | Legacy algorithm execution | Pending | No legacy opt-in or algorithms are enabled yet. |
@@ -185,11 +186,12 @@ Building requires stable Rust, Git, Clang/libclang headers, a C/C++ toolchain,
 Make, Perl, pkg-config and SQLite development files. The module statically links
 the pinned OpenSSL 3.5.9. Kryoptic's source revision is pinned; its upstream Cargo
 dependencies are resolved at build time because upstream does not supply a lockfile.
-`PKCS11_TEST_KDF_OPENSSL` selects the independent OpenSSL HKDF reference command.
+`PKCS11_TEST_KDF_OPENSSL` selects the independent OpenSSL HKDF/KBKDF reference command.
 
 The runner creates a temporary Kryoptic SQLite store and removes it on exit.
 Use it only with Kryoptic. No existing token store is opened or reset.
-The `kryoptic-integration` CI job requires both mechanisms, without skipping missing
+The helper enables SP 800-108 alongside ML-KEM, HKDF and the other tested mechanisms.
+The `kryoptic-integration` CI job requires these mechanisms without skipping missing
 support. It compares SHA-256/384/512 results against OpenSSL using public
 hash-length inputs, including empty salt/context and maximum SHA-256 output.
 Separate extraction and expansion are checked independently against OpenSSL for
@@ -197,6 +199,14 @@ all three digests; client, CLI and desktop tests compare staged and combined
 AES derivation and reject inputs for disabled stages.
 Tests inspect output permissions, reject unsuitable bases, wrong hash lengths,
 read-only sessions and duplicate output IDs, and check client export refusal.
+
+Counter-mode SP 800-108 tests compare native HMAC-SHA-256/384/512 outputs with
+OpenSSL KBKDF using a 32-bit counter, separator and sum-of-keys bit length. They
+cover all AES output sizes, multi-block generic outputs through 4096 bytes,
+empty/binary/maximum label/context, generic and matching typed bases, permissions,
+read-only sessions and duplicate IDs. Client, CLI and desktop independently
+compare AES-GCM results with runtime-derived reference keys. A native fixture
+checks parameter layout, bit-based mechanism bounds and failed-session behavior.
 
 For ML-KEM-512/768/1024, each sender/receiver secret feeds typed HKDF-SHA256 on the
 same token. AES challenge comparisons verify matching derived keys and different

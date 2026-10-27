@@ -20,6 +20,7 @@ pub enum KeyProfile {
     AesCmac(pkcs11_client::AesCmacCapabilities),
     AesWrapping(AesKeyWrapCapabilities),
     Hkdf(pkcs11_client::HkdfCapabilities),
+    Kbkdf(pkcs11_client::KbkdfCapabilities),
     Classical(KeyOperationProfile),
     MlKem(pkcs11_client::MlKemParameterSet),
 }
@@ -30,6 +31,7 @@ impl KeyProfile {
             (Self::Hmac(_), CryptoMode::Hmac | CryptoMode::VerifyHmac)
                 | (Self::AesCmac(_), CryptoMode::Mac | CryptoMode::VerifyMac)
                 | (Self::Hkdf(_), CryptoMode::Hkdf)
+                | (Self::Kbkdf(_), CryptoMode::Kbkdf)
                 | (
                     Self::Classical(KeyOperationProfile::EcdhRaw(_)),
                     CryptoMode::Derive
@@ -67,6 +69,7 @@ pub enum KeyJob {
         tag: PathBuf,
     },
     Hkdf(super::HkdfJob),
+    Kbkdf(super::KbkdfJob),
     Encapsulate {
         output: PathBuf,
         id: Vec<u8>,
@@ -127,6 +130,7 @@ impl Registry {
                 | CryptoMode::Mac
                 | CryptoMode::VerifyMac
                 | CryptoMode::Hkdf
+                | CryptoMode::Kbkdf
                 | CryptoMode::Derive
                 | CryptoMode::Wrap
                 | CryptoMode::Unwrap
@@ -179,6 +183,11 @@ impl Registry {
                     .aes_cmac_capabilities(&reference, super::cmac::operation(scope.mode)?)
                     .map(KeyProfile::AesCmac)
                     .map_err(|e| BackendError::from(&e))
+            } else if scope.mode == CryptoMode::Kbkdf {
+                session
+                    .kbkdf_capabilities(&reference)
+                    .map(KeyProfile::Kbkdf)
+                    .map_err(|e| BackendError::from(&e))
             } else if scope.mode == CryptoMode::Hkdf {
                 let choices = session
                     .hkdf_options(&reference)
@@ -229,6 +238,7 @@ impl Registry {
                 return Err(BackendError::KeyOperationUnavailable);
             }
             KeyProfile::Hkdf(profile) => return self.hkdf_action(scope, profile, job),
+            KeyProfile::Kbkdf(profile) => return self.kbkdf_action(scope, profile, job),
             KeyProfile::MlKem(parameter) => return self.kem_action(scope, parameter, job),
             _ => {}
         }

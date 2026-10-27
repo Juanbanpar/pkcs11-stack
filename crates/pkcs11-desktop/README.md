@@ -442,6 +442,25 @@ preserved. A mismatch is reported separately from a provider failure. No key val
 truncated tag or software MAC is exposed. A shared-key MAC does not identify an
 individual signer.
 
+## SP 800-108 counter-mode KDF
+
+Select a generic or SHA-256/384/512 HMAC secret on **Objects**, then choose
+**Derive SP 800-108 key…**. USER login and a writable token are required. The
+base must be sensitive, nonextractable, 16–4096 bytes and permit native
+derivation. The form offers compatible HMAC hashes and rechecks the selected
+key's capabilities before execution.
+
+Choose AES-128/192/256 for encryption/decryption, or a generic derivation secret
+of 1–4096 bytes. Enter a new object ID and label. Separate KDF label and context
+fields contain public UTF-8 protocol inputs, each at most 4096 bytes; empty inputs
+are permitted. The object label does not enter the KDF. The fixed PRF input is
+`[i]_32 || label || 0x00 || context || [L]_32`, with big-endian integers and L in
+bits. Agree on unambiguous protocol encodings and authenticate peers separately.
+
+Outputs remain private, sensitive and nonextractable on the token. Capability
+inspection is advisory; native rejection never changes parameters or retries.
+A failed native call may leave an object; refresh before deciding how to proceed.
+
 ## HMAC
 
 Generate an HMAC authentication key using SHA-224/256/384/512, SHA-512/224,

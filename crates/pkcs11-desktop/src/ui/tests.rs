@@ -1743,3 +1743,73 @@ fn hmac_forms_choose_algorithms_with_keyboard_and_render_full_tag_lengths() {
         render_screen(&app.state, "hmac-sha3-verify", 1060, 900, dark);
     }
 }
+
+#[test]
+fn counter_kdf_form_selects_prf_by_keyboard_and_keeps_protocol_inputs_separate() {
+    fn initial() -> UiState {
+        use crate::backend::{BackendCommand, BackendEvent, BackendResult, CryptoMode, KeyProfile};
+        let mut state = populated_state();
+        state.token_page = TokenPage::Objects;
+        state.selected_object = Some(ResourceId(6));
+        state.object_details.as_mut().unwrap().key_type =
+            Some(pkcs11_client::KeyType::GENERIC_SECRET);
+        let BackendCommand::CryptoOptions { id, scope, .. } =
+            state.open_key_operation(CryptoMode::Kbkdf).unwrap()
+        else {
+            panic!("counter options")
+        };
+        state.event(BackendEvent::Completed {
+            id,
+            result: Ok(BackendResult::KeyOptions {
+                scope,
+                profile: KeyProfile::Kbkdf(pkcs11_client::KbkdfCapabilities {
+                    input_length: 32,
+                    sha256: true,
+                    sha384: true,
+                    sha512: true,
+                }),
+            }),
+        });
+        state
+    }
+    let mut app = run_focused(
+        initial,
+        &["type enter", "type tab", "type enter"],
+        Some("choice-SP800-108 PRF"),
+    );
+    assert_eq!(
+        app.state.key_form.as_ref().unwrap().kbkdf.digest.0,
+        pkcs11_client::DigestAlgorithm::Sha384
+    );
+    let id = app.state.key_form.as_ref().unwrap().id;
+    let _ = app.update(Message::KeyEdit {
+        id,
+        field: crate::state::KeyField::KdfLabel,
+        value: "application purpose".into(),
+    });
+    let _ = app.update(Message::KeyEdit {
+        id,
+        field: crate::state::KeyField::Label,
+        value: "token object label".into(),
+    });
+    assert_eq!(
+        app.state.key_form.as_ref().unwrap().kbkdf.kdf_label,
+        "application purpose"
+    );
+    for dark in [false, true] {
+        render_screen(&app.state, "derive-kbkdf-aes", 1060, 900, dark);
+    }
+    let _ = app.update(Message::KbkdfOutput {
+        id,
+        output: crate::state::HkdfOutputChoice::DerivationSecret,
+    });
+    for dark in [false, true] {
+        render_screen(&app.state, "derive-kbkdf-secret", 1060, 900, dark);
+    }
+    let _ = app.update(Message::DismissKeyOperation(id));
+    let _ = app.update(Message::KbkdfDigest {
+        id,
+        digest: crate::state::KbkdfDigest(pkcs11_client::DigestAlgorithm::Sha512),
+    });
+    assert!(app.state.key_form.is_none());
+}

@@ -5,6 +5,7 @@ use pkcs11_client::{KeyType, ObjectClass};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum KeyField {
     Salt,
+    KdfLabel,
     SaltKey,
     Info,
     Length,
@@ -28,6 +29,7 @@ pub struct KeyForm {
     pub hmac_algorithm: pkcs11_client::HmacAlgorithm,
     pub wrap_algorithm: pkcs11_client::AesKeyWrapAlgorithm,
     pub hkdf: HkdfForm,
+    pub kbkdf: KbkdfForm,
     pub ecdh: super::ecdh::EcdhForm,
     pub id: RequestId,
     pub scope: CryptoScope,
@@ -78,6 +80,18 @@ impl UiState {
                                             | KeyType::SHA3_256_HMAC
                                             | KeyType::SHA3_384_HMAC
                                             | KeyType::SHA3_512_HMAC
+                                    )
+                                )
+                        }
+                        CryptoMode::Kbkdf => {
+                            object.class == Some(ObjectClass::SECRET_KEY)
+                                && matches!(
+                                    self.object_key_type(),
+                                    Some(
+                                        KeyType::GENERIC_SECRET
+                                            | KeyType::SHA256_HMAC
+                                            | KeyType::SHA384_HMAC
+                                            | KeyType::SHA512_HMAC
                                     )
                                 )
                         }
@@ -143,6 +157,7 @@ impl UiState {
             hmac_algorithm: pkcs11_client::HmacAlgorithm::default(),
             wrap_algorithm: pkcs11_client::AesKeyWrapAlgorithm::Kw,
             hkdf: HkdfForm::default(),
+            kbkdf: KbkdfForm::default(),
             ecdh: super::ecdh::EcdhForm::default(),
             id,
             scope,
@@ -173,6 +188,15 @@ impl UiState {
         {
             form.picker = None;
             match field {
+                KeyField::KdfLabel if form.scope.mode == CryptoMode::Kbkdf => {
+                    form.kbkdf.kdf_label = value
+                }
+                KeyField::Info if form.scope.mode == CryptoMode::Kbkdf => {
+                    form.kbkdf.context = value
+                }
+                KeyField::Length if form.scope.mode == CryptoMode::Kbkdf => {
+                    form.kbkdf.length = value
+                }
                 KeyField::Salt if form.scope.mode == CryptoMode::Hkdf => form.hkdf.salt = value,
                 KeyField::SaltKey if form.scope.mode == CryptoMode::Hkdf => {
                     form.hkdf.salt_key = value
@@ -183,7 +207,11 @@ impl UiState {
                 KeyField::Length if form.scope.mode == CryptoMode::Derive => {
                     form.ecdh.length = value
                 }
-                KeyField::Salt | KeyField::SaltKey | KeyField::Info | KeyField::Length => {}
+                KeyField::Salt
+                | KeyField::SaltKey
+                | KeyField::KdfLabel
+                | KeyField::Info
+                | KeyField::Length => {}
                 KeyField::Input => {
                     form.input = value;
                     form.picked_input = None;
@@ -311,6 +339,11 @@ impl UiState {
         } else {
             None
         };
+        let kbkdf_job = if let Some(KeyProfile::Kbkdf(caps)) = form.profile {
+            form.kbkdf.job(caps, identity.as_deref(), &form.label).ok()
+        } else {
+            None
+        };
         let ecdh_parameters = form.ecdh.parameters().ok();
         let valid = form
             .profile
@@ -326,6 +359,7 @@ impl UiState {
                     !form.input.is_empty() && !form.output.is_empty()
                 }
                 CryptoMode::Hkdf => hkdf_job.is_some(),
+                CryptoMode::Kbkdf => kbkdf_job.is_some(),
                 CryptoMode::Wrap => {
                     matches!(form.profile, Some(KeyProfile::AesWrapping(caps)) if caps.supports(form.wrap_algorithm))
                         && !form.output.is_empty()
@@ -362,6 +396,8 @@ impl UiState {
                         | CryptoMode::VerifyMac
                 ) {
                     BackendError::MacInput
+                } else if form.scope.mode == CryptoMode::Kbkdf {
+                    BackendError::KbkdfInput
                 } else if form.scope.mode == CryptoMode::Hkdf {
                     BackendError::HkdfInput
                 } else {
@@ -389,6 +425,7 @@ impl UiState {
                     .unwrap_or_else(|| PathBuf::from(form.output)),
             },
             CryptoMode::Hkdf => KeyJob::Hkdf(hkdf_job?),
+            CryptoMode::Kbkdf => KeyJob::Kbkdf(kbkdf_job?),
             CryptoMode::Wrap => KeyJob::Wrap {
                 algorithm: form.wrap_algorithm,
                 target: form.target?.id,

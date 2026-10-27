@@ -19,6 +19,9 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
     ) {
         return super::mac::view(state);
     }
+    if form.scope.mode == CryptoMode::Kbkdf {
+        return super::kbkdf::view(state);
+    }
     if form.scope.mode == CryptoMode::Hkdf {
         return super::hkdf::view(state);
     }
@@ -46,7 +49,7 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
             KeyProfile::Classical(pkcs11_client::KeyOperationProfile::EcdhRaw(curve)) => format!("ECDH {curve:?}. Select the KDF and output purpose explicitly. Parameter support is checked by the token when deriving; a rejected KDF is never replaced. Authenticate the peer public key separately."),
             KeyProfile::AesWrapping(caps) => format!("AES-{} wrapping key. Select KW or KWP explicitly; decryption requires the same algorithm. The blob contains no label, ID or permissions. Only AES-128/192/256 targets and outputs are supported.", caps.key_length * 8),
             KeyProfile::Classical(_) => "No compatible key-operation profile.".into(),
-            KeyProfile::Hmac(_) | KeyProfile::AesCmac(_) | KeyProfile::Hkdf(_) => "No compatible key-operation profile.".into(),
+            KeyProfile::Kbkdf(_) | KeyProfile::Hmac(_) | KeyProfile::AesCmac(_) | KeyProfile::Hkdf(_) => "No compatible key-operation profile.".into(),
             KeyProfile::MlKem(parameter) => format!("ML-KEM-{}: {}-byte raw ciphertext. The 32-byte shared secret stays on the token; apply a protocol KDF before use and authenticate the peer separately.", match parameter { pkcs11_client::MlKemParameterSet::MlKem512 => 512, pkcs11_client::MlKemParameterSet::MlKem768 => 768, pkcs11_client::MlKemParameterSet::MlKem1024 => 1024 }, parameter.ciphertext_length()),
         }).size(14));
     } else {

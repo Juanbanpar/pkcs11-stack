@@ -246,6 +246,27 @@ pub fn detail(state: &UiState) -> Element<'_, Message> {
                     | KeyType::SHA256_HMAC
                     | KeyType::SHA384_HMAC
                     | KeyType::SHA512_HMAC
+            )
+        )
+    {
+        actions = actions.push(
+            button("Derive SP 800-108 key…")
+                .width(Length::Fill)
+                .on_press_maybe(
+                    state
+                        .can_open_key_operation(CryptoMode::Kbkdf)
+                        .then_some(Message::OpenKeyOperation(CryptoMode::Kbkdf)),
+                ),
+        );
+    }
+    if object.class == Some(ObjectClass::SECRET_KEY)
+        && matches!(
+            kind,
+            Some(
+                KeyType::GENERIC_SECRET
+                    | KeyType::SHA256_HMAC
+                    | KeyType::SHA384_HMAC
+                    | KeyType::SHA512_HMAC
                     | KeyType::SHA224_HMAC
                     | KeyType::SHA512_224_HMAC
                     | KeyType::SHA512_256_HMAC
