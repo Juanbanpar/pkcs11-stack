@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-use crate::{aes_gcm, aes_key_wrap, generation, inspect, key_establishment, ml_dsa, support::*};
+use crate::{
+    aes_cmac, aes_gcm, aes_key_wrap, generation, inspect, key_establishment, ml_dsa, support::*,
+};
 use clap::ArgMatches;
 use pkcs11_client::{
     AttributeType, DigestAlgorithm, HashingPolicy, Provider, PssParameters, RandomRequest,
@@ -72,6 +74,7 @@ pub(crate) enum VerificationCertificate {
 // Validate non-provider inputs and load files before initializing a library or logging in.
 pub(crate) struct Inputs {
     pub aes_gcm: Option<aes_gcm::Inputs>,
+    pub cmac_tag: Option<[u8; pkcs11_client::AES_CMAC_TAG_LENGTH]>,
     pub digest_file: Option<std::fs::File>,
     pub credential: Credential,
     pub context: Credential,
@@ -105,7 +108,8 @@ impl Inputs {
         let context = Credential::load(m, "context-pin-file", "context-protected-path")?;
         let so = get(m, "role") == Some("so");
         if so
-            && (aes_gcm::selected(name)
+            && (aes_cmac::selected(name)
+                || aes_gcm::selected(name)
                 || aes_key_wrap::selected(name)
                 || key_establishment::selected(name)
                 || matches!(
@@ -146,6 +150,7 @@ impl Inputs {
         {
             return Err(usage("only one verification input may read stdin"));
         }
+        let cmac_tag = aes_cmac::load(name, m)?;
         let aes_gcm = aes_gcm::Inputs::load(name, m)?;
         let oaep_label = match get(m, "label-hex") {
             Some(value) if value.len() > 8192 => {
@@ -166,6 +171,8 @@ impl Inputs {
         } else if let Some(path) = get(m, "input") {
             if let Some(limit) = key_establishment::input_limit(name, m)? {
                 bounded_input(path, limit)?
+            } else if aes_cmac::selected(name) {
+                bounded_input(path, pkcs11_client::AES_CMAC_MAXIMUM_MESSAGE)?
             } else if name == "unwrap-aes-key" {
                 bounded_input(path, 40)?
             } else if matches!(name, "encrypt-rsa-oaep" | "decrypt-rsa-oaep") {
@@ -312,6 +319,7 @@ impl Inputs {
         }
         Ok(Self {
             aes_gcm,
+            cmac_tag,
             digest_file,
             establishment,
             credential,
@@ -594,6 +602,9 @@ fn management_operation(
     m: &ArgMatches,
     inputs: &Inputs,
 ) -> Result<Output> {
+    if aes_cmac::selected(name) {
+        return aes_cmac::operation(session, name, m, &inputs.bytes, inputs.cmac_tag.as_ref());
+    }
     if aes_gcm::selected(name) {
         return aes_gcm::operation(session, name, m, inputs.aes_gcm.as_ref());
     }

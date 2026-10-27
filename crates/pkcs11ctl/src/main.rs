@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 #![forbid(unsafe_code)]
 //! PKCS#11 command-line workflows over the client library.
+mod aes_cmac;
 mod aes_gcm;
 mod aes_key_wrap;
 mod args;

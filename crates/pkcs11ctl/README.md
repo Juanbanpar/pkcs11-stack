@@ -312,8 +312,9 @@ RSA defaults to signing; `--purpose encryption` creates encryption/decryption-on
 pairs, with signing disabled. RSA defaults to 2048 bits; `--bits` accepts multiples
 of eight from 2048 to 16384, subject to provider bounds. Existing `p256`/`p384`/`p521` kinds create signing
 pairs. ECDH private keys permit only derivation. AES requires
-`--purpose encryption` (encryption/decryption) or `--purpose wrapping`
-(wrapping/unwrapping); other permissions are disabled. `--always-authenticate`
+`--purpose encryption` (encryption/decryption), `--purpose wrapping`
+(wrapping/unwrapping), or `--purpose authentication` (full-tag AES-CMAC only);
+other permissions are disabled. `--always-authenticate`
 applies to signing and RSA encryption keys. `--purpose` applies to AES and RSA,
 and `--bits` only to RSA; invalid combinations fail before loading a provider.
 
@@ -484,3 +485,27 @@ label is empty. Decryption requires the same digests and label. Ciphertext carri
 no parameter metadata. Input is one RSA block; output files are never overwritten. Decryption
 accepts `--context-pin-file` or `--context-protected-path`, separately from USER
 login. Per-operation credentials are not cached or retried.
+
+## AES-CMAC
+
+```sh
+pkcs11ctl --module /path/to/module.so generate --token 'pkcs11:serial=123' \
+  --kind aes256 --purpose authentication --id 43 --label message-mac \
+  --pin-file user.pin --confirm
+pkcs11ctl --module /path/to/module.so mac-aes-cmac \
+  --object 'pkcs11:serial=123;id=%43;type=secret-key' \
+  --input message.bin --output tag.bin --pin-file user.pin
+pkcs11ctl --module /path/to/module.so verify-aes-cmac \
+  --object 'pkcs11:serial=123;id=%43;type=secret-key' \
+  --input message.bin --tag-file tag.bin --pin-file user.pin
+```
+
+`aes-cmac-capabilities --object URI --operation generate|verify` reports native
+support without producing a tag. The AES key must be sensitive and nonextractable,
+with generation or verification permission respectively. Generation writes only
+the raw 16-byte tag to a new file or binary stdout (`--output -`). Existing outputs
+are preserved. Messages may be empty and are limited to 16 MiB; `--input -` reads
+stdin. Tag input requires a file containing exactly 16 bytes, checked before module
+loading. A verification mismatch returns exit code 4 with no success output.
+Results are released after checked session closure. No truncation or software
+fallback occurs. A shared-key MAC does not identify an individual signer.

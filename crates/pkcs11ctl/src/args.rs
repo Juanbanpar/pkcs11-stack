@@ -289,9 +289,9 @@ pub(crate) fn command() -> Command {
         .arg(
             value(
                 "purpose",
-                "AES encryption/wrapping or RSA signing/encryption",
+                "AES encryption/wrapping/authentication or RSA signing/encryption",
             )
-            .value_parser(["signing", "encryption", "wrapping"])
+            .value_parser(["signing", "encryption", "wrapping", "authentication"])
             .required_if_eq_any([
                 ("kind", "aes128"),
                 ("kind", "aes192"),
@@ -528,6 +528,32 @@ pub(crate) fn command() -> Command {
             Command::new("hkdf-capabilities")
                 .about("Inspect a sensitive, nonextractable HKDF base secret"),
         ))),
+        auth(object(
+            Command::new("aes-cmac-capabilities")
+                .about("Inspect native full-tag AES-CMAC support")
+                .arg(required("operation", "MAC direction").value_parser(["generate", "verify"])),
+        )),
+        auth(object(
+            Command::new("mac-aes-cmac")
+                .about("Generate a full AES-CMAC tag on the token")
+                .arg(required(
+                    "input",
+                    "Message file, at most 16 MiB; - reads stdin",
+                ))
+                .arg(required(
+                    "output",
+                    "New raw 16-byte tag file; - writes stdout",
+                )),
+        )),
+        auth(object(
+            Command::new("verify-aes-cmac")
+                .about("Verify a full AES-CMAC tag on the token")
+                .arg(required(
+                    "input",
+                    "Message file, at most 16 MiB; - reads stdin",
+                ))
+                .arg(required("tag-file", "Raw 16-byte tag file; no stdin")),
+        )),
         mutation(auth(named(hkdf_options(object(
             Command::new("derive-hkdf")
                 .about("Derive a persistent nonextractable token key using HKDF")

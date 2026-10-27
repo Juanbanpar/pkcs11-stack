@@ -27,6 +27,7 @@ fn purpose(m: &ArgMatches) -> Result<AesKeyPurpose> {
     match need(m, "purpose")? {
         "encryption" => Ok(AesKeyPurpose::Encryption),
         "wrapping" => Ok(AesKeyPurpose::Wrapping),
+        "authentication" => Ok(AesKeyPurpose::Authentication),
         _ => Err(usage("invalid AES purpose")),
     }
 }
@@ -171,7 +172,7 @@ pub(crate) fn options(provider: &Provider, m: &ArgMatches) -> Result<Value> {
         "aes":options.aes.into_iter().map(|size| match size {
             AesKeySize::Bits128=>"aes128", AesKeySize::Bits192=>"aes192", AesKeySize::Bits256=>"aes256"
         }).collect::<Vec<_>>(),
-        "aes_purposes":["encryption","wrapping"],
+        "aes_purposes":["encryption","wrapping","authentication"],
         "ml_dsa":options.ml_dsa.into_iter().map(ml_dsa::key_info).collect::<Vec<_>>(),
         "ml_kem":options.ml_kem.into_iter().map(key_establishment::key_info).collect::<Vec<_>>()
     }))
