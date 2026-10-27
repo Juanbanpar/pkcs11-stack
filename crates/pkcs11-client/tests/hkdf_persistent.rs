@@ -18,6 +18,165 @@ fn reference(id: &[u8], kind: &str) -> ObjectRef {
 }
 #[test]
 #[ignore = "requires tools/test-kem-hkdf.sh disposable Kryoptic store"]
+fn client_staged_hkdf_matches_combined_derivation_and_preserves_prks() {
+    use pkcs11_client::{Error, HkdfMode};
+    assert_eq!(
+        std::env::var("PKCS11_TEST_KDF_ISOLATED").as_deref(),
+        Ok("1")
+    );
+    let provider = Provider::load(std::env::var_os("PKCS11_TEST_KDF_MODULE").unwrap()).unwrap();
+    let token = "pkcs11:token=kdf-test".parse().unwrap();
+    let pin = SecretString::from("12345678");
+    let mut session = provider
+        .management(
+            &token,
+            SessionMode::ReadWrite,
+            Authentication::User(Pin::Value(&pin)),
+        )
+        .unwrap();
+    for (index, digest) in [
+        DigestAlgorithm::Sha256,
+        DigestAlgorithm::Sha384,
+        DigestAlgorithm::Sha512,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        for (case, salt) in [&[][..], b"\0public\xffsalt".as_slice()]
+            .into_iter()
+            .enumerate()
+        {
+            let base = reference(&[0xA0, index as u8], "secret-key");
+            let id = [0xE9, index as u8, case as u8, 0];
+            let extract = HkdfRequest {
+                digest,
+                salt,
+                info: &[],
+                output: HkdfOutput::DerivationSecret {
+                    length: digest.output_len(),
+                },
+                id: &id,
+                label: b"client PRK",
+            };
+            let mut ro = provider
+                .management(&token, SessionMode::ReadOnly, Authentication::None)
+                .unwrap();
+            assert!(matches!(
+                ro.derive_hkdf_with_mode(&base, &extract, HkdfMode::ExtractOnly),
+                Err(Error::Runtime(pkcs11_runtime::Error::ReadWriteRequired))
+            ));
+            ro.close().unwrap();
+            session
+                .derive_hkdf_with_mode(&base, &extract, HkdfMode::ExtractOnly)
+                .unwrap();
+            assert!(
+                session
+                    .derive_hkdf_with_mode(&base, &extract, HkdfMode::ExtractOnly)
+                    .is_err()
+            );
+            let prk = reference(&id, "secret-key");
+            assert!(session.export_public(&prk).is_err());
+            let attrs = session
+                .inspect(
+                    &prk,
+                    &[
+                        AttributeType::Sensitive,
+                        AttributeType::Extractable,
+                        AttributeType::Derive,
+                        AttributeType::Encrypt,
+                        AttributeType::Decrypt,
+                        AttributeType::Sign,
+                        AttributeType::Verify,
+                        AttributeType::Wrap,
+                        AttributeType::Unwrap,
+                    ],
+                )
+                .unwrap();
+            for expected in [
+                Attribute::Sensitive(true),
+                Attribute::Extractable(false),
+                Attribute::Derive(true),
+                Attribute::Encrypt(false),
+                Attribute::Decrypt(false),
+                Attribute::Sign(false),
+                Attribute::Verify(false),
+                Attribute::Wrap(false),
+                Attribute::Unwrap(false),
+            ] {
+                assert!(attrs.iter().any(|a| {
+                    a.values
+                        .as_ref()
+                        .is_some_and(|v| v.expose_values().contains(&expected))
+                }));
+            }
+            let output_id = [0xE9, index as u8, case as u8, 1];
+            let expand = HkdfRequest {
+                digest,
+                salt: &[],
+                info: b"staged client context",
+                output: HkdfOutput::Aes256,
+                id: &output_id,
+                label: b"client expanded AES",
+            };
+            assert!(
+                session
+                    .derive_hkdf_with_mode(
+                        &prk,
+                        &HkdfRequest {
+                            salt: b"ignored",
+                            ..expand
+                        },
+                        HkdfMode::ExpandOnly
+                    )
+                    .is_err()
+            );
+            session.state().unwrap();
+            session
+                .derive_hkdf_with_mode(&prk, &expand, HkdfMode::ExpandOnly)
+                .unwrap();
+            let combined_id = [0xE9, index as u8, case as u8, 2];
+            session
+                .derive_hkdf(
+                    &base,
+                    &HkdfRequest {
+                        salt,
+                        id: &combined_id,
+                        ..expand
+                    },
+                )
+                .unwrap();
+            let nonce = [index as u8 * 2 + case as u8; 12];
+            let ciphertext = session
+                .encrypt_aes_gcm(
+                    &reference(&output_id, "secret-key"),
+                    &AesGcmEncryptRequest {
+                        nonce: &nonce,
+                        aad: b"stage proof",
+                        plaintext: b"extract then expand",
+                    },
+                )
+                .unwrap();
+            let recovered = session
+                .decrypt_aes_gcm(
+                    &reference(&combined_id, "secret-key"),
+                    &AesGcmDecryptRequest {
+                        nonce: &nonce,
+                        aad: b"stage proof",
+                        ciphertext: &ciphertext,
+                    },
+                )
+                .unwrap();
+            assert_eq!(recovered.expose_secret(), b"extract then expand");
+            for id in [&id, &output_id, &combined_id] {
+                session.delete(&reference(id, "secret-key")).unwrap();
+            }
+        }
+    }
+    session.close().unwrap();
+    provider.finalize().unwrap();
+}
+#[test]
+#[ignore = "requires tools/test-kem-hkdf.sh disposable Kryoptic store"]
 fn client_ml_kem_to_hkdf_permissions_errors_and_cleanup() {
     assert_eq!(
         std::env::var("PKCS11_TEST_KDF_ISOLATED").as_deref(),

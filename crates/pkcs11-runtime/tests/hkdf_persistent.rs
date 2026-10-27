@@ -89,6 +89,21 @@ fn public_expected(
     salt: &[u8],
     info: &[u8],
 ) -> Vec<u8> {
+    public_expected_stage(
+        digest,
+        output,
+        salt,
+        info,
+        pkcs11_runtime::HkdfMode::ExtractAndExpand,
+    )
+}
+fn public_expected_stage(
+    digest: DigestAlgorithm,
+    output: HkdfOutput,
+    salt: &[u8],
+    info: &[u8],
+    mode: pkcs11_runtime::HkdfMode,
+) -> Vec<u8> {
     let hex = |bytes: &[u8]| {
         bytes
             .iter()
@@ -111,6 +126,14 @@ fn public_expected(
         &format!("digest:{hash}"),
         "-kdfopt",
         &format!("hexkey:{}", hex(&vec![0x0B; digest.output_len()])),
+    ]);
+    command.args([
+        "-kdfopt",
+        match mode {
+            pkcs11_runtime::HkdfMode::ExtractAndExpand => "mode:EXTRACT_AND_EXPAND",
+            pkcs11_runtime::HkdfMode::ExtractOnly => "mode:EXTRACT_ONLY",
+            pkcs11_runtime::HkdfMode::ExpandOnly => "mode:EXPAND_ONLY",
+        },
     ]);
     if !salt.is_empty() {
         command.args(["-kdfopt", &format!("hexsalt:{}", hex(salt))]);
@@ -270,6 +293,68 @@ fn typed_hkdf_known_answers_policy_and_ml_kem_agreement() {
                 .unwrap()
                 .is_empty()
         );
+    }
+    for (index, digest) in [
+        DigestAlgorithm::Sha256,
+        DigestAlgorithm::Sha384,
+        DigestAlgorithm::Sha512,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        use pkcs11_runtime::HkdfMode;
+        let base = reference(&[0xA0, index as u8], "secret-key");
+        let output = HkdfOutput::DerivationSecret {
+            length: digest.output_len(),
+        };
+        let prk_id = [0xE8, 0x48, index as u8, 0];
+        let extract = HkdfRequest {
+            digest,
+            salt: b"extract salt",
+            info: &[],
+            output,
+            id: &prk_id,
+            label: b"stage PRK",
+        };
+        session
+            .derive_hkdf_with_mode(&base, &extract, HkdfMode::ExtractOnly)
+            .unwrap();
+        inspect(&mut session, &prk_id, output);
+        known_answers.push((
+            prk_id.to_vec(),
+            output,
+            public_expected_stage(digest, output, extract.salt, &[], HkdfMode::ExtractOnly),
+        ));
+        for (case, output) in [
+            HkdfOutput::Aes128,
+            HkdfOutput::Aes192,
+            HkdfOutput::Aes256,
+            HkdfOutput::DerivationSecret {
+                length: 255 * digest.output_len(),
+            },
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let id = [0xE8, 0x48, index as u8, case as u8 + 1];
+            let expand = HkdfRequest {
+                digest,
+                salt: &[],
+                info: b"expand context",
+                output,
+                id: &id,
+                label: b"stage expand",
+            };
+            session
+                .derive_hkdf_with_mode(&base, &expand, HkdfMode::ExpandOnly)
+                .unwrap();
+            inspect(&mut session, &id, output);
+            known_answers.push((
+                id.to_vec(),
+                output,
+                public_expected_stage(digest, output, &[], expand.info, HkdfMode::ExpandOnly),
+            ));
+        }
     }
     for (index, parameter) in [
         MlKemParameterSet::MlKem512,

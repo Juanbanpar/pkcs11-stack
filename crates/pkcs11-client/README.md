@@ -664,6 +664,14 @@ fn derive_encryption_key(
 }
 ```
 
+For separate stages, call `derive_hkdf_with_mode(base, request, mode)` with
+`HkdfMode::ExtractOnly` or `HkdfMode::ExpandOnly`. Extract-only requires empty
+`info` and `HkdfOutput::DerivationSecret { length: digest.output_len() }`. Its
+output is a token-held PRK, usable as the base of an expand-only request with
+empty `salt`. The caller must establish that an expansion base is a PRK;
+matching key metadata cannot prove its origin. Parameters for a disabled stage
+are rejected. The original `derive_hkdf` keeps extract-and-expand behavior.
+
 New keys are persistent private, sensitive and nonextractable. AES outputs permit
 only encryption/decryption; `HkdfOutput::DerivationSecret` permits only further
 derivation. IDs and labels are nonempty and at most 128 bytes. Salt/context are

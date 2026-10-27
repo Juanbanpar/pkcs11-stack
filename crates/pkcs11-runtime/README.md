@@ -540,6 +540,14 @@ CKM_HKDF_DERIVE in an RW session. An empty salt uses RFC 5869's zero salt; empty
 context is permitted. Salt and context are each bounded to 4096 bytes, and output
 is limited to 255 times the hash length.
 
+`Session::derive_hkdf_with_mode` also accepts `HkdfMode::ExtractOnly` or
+`ExpandOnly`. Extraction creates a hash-length `HkdfOutput::DerivationSecret`
+containing the PRK; nonempty context and other output profiles are rejected.
+Expansion requires empty salt and a caller-established PRK. Key type and length
+cannot prove PRK provenance. Neither stage reads key values or changes stages
+after a provider rejection. Both retain the same base-key requirements below.
+Salt-key inputs and HKDF data objects are not exposed.
+
 `Session::hkdf_capabilities` checks secret class, generic/HKDF key type,
 CKA_DERIVE, allowed mechanisms, sensitivity, nonextractability and the provider's
 HKDF derive support. Under PKCS#11 section 6.62.3 the base key must match the hash

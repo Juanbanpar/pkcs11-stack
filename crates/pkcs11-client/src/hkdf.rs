@@ -1,7 +1,23 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-use crate::{DigestAlgorithm, Error, HkdfCapabilities, HkdfRequest, ManagementSession, ObjectRef};
+use crate::{
+    DigestAlgorithm, Error, HkdfCapabilities, HkdfMode, HkdfRequest, ManagementSession, ObjectRef,
+};
 
 impl ManagementSession<'_> {
+    /// Apply an explicit HKDF stage once on the token. Extract-only produces a
+    /// hash-length PRK with derivation permission only. Expand-only requires the
+    /// caller to establish that the selected base is a PRK; metadata cannot prove
+    /// this. Disabled-stage parameters are rejected. Requires RW access and the
+    /// existing sensitive, nonextractable hash-length generic/HKDF base profile.
+    /// Check closure; failure may leave effects, without rollback or retry.
+    pub fn derive_hkdf_with_mode(
+        &mut self,
+        base: &ObjectRef,
+        request: &HkdfRequest<'_>,
+        mode: HkdfMode,
+    ) -> Result<(), Error> {
+        Ok(self.session.derive_hkdf_with_mode(base, request, mode)?)
+    }
     /// Discover SHA-2 HKDF profiles permitted by the selected base and provider.
     /// At most one digest matches the PKCS#11 hash-length base-key requirement.
     /// Unsupported profiles are omitted; selection, metadata and provider failures propagate.

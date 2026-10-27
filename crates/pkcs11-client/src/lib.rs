@@ -34,7 +34,7 @@ mod ml_dsa_certificate;
 mod ml_kem;
 pub use ml_dsa_certificate::{MlDsaCertificate, MlDsaIdentity, MlDsaVerifyingKey};
 pub use ml_kem::MlKemPublicKey;
-pub use pkcs11_runtime::{HkdfCapabilities, HkdfOutput, HkdfRequest};
+pub use pkcs11_runtime::{HkdfCapabilities, HkdfMode, HkdfOutput, HkdfRequest};
 pub use pkcs11_runtime::{
     MlDsaCapabilities, MlDsaHedging, MlDsaParameterSet, MlDsaPublicKey, MlDsaRequest,
     MlDsaSigningPolicy,

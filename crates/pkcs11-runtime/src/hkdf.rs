@@ -12,7 +12,31 @@ use cryptoki::{
     object::KeyType,
 };
 
-/// Output type and permissions for HKDF extract-and-expand.
+/// Explicit HKDF stage selection; existing derivation calls extract and expand.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum HkdfMode {
+    /// Extract IKM to a PRK and expand to the requested output.
+    #[default]
+    ExtractAndExpand,
+    /// Create a hash-length derivation secret containing the PRK.
+    ExtractOnly,
+    /// Expand a caller-established PRK, without another extraction.
+    ExpandOnly,
+}
+impl HkdfMode {
+    /// Available stage selections; individual parameter support remains advisory.
+    pub const ALL: [Self; 3] = [Self::ExtractAndExpand, Self::ExtractOnly, Self::ExpandOnly];
+}
+impl std::fmt::Display for HkdfMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::ExtractAndExpand => "Extract and expand",
+            Self::ExtractOnly => "Extract PRK only",
+            Self::ExpandOnly => "Expand PRK only",
+        })
+    }
+}
+/// Output type and permissions for HKDF.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HkdfOutput {
     /// AES-128, permitting encryption and decryption only.
@@ -41,15 +65,17 @@ impl HkdfOutput {
         !matches!(self, Self::DerivationSecret { .. })
     }
 }
-/// Bounded HKDF extract-and-expand request. No base-key bytes are accepted.
+/// Bounded HKDF request, extracting and expanding by default. No base-key bytes are accepted.
 /// All output keys are persistent, private, sensitive and nonextractable.
 #[derive(Clone, Copy)]
 pub struct HkdfRequest<'a> {
     /// SHA-256, SHA-384 or SHA-512. PKCS#11 requires a hash-length base key.
     pub digest: DigestAlgorithm,
     /// Non-secret extraction salt, at most 4096 bytes. Empty means RFC 5869 zero salt.
+    /// Must be empty in expand-only mode.
     pub salt: &'a [u8],
-    /// Public protocol context, at most 4096 bytes. Empty is permitted.
+    /// Public protocol context, at most 4096 bytes. Empty is permitted and required
+    /// in extract-only mode, where this parameter would otherwise be ignored.
     pub info: &'a [u8],
     /// Output key type, length and permissions.
     pub output: HkdfOutput,
@@ -67,7 +93,30 @@ impl std::fmt::Debug for HkdfRequest<'_> {
     }
 }
 impl HkdfRequest<'_> {
-    /// Validate bounds before contacting a provider. Always extracts and expands.
+    /// Validate an explicit stage without I/O. Extract-only requires a generic
+    /// derivation secret of exactly the hash length and no info. Expand-only
+    /// requires empty salt. Parameters for disabled stages are rejected.
+    pub fn validate_for_mode(&self, mode: HkdfMode) -> Result<(), Error> {
+        self.validate()?;
+        match mode {
+            HkdfMode::ExtractOnly
+                if self.output
+                    != (HkdfOutput::DerivationSecret {
+                        length: self.digest.output_len(),
+                    })
+                    || !self.info.is_empty() =>
+            {
+                Err(Error::InvalidParameters(
+                    "HKDF extract requires hash-length derivation output and empty info",
+                ))
+            }
+            HkdfMode::ExpandOnly if !self.salt.is_empty() => {
+                Err(Error::InvalidParameters("HKDF expand requires empty salt"))
+            }
+            _ => Ok(()),
+        }
+    }
+    /// Validate the default extract-and-expand profile without I/O.
     pub fn validate(&self) -> Result<(), Error> {
         validate_secret_identity(self.id, self.label)?;
         if self.salt.len() > 4096 || self.info.len() > 4096 {
@@ -180,7 +229,21 @@ impl Session<'_> {
         base: &ObjectRef,
         request: &HkdfRequest<'_>,
     ) -> Result<(), Error> {
-        request.validate()?;
+        self.derive_hkdf_with_mode(base, request, HkdfMode::ExtractAndExpand)
+    }
+    /// Perform the explicitly selected HKDF stage once on the token. Extract-only
+    /// creates a sensitive, nonextractable PRK with derivation permission only.
+    /// Expand-only assumes the base is a PRK; metadata cannot prove its origin.
+    /// Requires RW mode and the existing hash-length generic/HKDF base profile.
+    /// Errors may leave persistent effects; no rollback or base-key deletion occurs.
+    /// No ignored parameters, software fallback, stage substitution or retry.
+    pub fn derive_hkdf_with_mode(
+        &mut self,
+        base: &ObjectRef,
+        request: &HkdfRequest<'_>,
+        mode: HkdfMode,
+    ) -> Result<(), Error> {
+        request.validate_for_mode(mode)?;
         self.validate()?;
         if self.mode != SessionMode::ReadWrite {
             return Err(Error::ReadWriteRequired);
@@ -203,13 +266,15 @@ impl Session<'_> {
             DigestAlgorithm::Sha384 => MechanismType::SHA384,
             DigestAlgorithm::Sha512 => MechanismType::SHA512,
         };
-        let salt = if request.salt.is_empty() {
-            HkdfSalt::Null
+        let salt = if mode == HkdfMode::ExpandOnly {
+            None
+        } else if request.salt.is_empty() {
+            Some(HkdfSalt::Null)
         } else {
-            HkdfSalt::Data(request.salt)
+            Some(HkdfSalt::Data(request.salt))
         };
-        let mechanism =
-            Mechanism::HkdfDerive(HkdfParams::new(hash, Some(salt), Some(request.info)));
+        let info = (mode != HkdfMode::ExtractOnly).then_some(request.info);
+        let mechanism = Mechanism::HkdfDerive(HkdfParams::new(hash, salt, info));
         object.session.write_operation("derive HKDF key", |raw| {
             raw.derive_key(&mechanism, object.handle, &template)
         })?;
@@ -219,6 +284,61 @@ impl Session<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn individual_stages_reject_ignored_inputs_and_non_prk_extraction_outputs() {
+        for digest in [
+            DigestAlgorithm::Sha256,
+            DigestAlgorithm::Sha384,
+            DigestAlgorithm::Sha512,
+        ] {
+            let extract = HkdfRequest {
+                digest,
+                salt: b"salt",
+                info: &[],
+                output: HkdfOutput::DerivationSecret {
+                    length: digest.output_len(),
+                },
+                id: b"prk",
+                label: b"extracted PRK",
+            };
+            extract.validate_for_mode(HkdfMode::ExtractOnly).unwrap();
+            for output in [
+                HkdfOutput::Aes256,
+                HkdfOutput::DerivationSecret {
+                    length: digest.output_len() - 1,
+                },
+                HkdfOutput::DerivationSecret {
+                    length: digest.output_len() + 1,
+                },
+            ] {
+                assert!(
+                    HkdfRequest { output, ..extract }
+                        .validate_for_mode(HkdfMode::ExtractOnly)
+                        .is_err()
+                );
+            }
+            assert!(
+                HkdfRequest {
+                    info: b"ignored",
+                    ..extract
+                }
+                .validate_for_mode(HkdfMode::ExtractOnly)
+                .is_err()
+            );
+            assert!(extract.validate_for_mode(HkdfMode::ExpandOnly).is_err());
+            HkdfRequest {
+                salt: &[],
+                info: b"protocol",
+                output: HkdfOutput::Aes256,
+                ..extract
+            }
+            .validate_for_mode(HkdfMode::ExpandOnly)
+            .unwrap();
+            extract
+                .validate_for_mode(HkdfMode::ExtractAndExpand)
+                .unwrap();
+        }
+    }
     #[test]
     fn request_bounds_output_permissions_and_debug_are_explicit() {
         for digest in [
