@@ -16,7 +16,7 @@ use std::{
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum KeyProfile {
-    Hmac(pkcs11_client::HmacCapabilities),
+    Hmac(pkcs11_client::HmacOptions),
     AesCmac(pkcs11_client::AesCmacOptions),
     AesWrapping(AesKeyWrapCapabilities),
     Hkdf(pkcs11_client::HkdfCapabilities),
@@ -61,6 +61,7 @@ impl Default for EcdhParameters {
 pub enum KeyJob {
     Hmac {
         algorithm: pkcs11_client::HmacAlgorithm,
+        profile: pkcs11_client::HmacTagProfile,
         input: PathBuf,
         tag: PathBuf,
     },
@@ -176,7 +177,7 @@ impl Registry {
         let profile = read_session(module, &uri, module.read_mode(scope.token)?, |session| {
             if matches!(scope.mode, CryptoMode::Hmac | CryptoMode::VerifyHmac) {
                 session
-                    .hmac_capabilities(&reference, super::hmac::operation(scope.mode)?)
+                    .hmac_options(&reference, super::hmac::operation(scope.mode)?)
                     .map(KeyProfile::Hmac)
                     .map_err(|e| BackendError::from(&e))
             } else if matches!(scope.mode, CryptoMode::Mac | CryptoMode::VerifyMac) {

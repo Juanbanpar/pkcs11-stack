@@ -10,6 +10,9 @@ pub struct KeyChoice(pub GenerationKind);
 impl std::fmt::Display for KeyChoice {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.0 {
+            GenerationKind::HmacGeneral(algorithm) => {
+                write!(f, "{algorithm} — general-tag authentication")
+            }
             GenerationKind::Hmac(algorithm) => write!(f, "{algorithm} — authentication"),
             GenerationKind::RsaEncryption(bits) => write!(f, "RSA {bits} — encryption/decryption"),
             GenerationKind::Signing(KeyKind::Rsa { bits }) => write!(f, "RSA {bits} — signing"),

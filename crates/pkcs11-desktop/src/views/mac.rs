@@ -34,10 +34,10 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
     if hmac {
         let description = if let Some(KeyProfile::Hmac(caps)) = form.profile {
             format!(
-                "{}-byte sensitive, nonextractable key. {} uses a full {}-byte tag. Native support and permissions are checked again before use.",
-                caps.key_length,
+                "{}-byte sensitive, nonextractable key. {} uses the selected {}-byte tag. Native support and permissions are checked again before use.",
+                caps.full.or(caps.general).map_or(0, |c| c.key_length),
                 form.hmac_algorithm,
-                form.hmac_algorithm.tag_length()
+                form.hmac_profile.tag_length(form.hmac_algorithm)
             )
         } else if form.loaded {
             "No permitted HMAC profile is available for this operation.".into()
@@ -47,7 +47,7 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
         content = content.push(text(description).size(14));
         let algorithms: Vec<_> = pkcs11_client::HmacAlgorithm::ALL
             .into_iter()
-            .filter(|a| matches!(form.profile, Some(KeyProfile::Hmac(caps)) if caps.supports(*a)))
+            .filter(|a| matches!(form.profile, Some(KeyProfile::Hmac(caps)) if pkcs11_client::HmacTagProfile::choices(*a).into_iter().any(|profile| caps.supports(*a, profile))))
             .collect();
         content = content.push(
             pick_list(algorithms, Some(form.hmac_algorithm), move |algorithm| {
@@ -56,6 +56,16 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
             .placeholder("HMAC algorithm")
             .enabled(enabled && form.profile.is_some()),
         );
+        let profiles: Vec<_> = pkcs11_client::HmacTagProfile::choices(form.hmac_algorithm).into_iter()
+            .filter(|profile| matches!(form.profile, Some(KeyProfile::Hmac(options)) if options.supports(form.hmac_algorithm, *profile))).collect();
+        content = content.push(
+            pick_list(profiles, Some(form.hmac_profile), move |profile| {
+                Message::HmacProfile { id, profile }
+            })
+            .placeholder("HMAC tag profile")
+            .enabled(enabled && form.profile.is_some()),
+        );
+        content = content.push(text("Agree on the algorithm and tag length before using the key and keep them fixed for that key's lifetime. General tags require native token support.").size(14));
     } else {
         let description = if let Some(KeyProfile::AesCmac(caps)) = form.profile {
             format!(
@@ -83,16 +93,7 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
         (
             KeyField::Output,
             if verify {
-                if hmac {
-                    match form.hmac_algorithm.tag_length() {
-                        28 => "Tag input file (exactly 28 bytes)",
-                        32 => "Tag input file (exactly 32 bytes)",
-                        48 => "Tag input file (exactly 48 bytes)",
-                        _ => "Tag input file (exactly 64 bytes)",
-                    }
-                } else {
-                    "Tag input file (exact selected length)"
-                }
+                "Tag input file (exact selected length)"
             } else {
                 "New tag output file"
             },

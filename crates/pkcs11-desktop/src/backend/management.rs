@@ -15,6 +15,7 @@ use std::{
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GenerationKind {
     Hmac(pkcs11_client::HmacAlgorithm),
+    HmacGeneral(pkcs11_client::HmacAlgorithm),
     Signing(KeyKind),
     RsaEncryption(usize),
     MlDsa(MlDsaParameterSet),
@@ -31,7 +32,7 @@ impl GenerationKind {
     }
     pub fn validate(self, id: &[u8], label: &[u8], context: bool) -> Result<(), BackendError> {
         let valid = match self {
-            Self::Hmac(algorithm) => {
+            Self::Hmac(algorithm) | Self::HmacGeneral(algorithm) => {
                 !context
                     && pkcs11_client::HmacKeyRequest {
                         algorithm,
@@ -150,6 +151,12 @@ impl Registry {
                     .map(GenerationKind::RsaEncryption),
             )
             .chain(choices.hmac.into_iter().map(GenerationKind::Hmac))
+            .chain(
+                choices
+                    .hmac_general
+                    .into_iter()
+                    .map(GenerationKind::HmacGeneral),
+            )
             .chain(choices.ml_dsa.into_iter().map(GenerationKind::MlDsa))
             .chain(choices.ml_kem.into_iter().map(GenerationKind::MlKem))
             .chain(choices.ecdh.into_iter().map(GenerationKind::Ecdh))
@@ -269,6 +276,12 @@ impl Registry {
                 } => {
                     kind.validate(&id, &label, always_authenticate)?;
                     match kind {
+                        GenerationKind::HmacGeneral(algorithm) => session
+                            .generate_hmac_general_key(&pkcs11_client::HmacKeyRequest {
+                                algorithm,
+                                id: &id,
+                                label: &label,
+                            }),
                         GenerationKind::Hmac(algorithm) => {
                             session.generate_hmac_key(&pkcs11_client::HmacKeyRequest {
                                 algorithm,

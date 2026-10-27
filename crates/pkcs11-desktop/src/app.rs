@@ -76,6 +76,10 @@ pub enum Message {
         id: RequestId,
         profile: pkcs11_client::AesCmacProfile,
     },
+    HmacProfile {
+        id: RequestId,
+        profile: pkcs11_client::HmacTagProfile,
+    },
     HmacAlgorithm {
         id: RequestId,
         algorithm: pkcs11_client::HmacAlgorithm,
@@ -268,6 +272,7 @@ impl std::fmt::Debug for Message {
             Self::KeyTarget { .. } => "KeyTarget",
             Self::CmacProfile { .. } => "CmacProfile",
             Self::HmacAlgorithm { .. } => "HmacAlgorithm",
+            Self::HmacProfile { .. } => "HmacProfile",
             Self::WrapAlgorithm { .. } => "WrapAlgorithm",
             Self::KeyBrowse { .. } => "KeyBrowse",
             Self::KeyPicked { .. } => "KeyPicked",
@@ -437,6 +442,7 @@ impl App {
             Message::KeyTarget { id, target } => self.state.key_target(id, target),
             Message::CmacProfile { id, profile } => self.state.cmac_profile(id, profile),
             Message::HmacAlgorithm { id, algorithm } => self.state.hmac_algorithm(id, algorithm),
+            Message::HmacProfile { id, profile } => self.state.hmac_profile(id, profile),
             Message::WrapAlgorithm { id, algorithm } => self.state.wrap_algorithm(id, algorithm),
             Message::KeyPicked { id, path } => self.state.key_picked(id, path),
             Message::SubmitKeyOperation(id) => {

@@ -29,6 +29,7 @@ impl std::fmt::Display for WrapTarget {
 pub struct KeyForm {
     pub cmac_profile: pkcs11_client::AesCmacProfile,
     pub hmac_algorithm: pkcs11_client::HmacAlgorithm,
+    pub hmac_profile: pkcs11_client::HmacTagProfile,
     pub wrap_algorithm: pkcs11_client::AesKeyWrapAlgorithm,
     pub hkdf: HkdfForm,
     pub kbkdf: KbkdfForm,
@@ -158,6 +159,7 @@ impl UiState {
         self.key_form = Some(KeyForm {
             cmac_profile: pkcs11_client::AesCmacProfile::Full,
             hmac_algorithm: pkcs11_client::HmacAlgorithm::default(),
+            hmac_profile: pkcs11_client::HmacTagProfile::Full,
             wrap_algorithm: pkcs11_client::AesKeyWrapAlgorithm::Kw,
             hkdf: HkdfForm::default(),
             kbkdf: KbkdfForm::default(),
@@ -259,6 +261,19 @@ impl UiState {
             form.cmac_profile = profile;
         }
     }
+    pub fn hmac_profile(&mut self, id: RequestId, profile: pkcs11_client::HmacTagProfile) {
+        if !self.can_submit() {
+            return;
+        }
+        if let Some(form) = &mut self.key_form
+            && form.id == id
+            && matches!(form.scope.mode, CryptoMode::Hmac | CryptoMode::VerifyHmac)
+            && let Some(KeyProfile::Hmac(options)) = form.profile
+            && options.supports(form.hmac_algorithm, profile)
+        {
+            form.hmac_profile = profile;
+        }
+    }
     pub fn hmac_algorithm(&mut self, id: RequestId, algorithm: pkcs11_client::HmacAlgorithm) {
         if !self.can_submit() {
             return;
@@ -266,9 +281,14 @@ impl UiState {
         if let Some(form) = &mut self.key_form
             && form.id == id
             && let Some(KeyProfile::Hmac(caps)) = form.profile
-            && caps.supports(algorithm)
+            && let Some(profile) = pkcs11_client::HmacTagProfile::choices(algorithm)
+                .into_iter()
+                .find(|profile| caps.supports(algorithm, *profile))
         {
             form.hmac_algorithm = algorithm;
+            if !caps.supports(algorithm, form.hmac_profile) {
+                form.hmac_profile = profile;
+            }
         }
     }
     pub fn wrap_algorithm(&mut self, id: RequestId, algorithm: pkcs11_client::AesKeyWrapAlgorithm) {
@@ -376,7 +396,7 @@ impl UiState {
                 CryptoMode::Hmac | CryptoMode::VerifyHmac => {
                     !form.input.is_empty()
                         && !form.output.is_empty()
-                        && matches!(form.profile, Some(KeyProfile::Hmac(caps)) if caps.supports(form.hmac_algorithm))
+                        && matches!(form.profile, Some(KeyProfile::Hmac(caps)) if caps.supports(form.hmac_algorithm, form.hmac_profile))
                 }
                 CryptoMode::Mac | CryptoMode::VerifyMac => {
                     matches!(form.profile, Some(KeyProfile::AesCmac(options)) if options.supports(form.cmac_profile))
@@ -438,6 +458,7 @@ impl UiState {
         let job = match form.scope.mode {
             CryptoMode::Hmac | CryptoMode::VerifyHmac => KeyJob::Hmac {
                 algorithm: form.hmac_algorithm,
+                profile: form.hmac_profile,
                 input,
                 tag: form
                     .picked_output

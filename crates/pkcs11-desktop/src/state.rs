@@ -697,11 +697,19 @@ impl UiState {
                                 };
                             }
                             if let crate::backend::KeyProfile::Hmac(caps) = profile
-                                && let Some(algorithm) = pkcs11_client::HmacAlgorithm::ALL
-                                    .into_iter()
-                                    .find(|a| caps.supports(*a))
+                                && let Some(algorithm) =
+                                    pkcs11_client::HmacAlgorithm::ALL.into_iter().find(|a| {
+                                        pkcs11_client::HmacTagProfile::choices(*a)
+                                            .into_iter()
+                                            .any(|profile| caps.supports(*a, profile))
+                                    })
+                                && let Some(profile) =
+                                    pkcs11_client::HmacTagProfile::choices(algorithm)
+                                        .into_iter()
+                                        .find(|profile| caps.supports(algorithm, *profile))
                             {
                                 form.hmac_algorithm = algorithm;
+                                form.hmac_profile = profile;
                             }
                             if let crate::backend::KeyProfile::AesCmac(options) = profile
                                 && let Some(profile) = pkcs11_client::AesCmacProfile::ALL

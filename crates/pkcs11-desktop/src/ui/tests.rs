@@ -1689,18 +1689,21 @@ fn hmac_forms_choose_algorithms_with_keyboard_and_render_full_tag_lengths() {
             id,
             result: Ok(BackendResult::KeyOptions {
                 scope,
-                profile: KeyProfile::Hmac(pkcs11_client::HmacCapabilities {
-                    key_length: 64,
-                    sha256: true,
-                    sha384: true,
-                    sha512: true,
-                    sha224: true,
-                    sha512_224: true,
-                    sha512_256: true,
-                    sha3_224: true,
-                    sha3_256: true,
-                    sha3_384: true,
-                    sha3_512: true,
+                profile: KeyProfile::Hmac(pkcs11_client::HmacOptions {
+                    full: Some(pkcs11_client::HmacCapabilities {
+                        key_length: 64,
+                        sha256: true,
+                        sha384: true,
+                        sha512: true,
+                        sha224: true,
+                        sha512_224: true,
+                        sha512_256: true,
+                        sha3_224: true,
+                        sha3_256: true,
+                        sha3_384: true,
+                        sha3_512: true,
+                    }),
+                    general: None,
                 }),
             }),
         });
@@ -1915,6 +1918,69 @@ fn cmac_general_tag_profiles_select_with_keyboard_and_reject_stale_edits() {
     let _ = app.update(Message::CmacProfile {
         id,
         profile: pkcs11_client::AesCmacProfile::Full,
+    });
+    assert!(app.state.key_form.is_none());
+}
+
+#[test]
+fn hmac_general_tag_profiles_select_with_keyboard_and_reject_stale_edits() {
+    fn initial() -> UiState {
+        use crate::backend::{BackendCommand, BackendEvent, BackendResult, CryptoMode, KeyProfile};
+        let mut state = populated_state();
+        state.token_page = TokenPage::Objects;
+        state.selected_object = Some(ResourceId(6));
+        state.object_details.as_mut().unwrap().key_type =
+            Some(pkcs11_client::KeyType::GENERIC_SECRET);
+        let BackendCommand::CryptoOptions { id, scope, .. } =
+            state.open_key_operation(CryptoMode::Hmac).unwrap()
+        else {
+            panic!("CMAC options")
+        };
+        state.event(BackendEvent::Completed {
+            id,
+            result: Ok(BackendResult::KeyOptions {
+                scope,
+                profile: KeyProfile::Hmac(pkcs11_client::HmacOptions {
+                    full: None,
+                    general: Some(pkcs11_client::HmacCapabilities {
+                        key_length: 64,
+                        sha256: false,
+                        sha384: false,
+                        sha512: true,
+                        sha224: false,
+                        sha512_224: false,
+                        sha512_256: false,
+                        sha3_224: false,
+                        sha3_256: false,
+                        sha3_384: false,
+                        sha3_512: false,
+                    }),
+                }),
+            }),
+        });
+        state
+    }
+    let mut app = run_focused(
+        initial,
+        &["type enter", "type tab", "type enter"],
+        Some("choice-HMAC tag profile"),
+    );
+    let id = app.state.key_form.as_ref().unwrap().id;
+    assert_eq!(
+        app.state.key_form.as_ref().unwrap().hmac_profile,
+        pkcs11_client::HmacTagProfile::General { tag_length: 63 }
+    );
+    for dark in [false, true] {
+        render_screen(&app.state, "hmac-general-create", 1060, 900, dark);
+    }
+    app.state.key_form.as_mut().unwrap().scope.mode = crate::backend::CryptoMode::VerifyHmac;
+    for dark in [false, true] {
+        render_screen(&app.state, "hmac-general-verify", 1060, 900, dark);
+    }
+    let _ = app.update(Message::DismissKeyOperation(id));
+    let _ = app.update(Message::HmacProfile {
+        id,
+        profile: pkcs11_client::HmacTagProfile::Full,
     });
     assert!(app.state.key_form.is_none());
 }

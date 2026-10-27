@@ -3030,18 +3030,21 @@ fn hmac_forms_select_only_permitted_algorithms_and_keep_read_only_crypto() {
                 id,
                 BackendResult::KeyOptions {
                     scope,
-                    profile: KeyProfile::Hmac(HmacCapabilities {
-                        key_length: algorithm.tag_length(),
-                        sha256: index == 0,
-                        sha384: index == 1,
-                        sha512: index == 2,
-                        sha224: index == 3,
-                        sha512_224: index == 4,
-                        sha512_256: index == 5,
-                        sha3_224: index == 6,
-                        sha3_256: index == 7,
-                        sha3_384: index == 8,
-                        sha3_512: index == 9,
+                    profile: KeyProfile::Hmac(pkcs11_client::HmacOptions {
+                        full: Some(HmacCapabilities {
+                            key_length: algorithm.tag_length(),
+                            sha256: index == 0,
+                            sha384: index == 1,
+                            sha512: index == 2,
+                            sha224: index == 3,
+                            sha512_224: index == 4,
+                            sha512_256: index == 5,
+                            sha3_224: index == 6,
+                            sha3_256: index == 7,
+                            sha3_384: index == 8,
+                            sha3_512: index == 9,
+                        }),
+                        general: None,
                     }),
                 },
             ));
@@ -3060,6 +3063,7 @@ fn hmac_forms_select_only_permitted_algorithms_and_keep_read_only_crypto() {
                 job:
                     KeyJob::Hmac {
                         algorithm: actual,
+                        profile: pkcs11_client::HmacTagProfile::Full,
                         input,
                         tag,
                     },
@@ -3274,4 +3278,99 @@ fn kbkdf_mode_forms_select_only_supported_prfs_and_validate_typed_jobs() {
     state.object_details.as_mut().unwrap().key_type = Some(pkcs11_client::KeyType::GENERIC_SECRET);
     state.loaded_modules[0].tokens[0].write_protected = true;
     assert!(!state.can_open_key_operation(CryptoMode::Kbkdf));
+}
+
+#[test]
+fn hmac_general_profiles_validate_lengths_hash_changes_and_scoped_edits() {
+    use crate::backend::{CryptoMode, KeyJob, KeyProfile};
+    use pkcs11_client::{HmacAlgorithm, HmacCapabilities, HmacOptions, HmacTagProfile};
+    for general_only in [false, true] {
+        let (mut state, old, _) = key_state(CryptoMode::Derive);
+        state.dismiss_key_operation(old);
+        state.objects[0].class = Some(pkcs11_client::ObjectClass::SECRET_KEY);
+        state.object_details.as_mut().unwrap().key_type =
+            Some(pkcs11_client::KeyType::GENERIC_SECRET);
+        let BackendCommand::CryptoOptions { id, scope, .. } =
+            state.open_key_operation(CryptoMode::Hmac).unwrap()
+        else {
+            panic!("HMAC options")
+        };
+        let caps = HmacCapabilities {
+            key_length: 64,
+            sha256: true,
+            sha512: true,
+            sha384: false,
+            sha224: false,
+            sha512_224: false,
+            sha512_256: false,
+            sha3_224: false,
+            sha3_256: false,
+            sha3_384: false,
+            sha3_512: false,
+        };
+        state.event(complete(
+            id,
+            BackendResult::KeyOptions {
+                scope,
+                profile: KeyProfile::Hmac(HmacOptions {
+                    full: (!general_only).then_some(caps),
+                    general: Some(caps),
+                }),
+            },
+        ));
+        assert_eq!(
+            state.key_form.as_ref().unwrap().hmac_profile,
+            if general_only {
+                HmacTagProfile::General { tag_length: 32 }
+            } else {
+                HmacTagProfile::Full
+            }
+        );
+        let selected = HmacTagProfile::General { tag_length: 16 };
+        state.hmac_profile(id, selected);
+        assert_eq!(state.key_form.as_ref().unwrap().hmac_profile, selected);
+        for bad in [
+            HmacTagProfile::General { tag_length: 15 },
+            HmacTagProfile::General { tag_length: 33 },
+            HmacTagProfile::General {
+                tag_length: usize::MAX,
+            },
+        ] {
+            state.hmac_profile(id, bad);
+            assert_eq!(state.key_form.as_ref().unwrap().hmac_profile, selected);
+        }
+        state.hmac_profile(RequestId(id.0 + 1), HmacTagProfile::Full);
+        assert_eq!(state.key_form.as_ref().unwrap().hmac_profile, selected);
+        state.hmac_algorithm(id, HmacAlgorithm::Sha512);
+        let expected = if general_only {
+            HmacTagProfile::General { tag_length: 64 }
+        } else {
+            HmacTagProfile::Full
+        };
+        assert_eq!(state.key_form.as_ref().unwrap().hmac_profile, expected);
+        state.hmac_algorithm(id, HmacAlgorithm::Sha384);
+        assert_eq!(
+            state.key_form.as_ref().unwrap().hmac_algorithm,
+            HmacAlgorithm::Sha512
+        );
+        if general_only {
+            state.hmac_profile(id, HmacTagProfile::Full);
+            assert_eq!(state.key_form.as_ref().unwrap().hmac_profile, expected);
+        }
+        state.key_edit(id, KeyField::Input, "message".into());
+        state.key_edit(id, KeyField::Output, "tag".into());
+        let BackendCommand::KeyOperation {
+            job: KeyJob::Hmac {
+                algorithm, profile, ..
+            },
+            ..
+        } = state.submit_key_operation(id).unwrap()
+        else {
+            panic!("HMAC job")
+        };
+        assert_eq!(algorithm, HmacAlgorithm::Sha512);
+        assert_eq!(profile, expected);
+        state.hmac_profile(id, selected);
+        assert!(state.key_form.is_none());
+    }
 }

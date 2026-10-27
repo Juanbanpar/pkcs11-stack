@@ -491,10 +491,17 @@ Existing generic or matching hash-specific HMAC secrets also qualify if they are
 sensitive, nonextractable, 16–4096 bytes long and permit the requested direction.
 The algorithm selector lists only currently permitted profiles and preserves the
 explicit choice. It does not change to another algorithm on rejection.
+The tag-profile selector offers full and native general tags independently.
+General lengths range from half the hash output through its full length (14–28,
+16–32, 24–48 or 32–64 bytes). Changing the hash resets an incompatible tag length
+to the first permitted profile. Agree on one algorithm and length per key before
+communicating; the token does not encode this length in key attributes.
+Generation choices distinguish full-tag and general-tag authentication keys and
+restrict each key to its selected mechanism. Existing keys retain their restrictions.
 
 Select a message file (empty through 16 MiB) and a new tag output path, or an
-existing full tag file for verification. Full tags are 28/32/48/64 bytes according to the selected hash.
+existing exact selected-length tag file for verification. Full tags are 28/32/48/64 bytes according to the selected hash.
 The worker rechecks support and releases generated output after checked session
 closure. Existing outputs are preserved. Verification mismatches are separate
 from provider failures. These operations require USER login and also work on
-write-protected tokens. There is no truncation, software MAC or retry.
+write-protected tokens. There is no software truncation, software MAC or retry.
