@@ -16,6 +16,7 @@ use std::{
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum KeyProfile {
+    Hmac(pkcs11_client::HmacCapabilities),
     AesCmac(pkcs11_client::AesCmacCapabilities),
     AesWrapping(AesKeyWrapCapabilities),
     Hkdf(pkcs11_client::HkdfCapabilities),
@@ -26,7 +27,8 @@ impl KeyProfile {
     pub fn supports(self, mode: CryptoMode) -> bool {
         matches!(
             (self, mode),
-            (Self::AesCmac(_), CryptoMode::Mac | CryptoMode::VerifyMac)
+            (Self::Hmac(_), CryptoMode::Hmac | CryptoMode::VerifyHmac)
+                | (Self::AesCmac(_), CryptoMode::Mac | CryptoMode::VerifyMac)
                 | (Self::Hkdf(_), CryptoMode::Hkdf)
                 | (
                     Self::Classical(KeyOperationProfile::EcdhRaw(_)),
@@ -55,6 +57,11 @@ impl Default for EcdhParameters {
     }
 }
 pub enum KeyJob {
+    Hmac {
+        algorithm: pkcs11_client::HmacAlgorithm,
+        input: PathBuf,
+        tag: PathBuf,
+    },
     Cmac {
         input: PathBuf,
         tag: PathBuf,
@@ -115,7 +122,9 @@ impl Registry {
     ) -> Result<(usize, pkcs11_client::Pkcs11Uri, pkcs11_client::ObjectRef), BackendError> {
         if !matches!(
             scope.mode,
-            CryptoMode::Mac
+            CryptoMode::Hmac
+                | CryptoMode::VerifyHmac
+                | CryptoMode::Mac
                 | CryptoMode::VerifyMac
                 | CryptoMode::Hkdf
                 | CryptoMode::Derive
@@ -137,7 +146,11 @@ impl Registry {
         if token.login != LoginState::User
             || (!matches!(
                 scope.mode,
-                CryptoMode::Wrap | CryptoMode::Mac | CryptoMode::VerifyMac
+                CryptoMode::Wrap
+                    | CryptoMode::Hmac
+                    | CryptoMode::VerifyHmac
+                    | CryptoMode::Mac
+                    | CryptoMode::VerifyMac
             ) && !token.can_manage())
             || !module.authentication.iter().any(|(id, session)| {
                 *id == scope.token
@@ -156,7 +169,12 @@ impl Registry {
         let (index, uri, reference) = self.key_location(scope)?;
         let module = &self.modules[index];
         let profile = read_session(module, &uri, module.read_mode(scope.token)?, |session| {
-            if matches!(scope.mode, CryptoMode::Mac | CryptoMode::VerifyMac) {
+            if matches!(scope.mode, CryptoMode::Hmac | CryptoMode::VerifyHmac) {
+                session
+                    .hmac_capabilities(&reference, super::hmac::operation(scope.mode)?)
+                    .map(KeyProfile::Hmac)
+                    .map_err(|e| BackendError::from(&e))
+            } else if matches!(scope.mode, CryptoMode::Mac | CryptoMode::VerifyMac) {
                 session
                     .aes_cmac_capabilities(&reference, super::cmac::operation(scope.mode)?)
                     .map(KeyProfile::AesCmac)
@@ -205,6 +223,7 @@ impl Registry {
             _ => None,
         };
         match selected {
+            KeyProfile::Hmac(profile) => return self.hmac_action(scope, profile, job),
             KeyProfile::AesCmac(profile) => return self.cmac_action(scope, profile, job),
             KeyProfile::AesWrapping(caps) if !algorithm.is_some_and(|a| caps.supports(a)) => {
                 return Err(BackendError::KeyOperationUnavailable);

@@ -438,3 +438,23 @@ and writes a generated tag after checked session closure. Existing outputs are
 preserved. A mismatch is reported separately from a provider failure. No key value,
 truncated tag or software MAC is exposed. A shared-key MAC does not identify an
 individual signer.
+
+## HMAC
+
+Generate an **hmac-sha256**, **hmac-sha384** or **hmac-sha512** authentication key,
+then choose **Create HMAC** or **Verify HMAC** on its object. Generated keys are
+hash-length generic secrets, private, sensitive, nonextractable and restricted
+to the selected HMAC. Other operations and context authentication are disabled.
+Generation requires USER login and a writable token.
+
+Existing generic or matching hash-specific HMAC secrets also qualify if they are
+sensitive, nonextractable, 16–4096 bytes long and permit the requested direction.
+The algorithm selector lists only currently permitted profiles and preserves the
+explicit choice. It does not change to another algorithm on rejection.
+
+Select a message file (empty through 16 MiB) and a new tag output path, or an
+existing full tag file for verification. SHA-256/384/512 tags are 32/48/64 bytes.
+The worker rechecks support and releases generated output after checked session
+closure. Existing outputs are preserved. Verification mismatches are separate
+from provider failures. These operations require USER login and also work on
+write-protected tokens. There is no truncation, software MAC or retry.

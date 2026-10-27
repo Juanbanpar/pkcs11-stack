@@ -141,6 +141,7 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
         checkbox(state.management.always_authenticate).label("Require authentication for every private-key operation")
             .on_toggle_maybe((enabled && state.management.key.is_some_and(|key| key.0.supports_context_authentication())).then_some(Message::AlwaysAuthenticate)),
         text(match state.management.key.map(|key| key.0) {
+            Some(crate::backend::GenerationKind::Hmac(_)) => "Private, sensitive, nonextractable generic secret for the selected HMAC only. Signing/verification are enabled; encryption, wrapping and derivation are disabled. ID and label: 1–128 bytes each.",
             Some(crate::backend::GenerationKind::MlDsa(_)) => "ML-DSA signing pair. The private key is sensitive and nonextractable. Select the private key on Objects to sign a file, or the public key to export it.",
             Some(crate::backend::GenerationKind::MlKem(_)) => "ML-KEM encapsulation/decapsulation pair. The private key is sensitive and nonextractable. Select either key on Objects for ML-KEM operations, or export the public key.",
             Some(crate::backend::GenerationKind::RsaEncryption(_)) => "Encryption/decryption-only RSA pair. The private key is sensitive and nonextractable; signing, wrapping and derivation are disabled. ID and label: 1–128 bytes each.",

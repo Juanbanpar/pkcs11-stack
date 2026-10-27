@@ -14,6 +14,7 @@ mod browse;
 mod cipher;
 mod cmac;
 mod hkdf;
+mod hmac;
 mod kem;
 pub use hkdf::HkdfJob;
 mod key_operations;
@@ -425,9 +426,9 @@ impl BackendError {
             Self::CryptoRead => {
                 "Could not read the selected files. Message files are limited to 16 MiB and signatures to 16 KiB."
             }
-            Self::MacMismatch => "The AES-CMAC tag does not match this key and message.",
+            Self::MacMismatch => "The MAC tag does not match this key and message.",
             Self::MacInput => {
-                "Select a message up to 16 MiB and a full 16-byte tag file. Generation needs a new output path."
+                "Select a message up to 16 MiB and a full tag matching the chosen algorithm. Generation needs a new output path."
             }
             Self::SignatureMismatch => {
                 "The signature is invalid for this certificate, input and parameters."

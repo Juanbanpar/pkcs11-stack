@@ -2958,3 +2958,65 @@ fn cmac_forms_allow_read_only_crypto_and_scope_files_and_profiles() {
         assert!(state.key_form.is_none());
     }
 }
+
+#[test]
+fn hmac_forms_select_only_permitted_algorithms_and_keep_read_only_crypto() {
+    use crate::backend::{CryptoMode, KeyJob, KeyProfile};
+    use pkcs11_client::{HmacAlgorithm, HmacCapabilities};
+    for (index, algorithm) in HmacAlgorithm::ALL.into_iter().enumerate() {
+        for mode in [CryptoMode::Hmac, CryptoMode::VerifyHmac] {
+            let (mut state, old, _) = key_state(CryptoMode::Derive);
+            state.dismiss_key_operation(old);
+            state.objects[0].class = Some(pkcs11_client::ObjectClass::SECRET_KEY);
+            state.object_details.as_mut().unwrap().key_type =
+                Some(pkcs11_client::KeyType::GENERIC_SECRET);
+            state.loaded_modules[0].tokens[0].write_protected = true;
+            let BackendCommand::CryptoOptions { id, scope, .. } =
+                state.open_key_operation(mode).unwrap()
+            else {
+                panic!("HMAC options")
+            };
+            state.event(complete(
+                id,
+                BackendResult::KeyOptions {
+                    scope,
+                    profile: KeyProfile::Hmac(HmacCapabilities {
+                        key_length: algorithm.tag_length(),
+                        sha256: index == 0,
+                        sha384: index == 1,
+                        sha512: index == 2,
+                    }),
+                },
+            ));
+            assert_eq!(state.key_form.as_ref().unwrap().hmac_algorithm, algorithm);
+            for other in HmacAlgorithm::ALL.into_iter().filter(|a| *a != algorithm) {
+                state.hmac_algorithm(id, other);
+                assert_eq!(state.key_form.as_ref().unwrap().hmac_algorithm, algorithm);
+            }
+            assert!(state.submit_key_operation(id).is_none());
+            state.key_edit(id, KeyField::Input, "message.bin".into());
+            state.key_edit(id, KeyField::Output, "tag.bin".into());
+            let (picker, save) = state.key_picker(id, KeyField::Output).unwrap();
+            assert_eq!(save, mode == CryptoMode::Hmac);
+            state.key_picked(picker, Some("chosen-tag.bin".into()));
+            let BackendCommand::KeyOperation {
+                job:
+                    KeyJob::Hmac {
+                        algorithm: actual,
+                        input,
+                        tag,
+                    },
+                ..
+            } = state.submit_key_operation(id).unwrap()
+            else {
+                panic!("HMAC job")
+            };
+            assert_eq!(actual, algorithm);
+            assert_eq!(input, PathBuf::from("message.bin"));
+            assert_eq!(tag, PathBuf::from("chosen-tag.bin"));
+            state.hmac_algorithm(id, algorithm);
+            state.key_picked(picker, Some("stale.bin".into()));
+            assert!(state.key_form.is_none());
+        }
+    }
+}

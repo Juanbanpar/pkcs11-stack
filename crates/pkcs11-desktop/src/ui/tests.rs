@@ -1656,3 +1656,49 @@ fn cmac_forms_accept_files_without_signature_or_cipher_parameters() {
         render_screen(&app.state, "aes-cmac-verify", 1060, 900, dark);
     }
 }
+
+#[test]
+fn hmac_forms_choose_algorithms_with_keyboard_and_render_full_tag_lengths() {
+    fn initial() -> UiState {
+        use crate::backend::{BackendCommand, BackendEvent, BackendResult, CryptoMode, KeyProfile};
+        let mut state = populated_state();
+        state.token_page = TokenPage::Objects;
+        state.selected_object = Some(ResourceId(6));
+        state.object_details.as_mut().unwrap().key_type =
+            Some(pkcs11_client::KeyType::GENERIC_SECRET);
+        let BackendCommand::CryptoOptions { id, scope, .. } =
+            state.open_key_operation(CryptoMode::Hmac).unwrap()
+        else {
+            panic!("HMAC options")
+        };
+        state.event(BackendEvent::Completed {
+            id,
+            result: Ok(BackendResult::KeyOptions {
+                scope,
+                profile: KeyProfile::Hmac(pkcs11_client::HmacCapabilities {
+                    key_length: 64,
+                    sha256: true,
+                    sha384: true,
+                    sha512: true,
+                }),
+            }),
+        });
+        state
+    }
+    let mut app = run_focused(
+        initial,
+        &["type enter", "type tab", "type enter"],
+        Some("choice-HMAC algorithm"),
+    );
+    assert_eq!(
+        app.state.key_form.as_ref().unwrap().hmac_algorithm,
+        pkcs11_client::HmacAlgorithm::Sha384
+    );
+    for dark in [false, true] {
+        render_screen(&app.state, "hmac-create", 1060, 900, dark);
+    }
+    app.state.key_form.as_mut().unwrap().scope.mode = crate::backend::CryptoMode::VerifyHmac;
+    for dark in [false, true] {
+        render_screen(&app.state, "hmac-verify", 1060, 900, dark);
+    }
+}

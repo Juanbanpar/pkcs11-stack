@@ -24,6 +24,7 @@ impl std::fmt::Display for WrapTarget {
     }
 }
 pub struct KeyForm {
+    pub hmac_algorithm: pkcs11_client::HmacAlgorithm,
     pub wrap_algorithm: pkcs11_client::AesKeyWrapAlgorithm,
     pub hkdf: HkdfForm,
     pub ecdh: super::ecdh::EcdhForm,
@@ -49,13 +50,29 @@ impl UiState {
                 token.login == LoginState::User
                     && (matches!(
                         mode,
-                        CryptoMode::Wrap | CryptoMode::Mac | CryptoMode::VerifyMac
+                        CryptoMode::Wrap
+                            | CryptoMode::Hmac
+                            | CryptoMode::VerifyHmac
+                            | CryptoMode::Mac
+                            | CryptoMode::VerifyMac
                     ) || token.can_manage())
             })
             && self.object().is_some_and(|object| {
                 !object.ambiguous
                     && object.uri.is_some()
                     && match mode {
+                        CryptoMode::Hmac | CryptoMode::VerifyHmac => {
+                            object.class == Some(ObjectClass::SECRET_KEY)
+                                && matches!(
+                                    self.object_key_type(),
+                                    Some(
+                                        KeyType::GENERIC_SECRET
+                                            | KeyType::SHA256_HMAC
+                                            | KeyType::SHA384_HMAC
+                                            | KeyType::SHA512_HMAC
+                                    )
+                                )
+                        }
                         CryptoMode::Hkdf => {
                             object.class == Some(ObjectClass::SECRET_KEY)
                                 && matches!(
@@ -115,6 +132,7 @@ impl UiState {
         let id = self.begin(OperationKind::CryptoOptions)?;
         self.clear_crypto_form();
         self.key_form = Some(KeyForm {
+            hmac_algorithm: pkcs11_client::HmacAlgorithm::default(),
             wrap_algorithm: pkcs11_client::AesKeyWrapAlgorithm::Kw,
             hkdf: HkdfForm::default(),
             ecdh: super::ecdh::EcdhForm::default(),
@@ -179,6 +197,18 @@ impl UiState {
             form.target = Some(target);
         }
     }
+    pub fn hmac_algorithm(&mut self, id: RequestId, algorithm: pkcs11_client::HmacAlgorithm) {
+        if !self.can_submit() {
+            return;
+        }
+        if let Some(form) = &mut self.key_form
+            && form.id == id
+            && let Some(KeyProfile::Hmac(caps)) = form.profile
+            && caps.supports(algorithm)
+        {
+            form.hmac_algorithm = algorithm;
+        }
+    }
     pub fn wrap_algorithm(&mut self, id: RequestId, algorithm: pkcs11_client::AesKeyWrapAlgorithm) {
         if !self.can_submit() {
             return;
@@ -199,7 +229,10 @@ impl UiState {
             || !matches!(
                 (form.scope.mode, field),
                 (
-                    CryptoMode::Mac | CryptoMode::VerifyMac,
+                    CryptoMode::Hmac
+                        | CryptoMode::VerifyHmac
+                        | CryptoMode::Mac
+                        | CryptoMode::VerifyMac,
                     KeyField::Input | KeyField::Output
                 ) | (CryptoMode::Wrap | CryptoMode::Encapsulate, KeyField::Output)
                     | (
@@ -210,7 +243,11 @@ impl UiState {
         {
             return None;
         }
-        let save = field == KeyField::Output && form.scope.mode != CryptoMode::VerifyMac;
+        let save = field == KeyField::Output
+            && !matches!(
+                form.scope.mode,
+                CryptoMode::VerifyMac | CryptoMode::VerifyHmac
+            );
         let request = self.request_id()?;
         self.key_form.as_mut()?.picker = Some((request, field));
         Some((request, save))
@@ -269,6 +306,11 @@ impl UiState {
             .is_some_and(|profile| profile.supports(form.scope.mode))
             && form.loaded
             && match form.scope.mode {
+                CryptoMode::Hmac | CryptoMode::VerifyHmac => {
+                    !form.input.is_empty()
+                        && !form.output.is_empty()
+                        && matches!(form.profile, Some(KeyProfile::Hmac(caps)) if caps.supports(form.hmac_algorithm))
+                }
                 CryptoMode::Mac | CryptoMode::VerifyMac => {
                     !form.input.is_empty() && !form.output.is_empty()
                 }
@@ -301,7 +343,13 @@ impl UiState {
             };
         if !valid {
             self.notification = Some(Notification::Error(
-                if matches!(form.scope.mode, CryptoMode::Mac | CryptoMode::VerifyMac) {
+                if matches!(
+                    form.scope.mode,
+                    CryptoMode::Hmac
+                        | CryptoMode::VerifyHmac
+                        | CryptoMode::Mac
+                        | CryptoMode::VerifyMac
+                ) {
                     BackendError::MacInput
                 } else if form.scope.mode == CryptoMode::Hkdf {
                     BackendError::HkdfInput
@@ -316,6 +364,13 @@ impl UiState {
             .picked_input
             .unwrap_or_else(|| PathBuf::from(form.input));
         let job = match form.scope.mode {
+            CryptoMode::Hmac | CryptoMode::VerifyHmac => KeyJob::Hmac {
+                algorithm: form.hmac_algorithm,
+                input,
+                tag: form
+                    .picked_output
+                    .unwrap_or_else(|| PathBuf::from(form.output)),
+            },
             CryptoMode::Mac | CryptoMode::VerifyMac => KeyJob::Cmac {
                 input,
                 tag: form

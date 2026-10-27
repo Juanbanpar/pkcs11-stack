@@ -238,6 +238,33 @@ pub fn detail(state: &UiState) -> Element<'_, Message> {
         }
         _ => {}
     }
+    if object.class == Some(ObjectClass::SECRET_KEY)
+        && matches!(
+            kind,
+            Some(
+                KeyType::GENERIC_SECRET
+                    | KeyType::SHA256_HMAC
+                    | KeyType::SHA384_HMAC
+                    | KeyType::SHA512_HMAC
+            )
+        )
+    {
+        actions = actions
+            .push(
+                button("Create HMAC…").width(Length::Fill).on_press_maybe(
+                    state
+                        .can_open_key_operation(CryptoMode::Hmac)
+                        .then_some(Message::OpenKeyOperation(CryptoMode::Hmac)),
+                ),
+            )
+            .push(
+                button("Verify HMAC…").width(Length::Fill).on_press_maybe(
+                    state
+                        .can_open_key_operation(CryptoMode::VerifyHmac)
+                        .then_some(Message::OpenKeyOperation(CryptoMode::VerifyHmac)),
+                ),
+            );
+    }
     let identity_issues = object
         .fields
         .iter()

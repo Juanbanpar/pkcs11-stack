@@ -60,6 +60,10 @@ pub enum Message {
         id: RequestId,
         target: WrapTarget,
     },
+    HmacAlgorithm {
+        id: RequestId,
+        algorithm: pkcs11_client::HmacAlgorithm,
+    },
     WrapAlgorithm {
         id: RequestId,
         algorithm: pkcs11_client::AesKeyWrapAlgorithm,
@@ -243,6 +247,7 @@ impl std::fmt::Debug for Message {
             Self::OpenKeyOperation(_) => "OpenKeyOperation",
             Self::KeyEdit { .. } => "KeyEdit",
             Self::KeyTarget { .. } => "KeyTarget",
+            Self::HmacAlgorithm { .. } => "HmacAlgorithm",
             Self::WrapAlgorithm { .. } => "WrapAlgorithm",
             Self::KeyBrowse { .. } => "KeyBrowse",
             Self::KeyPicked { .. } => "KeyPicked",
@@ -407,6 +412,7 @@ impl App {
             Message::HkdfMode { id, mode } => self.state.hkdf_mode(id, mode),
             Message::KeyEdit { id, field, value } => self.state.key_edit(id, field, value),
             Message::KeyTarget { id, target } => self.state.key_target(id, target),
+            Message::HmacAlgorithm { id, algorithm } => self.state.hmac_algorithm(id, algorithm),
             Message::WrapAlgorithm { id, algorithm } => self.state.wrap_algorithm(id, algorithm),
             Message::KeyPicked { id, path } => self.state.key_picked(id, path),
             Message::SubmitKeyOperation(id) => {

@@ -694,6 +694,13 @@ impl UiState {
                                     pkcs11_client::AesKeyWrapAlgorithm::Kwp
                                 };
                             }
+                            if let crate::backend::KeyProfile::Hmac(caps) = profile
+                                && let Some(algorithm) = pkcs11_client::HmacAlgorithm::ALL
+                                    .into_iter()
+                                    .find(|a| caps.supports(*a))
+                            {
+                                form.hmac_algorithm = algorithm;
+                            }
                             form.profile = Some(profile);
                             form.loaded = true;
                         }
