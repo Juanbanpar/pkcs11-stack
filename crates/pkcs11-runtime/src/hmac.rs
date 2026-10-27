@@ -7,7 +7,7 @@ use cryptoki::{context::Function, mechanism::Mechanism, object::KeyType};
 
 /// Maximum single-part HMAC message size, in bytes (16 MiB).
 pub const HMAC_MAXIMUM_MESSAGE: usize = 16 * 1024 * 1024;
-/// Full-length SHA-2 HMAC algorithm; no truncated or legacy profile is implicit.
+/// Full-length SHA-2 or SHA-3 HMAC algorithm; no truncated or legacy profile is implicit.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum HmacAlgorithm {
     /// HMAC-SHA-256 with a 32-byte tag.
@@ -17,23 +17,60 @@ pub enum HmacAlgorithm {
     Sha384,
     /// HMAC-SHA-512 with a 64-byte tag.
     Sha512,
+    /// HMAC-SHA-224 with a 28-byte tag.
+    Sha224,
+    /// HMAC-SHA-512/224 with a 28-byte tag.
+    Sha512_224,
+    /// HMAC-SHA-512/256 with a 32-byte tag.
+    Sha512_256,
+    /// HMAC-SHA3-224 with a 28-byte tag.
+    Sha3_224,
+    /// HMAC-SHA3-256 with a 32-byte tag.
+    Sha3_256,
+    /// HMAC-SHA3-384 with a 48-byte tag.
+    Sha3_384,
+    /// HMAC-SHA3-512 with a 64-byte tag.
+    Sha3_512,
 }
 impl HmacAlgorithm {
     /// Supported full-tag algorithms; provider support is checked separately.
-    pub const ALL: [Self; 3] = [Self::Sha256, Self::Sha384, Self::Sha512];
+    pub const ALL: [Self; 10] = [
+        Self::Sha256,
+        Self::Sha384,
+        Self::Sha512,
+        Self::Sha224,
+        Self::Sha512_224,
+        Self::Sha512_256,
+        Self::Sha3_224,
+        Self::Sha3_256,
+        Self::Sha3_384,
+        Self::Sha3_512,
+    ];
     /// Full tag length, also the generated key's length, in bytes.
     pub fn tag_length(self) -> usize {
         match self {
-            Self::Sha256 => 32,
-            Self::Sha384 => 48,
-            Self::Sha512 => 64,
+            Self::Sha224 | Self::Sha512_224 | Self::Sha3_224 => 28,
+            Self::Sha256 | Self::Sha512_256 | Self::Sha3_256 => 32,
+            Self::Sha384 | Self::Sha3_384 => 48,
+            Self::Sha512 | Self::Sha3_512 => 64,
         }
     }
-    fn mechanism(self) -> Mechanism<'static> {
+    /// Standard full-tag HMAC mechanism ID; support is checked separately.
+    pub fn mechanism(self) -> MechanismType {
+        self.parameters().mechanism_type()
+    }
+    fn parameters(self) -> Mechanism<'static> {
         match self {
             Self::Sha256 => Mechanism::Sha256Hmac,
             Self::Sha384 => Mechanism::Sha384Hmac,
             Self::Sha512 => Mechanism::Sha512Hmac,
+            Self::Sha224 => Mechanism::Sha224Hmac,
+            Self::Sha512_224 => Mechanism::Sha512_224Hmac,
+            Self::Sha512_256 => Mechanism::Sha512_256Hmac,
+            Self::Sha3_224 => Mechanism::Sha3_224Hmac,
+            Self::Sha3_256 => Mechanism::Sha3_256Hmac,
+            Self::Sha3_384 => Mechanism::Sha3_384Hmac,
+            Self::Sha3_512 => Mechanism::Sha3_512Hmac,
         }
     }
     fn key_type(self) -> KeyType {
@@ -41,6 +78,13 @@ impl HmacAlgorithm {
             Self::Sha256 => KeyType::SHA256_HMAC,
             Self::Sha384 => KeyType::SHA384_HMAC,
             Self::Sha512 => KeyType::SHA512_HMAC,
+            Self::Sha224 => KeyType::SHA224_HMAC,
+            Self::Sha512_224 => KeyType::SHA512_224_HMAC,
+            Self::Sha512_256 => KeyType::SHA512_256_HMAC,
+            Self::Sha3_224 => KeyType::SHA3_224_HMAC,
+            Self::Sha3_256 => KeyType::SHA3_256_HMAC,
+            Self::Sha3_384 => KeyType::SHA3_384_HMAC,
+            Self::Sha3_512 => KeyType::SHA3_512_HMAC,
         }
     }
 }
@@ -50,6 +94,13 @@ impl std::fmt::Display for HmacAlgorithm {
             Self::Sha256 => "hmac-sha256",
             Self::Sha384 => "hmac-sha384",
             Self::Sha512 => "hmac-sha512",
+            Self::Sha224 => "hmac-sha224",
+            Self::Sha512_224 => "hmac-sha512-224",
+            Self::Sha512_256 => "hmac-sha512-256",
+            Self::Sha3_224 => "hmac-sha3-224",
+            Self::Sha3_256 => "hmac-sha3-256",
+            Self::Sha3_384 => "hmac-sha3-384",
+            Self::Sha3_512 => "hmac-sha3-512",
         })
     }
 }
@@ -64,6 +115,20 @@ pub struct HmacCapabilities {
     pub sha384: bool,
     /// HMAC-SHA-512 is permitted and advertised.
     pub sha512: bool,
+    /// HMAC-SHA-224 is permitted and advertised.
+    pub sha224: bool,
+    /// HMAC-SHA-512/224 is permitted and advertised.
+    pub sha512_224: bool,
+    /// HMAC-SHA-512/256 is permitted and advertised.
+    pub sha512_256: bool,
+    /// HMAC-SHA3-224 is permitted and advertised.
+    pub sha3_224: bool,
+    /// HMAC-SHA3-256 is permitted and advertised.
+    pub sha3_256: bool,
+    /// HMAC-SHA3-384 is permitted and advertised.
+    pub sha3_384: bool,
+    /// HMAC-SHA3-512 is permitted and advertised.
+    pub sha3_512: bool,
 }
 impl HmacCapabilities {
     /// Whether the algorithm was supported when queried; execution rechecks it.
@@ -72,6 +137,13 @@ impl HmacCapabilities {
             HmacAlgorithm::Sha256 => self.sha256,
             HmacAlgorithm::Sha384 => self.sha384,
             HmacAlgorithm::Sha512 => self.sha512,
+            HmacAlgorithm::Sha224 => self.sha224,
+            HmacAlgorithm::Sha512_224 => self.sha512_224,
+            HmacAlgorithm::Sha512_256 => self.sha512_256,
+            HmacAlgorithm::Sha3_224 => self.sha3_224,
+            HmacAlgorithm::Sha3_256 => self.sha3_256,
+            HmacAlgorithm::Sha3_384 => self.sha3_384,
+            HmacAlgorithm::Sha3_512 => self.sha3_512,
         }
     }
 }
@@ -131,7 +203,7 @@ fn profile(
         _ => return Err(Error::UnsupportedMac),
     }
     let length = key_length(object)?;
-    let mechanism = algorithm.mechanism().mechanism_type();
+    let mechanism = algorithm.mechanism();
     if matches!(attribute(object, AttributeType::AllowedMechanisms, false)?, Some(Attribute::AllowedMechanisms(allowed)) if !allowed.is_empty() && !allowed.contains(&mechanism))
     {
         return Err(Error::UnsupportedMac);
@@ -165,7 +237,7 @@ fn validate_message(message: &[u8]) -> Result<(), Error> {
     Ok(())
 }
 impl Token<'_> {
-    /// Advertised generic-secret generation choices for hash-length HMAC keys.
+    /// Advertised generic-secret generation choices with native HMAC sign/verify support.
     /// Generic generation bounds are in bits; CKA_VALUE_LEN remains in bytes.
     /// Does not promise template or later HMAC operation acceptance.
     pub fn hmac_generation_options(&self) -> Result<Vec<HmacAlgorithm>, Error> {
@@ -177,13 +249,33 @@ impl Token<'_> {
             return Ok(vec![]);
         }
         let info = self.mechanism_info(MechanismType::GENERIC_SECRET_KEY_GEN)?;
-        Ok(HmacAlgorithm::ALL
-            .into_iter()
-            .filter(|a| {
-                info.generate()
-                    && (info.min_key_size()..=info.max_key_size()).contains(&(a.tag_length() * 8))
-            })
-            .collect())
+        let raw = self.module.raw()?;
+        if ![
+            Function::SignInit,
+            Function::Sign,
+            Function::VerifyInit,
+            Function::Verify,
+        ]
+        .into_iter()
+        .all(|f| raw.is_fn_supported(f))
+        {
+            return Ok(vec![]);
+        }
+        let mechanisms = self.mechanisms()?;
+        let mut options = vec![];
+        for algorithm in HmacAlgorithm::ALL {
+            if info.generate()
+                && (info.min_key_size()..=info.max_key_size())
+                    .contains(&(algorithm.tag_length() * 8))
+                && mechanisms.contains(&algorithm.mechanism())
+            {
+                let mac = self.mechanism_info(algorithm.mechanism())?;
+                if mac.sign() && mac.verify() {
+                    options.push(algorithm);
+                }
+            }
+        }
+        Ok(options)
     }
 }
 impl Session<'_> {
@@ -206,6 +298,13 @@ impl Session<'_> {
             sha256: supported(HmacAlgorithm::Sha256)?,
             sha384: supported(HmacAlgorithm::Sha384)?,
             sha512: supported(HmacAlgorithm::Sha512)?,
+            sha224: supported(HmacAlgorithm::Sha224)?,
+            sha512_224: supported(HmacAlgorithm::Sha512_224)?,
+            sha512_256: supported(HmacAlgorithm::Sha512_256)?,
+            sha3_224: supported(HmacAlgorithm::Sha3_224)?,
+            sha3_256: supported(HmacAlgorithm::Sha3_256)?,
+            sha3_384: supported(HmacAlgorithm::Sha3_384)?,
+            sha3_512: supported(HmacAlgorithm::Sha3_512)?,
         };
         if !HmacAlgorithm::ALL.into_iter().any(|a| caps.supports(a)) {
             return Err(Error::UnsupportedMac);
@@ -228,7 +327,7 @@ impl Session<'_> {
         profile(&object, algorithm, MacOperation::Generate)?;
         let mut tag = [0; 64];
         let tag = &mut tag[..algorithm.tag_length()];
-        crate::mac::generate_into(&object, &algorithm.mechanism(), message, tag)?;
+        crate::mac::generate_into(&object, &algorithm.parameters(), message, tag)?;
         Ok(tag.to_vec())
     }
     /// Verify using CKA_VERIFY and the selected native full-tag HMAC mechanism.
@@ -248,7 +347,7 @@ impl Session<'_> {
         }
         let object = self.resolve(key)?;
         profile(&object, algorithm, MacOperation::Verify)?;
-        crate::mac::verify(&object, &algorithm.mechanism(), message, tag)
+        crate::mac::verify(&object, &algorithm.parameters(), message, tag)
     }
     /// Generate one hash-length generic secret via CKM_GENERIC_SECRET_KEY_GEN,
     /// restricted to the selected HMAC mechanism and signing/verification only.
@@ -279,7 +378,7 @@ impl Session<'_> {
             }
         }
         template.push(Attribute::AllowedMechanisms(vec![
-            request.algorithm.mechanism().mechanism_type(),
+            request.algorithm.mechanism(),
         ]));
         template.push(Attribute::ValueLen(
             request

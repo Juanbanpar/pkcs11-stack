@@ -524,8 +524,11 @@ pkcs11ctl --module /path/to/module.so verify-hmac \
 ```
 
 `hmac-capabilities --object URI --operation generate|verify` reports permitted
-profiles without producing a tag. `hmac-sha256`, `hmac-sha384` and `hmac-sha512`
-use full 32/48/64-byte tags. The algorithm is explicit; no substitution occurs.
+profiles without producing a tag. Algorithms are `hmac-sha224`, `hmac-sha256`,
+`hmac-sha384`, `hmac-sha512`, `hmac-sha512-224`, `hmac-sha512-256` and
+`hmac-sha3-224/256/384/512` (each suffix is a separate choice). Full tags are
+28/32/48/64 bytes according to the selected hash. SHA-512/224 and SHA-512/256
+use their distinct hash functions. The algorithm is explicit; no substitution occurs.
 Generation kinds of the same names create hash-length generic secrets restricted
 to the chosen HMAC. They take neither `--purpose` nor `--always-authenticate`.
 `generation-options` includes an advisory `hmac` list.

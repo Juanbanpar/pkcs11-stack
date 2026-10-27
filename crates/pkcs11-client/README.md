@@ -634,7 +634,9 @@ close the session before releasing ciphertext when cleanup must be checked.
 ## HMAC
 
 `ManagementSession::hmac_capabilities(key, operation)` reports permitted
-`HmacAlgorithm::Sha256`, `Sha384` and `Sha512` profiles for generation or verification.
+SHA-224/256/384/512, SHA-512/224, SHA-512/256 and SHA3-224/256/384/512
+profiles for generation or verification. `HmacAlgorithm::ALL` enumerates these
+choices; the default remains `Sha256`.
 `mac_hmac` generates a full tag and `verify_hmac` verifies it on the token.
 Generic and matching hash-specific HMAC secrets are supported, with 16–4096-byte
 keys, sensitivity, nonextractability and direction-specific permissions required.

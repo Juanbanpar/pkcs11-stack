@@ -2968,8 +2968,15 @@ fn hmac_forms_select_only_permitted_algorithms_and_keep_read_only_crypto() {
             let (mut state, old, _) = key_state(CryptoMode::Derive);
             state.dismiss_key_operation(old);
             state.objects[0].class = Some(pkcs11_client::ObjectClass::SECRET_KEY);
-            state.object_details.as_mut().unwrap().key_type =
-                Some(pkcs11_client::KeyType::GENERIC_SECRET);
+            let kind = if mode == CryptoMode::Hmac {
+                pkcs11_client::KeyType::GENERIC_SECRET
+            } else {
+                pkcs11_client::KeyType::try_from(
+                    [0x2B, 0x2C, 0x2D, 0x2E, 0x43, 0x44, 0x36, 0x37, 0x38, 0x39][index],
+                )
+                .unwrap()
+            };
+            state.object_details.as_mut().unwrap().key_type = Some(kind);
             state.loaded_modules[0].tokens[0].write_protected = true;
             let BackendCommand::CryptoOptions { id, scope, .. } =
                 state.open_key_operation(mode).unwrap()
@@ -2985,6 +2992,13 @@ fn hmac_forms_select_only_permitted_algorithms_and_keep_read_only_crypto() {
                         sha256: index == 0,
                         sha384: index == 1,
                         sha512: index == 2,
+                        sha224: index == 3,
+                        sha512_224: index == 4,
+                        sha512_256: index == 5,
+                        sha3_224: index == 6,
+                        sha3_256: index == 7,
+                        sha3_384: index == 8,
+                        sha3_512: index == 9,
                     }),
                 },
             ));

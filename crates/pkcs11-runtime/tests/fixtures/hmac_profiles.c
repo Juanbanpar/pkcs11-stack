@@ -1,0 +1,48 @@
+/* SPDX-License-Identifier: MIT OR Apache-2.0 */
+/* Profile IDs and parameter shape are checked against the official 3.2 headers. */
+#if FAULT == 0
+#define MAC_MECHANISM CKM_SHA256_HMAC
+#define MAC_KEY_TYPE CKK_SHA256_HMAC
+#define MAC_TAG_LENGTH 32
+#elif FAULT == 1
+#define MAC_MECHANISM CKM_SHA384_HMAC
+#define MAC_KEY_TYPE CKK_SHA384_HMAC
+#define MAC_TAG_LENGTH 48
+#elif FAULT == 2
+#define MAC_MECHANISM CKM_SHA512_HMAC
+#define MAC_KEY_TYPE CKK_SHA512_HMAC
+#define MAC_TAG_LENGTH 64
+#elif FAULT == 3
+#define MAC_MECHANISM CKM_SHA224_HMAC
+#define MAC_KEY_TYPE CKK_SHA224_HMAC
+#define MAC_TAG_LENGTH 28
+#elif FAULT == 4
+#define MAC_MECHANISM CKM_SHA512_224_HMAC
+#define MAC_KEY_TYPE CKK_SHA512_224_HMAC
+#define MAC_TAG_LENGTH 28
+#elif FAULT == 5
+#define MAC_MECHANISM CKM_SHA512_256_HMAC
+#define MAC_KEY_TYPE CKK_SHA512_256_HMAC
+#define MAC_TAG_LENGTH 32
+#elif FAULT == 6
+#define MAC_MECHANISM CKM_SHA3_224_HMAC
+#define MAC_KEY_TYPE CKK_SHA3_224_HMAC
+#define MAC_TAG_LENGTH 28
+#elif FAULT == 7
+#define MAC_MECHANISM CKM_SHA3_256_HMAC
+#define MAC_KEY_TYPE CKK_SHA3_256_HMAC
+#define MAC_TAG_LENGTH 32
+#elif FAULT == 8
+#define MAC_MECHANISM CKM_SHA3_384_HMAC
+#define MAC_KEY_TYPE CKK_SHA3_384_HMAC
+#define MAC_TAG_LENGTH 48
+#elif FAULT == 9
+#define MAC_MECHANISM CKM_SHA3_512_HMAC
+#define MAC_KEY_TYPE CKK_SHA3_512_HMAC
+#define MAC_TAG_LENGTH 64
+#else
+#error Unknown HMAC profile
+#endif
+#undef FAULT
+#define FAULT 0
+#include "cmac.c"

@@ -246,6 +246,13 @@ pub fn detail(state: &UiState) -> Element<'_, Message> {
                     | KeyType::SHA256_HMAC
                     | KeyType::SHA384_HMAC
                     | KeyType::SHA512_HMAC
+                    | KeyType::SHA224_HMAC
+                    | KeyType::SHA512_224_HMAC
+                    | KeyType::SHA512_256_HMAC
+                    | KeyType::SHA3_224_HMAC
+                    | KeyType::SHA3_256_HMAC
+                    | KeyType::SHA3_384_HMAC
+                    | KeyType::SHA3_512_HMAC
             )
         )
     {

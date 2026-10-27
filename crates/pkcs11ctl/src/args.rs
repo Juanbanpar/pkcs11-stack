@@ -266,7 +266,7 @@ pub(crate) fn command() -> Command {
         .about("Change authenticated role's host PIN once")
         .arg(required("new-pin-file", "New PIN file"));
     let generate = Command::new("generate")
-        .about("Generate persistent nonextractable signing, encryption, derivation or KEM keys")
+        .about("Generate persistent nonextractable signing, authentication, encryption, derivation or KEM keys")
         .arg(required("kind", "Key kind").value_parser([
             "rsa",
             "ecdh-p256",
@@ -278,6 +278,13 @@ pub(crate) fn command() -> Command {
             "hmac-sha256",
             "hmac-sha384",
             "hmac-sha512",
+            "hmac-sha224",
+            "hmac-sha512-224",
+            "hmac-sha512-256",
+            "hmac-sha3-224",
+            "hmac-sha3-256",
+            "hmac-sha3-384",
+            "hmac-sha3-512",
             "p256",
             "p384",
             "p521",
@@ -544,6 +551,13 @@ pub(crate) fn command() -> Command {
                         "hmac-sha256",
                         "hmac-sha384",
                         "hmac-sha512",
+                        "hmac-sha224",
+                        "hmac-sha512-224",
+                        "hmac-sha512-256",
+                        "hmac-sha3-224",
+                        "hmac-sha3-256",
+                        "hmac-sha3-384",
+                        "hmac-sha3-512",
                     ]),
                 )
                 .arg(required(
@@ -560,6 +574,13 @@ pub(crate) fn command() -> Command {
                         "hmac-sha256",
                         "hmac-sha384",
                         "hmac-sha512",
+                        "hmac-sha224",
+                        "hmac-sha512-224",
+                        "hmac-sha512-256",
+                        "hmac-sha3-224",
+                        "hmac-sha3-256",
+                        "hmac-sha3-384",
+                        "hmac-sha3-512",
                     ]),
                 )
                 .arg(required(

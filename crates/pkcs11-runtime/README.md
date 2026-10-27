@@ -329,13 +329,14 @@ do not establish support for any OAEP digest profile.
 ## HMAC
 
 `Session::hmac_capabilities(key, MacOperation::Generate|Verify)` reports permitted
-full-tag HMAC-SHA-256/384/512 profiles. Keys must be sensitive, nonextractable
+full-tag HMAC profiles based on SHA-224/256/384/512, SHA-512/224, SHA-512/256
+and SHA3-224/256/384/512. Keys must be sensitive, nonextractable
 secret objects with generation or verification permission, and either
 CKK_GENERIC_SECRET or the matching hash-specific HMAC key type. This application
 accepts 16–4096-byte keys. Allowed mechanisms, native entry points and operation
 flags are checked; missing metadata and provider errors propagate.
 
-`mac_hmac(key, algorithm, message)` creates a full 32/48/64-byte tag in bounded
+`mac_hmac(key, algorithm, message)` creates a full 28/32/48/64-byte tag in bounded
 storage. `verify_hmac(key, algorithm, message, tag)` verifies natively without
 creating a comparison tag. Messages may be empty and are bounded to 16 MiB.
 Both work in RO sessions. Incorrect tag length or a completed verification
@@ -348,7 +349,8 @@ may report 0/0. These fields are not interpreted as HMAC key limits. The provide
 may reject an otherwise permitted key length; rejection is returned without retry.
 
 `Token::hmac_generation_options` checks CKM_GENERIC_SECRET_KEY_GEN and its native
-generation entry point, flags and **bit-based** bounds. `generate_hmac_key` accepts
+generation entry point, flags and **bit-based** bounds, plus each HMAC mechanism's
+signing/verification flags and native entry points. `generate_hmac_key` accepts
 `HmacKeyRequest` and creates a hash-length generic secret, restricted to the chosen
 HMAC mechanism and signing/verification only. Other operations are disabled. It
 uses the generic generator available in 2.40; hash-specific generators are not

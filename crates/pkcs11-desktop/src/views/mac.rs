@@ -76,6 +76,7 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
             if verify {
                 if hmac {
                     match form.hmac_algorithm.tag_length() {
+                        28 => "Tag input file (exactly 28 bytes)",
                         32 => "Tag input file (exactly 32 bytes)",
                         48 => "Tag input file (exactly 48 bytes)",
                         _ => "Tag input file (exactly 64 bytes)",

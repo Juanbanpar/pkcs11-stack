@@ -332,3 +332,38 @@ fn hmac_permissions_pointers_bounded_outputs_and_verification_failures() {
         module.finalize().unwrap();
     }
 }
+
+#[test]
+fn full_hmac_profiles_pass_native_ids_parameter_shape_and_exact_output_lengths() {
+    use pkcs11_runtime::{HmacAlgorithm, MacOperation, ObjectRef, SessionMode};
+    for (index, algorithm) in HmacAlgorithm::ALL.into_iter().enumerate() {
+        let fixture = Fixture::from_source("hmac_profiles.c", V::V3_2, index as u8, false);
+        let module = fixture.load(InterfaceSelection::Auto).unwrap();
+        let token = module
+            .resolve_token_uri(&"pkcs11:token=cmac".parse().unwrap())
+            .unwrap();
+        let key =
+            ObjectRef::new("pkcs11:token=cmac;id=%01;type=secret-key".parse().unwrap()).unwrap();
+        let mut session = token.open_session(SessionMode::ReadOnly).unwrap();
+        let expected = vec![0xAB; algorithm.tag_length()];
+        for direction in [MacOperation::Generate, MacOperation::Verify] {
+            let caps = session.hmac_capabilities(&key, direction).unwrap();
+            for candidate in HmacAlgorithm::ALL {
+                assert_eq!(caps.supports(candidate), candidate == algorithm);
+            }
+        }
+        assert_eq!(
+            session
+                .mac_hmac(&key, algorithm, b"native profile")
+                .unwrap(),
+            expected
+        );
+        session
+            .verify_hmac(&key, algorithm, b"native profile", &expected)
+            .unwrap();
+        session.info().unwrap();
+        session.close().unwrap();
+        drop(token);
+        module.finalize().unwrap();
+    }
+}

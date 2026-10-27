@@ -19,7 +19,16 @@ fn hmac_client_selected_algorithm_permissions_export_and_reuse() {
             Authentication::User(Pin::Value(&pin)),
         )
         .unwrap();
-    for (index, algorithm) in HmacAlgorithm::ALL.into_iter().enumerate() {
+    let options = provider.generation_capabilities(&token).unwrap().hmac;
+    for required in [
+        HmacAlgorithm::Sha256,
+        HmacAlgorithm::Sha384,
+        HmacAlgorithm::Sha512,
+        HmacAlgorithm::Sha224,
+    ] {
+        assert!(options.contains(&required));
+    }
+    for (index, algorithm) in options.into_iter().enumerate() {
         let label = format!("client-hmac-{index}");
         let request = HmacKeyRequest {
             algorithm,

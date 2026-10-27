@@ -1680,6 +1680,13 @@ fn hmac_forms_choose_algorithms_with_keyboard_and_render_full_tag_lengths() {
                     sha256: true,
                     sha384: true,
                     sha512: true,
+                    sha224: true,
+                    sha512_224: true,
+                    sha512_256: true,
+                    sha3_224: true,
+                    sha3_256: true,
+                    sha3_384: true,
+                    sha3_512: true,
                 }),
             }),
         });
@@ -1700,5 +1707,27 @@ fn hmac_forms_choose_algorithms_with_keyboard_and_render_full_tag_lengths() {
     app.state.key_form.as_mut().unwrap().scope.mode = crate::backend::CryptoMode::VerifyHmac;
     for dark in [false, true] {
         render_screen(&app.state, "hmac-verify", 1060, 900, dark);
+    }
+    let mut app = run_focused(
+        initial,
+        &[
+            "type enter",
+            "type tab",
+            "type tab",
+            "type tab",
+            "type tab",
+            "type tab",
+            "type tab",
+            "type enter",
+        ],
+        Some("choice-HMAC algorithm"),
+    );
+    assert_eq!(
+        app.state.key_form.as_ref().unwrap().hmac_algorithm,
+        pkcs11_client::HmacAlgorithm::Sha3_224
+    );
+    app.state.key_form.as_mut().unwrap().scope.mode = crate::backend::CryptoMode::VerifyHmac;
+    for dark in [false, true] {
+        render_screen(&app.state, "hmac-sha3-verify", 1060, 900, dark);
     }
 }

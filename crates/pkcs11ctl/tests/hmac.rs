@@ -22,6 +22,13 @@ fn hmac_preflight_rejects_shapes_before_loading() {
         ("hmac-sha256", 32),
         ("hmac-sha384", 48),
         ("hmac-sha512", 64),
+        ("hmac-sha224", 28),
+        ("hmac-sha512-224", 28),
+        ("hmac-sha512-256", 32),
+        ("hmac-sha3-224", 28),
+        ("hmac-sha3-256", 32),
+        ("hmac-sha3-384", 48),
+        ("hmac-sha3-512", 64),
     ] {
         for bad in [0, length - 1, length + 1] {
             std::fs::write(tag, vec![0; bad]).unwrap();
@@ -107,14 +114,33 @@ fn hmac_cli_independent_tags_purpose_and_output_contracts() {
         );
         out
     };
+    let options: Value = serde_json::from_slice(
+        &run(
+            &module,
+            &["generation-options", "--token", "pkcs11:token=client-test"],
+        )
+        .stdout,
+    )
+    .unwrap();
+    let algorithms = options["result"]["hmac"].as_array().unwrap();
     for (index, (algorithm, length)) in [
         ("hmac-sha256", 32),
         ("hmac-sha384", 48),
         ("hmac-sha512", 64),
+        ("hmac-sha224", 28),
+        ("hmac-sha512-224", 28),
+        ("hmac-sha512-256", 32),
+        ("hmac-sha3-224", 28),
+        ("hmac-sha3-256", 32),
+        ("hmac-sha3-384", 48),
+        ("hmac-sha3-512", 64),
     ]
     .into_iter()
     .enumerate()
     {
+        if !algorithms.iter().any(|a| a == algorithm) {
+            continue;
+        }
         let uri = format!(
             "pkcs11:token=client-test;object=hmac-vector-{index}-false-{length};type=secret-key"
         );
@@ -130,7 +156,7 @@ fn hmac_cli_independent_tags_purpose_and_output_contracts() {
         )
         .unwrap();
         assert_eq!(caps["result"]["key_length"], length);
-        assert_eq!(caps["result"]["algorithms"].as_array().unwrap().len(), 3);
+        assert_eq!(caps["result"]["algorithms"], options["result"]["hmac"]);
         let tag = root.join(format!("tag-{index}"));
         let create = [
             "mac-hmac",
@@ -147,7 +173,7 @@ fn hmac_cli_independent_tags_purpose_and_output_contracts() {
         let expected = Command::new("openssl")
             .args([
                 "dgst",
-                &format!("-sha{}", length * 8),
+                &format!("-{}", algorithm.strip_prefix("hmac-").unwrap()),
                 "-mac",
                 "HMAC",
                 "-macopt",

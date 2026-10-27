@@ -66,10 +66,25 @@ fn hmac_openssl_key_types_lengths_permissions_and_generated_keys() {
             KeyType::SHA256_HMAC,
             KeyType::SHA384_HMAC,
             KeyType::SHA512_HMAC,
+            KeyType::SHA224_HMAC,
+            KeyType::SHA512_224_HMAC,
+            KeyType::SHA512_256_HMAC,
+            KeyType::SHA3_224_HMAC,
+            KeyType::SHA3_256_HMAC,
+            KeyType::SHA3_384_HMAC,
+            KeyType::SHA3_512_HMAC,
         ])
         .enumerate()
     {
+        let advertised = token.mechanisms().unwrap().contains(&algorithm.mechanism());
+        if kdf || index < 4 {
+            assert!(advertised, "required HMAC mechanism {algorithm}");
+        }
         let generation = token.hmac_generation_options().unwrap();
+        if !advertised {
+            assert!(!generation.contains(&algorithm));
+            continue;
+        }
         if kdf {
             // This pinned Kryoptic reports 0/0 generic-generation bounds. Keep
             // that metadata failure distinct from HMAC execution support.
@@ -81,9 +96,9 @@ fn hmac_openssl_key_types_lengths_permissions_and_generated_keys() {
             for length in if kdf && typed {
                 vec![algorithm.tag_length()]
             } else if kdf {
-                vec![20, algorithm.tag_length(), 131]
+                vec![20, algorithm.tag_length(), 200]
             } else {
-                vec![algorithm.tag_length(), 131]
+                vec![algorithm.tag_length(), 200]
             } {
                 let label = format!("hmac-vector-{index}-{typed}-{length}");
                 setup
@@ -96,13 +111,14 @@ fn hmac_openssl_key_types_lengths_permissions_and_generated_keys() {
                 let caps = ro.hmac_capabilities(&key, MacOperation::Generate).unwrap();
                 assert_eq!(caps.key_length, length);
                 for a in HmacAlgorithm::ALL {
-                    assert_eq!(caps.supports(a), !typed || a == algorithm);
+                    let supported = token.mechanisms().unwrap().contains(&a.mechanism());
+                    assert_eq!(caps.supports(a), supported && (!typed || a == algorithm));
                 }
                 for message in [vec![], b"Hi There".to_vec(), vec![0xA5; 4097]] {
                     let mut child = Command::new("openssl")
                         .args([
                             "dgst",
-                            &format!("-sha{}", algorithm.tag_length() * 8),
+                            &format!("-{}", algorithm.to_string().strip_prefix("hmac-").unwrap()),
                             "-mac",
                             "HMAC",
                             "-macopt",
@@ -142,7 +158,7 @@ fn hmac_openssl_key_types_lengths_permissions_and_generated_keys() {
             Attribute::AllowedMechanisms(vec![MechanismType::HKDF_DERIVE]),
             Attribute::Value(vec![0x0B; 15]),
             Attribute::Value(vec![0x0B; 4097]),
-            Attribute::KeyType(KeyType::SHA224_HMAC),
+            Attribute::KeyType(KeyType::SHA_1_HMAC),
         ]
         .into_iter()
         .enumerate()
@@ -162,7 +178,7 @@ fn hmac_openssl_key_types_lengths_permissions_and_generated_keys() {
                     .iter_mut()
                     .find(|a| a.attribute_type() == AttributeType::Value)
                 {
-                    *value = vec![0x0B; 28];
+                    *value = vec![0x0B; 20];
                 }
             }
             setup.create_object(&attrs).unwrap();
@@ -219,11 +235,7 @@ fn hmac_openssl_key_types_lengths_permissions_and_generated_keys() {
                     AttributeType::AllowedMechanisms,
                 ])
                 .unwrap();
-            let mechanism = [
-                MechanismType::SHA256_HMAC,
-                MechanismType::SHA384_HMAC,
-                MechanismType::SHA512_HMAC,
-            ][index];
+            let mechanism = algorithm.mechanism();
             for expected in [
                 Attribute::KeyType(KeyType::GENERIC_SECRET),
                 Attribute::ValueLen(algorithm.tag_length().try_into().unwrap()),

@@ -47,8 +47,12 @@ fn software_token_hmac_generation_verification_files_and_stale_profiles() {
             SecretInput::Value("12345678".into()),
         )
         .unwrap();
+    let choices = registry.capabilities(module, token).unwrap();
     for (index, algorithm) in HmacAlgorithm::ALL.into_iter().enumerate() {
-        let label = format!("desktop-hmac-{}", algorithm.tag_length());
+        if !choices.contains(&GenerationKind::Hmac(algorithm)) {
+            continue;
+        }
+        let label = format!("desktop-{algorithm}");
         let mut objects = managed(
             registry.manage(
                 module,
@@ -62,8 +66,8 @@ fn software_token_hmac_generation_verification_files_and_stale_profiles() {
             ),
             None,
         );
-        let tag = root.join(format!("tag-{}", algorithm.tag_length()));
-        let denied = root.join(format!("denied-{}", algorithm.tag_length()));
+        let tag = root.join(format!("tag-{algorithm}"));
+        let denied = root.join(format!("denied-{algorithm}"));
         for (mode, expected) in [
             (CryptoMode::Hmac, None),
             (CryptoMode::VerifyHmac, None),
@@ -88,7 +92,14 @@ fn software_token_hmac_generation_verification_files_and_stale_profiles() {
                             key_length: 1,
                             sha256: index == 0,
                             sha384: index == 1,
-                            sha512: index == 2
+                            sha512: index == 2,
+                            sha224: index == 3,
+                            sha512_224: index == 4,
+                            sha512_256: index == 5,
+                            sha3_224: index == 6,
+                            sha3_256: index == 7,
+                            sha3_384: index == 8,
+                            sha3_512: index == 9,
                         },
                         KeyJob::Hmac {
                             algorithm,
@@ -136,7 +147,14 @@ fn software_token_hmac_generation_verification_files_and_stale_profiles() {
                             key_length: algorithm.tag_length(),
                             sha256: index == 0,
                             sha384: index == 1,
-                            sha512: index == 2
+                            sha512: index == 2,
+                            sha224: index == 3,
+                            sha512_224: index == 4,
+                            sha512_256: index == 5,
+                            sha3_224: index == 6,
+                            sha3_256: index == 7,
+                            sha3_384: index == 8,
+                            sha3_512: index == 9,
                         },
                         KeyJob::Hmac {
                             algorithm,
