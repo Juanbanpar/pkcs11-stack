@@ -86,7 +86,7 @@ deprecated `AES_KEY_WRAP_PAD`. Native failure may have effects; refresh before
 retrying. Output files are never overwritten, and binary output follows checked
 session closure and module finalization.
 
-## SP 800-108 counter-mode KDF
+## SP 800-108 KDF
 
 Inspect a derivation base and create one token-held key:
 
@@ -100,7 +100,7 @@ pkcs11ctl --module /path/to/provider.so derive-kbkdf \
   --pin-file user.pin --confirm
 ```
 
-`--digest sha256|sha384|sha512` selects HMAC. The fixed PRF input is
+`--digest sha256|sha384|sha512` selects HMAC. Counter mode uses the PRF input
 `[i]_32 || label || 0x00 || context || [L]_32`, with big-endian integers and L in
 bits. Each optional public input file accepts at most 4096 bytes; omission means
 empty. Neither accepts stdin. The KDF label is separate from `--label`, which
@@ -113,6 +113,15 @@ Derivation requires USER authentication, RW access and a new ID/label of
 `--kind derivation-secret --length 1..4096` creates a generic derivation-only key.
 AES outputs reject `--length`. All outputs are persistent private, sensitive and
 nonextractable. Native rejection causes no fallback or retry and may leave effects.
+
+Both commands accept `--mode counter|feedback`, defaulting to counter. For
+feedback, add `--mode feedback` and optionally `--kdf-iv-file public-iv.bin`.
+The raw IV file must be empty or exactly the selected hash length (32/48/64 bytes)
+and cannot be stdin. Feedback prepends the previous PRF output before the counter;
+the initial input is the supplied IV, with no bytes supplied when omitted.
+Counter mode rejects `--kdf-iv-file`, including empty files. Capabilities and
+execution check the selected mode independently; unsupported modes never fall
+back to another. Output permissions and other bounds are identical.
 
 ## Authentication
 

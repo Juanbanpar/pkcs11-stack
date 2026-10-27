@@ -5,7 +5,7 @@ use crate::{
 };
 use clap::ArgMatches;
 use pkcs11_client::{
-    DigestAlgorithm, KbkdfOutput, KbkdfRequest, ManagementSession, object_reference,
+    DigestAlgorithm, KbkdfMode, KbkdfOutput, KbkdfRequest, ManagementSession, object_reference,
 };
 use serde_json::json;
 pub(crate) fn selected(name: &str) -> bool {
@@ -15,6 +15,7 @@ pub(crate) fn selected(name: &str) -> bool {
 pub(crate) struct Inputs {
     label: Vec<u8>,
     context: Vec<u8>,
+    iv: Vec<u8>,
 }
 impl Inputs {
     pub(crate) fn load(name: &str, m: &ArgMatches) -> Result<Self> {
@@ -37,10 +38,18 @@ impl Inputs {
                     *value = bounded_input(path, 4096)?;
                 }
             }
+            if let Some(path) = get(m, "kdf-iv-file") {
+                if mode(m)? != KbkdfMode::Feedback || path == "-" {
+                    return Err(usage(
+                        "--kdf-iv-file requires feedback mode and a file path",
+                    ));
+                }
+                inputs.iv = bounded_input(path, 64)?;
+            }
             let id = unhex(need(m, "id")?)?;
             inputs
                 .request(m, &id)?
-                .validate()
+                .validate_with_mode(mode(m)?, &inputs.iv)
                 .map_err(pkcs11_client::Error::from)?;
         }
         Ok(inputs)
@@ -68,6 +77,13 @@ impl Inputs {
         })
     }
 }
+fn mode(m: &ArgMatches) -> Result<KbkdfMode> {
+    match need(m, "mode")? {
+        "counter" => Ok(KbkdfMode::Counter),
+        "feedback" => Ok(KbkdfMode::Feedback),
+        _ => Err(usage("unsupported SP800-108 mode")),
+    }
+}
 pub(crate) fn operation(
     session: &mut ManagementSession<'_>,
     name: &str,
@@ -76,7 +92,7 @@ pub(crate) fn operation(
 ) -> Result<Output> {
     let base = object_reference(uri(m, "object")?)?;
     let value = if name == "kbkdf-capabilities" {
-        let caps = session.kbkdf_capabilities(&base)?;
+        let caps = session.kbkdf_capabilities_with_mode(&base, mode(m)?)?;
         let digests: Vec<_> = [
             (DigestAlgorithm::Sha256, "sha256"),
             (DigestAlgorithm::Sha384, "sha384"),
@@ -85,12 +101,12 @@ pub(crate) fn operation(
         .into_iter()
         .filter_map(|(digest, name)| caps.supports(digest).then_some(name))
         .collect();
-        json!({"advisory":true,"mode":"counter","input_length":caps.input_length,"digests":digests,"counter_bits":32,"length_bits":32,"separator":true})
+        json!({"advisory":true,"mode":need(m,"mode")?,"input_length":caps.input_length,"digests":digests,"counter_bits":32,"length_bits":32,"separator":true})
     } else {
         let id = unhex(need(m, "id")?)?;
         let request = inputs.request(m, &id)?;
-        session.derive_kbkdf(&base, &request)?;
-        json!({"derived":true,"mode":"counter","digest":need(m,"digest")?,"kind":need(m,"kind")?,"length":request.output.length(),"id_hex":hex(&id),"extractable":false})
+        session.derive_kbkdf_with_mode(&base, &request, mode(m)?, &inputs.iv)?;
+        json!({"derived":true,"mode":need(m,"mode")?,"digest":need(m,"digest")?,"kind":need(m,"kind")?,"length":request.output.length(),"id_hex":hex(&id),"extractable":false})
     };
     Ok(Output::Structured(value))
 }

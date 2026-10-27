@@ -617,11 +617,25 @@ pub(crate) fn command() -> Command {
         )),
         auth(object(
             Command::new("kbkdf-capabilities")
-                .about("Inspect native SP800-108 counter-mode PRF choices"),
+                .about("Inspect native SP800-108 PRF choices for an explicit mode")
+                .arg(
+                    value("mode", "SP800-108 mode")
+                        .value_parser(["counter", "feedback"])
+                        .default_value("counter"),
+                ),
         )),
         mutation(auth(named(hkdf_digest(object(
             Command::new("derive-kbkdf")
-                .about("Derive one token key using SP800-108 counter mode and HMAC-SHA2")
+                .about("Derive one token key using explicit SP800-108 mode and HMAC-SHA2")
+                .arg(
+                    value("mode", "SP800-108 mode")
+                        .value_parser(["counter", "feedback"])
+                        .default_value("counter"),
+                )
+                .arg(value(
+                    "kdf-iv-file",
+                    "Public feedback IV file, empty or hash-length; no stdin",
+                ))
                 .arg(
                     required("kind", "Output type and permissions").value_parser([
                         "aes128",
@@ -643,7 +657,7 @@ pub(crate) fn command() -> Command {
                     "Public context file, at most 4096 bytes; omitted means empty",
                 )),
         )))))
-        .mut_arg("digest", |arg| arg.help("Counter-mode HMAC hash")),
+        .mut_arg("digest", |arg| arg.help("SP800-108 HMAC hash")),
         mutation(auth(named(hkdf_options(object(
             Command::new("derive-hkdf")
                 .about("Derive a persistent nonextractable token key using HKDF")
