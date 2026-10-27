@@ -56,7 +56,8 @@ or formal conformance. Coverage is recorded per capability below.
 | Validated RSA/EC public-key import | Implemented | Client validation and runtime component templates; CLI/desktop explicit purpose. Tests cover all three curves, RSA verification/encryption, malformed/restricted inputs, permissions, duplicate IDs, RO rejection, normalization and unchanged same-ID private keys through the 2.40 interface. |
 | Remaining classical algorithm expansion | Pending | Existing signature/digest profiles remain unchanged. |
 | Explicit ECDH SHA-2 KDFs and output purposes | Implemented | Runtime/client/CLI/desktop; Kryoptic tests cover ANSI X9.63 and SP 800-56A SHA-256/384/512, all three curves, AES output and 64-byte generic output followed by HKDF. OpenSSL supplies independent ECDH/HKDF calculations. |
-| Remaining symmetric algorithms, MACs and KDF expansion | Pending | Existing AES-GCM, explicit KW/KWP, constrained HKDF and ECDH profiles. |
+| HKDF extract-only and expand-only | Implemented | Runtime/client/CLI/desktop; SHA-256/384/512, hash-length derivation-only PRKs, explicit stages and rejected disabled parameters. Existing calls still extract and expand. OpenSSL checks each stage; client/CLI/desktop compare separate and combined derivation. |
+| Remaining symmetric algorithms, MACs and KDF expansion | Pending | Existing AES-GCM, explicit KW/KWP, constrained HKDF and ECDH profiles. HKDF salt keys, SP 800-108 and PBKDF2 remain pending. |
 | AES-KW/KWP key transfer | Implemented | Runtime/client/CLI/desktop; explicit selection and default IVs. Kryoptic/OpenSSL comparisons cover all AES wrapping/target sizes, output permissions, trust/extractability rejection, RO/duplicate-ID rejection, mismatches and tampering. SoftHSM retains the KW workflow. No deprecated PAD alias or fallback. |
 | HashML-DSA, SLH-DSA and additional TLS signatures | Pending | Existing pure ML-DSA and ML-KEM profiles remain supported. |
 | Legacy algorithm execution | Pending | No legacy opt-in or algorithms are enabled yet. |
@@ -188,6 +189,9 @@ Use it only with Kryoptic. No existing token store is opened or reset.
 The `kryoptic-integration` CI job requires both mechanisms, without skipping missing
 support. It compares SHA-256/384/512 results against OpenSSL using public
 hash-length inputs, including empty salt/context and maximum SHA-256 output.
+Separate extraction and expansion are checked independently against OpenSSL for
+all three digests; client, CLI and desktop tests compare staged and combined
+AES derivation and reject inputs for disabled stages.
 Tests inspect output permissions, reject unsuitable bases, wrong hash lengths,
 read-only sessions and duplicate output IDs, and check client export refusal.
 

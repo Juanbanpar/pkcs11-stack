@@ -48,6 +48,7 @@ fn scope(
 }
 fn job(output: HkdfOutput, index: u8, case: u8, direction: u8) -> KeyJob {
     KeyJob::Hkdf(HkdfJob {
+        mode: pkcs11_client::HkdfMode::ExtractAndExpand,
         output,
         salt: vec![0, 1, 2, 0xFF],
         info: format!("desktop protocol v1 / {case}").into_bytes(),
@@ -93,6 +94,7 @@ fn hkdf_invalid_bounds_fail_before_resolving_a_module() {
                 scope,
                 caps,
                 KeyJob::Hkdf(HkdfJob {
+                    mode: pkcs11_client::HkdfMode::ExtractAndExpand,
                     salt,
                     info,
                     output,
@@ -463,6 +465,175 @@ fn persistent_hkdf_desktop_peer_exchange_output_profiles_and_failures() {
                 SecretInput::Value("12345678".into()),
             )
             .unwrap();
+    }
+    registry.close().unwrap();
+}
+
+#[test]
+#[ignore = "requires tools/test-kem-hkdf.sh"]
+fn persistent_hkdf_desktop_individual_stages_and_combined_agree() {
+    use pkcs11_client::{AesGcmDecryptRequest, AesGcmEncryptRequest, HkdfMode};
+    use secrecy::ExposeSecret;
+    assert_eq!(
+        std::env::var("PKCS11_TEST_KDF_ISOLATED").as_deref(),
+        Ok("1")
+    );
+    let mut registry = Registry::default();
+    let module = registry
+        .load(&PathBuf::from(
+            std::env::var_os("PKCS11_TEST_KDF_MODULE").unwrap(),
+        ))
+        .unwrap();
+    let token = registry.modules[0]
+        .entry
+        .tokens
+        .iter()
+        .find(|entry| entry.label == "kdf-test")
+        .unwrap()
+        .id;
+    registry
+        .login(
+            module,
+            token,
+            LoginRole::User,
+            SecretInput::Value("12345678".into()),
+        )
+        .unwrap();
+    let mut objects = registry.objects(module, token).unwrap();
+    for (index, digest) in [
+        DigestAlgorithm::Sha256,
+        DigestAlgorithm::Sha384,
+        DigestAlgorithm::Sha512,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let base_id = format!("A0{index:02X}");
+        for (case, mode) in [
+            HkdfMode::ExtractOnly,
+            HkdfMode::ExpandOnly,
+            HkdfMode::ExtractAndExpand,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let object = if mode == HkdfMode::ExpandOnly {
+                objects
+                    .iter()
+                    .find(|entry| entry.label == format!("desktop-stage-{index}-0"))
+                    .unwrap()
+                    .id
+            } else {
+                objects
+                    .iter()
+                    .find(|entry| entry.identifier == base_id)
+                    .unwrap()
+                    .id
+            };
+            let key = CryptoScope {
+                module,
+                token,
+                object,
+                mode: CryptoMode::Hkdf,
+            };
+            let selected = profile(&registry, key);
+            let output = if mode == HkdfMode::ExtractOnly {
+                HkdfOutput::DerivationSecret {
+                    length: digest.output_len(),
+                }
+            } else {
+                HkdfOutput::Aes256
+            };
+            let make_job = || HkdfJob {
+                mode,
+                output,
+                salt: if mode == HkdfMode::ExpandOnly {
+                    vec![]
+                } else {
+                    b"desktop salt".to_vec()
+                },
+                info: if mode == HkdfMode::ExtractOnly {
+                    vec![]
+                } else {
+                    b"desktop stage context".to_vec()
+                },
+                id: vec![0xEB, index as u8, case as u8],
+                label: format!("desktop-stage-{index}-{case}").into_bytes(),
+            };
+            if mode != HkdfMode::ExtractAndExpand {
+                let mut invalid = make_job();
+                if mode == HkdfMode::ExtractOnly {
+                    invalid.info = b"ignored".to_vec();
+                } else {
+                    invalid.salt = b"ignored".to_vec();
+                }
+                let KeyProfile::Hkdf(caps) = selected else {
+                    panic!("HKDF")
+                };
+                assert_eq!(
+                    registry.hkdf_action(key, caps, KeyJob::Hkdf(invalid)),
+                    Err(BackendError::HkdfInput)
+                );
+            }
+            objects = managed(
+                registry.key_operation(key, selected, KeyJob::Hkdf(make_job())),
+                None,
+            );
+        }
+        let expanded = scope(
+            module,
+            token,
+            &objects,
+            &format!("desktop-stage-{index}-1"),
+            CryptoMode::Encrypt,
+        );
+        let combined = scope(
+            module,
+            token,
+            &objects,
+            &format!("desktop-stage-{index}-2"),
+            CryptoMode::Decrypt,
+        );
+        let expanded = registry
+            .reference(module, token, expanded.object)
+            .unwrap()
+            .0;
+        let combined = registry
+            .reference(module, token, combined.object)
+            .unwrap()
+            .0;
+        let (_, uri) = registry.location(module, token).unwrap();
+        read_session(
+            &registry.modules[0],
+            &uri,
+            SessionMode::ReadOnly,
+            |session| {
+                let nonce = [index as u8; 12];
+                let ciphertext = session
+                    .encrypt_aes_gcm(
+                        &expanded,
+                        &AesGcmEncryptRequest {
+                            nonce: &nonce,
+                            aad: b"stage proof",
+                            plaintext: b"desktop staged agreement",
+                        },
+                    )
+                    .unwrap();
+                let recovered = session
+                    .decrypt_aes_gcm(
+                        &combined,
+                        &AesGcmDecryptRequest {
+                            nonce: &nonce,
+                            aad: b"stage proof",
+                            ciphertext: &ciphertext,
+                        },
+                    )
+                    .unwrap();
+                assert_eq!(recovered.expose_secret(), b"desktop staged agreement");
+                Ok(())
+            },
+        )
+        .unwrap();
     }
     registry.close().unwrap();
 }

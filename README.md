@@ -66,8 +66,9 @@ verification and context authentication.
 
 Runtime and client also support ML-KEM-512/768/1024 key generation, encapsulation
 and decapsulation, with RFC 9935 public-key import/export. Raw shared secrets remain sensitive and nonextractable on the
-token, with only further derivation permitted. Typed HKDF extract-and-expand
-creates nonextractable AES keys or further derivation secrets on the same token.
+token, with only further derivation permitted. Typed HKDF supports combined or
+separate extraction and expansion, creating nonextractable PRKs, AES keys or
+further derivation secrets on the same token.
 The CLI exposes ML-KEM generation, public-key exchange, encapsulation,
 decapsulation and HKDF derivation. A P-256 || ML-KEM-768 application combiner
 derives token-held keys using HKDF-SHA512; callers supply authenticated component

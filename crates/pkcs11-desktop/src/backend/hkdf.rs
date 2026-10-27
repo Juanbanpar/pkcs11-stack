@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use super::{BackendError, CryptoScope, KeyJob, Registry, browse::read_session};
-use pkcs11_client::{HkdfCapabilities, HkdfOutput, HkdfRequest, SessionMode};
+use pkcs11_client::{HkdfCapabilities, HkdfMode, HkdfOutput, HkdfRequest, SessionMode};
 
 pub struct HkdfJob {
+    pub mode: HkdfMode,
     pub output: HkdfOutput,
     pub salt: Vec<u8>,
     pub info: Vec<u8>,
@@ -27,7 +28,9 @@ impl Registry {
             id: &job.id,
             label: &job.label,
         };
-        request.validate().map_err(|_| BackendError::HkdfInput)?;
+        request
+            .validate_for_mode(job.mode)
+            .map_err(|_| BackendError::HkdfInput)?;
         let (index, uri, reference) = self.key_location(scope)?;
         read_session(
             &self.modules[index],
@@ -42,7 +45,7 @@ impl Registry {
                     return Err(BackendError::KeyOperationUnavailable);
                 }
                 session
-                    .derive_hkdf(&reference, &request)
+                    .derive_hkdf_with_mode(&reference, &request, job.mode)
                     .map_err(|e| BackendError::from(&e))
             },
         )

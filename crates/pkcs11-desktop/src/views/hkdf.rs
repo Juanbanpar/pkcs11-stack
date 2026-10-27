@@ -16,6 +16,7 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
     };
     let id = form.id;
     let enabled = state.can_submit();
+    let mode = form.hkdf.mode;
     let edit = move |field, value| Message::KeyEdit { id, field, value };
     let mut content = column![text("Derive an HKDF key").size(22).font(EMPHASIS)].spacing(10);
     if let Some(KeyProfile::Hkdf(profile)) = form.profile {
@@ -24,7 +25,7 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
             pkcs11_client::DigestAlgorithm::Sha384 => "SHA-384",
             pkcs11_client::DigestAlgorithm::Sha512 => "SHA-512",
         };
-        content = content.push(text(format!("HKDF {digest} extract-and-expand on a {}-byte token secret. The hash matches the base-key length. No key values leave the token; provider support is checked again before derivation.", profile.input_length)).size(14));
+        content = content.push(text(format!("HKDF {digest} on a {}-byte token secret. The hash matches the base-key length. No key values leave the token; provider support is checked again before derivation.", profile.input_length)).size(14));
     } else {
         content = content.push(text(if form.loaded {
             "No permitted SHA-2 HKDF profile is available for this base key."
@@ -33,15 +34,31 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
         }));
     }
     content = content.push(
-        pick_list(
-            HkdfOutputChoice::ALL.as_slice(),
-            Some(form.hkdf.output),
-            move |output| Message::HkdfOutput { id, output },
-        )
-        .placeholder("Output key purpose")
-        .enabled(enabled),
+        pick_list(pkcs11_client::HkdfMode::ALL, Some(mode), move |mode| {
+            Message::HkdfMode { id, mode }
+        })
+        .placeholder("HKDF stage")
+        .enabled(enabled && form.profile.is_some()),
     );
-    if form.hkdf.output == HkdfOutputChoice::DerivationSecret {
+    if mode == pkcs11_client::HkdfMode::ExtractOnly {
+        content = content.push(text("Extraction creates a hash-length PRK with further-derivation permission only. Use that token secret as the base for a later expansion.").size(14));
+    } else {
+        if mode == pkcs11_client::HkdfMode::ExpandOnly {
+            content = content.push(text("The selected base must be a PRK established by the caller. Matching key type and length cannot prove how it was produced. No extraction or salt is used.").size(14));
+        }
+        content = content.push(
+            pick_list(
+                HkdfOutputChoice::ALL.as_slice(),
+                Some(form.hkdf.output),
+                move |output| Message::HkdfOutput { id, output },
+            )
+            .placeholder("Output key purpose")
+            .enabled(enabled),
+        );
+    }
+    if mode != pkcs11_client::HkdfMode::ExtractOnly
+        && form.hkdf.output == HkdfOutputChoice::DerivationSecret
+    {
         content = content.push(
             text_input("New derivation secret length (bytes)", &form.hkdf.length)
                 .on_input_maybe(enabled.then_some(move |value| edit(KeyField::Length, value))),
@@ -68,12 +85,23 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
             &form.key_id,
         ),
     ] {
+        if (matches!(field, KeyField::Salt) && mode == pkcs11_client::HkdfMode::ExpandOnly)
+            || (matches!(field, KeyField::Info) && mode == pkcs11_client::HkdfMode::ExtractOnly)
+        {
+            continue;
+        }
         content = content.push(
             text_input(label, value)
                 .on_input_maybe(enabled.then_some(move |value| edit(field, value))),
         );
     }
-    content = content.push(text("Salt and context are public protocol inputs, not credentials. An empty salt uses RFC 5869 zero salt. Authenticate the peer and agree on the exact salt, context and output profile separately. This operation is not a hybrid combiner or TLS key schedule.").size(14));
+    if mode != pkcs11_client::HkdfMode::ExpandOnly {
+        content = content.push(
+            text("Salt is a public protocol input. An empty salt uses RFC 5869 zero salt.")
+                .size(14),
+        );
+    }
+    content = content.push(text("Authenticate the peer and agree on the protocol inputs and output profile separately. This operation is not a hybrid combiner or TLS key schedule.").size(14));
     content = content.push(text("Creates a persistent private, sensitive, nonextractable key. AES outputs permit encryption/decryption only; generic outputs permit further derivation only. Label and ID: 1–128 bytes each. Existing secret IDs are rejected. A failed call or session close may still leave an object. The provider may reject an output template. No retry or rollback is performed.").size(14));
     content = content.push(
         row![

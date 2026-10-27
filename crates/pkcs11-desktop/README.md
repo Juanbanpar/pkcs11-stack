@@ -274,8 +274,15 @@ bases SHA-384 and 64-byte bases SHA-512. Other lengths have no profile; values
 are never truncated or padded. The base must be sensitive, nonextractable and
 permit derivation. USER login on a writable token is required.
 
-Choose AES-128/192/256 for encryption/decryption, or a generic secret for further
-derivation with a length from 1 through 255 times the hash length. Outputs are
+The stage selector defaults to **Extract and expand**. **Extract PRK only**
+creates a hash-length derivation secret and hides the context and output controls.
+Select that secret for **Expand PRK only**, which hides the salt field. Switching
+stages clears parameters for the disabled stage; submitted requests reject any
+nonempty disabled input. Expansion assumes the base is a PRK established by the
+caller; matching key metadata cannot prove its origin.
+
+For expansion, choose AES-128/192/256 for encryption/decryption, or a generic
+secret for further derivation with a length from 1 through 255 times the hash length. Outputs are
 persistent, private, sensitive and nonextractable. The provider may reject a
 specific output template. Provide a new label/ID of 1–128 bytes each; duplicate
 secret IDs are rejected. Optional salt uses hexadecimal bytes and protocol

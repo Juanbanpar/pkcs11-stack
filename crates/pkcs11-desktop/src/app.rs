@@ -47,6 +47,10 @@ pub enum Message {
         id: RequestId,
         output: HkdfOutputChoice,
     },
+    HkdfMode {
+        id: RequestId,
+        mode: pkcs11_client::HkdfMode,
+    },
     KeyEdit {
         id: RequestId,
         field: KeyField,
@@ -235,6 +239,7 @@ impl std::fmt::Debug for Message {
             Self::EcdhKdf { .. } => "EcdhKdf",
             Self::EcdhOutput { .. } => "EcdhOutput",
             Self::HkdfOutput { .. } => "HkdfOutput",
+            Self::HkdfMode { .. } => "HkdfMode",
             Self::OpenKeyOperation(_) => "OpenKeyOperation",
             Self::KeyEdit { .. } => "KeyEdit",
             Self::KeyTarget { .. } => "KeyTarget",
@@ -399,6 +404,7 @@ impl App {
             Message::EcdhKdf { id, kdf } => self.state.ecdh_kdf(id, kdf),
             Message::EcdhOutput { id, output } => self.state.ecdh_output(id, output),
             Message::HkdfOutput { id, output } => self.state.hkdf_output(id, output),
+            Message::HkdfMode { id, mode } => self.state.hkdf_mode(id, mode),
             Message::KeyEdit { id, field, value } => self.state.key_edit(id, field, value),
             Message::KeyTarget { id, target } => self.state.key_target(id, target),
             Message::WrapAlgorithm { id, algorithm } => self.state.wrap_algorithm(id, algorithm),

@@ -1530,6 +1530,13 @@ fn hkdf_form_accepts_context_and_output_choices_without_exposing_key_values() {
     for dark in [false, true] {
         render_screen(&app.state, "derive-hkdf-secret", 1060, 900, dark);
     }
+    let _ = app.update(Message::HkdfMode {
+        id,
+        mode: pkcs11_client::HkdfMode::ExpandOnly,
+    });
+    for dark in [false, true] {
+        render_screen(&app.state, "derive-hkdf-expand", 1060, 900, dark);
+    }
     let _ = app.update(Message::DismissKeyOperation(id));
     assert!(app.state.key_form.is_none());
     let _ = app.update(Message::HkdfOutput {
@@ -1537,6 +1544,18 @@ fn hkdf_form_accepts_context_and_output_choices_without_exposing_key_values() {
         output: crate::state::HkdfOutputChoice::Aes128,
     });
     assert!(app.state.key_form.is_none());
+    let app = run_focused(
+        initial,
+        &["type enter", "type tab", "type enter"],
+        Some("choice-HKDF stage"),
+    );
+    assert_eq!(
+        app.state.key_form.as_ref().unwrap().hkdf.mode,
+        pkcs11_client::HkdfMode::ExtractOnly
+    );
+    for dark in [false, true] {
+        render_screen(&app.state, "derive-hkdf-extract", 1060, 900, dark);
+    }
 }
 
 #[test]

@@ -2845,3 +2845,71 @@ fn public_import_picker_preserves_native_paths_and_rejects_navigation() {
     state.object_file_picked(picker, Some("late.der".into()));
     assert!(state.management.public_key.path.is_empty());
 }
+
+#[test]
+fn hkdf_stages_clear_disabled_inputs_and_enforce_prk_outputs() {
+    use crate::backend::{CryptoMode, KeyJob};
+    use pkcs11_client::{DigestAlgorithm, HkdfMode, HkdfOutput};
+    for digest in [
+        DigestAlgorithm::Sha256,
+        DigestAlgorithm::Sha384,
+        DigestAlgorithm::Sha512,
+    ] {
+        let (mut state, id, _) = hkdf_state(digest);
+        state.key_edit(id, KeyField::Label, "PRK".into());
+        state.key_edit(id, KeyField::Id, "EA01".into());
+        state.key_edit(id, KeyField::Info, "unused context".into());
+        state.hkdf_mode(RequestId(id.0 + 1), HkdfMode::ExpandOnly);
+        assert_eq!(
+            state.key_form.as_ref().unwrap().hkdf.mode,
+            HkdfMode::ExtractAndExpand
+        );
+        state.hkdf_mode(id, HkdfMode::ExtractOnly);
+        state.hkdf_output(id, HkdfOutputChoice::Aes128);
+        let form = &state.key_form.as_ref().unwrap().hkdf;
+        assert!(form.info.is_empty());
+        assert_eq!(form.output, HkdfOutputChoice::DerivationSecret);
+        assert_eq!(form.length, digest.output_len().to_string());
+        // Forged edits to hidden fields still pass through request validation.
+        state.key_edit(id, KeyField::Info, "ignored".into());
+        assert!(state.submit_key_operation(id).is_none());
+        state.key_edit(id, KeyField::Info, String::new());
+        let BackendCommand::KeyOperation {
+            job: KeyJob::Hkdf(job),
+            ..
+        } = state.submit_key_operation(id).unwrap()
+        else {
+            panic!("extract job")
+        };
+        assert_eq!(job.mode, HkdfMode::ExtractOnly);
+        assert_eq!(
+            job.output,
+            HkdfOutput::DerivationSecret {
+                length: digest.output_len()
+            }
+        );
+        let (mut state, id, _) = hkdf_state(digest);
+        state.key_edit(id, KeyField::Label, "expanded".into());
+        state.key_edit(id, KeyField::Id, "EA02".into());
+        state.key_edit(id, KeyField::Salt, "00ff".into());
+        state.hkdf_mode(id, HkdfMode::ExpandOnly);
+        assert!(state.key_form.as_ref().unwrap().hkdf.salt.is_empty());
+        state.key_edit(id, KeyField::Salt, "01".into());
+        assert!(state.submit_key_operation(id).is_none());
+        state.key_edit(id, KeyField::Salt, String::new());
+        let BackendCommand::KeyOperation {
+            job: KeyJob::Hkdf(job),
+            ..
+        } = state.submit_key_operation(id).unwrap()
+        else {
+            panic!("expand job")
+        };
+        assert_eq!(job.mode, HkdfMode::ExpandOnly);
+        assert_eq!(job.output, HkdfOutput::Aes256);
+        let (mut state, id, _) = hkdf_state(digest);
+        state.dismiss_key_operation(id);
+        state.hkdf_mode(id, HkdfMode::ExtractOnly);
+        assert!(state.key_form.is_none());
+        assert!(state.can_open_key_operation(CryptoMode::Hkdf));
+    }
+}
