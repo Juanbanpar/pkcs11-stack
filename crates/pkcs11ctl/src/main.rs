@@ -8,6 +8,7 @@ mod args;
 mod generation;
 mod hmac;
 mod inspect;
+mod kbkdf;
 mod key_establishment;
 mod ml_dsa;
 mod operations;

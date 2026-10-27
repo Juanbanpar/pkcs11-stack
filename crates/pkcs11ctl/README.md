@@ -86,6 +86,34 @@ deprecated `AES_KEY_WRAP_PAD`. Native failure may have effects; refresh before
 retrying. Output files are never overwritten, and binary output follows checked
 session closure and module finalization.
 
+## SP 800-108 counter-mode KDF
+
+Inspect a derivation base and create one token-held key:
+
+```sh
+pkcs11ctl --module /path/to/provider.so kbkdf-capabilities \
+  --object 'pkcs11:token=example;id=%01;type=secret-key' --pin-file user.pin
+pkcs11ctl --module /path/to/provider.so derive-kbkdf \
+  --object 'pkcs11:token=example;id=%01;type=secret-key' \
+  --digest sha256 --kind aes256 --kdf-label-file protocol-label.bin \
+  --kdf-context-file protocol-context.bin --id 02 --label encryption-key \
+  --pin-file user.pin --confirm
+```
+
+`--digest sha256|sha384|sha512` selects HMAC. The fixed PRF input is
+`[i]_32 || label || 0x00 || context || [L]_32`, with big-endian integers and L in
+bits. Each optional public input file accepts at most 4096 bytes; omission means
+empty. Neither accepts stdin. The KDF label is separate from `--label`, which
+names the new object. Agree on an unambiguous protocol encoding with the peer.
+
+The base must be a sensitive, nonextractable generic or matching SHA-2 HMAC
+secret of 16–4096 bytes with permitted derivation. Capabilities are advisory.
+Derivation requires USER authentication, RW access and a new ID/label of
+1–128 bytes. `--kind aes128|aes192|aes256` creates an encryption/decryption key;
+`--kind derivation-secret --length 1..4096` creates a generic derivation-only key.
+AES outputs reject `--length`. All outputs are persistent private, sensitive and
+nonextractable. Native rejection causes no fallback or retry and may leave effects.
+
 ## Authentication
 
 Commands that support authentication accept either `--pin-file PATH` or

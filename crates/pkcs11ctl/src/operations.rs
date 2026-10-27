@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use crate::{
-    aes_cmac, aes_gcm, aes_key_wrap, generation, hmac, inspect, key_establishment, ml_dsa,
+    aes_cmac, aes_gcm, aes_key_wrap, generation, hmac, inspect, kbkdf, key_establishment, ml_dsa,
     support::*,
 };
 use clap::ArgMatches;
@@ -91,6 +91,7 @@ pub(crate) struct Inputs {
     pub random: Option<RandomRequest>,
     pub so: bool,
     pub establishment: key_establishment::Inputs,
+    pub kbkdf: kbkdf::Inputs,
 }
 impl Inputs {
     pub fn load(name: &str, m: &ArgMatches) -> Result<Self> {
@@ -110,7 +111,8 @@ impl Inputs {
         let context = Credential::load(m, "context-pin-file", "context-protected-path")?;
         let so = get(m, "role") == Some("so");
         if so
-            && (hmac::selected(name)
+            && (kbkdf::selected(name)
+                || hmac::selected(name)
                 || aes_cmac::selected(name)
                 || aes_gcm::selected(name)
                 || aes_key_wrap::selected(name)
@@ -320,6 +322,7 @@ impl Inputs {
             }
         }
         let establishment = key_establishment::Inputs::load(name, m, &bytes)?;
+        let kbkdf = kbkdf::Inputs::load(name, m)?;
         if aes_key_wrap::selected(name) {
             aes_key_wrap::validate(name, m, &bytes)?;
         }
@@ -329,6 +332,7 @@ impl Inputs {
             hmac_tag,
             digest_file,
             establishment,
+            kbkdf,
             credential,
             context,
             new_pin,
@@ -577,7 +581,8 @@ fn management_command(
             json!({"capacity":diagnostic.capacity,"exhaustion_verified":diagnostic.exhaustion_verified,"reuse_verified":diagnostic.reuse_verified,"session_state":format!("{:?}",diagnostic.session_state)}),
         ));
     }
-    let mutation = key_establishment::mutation(name)
+    let mutation = name == "derive-kbkdf"
+        || key_establishment::mutation(name)
         || matches!(
             name,
             "init-pin"
@@ -609,6 +614,9 @@ fn management_operation(
     m: &ArgMatches,
     inputs: &Inputs,
 ) -> Result<Output> {
+    if kbkdf::selected(name) {
+        return kbkdf::operation(session, name, m, &inputs.kbkdf);
+    }
     if hmac::selected(name) {
         return hmac::operation(session, name, m, &inputs.bytes, inputs.hmac_tag.as_deref());
     }

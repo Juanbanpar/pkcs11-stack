@@ -615,6 +615,35 @@ pub(crate) fn command() -> Command {
                 ))
                 .arg(required("tag-file", "Raw 16-byte tag file; no stdin")),
         )),
+        auth(object(
+            Command::new("kbkdf-capabilities")
+                .about("Inspect native SP800-108 counter-mode PRF choices"),
+        )),
+        mutation(auth(named(hkdf_digest(object(
+            Command::new("derive-kbkdf")
+                .about("Derive one token key using SP800-108 counter mode and HMAC-SHA2")
+                .arg(
+                    required("kind", "Output type and permissions").value_parser([
+                        "aes128",
+                        "aes192",
+                        "aes256",
+                        "derivation-secret",
+                    ]),
+                )
+                .arg(
+                    value("length", "Derivation-secret length in bytes (1–4096)")
+                        .required_if_eq("kind", "derivation-secret"),
+                )
+                .arg(value(
+                    "kdf-label-file",
+                    "Public KDF label file, at most 4096 bytes; omitted means empty",
+                ))
+                .arg(value(
+                    "kdf-context-file",
+                    "Public context file, at most 4096 bytes; omitted means empty",
+                )),
+        )))))
+        .mut_arg("digest", |arg| arg.help("Counter-mode HMAC hash")),
         mutation(auth(named(hkdf_options(object(
             Command::new("derive-hkdf")
                 .about("Derive a persistent nonextractable token key using HKDF")
