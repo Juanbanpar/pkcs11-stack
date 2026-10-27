@@ -46,7 +46,11 @@ impl UiState {
         self.can_submit()
             && self.token_page == TokenPage::Objects
             && self.token().is_some_and(|token| {
-                token.login == LoginState::User && (mode == CryptoMode::Wrap || token.can_manage())
+                token.login == LoginState::User
+                    && (matches!(
+                        mode,
+                        CryptoMode::Wrap | CryptoMode::Mac | CryptoMode::VerifyMac
+                    ) || token.can_manage())
             })
             && self.object().is_some_and(|object| {
                 !object.ambiguous
@@ -72,7 +76,10 @@ impl UiState {
                                 })
                                 && self.object_key_type() == Some(KeyType::ML_KEM)
                         }
-                        CryptoMode::Wrap | CryptoMode::Unwrap => {
+                        CryptoMode::Mac
+                        | CryptoMode::VerifyMac
+                        | CryptoMode::Wrap
+                        | CryptoMode::Unwrap => {
                             object.class == Some(ObjectClass::SECRET_KEY)
                                 && self.object_key_type() == Some(KeyType::AES)
                         }
@@ -191,7 +198,10 @@ impl UiState {
             || form.picker.is_some()
             || !matches!(
                 (form.scope.mode, field),
-                (CryptoMode::Wrap | CryptoMode::Encapsulate, KeyField::Output)
+                (
+                    CryptoMode::Mac | CryptoMode::VerifyMac,
+                    KeyField::Input | KeyField::Output
+                ) | (CryptoMode::Wrap | CryptoMode::Encapsulate, KeyField::Output)
                     | (
                         CryptoMode::Derive | CryptoMode::Unwrap | CryptoMode::Decapsulate,
                         KeyField::Input
@@ -200,9 +210,10 @@ impl UiState {
         {
             return None;
         }
+        let save = field == KeyField::Output && form.scope.mode != CryptoMode::VerifyMac;
         let request = self.request_id()?;
         self.key_form.as_mut()?.picker = Some((request, field));
-        Some((request, field == KeyField::Output))
+        Some((request, save))
     }
     pub fn key_picked(&mut self, id: RequestId, path: Option<PathBuf>) {
         if self.shutdown_request.is_some() {
@@ -258,6 +269,9 @@ impl UiState {
             .is_some_and(|profile| profile.supports(form.scope.mode))
             && form.loaded
             && match form.scope.mode {
+                CryptoMode::Mac | CryptoMode::VerifyMac => {
+                    !form.input.is_empty() && !form.output.is_empty()
+                }
                 CryptoMode::Hkdf => hkdf_job.is_some(),
                 CryptoMode::Wrap => {
                     matches!(form.profile, Some(KeyProfile::AesWrapping(caps)) if caps.supports(form.wrap_algorithm))
@@ -287,7 +301,9 @@ impl UiState {
             };
         if !valid {
             self.notification = Some(Notification::Error(
-                if form.scope.mode == CryptoMode::Hkdf {
+                if matches!(form.scope.mode, CryptoMode::Mac | CryptoMode::VerifyMac) {
+                    BackendError::MacInput
+                } else if form.scope.mode == CryptoMode::Hkdf {
                     BackendError::HkdfInput
                 } else {
                     BackendError::KeyOperationInput
@@ -300,6 +316,12 @@ impl UiState {
             .picked_input
             .unwrap_or_else(|| PathBuf::from(form.input));
         let job = match form.scope.mode {
+            CryptoMode::Mac | CryptoMode::VerifyMac => KeyJob::Cmac {
+                input,
+                tag: form
+                    .picked_output
+                    .unwrap_or_else(|| PathBuf::from(form.output)),
+            },
             CryptoMode::Hkdf => KeyJob::Hkdf(hkdf_job?),
             CryptoMode::Wrap => KeyJob::Wrap {
                 algorithm: form.wrap_algorithm,

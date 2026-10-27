@@ -12,6 +12,7 @@ pub use administration::{AdministrationAction, AdministrationKind};
 mod authentication;
 mod browse;
 mod cipher;
+mod cmac;
 mod hkdf;
 mod kem;
 pub use hkdf::HkdfJob;
@@ -346,6 +347,8 @@ pub enum BackendError {
     ContextRequired,
     CryptoRead,
     SignatureMismatch,
+    MacMismatch,
+    MacInput,
     Start,
     Busy,
     Disconnected,
@@ -421,6 +424,10 @@ impl BackendError {
             }
             Self::CryptoRead => {
                 "Could not read the selected files. Message files are limited to 16 MiB and signatures to 16 KiB."
+            }
+            Self::MacMismatch => "The AES-CMAC tag does not match this key and message.",
+            Self::MacInput => {
+                "Select a message up to 16 MiB and a full 16-byte tag file. Generation needs a new output path."
             }
             Self::SignatureMismatch => {
                 "The signature is invalid for this certificate, input and parameters."

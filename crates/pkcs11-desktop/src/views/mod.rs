@@ -9,4 +9,5 @@ mod operations;
 mod token;
 pub mod welcome;
 
+mod cmac;
 pub mod hkdf;

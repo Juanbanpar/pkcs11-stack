@@ -92,13 +92,15 @@ secrets on P-256/P-384/P-521. Explicit ANSI X9.63 and NIST SP 800-56A SHA-2
 KDFs can instead produce AES keys or generic derivation secrets; AES key
 wrapping and unwrapping support explicit AES-KW (RFC 3394) and AES-KWP (RFC 5649).
 Runtime and client generate derivation-only EC pairs and AES keys restricted to
-encryption/decryption or wrapping/unwrapping. A shared client capability query
+encryption/decryption, wrapping/unwrapping or AES-CMAC authentication. A shared client capability query
 reports generation choices for the CLI and GUI. Both expose ECDH and AES
 generation with explicit purposes.
 AES-GCM is available through the libraries, CLI and desktop with 12-byte
 caller-managed nonces, full 16-byte tags and authenticated, zeroizing plaintext
 output. File workflows use raw ciphertext followed by the tag, with a separate
 nonce and optional AAD file. Plaintext is limited to 16 MiB.
+Full-tag AES-CMAC generation and native verification use dedicated sensitive,
+nonextractable authentication keys through the libraries, CLI and desktop.
 Private-key import is not implemented. Certificate parsing and binding do not validate
 certificate trust; applications configure trust separately.
 

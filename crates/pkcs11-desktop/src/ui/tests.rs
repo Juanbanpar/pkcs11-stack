@@ -1617,3 +1617,42 @@ fn public_import_form_accepts_keyboard_input_and_explicit_purpose() {
     assert!(app.state.management.public_key.path.is_empty());
     assert!(app.state.management.ml_kem_path.is_empty());
 }
+
+#[test]
+fn cmac_forms_accept_files_without_signature_or_cipher_parameters() {
+    fn initial() -> UiState {
+        use crate::backend::{BackendCommand, BackendEvent, BackendResult, CryptoMode, KeyProfile};
+        let mut state = populated_state();
+        state.token_page = TokenPage::Objects;
+        state.selected_object = Some(ResourceId(6));
+        state.object_details.as_mut().unwrap().key_type = Some(pkcs11_client::KeyType::AES);
+        let BackendCommand::CryptoOptions { id, scope, .. } =
+            state.open_key_operation(CryptoMode::Mac).unwrap()
+        else {
+            panic!("MAC options")
+        };
+        state.event(BackendEvent::Completed {
+            id,
+            result: Ok(BackendResult::KeyOptions {
+                scope,
+                profile: KeyProfile::AesCmac(pkcs11_client::AesCmacCapabilities {
+                    key_size: pkcs11_client::AesKeySize::Bits256,
+                }),
+            }),
+        });
+        state
+    }
+    let mut app = run_focused(
+        initial,
+        &["type \"message.bin\""],
+        Some("input-Message file (up to 16 MiB)"),
+    );
+    assert_eq!(app.state.key_form.as_ref().unwrap().input, "message.bin");
+    for dark in [false, true] {
+        render_screen(&app.state, "aes-cmac-create", 1060, 900, dark);
+    }
+    app.state.key_form.as_mut().unwrap().scope.mode = crate::backend::CryptoMode::VerifyMac;
+    for dark in [false, true] {
+        render_screen(&app.state, "aes-cmac-verify", 1060, 900, dark);
+    }
+}

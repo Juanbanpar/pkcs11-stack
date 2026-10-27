@@ -75,7 +75,7 @@ capability query to offer RSA/EC and ML-DSA-44/65/87 signing pairs,
 ML-KEM-512/768/1024 encapsulation/decapsulation pairs, P-256/P-384/P-521 ECDH pairs
 and AES-128/192/256 keys. Unsupported choices are omitted. Each choice names its
 purpose. ECDH private keys permit only derivation; AES keys permit either
-encryption/decryption or wrapping/unwrapping.
+encryption/decryption, wrapping/unwrapping or AES-CMAC authentication.
 Private and secret keys are sensitive and nonextractable. Per-operation
 authentication is available for signing and RSA decryption keys; the control
 clears when a purpose without that support is selected. A provider may reject an advertised choice or template; operations
@@ -423,3 +423,18 @@ This application is available under either [MIT](../../LICENSE-MIT) or
 RSA and EC public-key objects offer **Verify on token**. Choices come from native
 verification permissions and capabilities; software hashing requires the form's
 explicit opt-in. Certificate objects retain their software verification workflow.
+
+## AES-CMAC
+
+Generate an AES key with the **AES-CMAC authentication** purpose, then select the
+secret on **Objects** and choose **Create AES-CMAC** or **Verify AES-CMAC**. The
+key must be sensitive and nonextractable, with the appropriate signing or
+verification permission. Generated authentication keys permit only CKM_AES_CMAC.
+USER login is required; these operations also work on write-protected tokens.
+
+Select a message file (empty through 16 MiB) and a new tag output file for creation,
+or an existing raw 16-byte tag for verification. The worker rechecks capabilities
+and writes a generated tag after checked session closure. Existing outputs are
+preserved. A mismatch is reported separately from a provider failure. No key value,
+truncated tag or software MAC is exposed. A shared-key MAC does not identify an
+individual signer.

@@ -184,6 +184,24 @@ pub fn detail(state: &UiState) -> Element<'_, Message> {
         Some(ObjectClass::SECRET_KEY) if kind == Some(KeyType::AES) => {
             actions = actions
                 .push(
+                    button("Create AES-CMAC…")
+                        .width(Length::Fill)
+                        .on_press_maybe(
+                            state
+                                .can_open_key_operation(CryptoMode::Mac)
+                                .then_some(Message::OpenKeyOperation(CryptoMode::Mac)),
+                        ),
+                )
+                .push(
+                    button("Verify AES-CMAC…")
+                        .width(Length::Fill)
+                        .on_press_maybe(
+                            state
+                                .can_open_key_operation(CryptoMode::VerifyMac)
+                                .then_some(Message::OpenKeyOperation(CryptoMode::VerifyMac)),
+                        ),
+                )
+                .push(
                     button("Encrypt AES-GCM…")
                         .width(Length::Fill)
                         .on_press_maybe(

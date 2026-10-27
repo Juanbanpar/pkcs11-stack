@@ -16,6 +16,7 @@ use std::{
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum KeyProfile {
+    AesCmac(pkcs11_client::AesCmacCapabilities),
     AesWrapping(AesKeyWrapCapabilities),
     Hkdf(pkcs11_client::HkdfCapabilities),
     Classical(KeyOperationProfile),
@@ -25,7 +26,8 @@ impl KeyProfile {
     pub fn supports(self, mode: CryptoMode) -> bool {
         matches!(
             (self, mode),
-            (Self::Hkdf(_), CryptoMode::Hkdf)
+            (Self::AesCmac(_), CryptoMode::Mac | CryptoMode::VerifyMac)
+                | (Self::Hkdf(_), CryptoMode::Hkdf)
                 | (
                     Self::Classical(KeyOperationProfile::EcdhRaw(_)),
                     CryptoMode::Derive
@@ -53,6 +55,10 @@ impl Default for EcdhParameters {
     }
 }
 pub enum KeyJob {
+    Cmac {
+        input: PathBuf,
+        tag: PathBuf,
+    },
     Hkdf(super::HkdfJob),
     Encapsulate {
         output: PathBuf,
@@ -109,7 +115,9 @@ impl Registry {
     ) -> Result<(usize, pkcs11_client::Pkcs11Uri, pkcs11_client::ObjectRef), BackendError> {
         if !matches!(
             scope.mode,
-            CryptoMode::Hkdf
+            CryptoMode::Mac
+                | CryptoMode::VerifyMac
+                | CryptoMode::Hkdf
                 | CryptoMode::Derive
                 | CryptoMode::Wrap
                 | CryptoMode::Unwrap
@@ -127,7 +135,10 @@ impl Registry {
             .find(|entry| entry.id == scope.token)
             .ok_or(BackendError::UnknownToken)?;
         if token.login != LoginState::User
-            || (scope.mode != CryptoMode::Wrap && !token.can_manage())
+            || (!matches!(
+                scope.mode,
+                CryptoMode::Wrap | CryptoMode::Mac | CryptoMode::VerifyMac
+            ) && !token.can_manage())
             || !module.authentication.iter().any(|(id, session)| {
                 *id == scope.token
                     && matches!(
@@ -145,7 +156,12 @@ impl Registry {
         let (index, uri, reference) = self.key_location(scope)?;
         let module = &self.modules[index];
         let profile = read_session(module, &uri, module.read_mode(scope.token)?, |session| {
-            if scope.mode == CryptoMode::Hkdf {
+            if matches!(scope.mode, CryptoMode::Mac | CryptoMode::VerifyMac) {
+                session
+                    .aes_cmac_capabilities(&reference, super::cmac::operation(scope.mode)?)
+                    .map(KeyProfile::AesCmac)
+                    .map_err(|e| BackendError::from(&e))
+            } else if scope.mode == CryptoMode::Hkdf {
                 let choices = session
                     .hkdf_options(&reference)
                     .map_err(|e| BackendError::from(&e))?;
@@ -189,6 +205,7 @@ impl Registry {
             _ => None,
         };
         match selected {
+            KeyProfile::AesCmac(profile) => return self.cmac_action(scope, profile, job),
             KeyProfile::AesWrapping(caps) if !algorithm.is_some_and(|a| caps.supports(a)) => {
                 return Err(BackendError::KeyOperationUnavailable);
             }

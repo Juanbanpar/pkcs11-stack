@@ -17,6 +17,8 @@ use std::{
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CryptoMode {
+    Mac,
+    VerifyMac,
     Hkdf,
     Encapsulate,
     Decapsulate,
@@ -328,7 +330,9 @@ impl Registry {
         software_hashing: bool,
     ) -> Result<BackendResult, BackendError> {
         let (options, context) = match scope.mode {
-            CryptoMode::Hkdf
+            CryptoMode::Mac
+            | CryptoMode::VerifyMac
+            | CryptoMode::Hkdf
             | CryptoMode::Derive
             | CryptoMode::Wrap
             | CryptoMode::Unwrap
