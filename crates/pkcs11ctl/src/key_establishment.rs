@@ -11,6 +11,16 @@ use pkcs11_client::{
 };
 use serde_json::{Value, json};
 
+fn hkdf_mode(m: &ArgMatches) -> Result<pkcs11_client::HkdfMode> {
+    use pkcs11_client::HkdfMode;
+    match get(m, "mode") {
+        None | Some("extract-and-expand") => Ok(HkdfMode::ExtractAndExpand),
+        Some("extract") => Ok(HkdfMode::ExtractOnly),
+        Some("expand") => Ok(HkdfMode::ExpandOnly),
+        _ => Err(usage("unsupported HKDF mode")),
+    }
+}
+
 pub(crate) fn parameter(value: Option<&str>) -> Option<MlKemParameterSet> {
     match value {
         Some("ml-kem-512") => Some(MlKemParameterSet::MlKem512),
@@ -225,7 +235,9 @@ impl Inputs {
                     .validate_hybrid()
                     .map_err(pkcs11_client::Error::from)?;
             } else {
-                request.validate().map_err(pkcs11_client::Error::from)?;
+                request
+                    .validate_for_mode(hkdf_mode(m)?)
+                    .map_err(pkcs11_client::Error::from)?;
             }
         }
         Ok(inputs)
@@ -276,9 +288,9 @@ pub(crate) fn operation(
                     &request,
                 )?;
             } else {
-                session.derive_hkdf(&reference, &request)?;
+                session.derive_hkdf_with_mode(&reference, &request, hkdf_mode(m)?)?;
             }
-            json!({"derived":true,"id_hex":hex(&id),"kind":need(m,"kind")?,"length":request.output.length(),"extractable":false})
+            json!({"derived":true,"id_hex":hex(&id),"kind":need(m,"kind")?,"length":request.output.length(),"extractable":false,"mode":get(m,"mode").unwrap_or("extract-and-expand")})
         }
         _ => return Err(usage("unknown key establishment command")),
     };

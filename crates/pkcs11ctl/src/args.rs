@@ -530,7 +530,15 @@ pub(crate) fn command() -> Command {
         ))),
         mutation(auth(named(hkdf_options(object(
             Command::new("derive-hkdf")
-                .about("Derive a persistent nonextractable token key using HKDF"),
+                .about("Derive a persistent nonextractable token key using HKDF")
+                .arg(
+                    value(
+                        "mode",
+                        "HKDF stage; extract requires a hash-length derivation-secret output",
+                    )
+                    .value_parser(["extract-and-expand", "extract", "expand"])
+                    .default_value("extract-and-expand"),
+                ),
         ))))),
         mutation(auth(named(hybrid_options(object(
             Command::new("derive-hybrid")

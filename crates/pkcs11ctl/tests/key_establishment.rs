@@ -454,3 +454,168 @@ fn cli_ecdh_explicit_kdf_outputs_and_p521_hkdf_chain() {
         "--confirm",
     ]);
 }
+
+#[test]
+#[ignore = "requires tools/test-kem-hkdf.sh disposable Kryoptic store"]
+fn cli_hkdf_extract_expand_matches_default_combined_operation() {
+    assert_eq!(
+        std::env::var("PKCS11_TEST_KDF_ISOLATED").as_deref(),
+        Ok("1")
+    );
+    let root =
+        PathBuf::from(std::env::var_os("PKCS11_TEST_KDF_DIR").unwrap()).join("cli-hkdf-stages");
+    std::fs::create_dir(&root).unwrap();
+    let pin = root.join("user.pin").to_str().unwrap().to_owned();
+    std::fs::write(&pin, b"12345678\n").unwrap();
+    let f = Fixture {
+        module: std::env::var("PKCS11_TEST_KDF_MODULE").unwrap(),
+        root,
+        pin,
+    };
+    let salt = f.path("salt");
+    let info = f.path("info");
+    let plaintext = f.path("plain");
+    std::fs::write(&salt, b"\0CLI salt\xff").unwrap();
+    std::fs::write(&info, b"CLI stage context").unwrap();
+    std::fs::write(&plaintext, b"CLI staged agreement").unwrap();
+    for (index, (digest, length)) in [("sha256", "32"), ("sha384", "48"), ("sha512", "64")]
+        .into_iter()
+        .enumerate()
+    {
+        let base = format!("pkcs11:token=kdf-test;id=%A0%{index:02X};type=secret-key");
+        let uri =
+            |case| format!("pkcs11:token=kdf-test;id=%EA%{index:02X}%{case:02X};type=secret-key");
+        let extract_id = format!("ea{index:02x}00");
+        let args = [
+            "derive-hkdf",
+            "--object",
+            &base,
+            "--digest",
+            digest,
+            "--mode",
+            "extract",
+            "--kind",
+            "derivation-secret",
+            "--length",
+            length,
+            "--salt-file",
+            &salt,
+            "--id",
+            &extract_id,
+            "--label",
+            "CLI PRK",
+            "--pin-file",
+            &f.pin,
+            "--confirm",
+        ];
+        let result = f.ok(&args);
+        assert_eq!(result["mode"], "extract");
+        assert_eq!(result["extractable"], false);
+        f.fail(&args, 2);
+        let prk = uri(0);
+        let export = f.path(&format!("prk-{index}"));
+        f.fail(
+            &[
+                "export",
+                "--object",
+                &prk,
+                "--output",
+                &export,
+                "--pin-file",
+                &f.pin,
+            ],
+            2,
+        );
+        assert!(!PathBuf::from(export).exists());
+        let expand_id = format!("ea{index:02x}01");
+        assert_eq!(
+            f.ok(&[
+                "derive-hkdf",
+                "--object",
+                &prk,
+                "--digest",
+                digest,
+                "--mode",
+                "expand",
+                "--kind",
+                "aes256",
+                "--info-file",
+                &info,
+                "--id",
+                &expand_id,
+                "--label",
+                "CLI expanded AES",
+                "--pin-file",
+                &f.pin,
+                "--confirm"
+            ])["mode"],
+            "expand"
+        );
+        let combined_id = format!("ea{index:02x}02");
+        assert_eq!(
+            f.ok(&[
+                "derive-hkdf",
+                "--object",
+                &base,
+                "--digest",
+                digest,
+                "--kind",
+                "aes256",
+                "--salt-file",
+                &salt,
+                "--info-file",
+                &info,
+                "--id",
+                &combined_id,
+                "--label",
+                "CLI combined AES",
+                "--pin-file",
+                &f.pin,
+                "--confirm"
+            ])["mode"],
+            "extract-and-expand"
+        );
+        let ciphertext = f.path(&format!("cipher-{index}"));
+        let recovered = f.path(&format!("recovered-{index}"));
+        let expanded = uri(1);
+        let combined = uri(2);
+        let nonce = format!("{index:02x}").repeat(12);
+        f.ok(&[
+            "encrypt-aes-gcm",
+            "--object",
+            &expanded,
+            "--nonce",
+            &nonce,
+            "--input",
+            &plaintext,
+            "--output",
+            &ciphertext,
+            "--pin-file",
+            &f.pin,
+        ]);
+        f.ok(&[
+            "decrypt-aes-gcm",
+            "--object",
+            &combined,
+            "--nonce",
+            &nonce,
+            "--input",
+            &ciphertext,
+            "--output",
+            &recovered,
+            "--pin-file",
+            &f.pin,
+        ]);
+        assert_eq!(std::fs::read(recovered).unwrap(), b"CLI staged agreement");
+        for target in [&prk, &expanded, &combined] {
+            f.ok(&[
+                "delete",
+                "--object",
+                target,
+                "--pin-file",
+                &f.pin,
+                "--confirm",
+            ]);
+        }
+    }
+}

@@ -225,13 +225,20 @@ derivation enabled. They require new secret IDs; existing IDs are rejected.
 selected key profile without creating a secret.
 
 `hkdf-capabilities --object URI --digest sha256|sha384|sha512` checks the base-key
-profile. `derive-hkdf` runs token-side extract-and-expand; the generic/HKDF base
+profile. `derive-hkdf` defaults to `--mode extract-and-expand`; the generic/HKDF base
 must be sensitive, nonextractable, permit derivation and match the hash length.
 ML-KEM secrets use SHA-256. `--kind aes128|aes192|aes256` creates encryption/decryption
 keys; `--kind derivation-secret --length N` creates a generic derivation key.
 Outputs remain private, sensitive and nonextractable. Salt/context files contain
 public bytes and are bounded to 4096 bytes each. Omitted salt means zero salt;
 omitted context is allowed for single-input HKDF. File paths must not be `-`.
+
+`--mode extract` requires `--kind derivation-secret --length 32|48|64` matching
+the digest, and empty context. It creates a derivation-only PRK. Select that
+secret in a later `--mode expand` command, supplying context and the desired
+output profile, with empty salt. The caller must establish the PRK's origin;
+key metadata cannot prove it. Nonempty parameters for a disabled stage are
+rejected. JSON derivation results include the selected `mode`.
 
 `derive-hybrid --object CLASSICAL --post-quantum PQ --digest sha512` combines a
 P-256 ECDH secret followed by an ML-KEM-768 secret using token-side concatenation

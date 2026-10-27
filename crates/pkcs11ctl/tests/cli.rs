@@ -1545,3 +1545,48 @@ fn public_key_import_rejects_invalid_spki_purpose_and_identity_before_loading() 
     ]);
     assert_eq!(output.status.code(), Some(2));
 }
+
+#[test]
+fn hkdf_stages_reject_inapplicable_parameters_before_loading() {
+    let scratch = Scratch::new();
+    let public_input = scratch.0.join("public");
+    std::fs::write(&public_input, b"public context or salt").unwrap();
+    let public_input = public_input.to_str().unwrap();
+    for (mode, kind, extra) in [
+        ("extract", "aes256", vec![]),
+        ("extract", "derivation-secret", vec!["--length", "31"]),
+        ("extract", "derivation-secret", vec!["--length", "33"]),
+        (
+            "extract",
+            "derivation-secret",
+            vec!["--length", "32", "--info-file", public_input],
+        ),
+        ("expand", "aes256", vec!["--salt-file", public_input]),
+        ("invalid", "aes256", vec![]),
+    ] {
+        let mut args = vec![
+            "--module",
+            "/missing",
+            "--format",
+            "json",
+            "derive-hkdf",
+            "--object",
+            "pkcs11:token=test;id=%01;type=secret-key",
+            "--digest",
+            "sha256",
+            "--mode",
+            mode,
+            "--kind",
+            kind,
+            "--id",
+            "02",
+            "--label",
+            "new key",
+            "--confirm",
+        ];
+        args.extend(extra);
+        let output = run(&args);
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+    }
+}
