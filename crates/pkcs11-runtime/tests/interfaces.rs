@@ -788,3 +788,64 @@ fn general_hmac_generation_restricts_mechanism_permissions_and_key_length() {
         module.finalize().unwrap();
     }
 }
+
+#[test]
+fn validation_vendor_uri_decodes_through_legacy_tables_without_losing_availability() {
+    use pkcs11_runtime::{Attribute, AttributeInfo, AttributeType, Error, ObjectRef, SessionMode};
+    for fault in 0..=4 {
+        let fixture = Fixture::from_source("validation_metadata.c", V::V3_2, fault, false);
+        let module = fixture.load(InterfaceSelection::Exact(V::V2_40)).unwrap();
+        let token = module
+            .resolve_token_uri(&"pkcs11:token=cmac".parse().unwrap())
+            .unwrap();
+        let key =
+            ObjectRef::new("pkcs11:token=cmac;id=%01;type=secret-key".parse().unwrap()).unwrap();
+        let mut session = token.open_session(SessionMode::ReadOnly).unwrap();
+        {
+            let object = session.resolve(&key).unwrap();
+            let status = object.attribute_info(&[AttributeType::ValidationVendorUri]);
+            match fault {
+                0 | 1 => {
+                    let expected = if fault == 0 {
+                        b"https://vendor.example/validation".to_vec()
+                    } else {
+                        vec![]
+                    };
+                    assert!(
+                        matches!(status.unwrap().as_slice(), [AttributeInfo::Available(length)] if *length == expected.len())
+                    );
+                    let values = object
+                        .read_attributes(&[AttributeType::ValidationVendorUri])
+                        .unwrap();
+                    assert_eq!(
+                        values.expose_values(),
+                        &[Attribute::ValidationVendorUri(expected)]
+                    );
+                }
+                2 | 3 => {
+                    let status = status.unwrap();
+                    assert!(matches!(
+                        (fault, status.as_slice()),
+                        (2, [AttributeInfo::TypeInvalid]) | (3, [AttributeInfo::Sensitive])
+                    ));
+                    let values = object
+                        .read_attributes(&[
+                            AttributeType::ValidationVendorUri,
+                            AttributeType::Label,
+                        ])
+                        .unwrap();
+                    assert_eq!(values.expose_values(), &[Attribute::Label(vec![])]);
+                }
+                _ => assert!(status.is_err()),
+            }
+        }
+        if fault == 4 {
+            assert!(matches!(session.info(), Err(Error::Closed)));
+        } else {
+            session.info().unwrap();
+        }
+        session.close().unwrap();
+        drop(token);
+        module.finalize().unwrap();
+    }
+}

@@ -629,6 +629,7 @@ impl TryFrom<CK_ATTRIBUTE_TYPE> for AttributeType {
                 Ok(AttributeType::ValidationCertificateIdentifier)
             }
             CKA_VALIDATION_CERTIFICATE_URI => Ok(AttributeType::ValidationCertificateUri),
+            CKA_VALIDATION_VENDOR_URI => Ok(AttributeType::ValidationVendorUri),
             CKA_VALIDATION_PROFILE => Ok(AttributeType::ValidationProfile),
             CKA_VALUE => Ok(AttributeType::Value),
             CKA_VALUE_LEN => Ok(AttributeType::ValueLen),

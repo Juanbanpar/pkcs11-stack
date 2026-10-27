@@ -64,3 +64,28 @@ fn hmac_key_types_preserve_distinct_standard_ids() {
         assert_eq!(KeyType::try_from(raw).unwrap(), key_type);
     }
 }
+
+#[test]
+fn newer_metadata_attribute_ids_round_trip() {
+    use pkcs11_runtime::AttributeType;
+    for (kind, raw) in [
+        (AttributeType::UniqueId, 0x0004),
+        (AttributeType::PublicKeyInfo, 0x0129),
+        (AttributeType::ProfileId, 0x0601),
+        (AttributeType::ObjectValidationFlags, 0x061E),
+        (AttributeType::ValidationType, 0x061F),
+        (AttributeType::ValidationVersion, 0x0620),
+        (AttributeType::ValidationLevel, 0x0621),
+        (AttributeType::ValidationModuleId, 0x0622),
+        (AttributeType::ValidationFlag, 0x0623),
+        (AttributeType::ValidationAuthorityType, 0x0624),
+        (AttributeType::ValidationCountry, 0x0625),
+        (AttributeType::ValidationCertificateIdentifier, 0x0626),
+        (AttributeType::ValidationCertificateUri, 0x0627),
+        (AttributeType::ValidationVendorUri, 0x0628),
+        (AttributeType::ValidationProfile, 0x0629),
+    ] {
+        assert_eq!(*cryptoki::types::Ulong::new(kind.into()), raw);
+        assert_eq!(AttributeType::try_from(raw).unwrap(), kind);
+    }
+}

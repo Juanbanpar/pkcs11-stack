@@ -9,6 +9,9 @@ Published crate SHA-256:
 
 Local changes:
 
+- `src/object.rs`: decode `CKA_VALIDATION_VENDOR_URI` as its named attribute
+  type, matching its existing encoding and byte-value representation.
+
 - `src/mechanism/mod.rs`, `src/object.rs`: add parameterless full-tag
   SHA-512/224, SHA-512/256 and SHA3-224/256/384/512 HMAC mechanisms,
   matching key types and metadata names.
