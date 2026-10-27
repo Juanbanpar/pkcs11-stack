@@ -50,11 +50,11 @@ or formal conformance. Coverage is recorded per capability below.
 | Native RSA/ECDSA verification | Implemented | Runtime/client; CLI `verify-token`; desktop public-key verification. Provider tests check signature/digest profiles, permission/allow-list rejection, mismatches and session reuse; OpenSSL independently verifies the test signatures. |
 | Context-authenticated RSA-OAEP decryption | Implemented | Runtime/client; CLI OAEP commands; desktop context credentials. OpenSSL interoperability runs on the required SHA-2 OAEP provider lane. Failed RSA-OAEP and AES-GCM plaintext buffers zeroize. |
 | Fixed-output SHA-2/SHA-3 token digests | Implemented | Runtime single-part/multipart, client reader, CLI and desktop file hashing. OpenSSL comparisons cover ten hashes; native fixtures exercise flags, missing pointers, bounded output and failure/discard paths. Reader tests cover interruption, bounds and read failure. |
-| Remaining operation expansion, metadata compatibility and explicit legacy policy | Pending | Existing restrictions remain in force. |
+| Remaining operation expansion, metadata compatibility and explicit legacy policy | Pending | Classified function inventory O1–O17 and metadata/legacy tasks M1–M3/L1 below define scope, dependencies and acceptance tests. |
 | Encryption-purpose RSA generation | Implemented | Runtime/client/CLI/desktop; key permissions, size/identity bounds, duplicate IDs, RO rejection, export policy and OAEP use of generated keys. |
 | Explicit SHA-2 OAEP/MGF1 digests and binary labels | Implemented | Runtime/client/CLI/desktop; all nine digest combinations interoperate with OpenSSL through 2.40. Tests cover empty/binary/bounded labels, plaintext limits, mismatches, context authentication and output preservation. |
 | Validated RSA/EC public-key import | Implemented | Client validation and runtime component templates; CLI/desktop explicit purpose. Tests cover all three curves, RSA verification/encryption, malformed/restricted inputs, permissions, duplicate IDs, RO rejection, normalization and unchanged same-ID private keys through the 2.40 interface. |
-| Remaining classical algorithm expansion | Pending | Existing signature/digest profiles remain unchanged. |
+| Remaining classical algorithm expansion | Pending | Tasks C1–C5 below distinguish SHA-224/SHA-3 signatures, EdDSA and deferred agreement/algorithm profiles. Existing profiles remain unchanged. |
 | Explicit ECDH SHA-2 KDFs and output purposes | Implemented | Runtime/client/CLI/desktop; Kryoptic tests cover ANSI X9.63 and SP 800-56A SHA-256/384/512, all three curves, AES output and 64-byte generic output followed by HKDF. OpenSSL supplies independent ECDH/HKDF calculations. |
 | HKDF extract-only and expand-only | Implemented | Runtime/client/CLI/desktop; SHA-256/384/512, hash-length derivation-only PRKs, explicit stages and rejected disabled parameters. Existing calls still extract and expand. OpenSSL checks each stage; client/CLI/desktop compare separate and combined derivation. |
 | HKDF token-held salt keys | Implemented | Runtime/client/CLI/desktop; extraction and combined derivation use native CKF_HKDF_SALT_KEY, same-session resolution and sensitive, nonextractable generic/HKDF salt keys of 1–4096 bytes with derivation permission. Kryoptic outputs match OpenSSL for all three hashes and short/hash-length/long salts. Client/CLI/desktop compare token and byte salts. Native fixtures check exact fields without value reads, permissions, lengths and failed-session handling. |
@@ -70,6 +70,98 @@ The native fixtures require a C99 compiler (`cc`) on Unix and run with the norma
 runtime tests. They exercise independent function-table layouts and are not
 cryptographic provider tests. Windows builds compile the Rust interfaces; native
 fixture execution there is not covered by this runner.
+
+### Function inventory and operation acceptance tests
+
+This inventory covers all functions in the pinned [official headers](../crates/pkcs11-runtime/tests/fixtures/headers/README.md):
+68 in 2.40, 92 in both 3.0 and 3.1, and 104 in 3.2. Compare function contracts
+with [the 3.2 specification, section 5](https://docs.oasis-open.org/pkcs11/pkcs11-spec/v3.2/os/pkcs11-spec-v3.2-os.pdf).
+"Used" means at least one supported runtime workflow calls the function; it does
+not promise a generic wrapper, every mechanism, or provider conformance. Pointer
+presence and numeric mechanism recognition alone do not count as implementation.
+
+The 45 functions used by current workflows are:
+
+| Workflow | Functions | Implementation / evidence |
+| --- | --- | --- |
+| Lifecycle and interface selection | `C_Initialize`, `C_Finalize`, `C_GetInfo`, `C_GetFunctionList`, `C_GetInterface` | Runtime `module.rs`, binding `context/interface.rs`; `interfaces.rs` tests all four header layouts. |
+| Slot/token/mechanism discovery and initialization | `C_GetSlotList`, `C_GetSlotInfo`, `C_GetTokenInfo`, `C_GetMechanismList`, `C_GetMechanismInfo`, `C_InitToken` | Runtime `module.rs`; native mechanism comparisons and disposable-token administration tests. |
+| Owned sessions and authentication | `C_OpenSession`, `C_CloseSession`, `C_GetSessionInfo`, `C_Login`, `C_Logout`, `C_InitPIN`, `C_SetPIN` | Runtime `session.rs`, `administration.rs`, `pool.rs`; USER/SO/context roles, protected path, cleanup and identity tests. |
+| Object discovery, explicit reads and mutations | `C_CreateObject`, `C_DestroyObject`, `C_GetAttributeValue`, `C_SetAttributeValue`, `C_FindObjectsInit`, `C_FindObjects`, `C_FindObjectsFinal` | Runtime `session.rs`, `administration.rs`; client import/inspection and frontend stale-selection tests. |
+| Single-part encryption/decryption | `C_EncryptInit`, `C_Encrypt`, `C_DecryptInit`, `C_Decrypt` | OAEP and AES-GCM modules; OpenSSL comparisons, context login and failed-plaintext zeroization. |
+| Single/multipart public-data hashing | `C_DigestInit`, `C_Digest`, `C_DigestUpdate`, `C_DigestFinal` | Runtime `digest.rs`, client reader; native failure fixtures and OpenSSL comparisons. |
+| Single-part signatures/MACs | `C_SignInit`, `C_Sign`, `C_VerifyInit`, `C_Verify` | RSA/ECDSA, ML-DSA, HMAC and CMAC modules; permission, mismatch, context-login and output-bound tests. |
+| Selected generation, derivation and key transfer | `C_GenerateKey`, `C_GenerateKeyPair`, `C_DeriveKey`, `C_WrapKey`, `C_UnwrapKey` | Generation, ECDH/HKDF/SP800-108 and AES-KW/KWP modules; templates, duplicate IDs, RO rejection and provider comparisons. |
+| Provider random generation | `C_GenerateRandom` | Runtime `session.rs`, client `random.rs`; length, permission and unavailable-provider tests. |
+| ML-KEM | `C_EncapsulateKey`, `C_DecapsulateKey` | Runtime/client ML-KEM, CLI/desktop exchange; required Kryoptic lane. |
+
+The remaining 59 functions are classified below. **Planned** means a concrete
+extension to an existing workflow; **deferred** needs the stated use case or
+provider/design gate; **excluded** conflicts with the current application boundary.
+These are application scope decisions, not statements that OASIS forbids a function.
+Versions identify the earliest table in the supported range, not a mechanism's
+minimum usable provider interface.
+
+| ID / status | First table | Functions | Acceptance criteria or scope gate |
+| --- | --- | --- | --- |
+| O1 Planned: streaming signatures/MACs | 2.40 | `C_SignUpdate`, `C_SignFinal`, `C_VerifyUpdate`, `C_VerifyFinal` | Exclusive borrowed operation guard; context login after init; bounded readers/output; independent provider agreement across chunk boundaries and empty input. Inject read/update/final/drop failures; discard incomplete sessions and retain reusable completed mismatches. Preserve existing single-part APIs. |
+| O2 Planned: streaming encryption | 2.40 | `C_EncryptUpdate`, `C_EncryptFinal`, `C_DecryptUpdate`, `C_DecryptFinal` | Start with a real supported multipart mechanism. Define bounded output and authenticated-decryption commit behavior before exposing file streaming. Test split tags, empty chunks, final authentication failure, zeroization and unchanged destination on failed verification; no unauthenticated plaintext release. |
+| O3 Planned: explicit cancellation | 3.0 | `C_SessionCancel` | Exact native flags and pointer/version checks; fixture-test successful cancel, unsupported stub and failure. Only a confirmed termination may permit reuse. Legacy interfaces keep the existing close/discard behavior; no retry or substitution with legacy cancellation. |
+| O4 Planned: named-user login | 3.0 | `C_LoginUser` | Explicit username/role/PIN input, redacted diagnostics, protected-path and token-wide authentication rules. Test wrong username/PIN, SO/RO conflicts and unavailable tables/pointers; no fallback to anonymous `C_Login` or second authentication attempt. |
+| O5 Planned: validation diagnostics | 3.2 | `C_GetSessionValidationFlags` | Preserve numeric flags, including unknown bits; distinguish unavailable from zero. Native fixtures cover old tables, null pointers, unsupported stubs and provider errors. Present provider-reported state without claiming independent validation or certification. |
+| O6 Deferred: signature-first verification | 3.2 | `C_VerifySignatureInit`, `C_VerifySignature`, `C_VerifySignatureUpdate`, `C_VerifySignatureFinal` | Add with an algorithm/workflow needing the signature before message input. Verify exact argument order and lifetime, streaming mismatches and cancellation against independent 3.2 headers and an implementing provider; do not alias the older verification API. |
+| O7 Deferred: message-based AEAD | 3.0 | `C_MessageEncryptInit`, `C_EncryptMessage`, `C_EncryptMessageBegin`, `C_EncryptMessageNext`, `C_MessageEncryptFinal`, `C_MessageDecryptInit`, `C_DecryptMessage`, `C_DecryptMessageBegin`, `C_DecryptMessageNext`, `C_MessageDecryptFinal` | Agree on an explicit message/nonce/AAD contract and find a provider supporting it. Test multiple messages per initialization, distinct nonces, tag/output bounds, finalization, failure cleanup and authenticated output release. Existing single-part GCM remains independently supported. |
+| O8 Deferred: message-based signatures/MACs | 3.0 | `C_MessageSignInit`, `C_SignMessage`, `C_SignMessageBegin`, `C_SignMessageNext`, `C_MessageSignFinal`, `C_MessageVerifyInit`, `C_VerifyMessage`, `C_VerifyMessageBegin`, `C_VerifyMessageNext`, `C_MessageVerifyFinal` | Require a concrete batched-message use case and provider. Test per-message parameters/authentication, exact tag/signature lengths, mismatches, process finalization and stale-session rejection. |
+| O9 Deferred: authenticated key transfer | 3.2 | `C_WrapKeyAuthenticated`, `C_UnwrapKeyAuthenticated` | Define the supported AEAD wrapping profile and nonce/AAD transport. Native/provider tests must cover integrity failure, trust and wrapping templates, duplicate output IDs, output permissions and cleanup. Do not introduce private-key import implicitly. |
+| O10 Deferred: asynchronous sessions | 3.2 | `C_AsyncComplete`, `C_AsyncGetID`, `C_AsyncJoin` | Separate explicit async-session design retaining buffers/keys/module until completion or confirmed cancellation; test pending/completion/join races and shutdown. Current synchronous sessions do not request `CKF_ASYNC_SESSION`. |
+| O11 Deferred: interface/event diagnostics | 2.40 / 3.0 | `C_WaitForSlotEvent`, `C_GetInterfaceList` | Explicit diagnostic or hotplug requirement first. Test nonblocking no-event behavior, removal/reinsertion, identity revalidation and shutdown; interface enumeration must preserve unknown names/versions without interpreting their table layouts. |
+| O12 Deferred: additional object management | 2.40 | `C_CopyObject`, `C_GetObjectSize` | Copy needs an explicit object-class/template policy and new identity, with copyability, RO, permission non-escalation and duplicate-ID tests. Size reporting must distinguish unavailable from zero and not describe storage size as key strength. |
+| O13 Deferred: state serialization / combined pipelines | 2.40 | `C_GetOperationState`, `C_SetOperationState`, `C_DigestEncryptUpdate`, `C_DecryptDigestUpdate`, `C_SignEncryptUpdate`, `C_DecryptVerifyUpdate` | Require a real resumable/combined workflow and a design for potentially sensitive state, same-token key binding, exclusive ownership and both operation lifetimes. No generic state export or pipeline API is currently promised. |
+| O14 Deferred: signature recovery | 2.40 | `C_SignRecoverInit`, `C_SignRecover`, `C_VerifyRecoverInit`, `C_VerifyRecover` | Legacy-policy review and an actual interoperability requirement before adding recovery mechanisms; no implicit raw-RSA or deprecated-mechanism enablement. |
+| O15 Excluded: global session teardown | 2.40 | `C_CloseAllSessions` | Would close sessions outside the current owner/pool. Retain checked closure of owned sessions. |
+| O16 Excluded: secret digestion / host RNG seeding | 2.40 | `C_DigestKey`, `C_SeedRandom` | No workflow for publishing digests of token-held secrets or injecting host RNG seed material. Providers requiring seeding remain unsupported until an explicit entropy-source contract is designed. |
+| O17 Excluded: legacy parallel-function control | 2.40 | `C_GetFunctionStatus`, `C_CancelFunction` | No legacy parallel-function mode; neither is a replacement for session cancellation. |
+
+### Metadata and classical algorithm backlog
+
+The following tasks replace the broad operation/metadata and classical-algorithm
+entries above. Existing typed metadata reads are already available through
+`Object::read_attributes` and `ManagementSession::inspect`; missing frontend
+presentation is separate from missing binding support.
+
+| ID / priority | Concrete gap | Acceptance tests |
+| --- | --- | --- |
+| M1 Next | Unknown numeric object/key/certificate/validation type values can fail conversion and abort inspection. Mechanism IDs already survive this case; object classes and unknown standard-range key types do not. | Preserve numeric values for read-only inspection, including unknown standard/vendor values and platform-width maxima. An unfamiliar object must not suppress the rest of an object listing. Malformed scalar lengths and provider failures remain errors. Prove that signing, export/import and key operations still reject unsupported types; recognition must not grant execution. |
+| M2 After M1 | Shared public inspection of `CKA_UNIQUE_ID` (3.0), `CKA_PUBLIC_KEY_INFO` (2.40), profile objects/IDs (3.0), validation objects/attributes (3.2), and their frontend presentation. Bindings already name these fields. | Available/empty/sensitive/type-invalid values, bounded variable-length reads and malformed scalars/DER; opaque unknown IDs and flags. Query optional attributes independently of the selected table version to allow provider backports. Keep RFC 7512 object selectors and `CKA_ID` association semantics unchanged; never fetch URI values or interpret validation metadata as a trust decision. |
+| M3 Deferred | Nested array/template metadata, including wrapping/derivation templates, needs a bounded typed inspection contract. | Independent headers must verify array flags, element layout and length arithmetic; malformed/nested/provider-changing lengths must not become unbounded allocations. Preserve sensitive/invalid status without reading secret values. Native providers remain authoritative for operation templates. |
+| C1 After metadata | SHA-224 RSA PKCS#1 v1.5, RSA-PSS and ECDSA signing/verification, already defined in the 2.40 headers. | Exact 28-byte digest/DigestInfo/native IDs, explicit PSS MGF/salt, raw/prehashed and combined-token paths, context authentication, permissions and OpenSSL interoperability. Preserve existing defaults and TLS schemes. Do not implicitly widen OAEP/HKDF/ECDH profiles through the shared `DigestAlgorithm` type. |
+| C2 After C1 | SHA3-224/256/384/512 RSA PKCS#1 v1.5, RSA-PSS and ECDSA signing/verification (3.0). | Native header parameter/ID checks and independent OpenSSL verification; distinguish SHA-3 from equal-length SHA-2 digests, including PSS MGF values. Explicit hashing policy and frontend selection; unsupported profiles must fail without algorithm substitution. Recheck non-signature consumers of shared digest types. |
+| C3 After C2 | Pure Ed25519 and Ed448 with generation, public metadata/import/export, signatures, certificate binding and frontend choices (3.0 mechanisms). | RFC 8032/OpenSSL vectors, exact curve/public-key/signature encodings, key permissions, context authentication where advertised, mismatches and stale profiles. Model EdDSA independently of Weierstrass ECDSA and externally selected message hashes. Provider support must be demonstrated, not inferred from binding variants. |
+| C4 Deferred | EdDSA context/prehash variants; Montgomery X25519/X448 agreement; further ECDH KDFs and digest profiles. | Explicit per-variant parameter and input contracts, independent vectors and an implementing provider. Never emulate prehash EdDSA by signing a digest with the pure mechanism. Agreement needs public-input/noncontributory-key handling, protected outputs and HKDF interoperability without secret extraction. |
+| C5 Deferred | Other standard digests/MACs such as BLAKE2b or parameterized SHA-512/t, additional AEAD such as AES-CCM/ChaCha20-Poly1305, and additional RSA/EC key-transfer constructions. | Choose a concrete profile and provider before expanding the app. Specify output/nonce/AAD/key permissions and independent vectors. Token digest discovery alone does not prove a combined signature, KDF or TLS profile exists. |
+| L1 Planned policy review | Explicit legacy opt-in and an enumerated interoperability requirement for each legacy algorithm. Existing defaults remain restricted. | Default-deny tests across libraries/frontends, explicit requested operation/profile, no downgrade after provider rejection, and independent verification for every enabled legacy profile. Presence in an older standard is not itself a reason to enable an algorithm. |
+
+`validation_metadata.c` now exercises `CKA_VALIDATION_VENDOR_URI` through a
+legacy function table compiled with independent 3.2 headers. It checks present,
+empty, type-invalid and sensitive values plus provider-failure session health.
+`newer_metadata_attribute_ids_round_trip` covers the named public/profile/validation
+attribute IDs. The missing vendor-URI reverse conversion is fixed; broader M1/M2
+metadata work is still pending.
+
+Implementation order: **M1 → M2/O5 → C1 → C2 → C3**. Keep each addition in
+signed atomic runtime/client and frontend commits with native/provider evidence.
+Streaming O1/O2 follows an operation-lifetime design and O3 cancellation tests;
+keep unconfirmed operations discarded on legacy providers. GMAC, additional
+SP800-108 modes/PRFs, PBKDF2, HashML-DSA/SLH-DSA and TLS extensions remain separate
+backlog items in the coverage table. Provider gaps do not justify implicit software
+fallback or weakening existing metadata/permission checks.
+
+Completing any row requires meaningful negative/failure tests, the applicable
+independent-header/provider lane, existing-profile regressions, MSRV/format/lint
+checks and frontend stale-selection/output tests where a frontend is affected.
+Hardware interoperability, native Windows ABI execution and real-provider general
+HMAC key generation remain validation gaps, not completed features. This inventory
+is not an exhaustive mechanism-by-mechanism conformance claim.
 
 ## SoftHSM integration
 
