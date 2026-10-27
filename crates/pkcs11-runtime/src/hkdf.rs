@@ -116,6 +116,17 @@ impl HkdfRequest<'_> {
             _ => Ok(()),
         }
     }
+    /// Validate a token salt key selection without I/O. The byte salt must be
+    /// empty and extraction must be enabled; ignored or conflicting salts fail.
+    pub fn validate_with_salt_key(&self, mode: HkdfMode) -> Result<(), Error> {
+        self.validate_for_mode(mode)?;
+        if mode == HkdfMode::ExpandOnly || !self.salt.is_empty() {
+            return Err(Error::InvalidParameters(
+                "HKDF salt key requires extraction and empty byte salt",
+            ));
+        }
+        Ok(())
+    }
     /// Validate the default extract-and-expand profile without I/O.
     pub fn validate(&self) -> Result<(), Error> {
         validate_secret_identity(self.id, self.label)?;
@@ -243,7 +254,36 @@ impl Session<'_> {
         request: &HkdfRequest<'_>,
         mode: HkdfMode,
     ) -> Result<(), Error> {
-        request.validate_for_mode(mode)?;
+        self.derive_hkdf_inner(base, request, mode, None)
+    }
+    /// Extract with a persistent token salt key, optionally followed by expansion.
+    /// The request's byte salt must be empty; expand-only is rejected. Both keys
+    /// are freshly resolved in this session. This application accepts sensitive,
+    /// nonextractable generic/HKDF salt keys of 1..=4096 bytes, permitting derivation
+    /// and HKDF in CKA_ALLOWED_MECHANISMS. The salt need not be hash-length.
+    /// Requires RW mode. No key values, software fallback, retries or rollback;
+    /// failure may leave persistent output. Check closure before releasing results.
+    pub fn derive_hkdf_with_salt_key(
+        &mut self,
+        base: &ObjectRef,
+        salt_key: &ObjectRef,
+        request: &HkdfRequest<'_>,
+        mode: HkdfMode,
+    ) -> Result<(), Error> {
+        self.derive_hkdf_inner(base, request, mode, Some(salt_key))
+    }
+    fn derive_hkdf_inner(
+        &mut self,
+        base: &ObjectRef,
+        request: &HkdfRequest<'_>,
+        mode: HkdfMode,
+        salt_key: Option<&ObjectRef>,
+    ) -> Result<(), Error> {
+        if salt_key.is_some() {
+            request.validate_with_salt_key(mode)?;
+        } else {
+            request.validate_for_mode(mode)?;
+        }
         self.validate()?;
         if self.mode != SessionMode::ReadWrite {
             return Err(Error::ReadWriteRequired);
@@ -257,16 +297,31 @@ impl Session<'_> {
                 .try_into()
                 .map_err(|_| Error::InvalidParameters("HKDF output length"))?,
         ));
-        let object = self.resolve(base)?;
-        if capabilities(&object)?.digest != request.digest {
-            return Err(Error::UnsupportedKeyOperation);
-        }
+        let base_handle = {
+            let object = self.resolve(base)?;
+            if capabilities(&object)?.digest != request.digest {
+                return Err(Error::UnsupportedKeyOperation);
+            }
+            object.handle
+        };
+        let salt_handle = if let Some(reference) = salt_key {
+            let object = self.resolve(reference)?;
+            if !(1..=4096).contains(&secret_length(&object)?) {
+                return Err(Error::UnsupportedKeyOperation);
+            }
+            permits(&object, MechanismType::HKDF_DERIVE)?;
+            Some(object.handle)
+        } else {
+            None
+        };
         let hash = match request.digest {
             DigestAlgorithm::Sha256 => MechanismType::SHA256,
             DigestAlgorithm::Sha384 => MechanismType::SHA384,
             DigestAlgorithm::Sha512 => MechanismType::SHA512,
         };
-        let salt = if mode == HkdfMode::ExpandOnly {
+        let salt = if let Some(handle) = salt_handle {
+            Some(HkdfSalt::Key(handle))
+        } else if mode == HkdfMode::ExpandOnly {
             None
         } else if request.salt.is_empty() {
             Some(HkdfSalt::Null)
@@ -275,8 +330,8 @@ impl Session<'_> {
         };
         let info = (mode != HkdfMode::ExtractOnly).then_some(request.info);
         let mechanism = Mechanism::HkdfDerive(HkdfParams::new(hash, salt, info));
-        object.session.write_operation("derive HKDF key", |raw| {
-            raw.derive_key(&mechanism, object.handle, &template)
+        self.write_operation("derive HKDF key", |raw| {
+            raw.derive_key(&mechanism, base_handle, &template)
         })?;
         Ok(())
     }
@@ -284,6 +339,33 @@ impl Session<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn salt_keys_reject_disabled_or_conflicting_salts_without_io() {
+        let request = HkdfRequest {
+            digest: DigestAlgorithm::Sha256,
+            salt: &[],
+            info: &[],
+            output: HkdfOutput::DerivationSecret { length: 32 },
+            id: b"output",
+            label: b"output",
+        };
+        for mode in [HkdfMode::ExtractOnly, HkdfMode::ExtractAndExpand] {
+            request.validate_with_salt_key(mode).unwrap();
+            assert!(
+                HkdfRequest {
+                    salt: b"conflict",
+                    ..request
+                }
+                .validate_with_salt_key(mode)
+                .is_err()
+            );
+        }
+        assert!(
+            request
+                .validate_with_salt_key(HkdfMode::ExpandOnly)
+                .is_err()
+        );
+    }
     #[test]
     fn individual_stages_reject_ignored_inputs_and_non_prk_extraction_outputs() {
         for digest in [

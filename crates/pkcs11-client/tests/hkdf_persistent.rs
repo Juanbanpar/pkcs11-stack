@@ -460,3 +460,134 @@ fn client_ml_kem_to_hkdf_permissions_errors_and_cleanup() {
     ro.close().unwrap();
     provider.finalize().unwrap();
 }
+
+#[test]
+#[ignore = "requires tools/test-kem-hkdf.sh disposable Kryoptic store"]
+fn client_token_salt_keys_match_byte_salts_and_preserve_both_inputs() {
+    use pkcs11_client::{Error, HkdfMode};
+    assert_eq!(
+        std::env::var("PKCS11_TEST_KDF_ISOLATED").as_deref(),
+        Ok("1")
+    );
+    let provider = Provider::load(std::env::var_os("PKCS11_TEST_KDF_MODULE").unwrap()).unwrap();
+    let token = "pkcs11:token=kdf-test".parse().unwrap();
+    let pin = SecretString::from("12345678");
+    let mut session = provider
+        .management(
+            &token,
+            SessionMode::ReadWrite,
+            Authentication::User(Pin::Value(&pin)),
+        )
+        .unwrap();
+    for (index, digest) in [
+        DigestAlgorithm::Sha256,
+        DigestAlgorithm::Sha384,
+        DigestAlgorithm::Sha512,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let base = reference(&[0xA0, index as u8], "secret-key");
+        let salt_key = reference(&[0xF8, 0x53, index as u8, 1], "secret-key");
+        assert!(session.export_public(&salt_key).is_err());
+        let prk_id = [0xF8, 0x56, index as u8, 0];
+        let request = HkdfRequest {
+            digest,
+            salt: &[],
+            info: &[],
+            output: HkdfOutput::DerivationSecret {
+                length: digest.output_len(),
+            },
+            id: &prk_id,
+            label: b"client token salt PRK",
+        };
+        session
+            .derive_hkdf_with_salt_key(&base, &salt_key, &request, HkdfMode::ExtractOnly)
+            .unwrap();
+        let expanded_id = [0xF8, 0x56, index as u8, 1];
+        let expand = HkdfRequest {
+            digest,
+            salt: &[],
+            info: b"client salt-key proof",
+            output: HkdfOutput::Aes256,
+            id: &expanded_id,
+            label: b"client expanded token salt",
+        };
+        session
+            .derive_hkdf_with_mode(
+                &reference(&prk_id, "secret-key"),
+                &expand,
+                HkdfMode::ExpandOnly,
+            )
+            .unwrap();
+        let byte_id = [0xF8, 0x56, index as u8, 2];
+        session
+            .derive_hkdf(
+                &base,
+                &HkdfRequest {
+                    salt: &vec![0x0C; digest.output_len()],
+                    id: &byte_id,
+                    ..expand
+                },
+            )
+            .unwrap();
+        let key_id = [0xF8, 0x56, index as u8, 3];
+        let combined = HkdfRequest {
+            id: &key_id,
+            ..expand
+        };
+        session
+            .derive_hkdf_with_salt_key(&base, &salt_key, &combined, HkdfMode::ExtractAndExpand)
+            .unwrap();
+        assert!(matches!(
+            session.derive_hkdf_with_salt_key(&base, &salt_key, &combined, HkdfMode::ExpandOnly),
+            Err(Error::Runtime(pkcs11_runtime::Error::InvalidParameters(_)))
+        ));
+        let conflict = HkdfRequest {
+            salt: b"conflict",
+            ..combined
+        };
+        assert!(matches!(
+            session.derive_hkdf_with_salt_key(
+                &base,
+                &salt_key,
+                &conflict,
+                HkdfMode::ExtractAndExpand
+            ),
+            Err(Error::Runtime(pkcs11_runtime::Error::InvalidParameters(_)))
+        ));
+        session.state().unwrap();
+        let nonce = [index as u8; 12];
+        let encrypted = session
+            .encrypt_aes_gcm(
+                &reference(&expanded_id, "secret-key"),
+                &AesGcmEncryptRequest {
+                    nonce: &nonce,
+                    aad: b"salt-key proof",
+                    plaintext: b"matching salt inputs",
+                },
+            )
+            .unwrap();
+        for id in [&byte_id, &key_id] {
+            let result = session
+                .decrypt_aes_gcm(
+                    &reference(id, "secret-key"),
+                    &AesGcmDecryptRequest {
+                        nonce: &nonce,
+                        aad: b"salt-key proof",
+                        ciphertext: &encrypted,
+                    },
+                )
+                .unwrap();
+            assert_eq!(result.expose_secret(), b"matching salt inputs");
+        }
+        // Both inputs remain selectable with the same policy after all derivations.
+        session.hkdf_capabilities(&base, digest).unwrap();
+        session.hkdf_capabilities(&salt_key, digest).unwrap();
+        for id in [&prk_id, &expanded_id, &byte_id, &key_id] {
+            session.delete(&reference(id, "secret-key")).unwrap();
+        }
+    }
+    session.close().unwrap();
+    provider.finalize().unwrap();
+}

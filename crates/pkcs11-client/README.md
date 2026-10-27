@@ -716,6 +716,14 @@ empty `salt`. The caller must establish that an expansion base is a PRK;
 matching key metadata cannot prove its origin. Parameters for a disabled stage
 are rejected. The original `derive_hkdf` keeps extract-and-expand behavior.
 
+For a token-held salt, call
+`derive_hkdf_with_salt_key(base, salt_key, request, mode)` with empty byte `salt`.
+Extraction must be enabled. Both locators resolve in the same session. Salt keys
+must be sensitive, nonextractable generic/HKDF secrets of 1–4096 bytes with
+derivation permission and permitted HKDF use. They need not be hash-length.
+The salt stays on the token; its metadata is rechecked at execution. Conflicting
+salts and expand-only mode are rejected before native derivation.
+
 New keys are persistent private, sensitive and nonextractable. AES outputs permit
 only encryption/decryption; `HkdfOutput::DerivationSecret` permits only further
 derivation. IDs and labels are nonempty and at most 128 bytes. Salt/context are

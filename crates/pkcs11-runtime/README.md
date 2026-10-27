@@ -599,7 +599,14 @@ containing the PRK; nonempty context and other output profiles are rejected.
 Expansion requires empty salt and a caller-established PRK. Key type and length
 cannot prove PRK provenance. Neither stage reads key values or changes stages
 after a provider rejection. Both retain the same base-key requirements below.
-Salt-key inputs and HKDF data objects are not exposed.
+`derive_hkdf_with_salt_key(base, salt_key, request, mode)` supplies a token salt
+through `CKF_HKDF_SALT_KEY`. The byte salt must be empty and extraction enabled;
+conflicting salts and expand-only mode are rejected. Both references resolve
+freshly in the same session. This application accepts sensitive, nonextractable
+CKK_GENERIC_SECRET/CKK_HKDF salt keys of 1–4096 bytes with CKA_DERIVE and allowed
+HKDF use; unlike the base, the salt need not match the hash length. Salt values
+are never read. Missing/ambiguous selections and policy failures precede the
+native call. HKDF data objects are not exposed.
 
 `Session::hkdf_capabilities` checks secret class, generic/HKDF key type,
 CKA_DERIVE, allowed mechanisms, sensitivity, nonextractability and the provider's

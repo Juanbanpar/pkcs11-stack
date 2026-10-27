@@ -356,6 +356,182 @@ fn typed_hkdf_known_answers_policy_and_ml_kem_agreement() {
             ));
         }
     }
+    // Salt keys are separate persistent objects, not exported salt bytes.
+    for (index, digest) in [
+        DigestAlgorithm::Sha256,
+        DigestAlgorithm::Sha384,
+        DigestAlgorithm::Sha512,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        use pkcs11_runtime::HkdfMode;
+        let base = reference(&[0xA0, index as u8], "secret-key");
+        for (case, length) in [1, digest.output_len(), 200, 4096].into_iter().enumerate() {
+            let salt_id = [0xF8, 0x53, index as u8, case as u8];
+            let salt = vec![0x0C; length];
+            let mut attrs = base_template(&salt_id, length);
+            for attr in &mut attrs {
+                if let Attribute::Value(value) = attr {
+                    *value = salt.clone();
+                }
+                if case == 1 {
+                    if let Attribute::KeyType(kind) = attr {
+                        *kind = KeyType::HKDF;
+                    }
+                }
+            }
+            attrs.push(Attribute::AllowedMechanisms(vec![
+                pkcs11_runtime::MechanismType::HKDF_DERIVE,
+            ]));
+            session.create_object(&attrs).unwrap();
+            let salt_key = reference(&salt_id, "secret-key");
+            for (stage, mode) in [HkdfMode::ExtractOnly, HkdfMode::ExtractAndExpand]
+                .into_iter()
+                .enumerate()
+            {
+                let id = [0xF8, 0x55, index as u8, case as u8, stage as u8];
+                let request = HkdfRequest {
+                    digest,
+                    salt: &[],
+                    info: if mode == HkdfMode::ExtractOnly {
+                        &[]
+                    } else {
+                        b"salt key protocol"
+                    },
+                    output: if mode == HkdfMode::ExtractOnly {
+                        HkdfOutput::DerivationSecret {
+                            length: digest.output_len(),
+                        }
+                    } else {
+                        HkdfOutput::Aes256
+                    },
+                    id: &id,
+                    label: b"salt key result",
+                };
+                session
+                    .derive_hkdf_with_salt_key(&base, &salt_key, &request, mode)
+                    .unwrap();
+                inspect(&mut session, &id, request.output);
+                known_answers.push((
+                    id.to_vec(),
+                    request.output,
+                    public_expected_stage(digest, request.output, &salt, request.info, mode),
+                ));
+                assert!(matches!(
+                    session.derive_hkdf_with_salt_key(&base, &salt_key, &request, mode),
+                    Err(Error::InvalidParameters(_))
+                ));
+                let fresh = HkdfRequest {
+                    id: b"salt-invalid-output",
+                    ..request
+                };
+                for invalid in [
+                    HkdfRequest {
+                        salt: b"conflict",
+                        ..fresh
+                    },
+                    fresh,
+                ] {
+                    let mode = if invalid.salt.is_empty() {
+                        HkdfMode::ExpandOnly
+                    } else {
+                        mode
+                    };
+                    assert!(matches!(
+                        session.derive_hkdf_with_salt_key(&base, &salt_key, &invalid, mode),
+                        Err(Error::InvalidParameters(_))
+                    ));
+                    session.info().unwrap();
+                }
+            }
+            if case != 1 {
+                session.resolve(&salt_key).unwrap().destroy().unwrap();
+            }
+        }
+    }
+    // Selection and policy failures occur before C_DeriveKey and keep the session usable.
+    {
+        use pkcs11_runtime::{HkdfMode, MechanismType};
+        let base = reference(&[0xA0, 0], "secret-key");
+        let request = HkdfRequest {
+            salt: &[],
+            ..request(
+                DigestAlgorithm::Sha256,
+                HkdfOutput::Aes256,
+                b"salt-policy-output",
+            )
+        };
+        for (case, bad) in [
+            Attribute::Derive(false),
+            Attribute::Sensitive(false),
+            Attribute::Extractable(true),
+            Attribute::AllowedMechanisms(vec![MechanismType::AES_GCM]),
+            Attribute::KeyType(KeyType::AES),
+            Attribute::Value(vec![0x0C; 4097]),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let id = [0xF8, 0x54, case as u8];
+            let mut attrs = base_template(&id, 32);
+            if let Some(attr) = attrs
+                .iter_mut()
+                .find(|a| a.attribute_type() == bad.attribute_type())
+            {
+                *attr = bad;
+            } else {
+                attrs.push(bad);
+            }
+            session.create_object(&attrs).unwrap();
+            let salt_key = reference(&id, "secret-key");
+            assert!(matches!(
+                session.derive_hkdf_with_salt_key(
+                    &base,
+                    &salt_key,
+                    &request,
+                    HkdfMode::ExtractAndExpand
+                ),
+                Err(Error::UnsupportedKeyOperation)
+            ));
+            session.info().unwrap();
+            session.resolve(&salt_key).unwrap().destroy().unwrap();
+        }
+        let canonical_salt = reference(&[0xF8, 0x53, 0, 1], "secret-key");
+        let mut ro = token.open_session(SessionMode::ReadOnly).unwrap();
+        assert!(matches!(
+            ro.derive_hkdf_with_salt_key(
+                &base,
+                &canonical_salt,
+                &request,
+                HkdfMode::ExtractAndExpand
+            ),
+            Err(Error::ReadWriteRequired)
+        ));
+        ro.close().unwrap();
+        let other_token = ObjectRef::new(
+            "pkcs11:token=another-token;id=%01;type=secret-key"
+                .parse()
+                .unwrap(),
+        )
+        .unwrap();
+        for salt_key in [other_token, reference(b"missing-salt", "secret-key")] {
+            assert!(matches!(
+                session.derive_hkdf_with_salt_key(
+                    &base,
+                    &salt_key,
+                    &request,
+                    HkdfMode::ExtractAndExpand
+                ),
+                Err(Error::NotFound("object"))
+            ));
+            session.info().unwrap();
+        }
+        assert!(matches!(
+            session.resolve(&reference(b"salt-policy-output", "secret-key")),
+            Err(Error::NotFound("object"))
+        ));
+    }
     for (index, parameter) in [
         MlKemParameterSet::MlKem512,
         MlKemParameterSet::MlKem768,
@@ -533,6 +709,9 @@ fn typed_hkdf_known_answers_policy_and_ml_kem_agreement() {
             );
         }
         session.destroy_object(imported).unwrap();
+        if id.starts_with(&[0xF8, 0x55]) {
+            session.destroy_object(derived).unwrap();
+        }
     }
     for index in 0..3 {
         let encrypt = |direction| {

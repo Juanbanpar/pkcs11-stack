@@ -367,3 +367,61 @@ fn full_hmac_profiles_pass_native_ids_parameter_shape_and_exact_output_lengths()
         module.finalize().unwrap();
     }
 }
+
+#[test]
+fn hkdf_salt_keys_use_native_handles_without_value_reads_and_preserve_failure_health() {
+    use pkcs11_runtime::{
+        DigestAlgorithm, Error, HkdfMode, HkdfOutput, HkdfRequest, ObjectRef, SessionMode,
+    };
+    for fault in 0..=8 {
+        let fixture = Fixture::from_source("hkdf_salt.c", V::V3_2, fault, false);
+        let module = fixture.load(InterfaceSelection::Auto).unwrap();
+        let token = module
+            .resolve_token_uri(&"pkcs11:token=cmac".parse().unwrap())
+            .unwrap();
+        let key = |id| {
+            ObjectRef::new(
+                format!("pkcs11:token=cmac;id=%{id:02X};type=secret-key")
+                    .parse()
+                    .unwrap(),
+            )
+            .unwrap()
+        };
+        let mut session = token.open_session(SessionMode::ReadWrite).unwrap();
+        for mode in [HkdfMode::ExtractOnly, HkdfMode::ExtractAndExpand] {
+            let request = HkdfRequest {
+                digest: DigestAlgorithm::Sha256,
+                salt: &[],
+                info: if mode == HkdfMode::ExtractOnly {
+                    &[]
+                } else {
+                    b"ctx"
+                },
+                output: HkdfOutput::DerivationSecret { length: 32 },
+                id: &[3],
+                label: b"derived",
+            };
+            let result = session.derive_hkdf_with_salt_key(&key(1), &key(2), &request, mode);
+            if fault == 0 {
+                result.unwrap();
+                session.info().unwrap();
+            } else if fault == 1 {
+                assert!(matches!(
+                    result,
+                    Err(Error::Backend {
+                        operation: "derive HKDF key",
+                        ..
+                    })
+                ));
+                assert!(matches!(session.info(), Err(Error::Closed)));
+                break;
+            } else {
+                assert!(matches!(result, Err(Error::UnsupportedKeyOperation)));
+                session.info().unwrap();
+            }
+        }
+        session.close().unwrap();
+        drop(token);
+        module.finalize().unwrap();
+    }
+}

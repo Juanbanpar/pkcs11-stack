@@ -4,6 +4,23 @@ use crate::{
 };
 
 impl ManagementSession<'_> {
+    /// Use a token-held salt for HKDF extraction or extract-and-expand. Byte salt
+    /// must be empty. Both locators resolve in the same session; salt keys must
+    /// be sensitive, nonextractable generic/HKDF secrets of 1..=4096 bytes, with
+    /// derivation permission and a permitted HKDF mechanism. No key bytes leave
+    /// the token. Requires RW mode; check closure. No retry or rollback occurs.
+    pub fn derive_hkdf_with_salt_key(
+        &mut self,
+        base: &ObjectRef,
+        salt_key: &ObjectRef,
+        request: &HkdfRequest<'_>,
+        mode: HkdfMode,
+    ) -> Result<(), Error> {
+        Ok(self
+            .session
+            .derive_hkdf_with_salt_key(base, salt_key, request, mode)?)
+    }
+
     /// Apply an explicit HKDF stage once on the token. Extract-only produces a
     /// hash-length PRK with derivation permission only. Expand-only requires the
     /// caller to establish that the selected base is a PRK; metadata cannot prove
