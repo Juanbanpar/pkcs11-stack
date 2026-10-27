@@ -626,6 +626,32 @@ persistent effects, and session closure must be checked when cleanup matters.
 Applications authenticate the peer and define salt/context within their protocol.
 HKDF does not authenticate ML-KEM ciphertexts or combine classical/PQC secrets.
 
+## SP 800-108 counter-mode KDF
+
+`Session::kbkdf_capabilities` inspects a generic or matching SHA-256/384/512 HMAC
+secret. This application requires a 16–4096-byte sensitive, nonextractable base
+with derivation permission and permitted CKM_SP800_108_COUNTER_KDF use. Native
+derive support and mechanism key-size bounds are checked; OASIS section 6.42
+specifies these bounds in bits. Capability results are advisory: the provider
+checks individual PRF parameters and output templates during derivation.
+Standalone HMAC signing permission and entry points are not required.
+
+`Session::derive_kbkdf` takes `KbkdfRequest` and derives one key in an RW session.
+Its fixed profile uses HMAC-SHA-256/384/512 with the PRF input
+`[i]_32 || kdf_label || 0x00 || context || [L]_32`. Both integers are big-endian;
+L is the requested output length in bits, using CK_SP800_108_DKM_LENGTH_SUM_OF_KEYS.
+There are no additional keys. Public label/context are each at most 4096 bytes
+and may be empty or binary. The KDF label is separate from the new object's label.
+Callers define unambiguous protocol encodings and authenticate peers separately.
+
+`KbkdfOutput` selects AES-128/192/256 with encryption/decryption permission only,
+or a 1–4096-byte generic secret permitting only further derivation. Outputs are
+persistent private, sensitive and nonextractable. IDs/labels are 1–128 bytes;
+existing secret IDs are rejected, without a transaction against concurrent writers.
+No values are read, no base is deleted, and no retry, rollback or software
+fallback occurs. Native errors invalidate the session and may leave persistent
+effects. Check session closure before reporting success.
+
 ## Application hybrid derivation
 
 `Session::derive_hybrid_hkdf` combines a P-256 ECDH secret followed by an

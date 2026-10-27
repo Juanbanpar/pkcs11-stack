@@ -425,3 +425,51 @@ fn hkdf_salt_keys_use_native_handles_without_value_reads_and_preserve_failure_he
         module.finalize().unwrap();
     }
 }
+
+#[test]
+fn counter_kdf_native_fields_bit_bounds_and_failure_health() {
+    use pkcs11_runtime::{
+        DigestAlgorithm, Error, KbkdfOutput, KbkdfRequest, ObjectRef, SessionMode,
+    };
+    for fault in 0..=8 {
+        let fixture = Fixture::from_source("kbkdf.c", V::V3_2, fault, false);
+        let module = fixture.load(InterfaceSelection::Auto).unwrap();
+        let token = module
+            .resolve_token_uri(&"pkcs11:token=cmac".parse().unwrap())
+            .unwrap();
+        let key =
+            ObjectRef::new("pkcs11:token=cmac;id=%01;type=secret-key".parse().unwrap()).unwrap();
+        let mut session = token.open_session(SessionMode::ReadWrite).unwrap();
+        for empty in [false, true] {
+            let request = KbkdfRequest {
+                digest: DigestAlgorithm::Sha256,
+                kdf_label: if empty { &[] } else { b"label" },
+                context: if empty { &[] } else { b"ctx" },
+                output: KbkdfOutput::DerivationSecret { length: 32 },
+                id: &[3],
+                label: b"derived",
+            };
+            let result = session.derive_kbkdf(&key, &request);
+            if fault == 0 {
+                result.unwrap();
+                session.info().unwrap();
+            } else if fault == 5 {
+                assert!(matches!(
+                    result,
+                    Err(Error::Backend {
+                        operation: "derive SP800-108 key",
+                        ..
+                    })
+                ));
+                assert!(matches!(session.info(), Err(Error::Closed)));
+                break;
+            } else {
+                assert!(matches!(result, Err(Error::UnsupportedKeyOperation)));
+                session.info().unwrap();
+            }
+        }
+        session.close().unwrap();
+        drop(token);
+        module.finalize().unwrap();
+    }
+}

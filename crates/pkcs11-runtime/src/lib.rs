@@ -22,6 +22,8 @@ pub use generation::{
     AesKeyPurpose, AesKeyRequest, AesKeySize, EcdhKeyPairRequest, RsaEncryptionKeyPairRequest,
 };
 mod hkdf;
+mod kbkdf;
+pub use kbkdf::{KbkdfCapabilities, KbkdfOutput, KbkdfRequest};
 mod hmac;
 mod mac;
 pub use hmac::{HMAC_MAXIMUM_MESSAGE, HmacAlgorithm, HmacCapabilities, HmacKeyRequest};

@@ -737,6 +737,46 @@ Peer authentication and protocol context selection remain application concerns.
 An altered ML-KEM ciphertext can produce a different derived key without an error.
 `derive_hkdf` accepts one input; the hybrid combiner below accepts two.
 
+## SP 800-108 counter-mode KDF
+
+`ManagementSession::kbkdf_capabilities` inspects native counter-mode support for a
+selected generic or matching SHA-256/384/512 HMAC secret. Bases must be sensitive,
+nonextractable, 16–4096 bytes and permit derivation and the selected mechanism.
+Generic bases permit all three PRF choices; typed HMAC bases permit their matching
+hash. Parameter/template support remains advisory until the native call.
+
+```no_run
+use pkcs11_client::{Authentication, DigestAlgorithm, Error, KbkdfOutput,
+    KbkdfRequest, ObjectRef, Pin, Pkcs11Uri, Provider, SessionMode};
+use secrecy::SecretString;
+
+fn derive_counter_key(
+    provider: &Provider, token: &Pkcs11Uri, base: &ObjectRef, pin: &SecretString,
+    protocol_label: &[u8], protocol_context: &[u8],
+) -> Result<(), Error> {
+    let mut session = provider.management(
+        token, SessionMode::ReadWrite, Authentication::User(Pin::Value(pin)),
+    )?;
+    let outcome = session.derive_kbkdf(base, &KbkdfRequest {
+        digest: DigestAlgorithm::Sha256,
+        kdf_label: protocol_label, context: protocol_context,
+        output: KbkdfOutput::Aes256,
+        id: b"counter-key-1", label: b"protocol encryption key",
+    });
+    session.close()?;
+    outcome
+}
+```
+
+The PRF input is `[i]_32 || kdf_label || 0x00 || context || [L]_32`, with
+big-endian integers and L in bits. Label/context may be empty or binary, each
+bounded to 4096 bytes. Callers agree on an unambiguous encoding and authenticate
+peers. This profile creates one persistent private, sensitive, nonextractable
+AES-128/192/256 encryption/decryption key, or a 1–4096-byte generic derivation
+secret. New IDs/labels are 1–128 bytes; duplicate secret IDs are rejected.
+No key values leave the token and native rejection never triggers a retry or
+software fallback. Failed calls may leave persistent effects; check closure.
+
 ## Application hybrid derivation
 
 `ManagementSession::derive_hybrid_hkdf(classical, post_quantum, request)` combines
