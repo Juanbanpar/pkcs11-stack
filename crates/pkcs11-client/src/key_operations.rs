@@ -67,6 +67,9 @@ impl EcdhPeer {
         };
         Ok(Self { curve, point })
     }
+    pub(crate) fn point(&self) -> &[u8] {
+        &self.point
+    }
     /// Named curve that the base key must also use.
     pub fn curve(&self) -> NamedCurve {
         self.curve

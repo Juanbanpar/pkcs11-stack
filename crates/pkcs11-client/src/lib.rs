@@ -42,6 +42,8 @@ pub use pkcs11_runtime::{
 pub use pkcs11_runtime::{MlKemCapabilities, MlKemOperation, MlKemParameterSet, MlKemRequest};
 mod object_locator;
 mod public_export;
+mod public_import;
+pub use public_import::{ClassicalPublicKey, ClassicalPublicKeyPurpose, PublicKeyImportRequest};
 mod random;
 mod signature_options;
 

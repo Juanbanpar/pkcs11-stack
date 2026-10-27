@@ -686,6 +686,42 @@ signatures with a selected token public key and `VerifyRequest`. Shared
 the caller's signature policy. Certificate verification remains a separate
 software workflow; neither operation validates certificate trust.
 
+## RSA and EC public-key import
+
+`ClassicalPublicKey::from_spki_der` validates one canonical SPKI DER document
+up to 4096 bytes: rsaEncryption keys of 2048–16384 bits, or named
+P-256/P-384/P-521 keys. Restricted RSA-PSS keys and other algorithms/curves are
+rejected. The existing RSA/EC libraries validate the components and curve points.
+Absent RSA NULL parameters normalize to NULL; compressed EC points normalize to
+uncompressed SEC1 form. `spki_der()` returns this normalized encoding.
+
+`import_classical_public_key` takes a `PublicKeyImportRequest` with an explicit
+verification or RSA-encryption purpose and nonempty ID/label of at most 128 bytes.
+It creates a public persistent object through the runtime's component-attribute
+creation API. Wrapping, verification recovery and derivation are disabled.
+An existing public-key ID is rejected; private keys/certificates sharing the ID
+are neither changed nor bound to the imported key. Import does not establish
+identity, provenance or private-key possession.
+
+```no_run
+use pkcs11_client::{ClassicalPublicKey, ClassicalPublicKeyPurpose, ManagementSession,
+    PublicKeyImportRequest};
+fn import(session: &mut ManagementSession<'_>, spki: &[u8]) -> Result<(), pkcs11_client::Error> {
+    let key = ClassicalPublicKey::from_spki_der(spki)?;
+    session.import_classical_public_key(&PublicKeyImportRequest {
+        key: &key,
+        purpose: ClassicalPublicKeyPurpose::Verification,
+        id: b"peer-key",
+        label: b"Peer verification key",
+    })
+}
+```
+
+Requires RW access; providers may impose authentication or component limits.
+Duplicate checks do not lock concurrent writers. Provider failures may leave an
+object and invalidate the session; no retry or rollback occurs. Check closure.
+Private/secret components are not accepted by this API.
+
 ## Token file digests
 
 `ManagementSession::digest_algorithms(DigestMode)` discovers advertised fixed-output
