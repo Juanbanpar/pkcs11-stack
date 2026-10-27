@@ -2,11 +2,16 @@
 use crate::{inspect, key_establishment, ml_dsa, support::*};
 use clap::ArgMatches;
 use pkcs11_client::{
-    AesKeyPurpose, AesKeyRequest, AesKeySize, EcdhKeyPairRequest, KeyKind, ManagementSession,
-    NamedCurve, Provider, RsaEncryptionKeyPairRequest,
+    AesKeyPurpose, AesKeyRequest, AesKeySize, EcdhKeyPairRequest, HmacAlgorithm, HmacKeyRequest,
+    KeyKind, ManagementSession, NamedCurve, Provider, RsaEncryptionKeyPairRequest,
 };
 use serde_json::{Value, json};
 
+pub(crate) fn hmac(kind: &str) -> Option<HmacAlgorithm> {
+    HmacAlgorithm::ALL
+        .into_iter()
+        .find(|a| a.to_string() == kind)
+}
 fn curve(kind: &str) -> Option<NamedCurve> {
     match kind {
         "ecdh-p256" => Some(NamedCurve::P256),
@@ -58,7 +63,8 @@ pub(crate) fn validate(m: &ArgMatches) -> Result<()> {
     }
     let id = unhex(need(m, "id")?)?;
     let label = need(m, "label")?.as_bytes();
-    let non_signing = curve(kind).is_some()
+    let non_signing = hmac(kind).is_some()
+        || curve(kind).is_some()
         || aes(kind).is_some()
         || key_establishment::parameter(Some(kind)).is_some();
     if non_signing && flag(m, "always-authenticate") {
@@ -72,7 +78,15 @@ pub(crate) fn validate(m: &ArgMatches) -> Result<()> {
     if kind == "rsa" && !matches!(get(m, "purpose"), None | Some("signing" | "encryption")) {
         return Err(usage("RSA purpose must be signing or encryption"));
     }
-    if let Some(curve) = curve(kind) {
+    if let Some(algorithm) = hmac(kind) {
+        HmacKeyRequest {
+            algorithm,
+            id: &id,
+            label,
+        }
+        .validate()
+        .map_err(pkcs11_client::Error::from)?;
+    } else if let Some(curve) = curve(kind) {
         EcdhKeyPairRequest {
             curve,
             id: &id,
@@ -113,7 +127,14 @@ pub(crate) fn generate(session: &mut ManagementSession<'_>, m: &ArgMatches) -> R
     let kind = need(m, "kind")?;
     let id = unhex(need(m, "id")?)?;
     let label = need(m, "label")?.as_bytes();
-    let key = if let Some(curve) = curve(kind) {
+    let key = if let Some(algorithm) = hmac(kind) {
+        session.generate_hmac_key(&HmacKeyRequest {
+            algorithm,
+            id: &id,
+            label,
+        })?;
+        json!({"algorithm":algorithm.to_string(),"length":algorithm.tag_length(),"purpose":"authentication"})
+    } else if let Some(curve) = curve(kind) {
         session.generate_ecdh_key_pair(&EcdhKeyPairRequest {
             curve,
             id: &id,
@@ -173,6 +194,7 @@ pub(crate) fn options(provider: &Provider, m: &ArgMatches) -> Result<Value> {
             AesKeySize::Bits128=>"aes128", AesKeySize::Bits192=>"aes192", AesKeySize::Bits256=>"aes256"
         }).collect::<Vec<_>>(),
         "aes_purposes":["encryption","wrapping","authentication"],
+        "hmac":options.hmac.into_iter().map(|a|a.to_string()).collect::<Vec<_>>(),
         "ml_dsa":options.ml_dsa.into_iter().map(ml_dsa::key_info).collect::<Vec<_>>(),
         "ml_kem":options.ml_kem.into_iter().map(key_establishment::key_info).collect::<Vec<_>>()
     }))

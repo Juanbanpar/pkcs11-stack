@@ -275,6 +275,9 @@ pub(crate) fn command() -> Command {
             "aes128",
             "aes192",
             "aes256",
+            "hmac-sha256",
+            "hmac-sha384",
+            "hmac-sha512",
             "p256",
             "p384",
             "p521",
@@ -528,6 +531,43 @@ pub(crate) fn command() -> Command {
             Command::new("hkdf-capabilities")
                 .about("Inspect a sensitive, nonextractable HKDF base secret"),
         ))),
+        auth(object(
+            Command::new("hmac-capabilities")
+                .about("Inspect native full-tag HMAC support")
+                .arg(required("operation", "MAC direction").value_parser(["generate", "verify"])),
+        )),
+        auth(object(
+            Command::new("mac-hmac")
+                .about("Generate a full native HMAC")
+                .arg(
+                    required("algorithm", "Full-tag HMAC profile").value_parser([
+                        "hmac-sha256",
+                        "hmac-sha384",
+                        "hmac-sha512",
+                    ]),
+                )
+                .arg(required(
+                    "input",
+                    "Message file, at most 16 MiB; - reads stdin",
+                ))
+                .arg(required("output", "New raw tag file; - writes stdout")),
+        )),
+        auth(object(
+            Command::new("verify-hmac")
+                .about("Verify a full native HMAC")
+                .arg(
+                    required("algorithm", "Full-tag HMAC profile").value_parser([
+                        "hmac-sha256",
+                        "hmac-sha384",
+                        "hmac-sha512",
+                    ]),
+                )
+                .arg(required(
+                    "input",
+                    "Message file, at most 16 MiB; - reads stdin",
+                ))
+                .arg(required("tag-file", "Full raw tag file; no stdin")),
+        )),
         auth(object(
             Command::new("aes-cmac-capabilities")
                 .about("Inspect native full-tag AES-CMAC support")

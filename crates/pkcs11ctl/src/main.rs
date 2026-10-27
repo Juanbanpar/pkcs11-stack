@@ -6,6 +6,7 @@ mod aes_gcm;
 mod aes_key_wrap;
 mod args;
 mod generation;
+mod hmac;
 mod inspect;
 mod key_establishment;
 mod ml_dsa;

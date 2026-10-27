@@ -509,3 +509,32 @@ stdin. Tag input requires a file containing exactly 16 bytes, checked before mod
 loading. A verification mismatch returns exit code 4 with no success output.
 Results are released after checked session closure. No truncation or software
 fallback occurs. A shared-key MAC does not identify an individual signer.
+
+## HMAC
+
+```sh
+pkcs11ctl --module /path/to/module.so generate --token 'pkcs11:serial=123' \
+  --kind hmac-sha384 --id 48 --label message-hmac --pin-file user.pin --confirm
+pkcs11ctl --module /path/to/module.so mac-hmac \
+  --object 'pkcs11:serial=123;id=%48;type=secret-key' --algorithm hmac-sha384 \
+  --input message.bin --output tag.bin --pin-file user.pin
+pkcs11ctl --module /path/to/module.so verify-hmac \
+  --object 'pkcs11:serial=123;id=%48;type=secret-key' --algorithm hmac-sha384 \
+  --input message.bin --tag-file tag.bin --pin-file user.pin
+```
+
+`hmac-capabilities --object URI --operation generate|verify` reports permitted
+profiles without producing a tag. `hmac-sha256`, `hmac-sha384` and `hmac-sha512`
+use full 32/48/64-byte tags. The algorithm is explicit; no substitution occurs.
+Generation kinds of the same names create hash-length generic secrets restricted
+to the chosen HMAC. They take neither `--purpose` nor `--always-authenticate`.
+`generation-options` includes an advisory `hmac` list.
+
+Existing generic and matching hash-specific HMAC keys must be sensitive,
+nonextractable, 16–4096 bytes long and permit the requested direction. Provider
+limits may reject a key. Message input may be empty and is bounded to 16 MiB;
+`--input -` reads stdin. Tag generation writes a new raw file or binary stdout.
+Verification requires an exact full-length tag file, checked before module loading;
+`--tag-file -` is rejected. Mismatch returns exit code 4 without success output.
+Results follow checked session closure and module finalization; existing outputs
+are preserved. No truncation, software fallback or retry occurs.

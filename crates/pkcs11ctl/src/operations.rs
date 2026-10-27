@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use crate::{
-    aes_cmac, aes_gcm, aes_key_wrap, generation, inspect, key_establishment, ml_dsa, support::*,
+    aes_cmac, aes_gcm, aes_key_wrap, generation, hmac, inspect, key_establishment, ml_dsa,
+    support::*,
 };
 use clap::ArgMatches;
 use pkcs11_client::{
@@ -74,6 +75,7 @@ pub(crate) enum VerificationCertificate {
 // Validate non-provider inputs and load files before initializing a library or logging in.
 pub(crate) struct Inputs {
     pub aes_gcm: Option<aes_gcm::Inputs>,
+    pub hmac_tag: Option<Vec<u8>>,
     pub cmac_tag: Option<[u8; pkcs11_client::AES_CMAC_TAG_LENGTH]>,
     pub digest_file: Option<std::fs::File>,
     pub credential: Credential,
@@ -108,7 +110,8 @@ impl Inputs {
         let context = Credential::load(m, "context-pin-file", "context-protected-path")?;
         let so = get(m, "role") == Some("so");
         if so
-            && (aes_cmac::selected(name)
+            && (hmac::selected(name)
+                || aes_cmac::selected(name)
                 || aes_gcm::selected(name)
                 || aes_key_wrap::selected(name)
                 || key_establishment::selected(name)
@@ -150,6 +153,7 @@ impl Inputs {
         {
             return Err(usage("only one verification input may read stdin"));
         }
+        let hmac_tag = hmac::load(name, m)?;
         let cmac_tag = aes_cmac::load(name, m)?;
         let aes_gcm = aes_gcm::Inputs::load(name, m)?;
         let oaep_label = match get(m, "label-hex") {
@@ -171,6 +175,8 @@ impl Inputs {
         } else if let Some(path) = get(m, "input") {
             if let Some(limit) = key_establishment::input_limit(name, m)? {
                 bounded_input(path, limit)?
+            } else if hmac::selected(name) {
+                bounded_input(path, pkcs11_client::HMAC_MAXIMUM_MESSAGE)?
             } else if aes_cmac::selected(name) {
                 bounded_input(path, pkcs11_client::AES_CMAC_MAXIMUM_MESSAGE)?
             } else if name == "unwrap-aes-key" {
@@ -320,6 +326,7 @@ impl Inputs {
         Ok(Self {
             aes_gcm,
             cmac_tag,
+            hmac_tag,
             digest_file,
             establishment,
             credential,
@@ -602,6 +609,9 @@ fn management_operation(
     m: &ArgMatches,
     inputs: &Inputs,
 ) -> Result<Output> {
+    if hmac::selected(name) {
+        return hmac::operation(session, name, m, &inputs.bytes, inputs.hmac_tag.as_deref());
+    }
     if aes_cmac::selected(name) {
         return aes_cmac::operation(session, name, m, &inputs.bytes, inputs.cmac_tag.as_ref());
     }
