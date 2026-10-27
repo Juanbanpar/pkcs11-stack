@@ -9,6 +9,9 @@ Published crate SHA-256:
 
 Local changes:
 
+- `src/session/signing_macing.rs`: complete initialized single-part signing into
+  caller-bounded storage without an output-length query or allocation.
+
 - `src/mechanism/hkdf.rs`: bind borrowed salt to the parameter lifetime and
   return an empty slice for absent/empty info without constructing a slice from NULL.
 

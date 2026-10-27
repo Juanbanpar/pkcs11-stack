@@ -5,6 +5,12 @@ use std::fmt;
 #[derive(thiserror::Error)]
 #[non_exhaustive]
 pub enum Error {
+    /// A supplied authentication tag does not verify; no provider failure is implied.
+    #[error("MAC verification failed")]
+    MacMismatch,
+    /// Key metadata, permissions or provider disallows this MAC profile.
+    #[error("MAC operation unsupported for this key or provider")]
+    UnsupportedMac,
     /// A supplied signature does not verify; no provider failure is implied.
     #[error("signature verification failed")]
     SignatureMismatch,

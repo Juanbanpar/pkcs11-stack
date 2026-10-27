@@ -3,6 +3,10 @@
 #![doc = include_str!("../README.md")]
 
 mod administration;
+mod aes_cmac;
+pub use pkcs11_runtime::{
+    AES_CMAC_MAXIMUM_MESSAGE, AES_CMAC_TAG_LENGTH, AesCmacCapabilities, MacOperation,
+};
 mod aes_gcm;
 pub use administration::TokenInitializationTarget;
 pub use aes_gcm::{

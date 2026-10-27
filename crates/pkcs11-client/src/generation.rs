@@ -15,7 +15,7 @@ pub struct GenerationCapabilities {
     pub rsa_encryption: Vec<usize>,
     /// Named curves for derivation-only key-pair templates.
     pub ecdh: Vec<NamedCurve>,
-    /// AES sizes for encryption-only or wrapping-only key templates.
+    /// AES sizes for encryption, wrapping or CMAC authentication key templates.
     pub aes: Vec<AesKeySize>,
     /// Pure ML-DSA parameter sets.
     pub ml_dsa: Vec<crate::MlDsaParameterSet>,
@@ -65,7 +65,7 @@ impl ManagementSession<'_> {
         Ok(())
     }
     /// Generate a persistent private, sensitive, nonextractable AES key. Only the
-    /// selected encryption/decryption or wrapping/unwrapping permissions are enabled.
+    /// selected encryption, wrapping or CMAC authentication permissions are enabled.
     /// Requires RW mode; duplicate secret IDs are rejected. No key values are read,
     /// no retry/rollback occurs, and failures may leave objects. Check session closure.
     pub fn generate_aes_key(&mut self, request: &AesKeyRequest<'_>) -> Result<(), Error> {

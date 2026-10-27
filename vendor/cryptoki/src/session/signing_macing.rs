@@ -56,6 +56,28 @@ impl Session {
         Ok(signature)
     }
 
+    /// Complete initialized single-part signing into caller-bounded storage.
+    /// Does not query, allocate, reinitialize or retry. A short buffer leaves the
+    /// operation active under PKCS #11; the caller must discard or close the session.
+    pub fn sign_initialized_into(&self, data: &[u8], output: &mut [u8]) -> Result<usize> {
+        let mut written = output.len().try_into()?;
+        unsafe {
+            Rv::from(get_pkcs11!(self.client(), C_Sign)(
+                self.handle(),
+                data.as_ptr() as *mut u8,
+                data.len().try_into()?,
+                output.as_mut_ptr(),
+                &mut written,
+            ))
+            .into_result(Function::Sign)?;
+        }
+        let written = written.try_into()?;
+        if written > output.len() {
+            return Err(crate::error::Error::InvalidValue);
+        }
+        Ok(written)
+    }
+
     /// Starts new multi-part signing operation
     pub fn sign_init(&self, mechanism: &Mechanism, key: ObjectHandle) -> Result<()> {
         let mut mechanism: CK_MECHANISM = mechanism.into();

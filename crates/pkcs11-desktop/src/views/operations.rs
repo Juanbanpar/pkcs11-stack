@@ -146,6 +146,7 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
             Some(crate::backend::GenerationKind::RsaEncryption(_)) => "Encryption/decryption-only RSA pair. The private key is sensitive and nonextractable; signing, wrapping and derivation are disabled. ID and label: 1–128 bytes each.",
             Some(crate::backend::GenerationKind::Ecdh(_)) => "Derivation-only EC pair. The private key is sensitive and nonextractable. ID and label: 1–128 bytes each.",
             Some(crate::backend::GenerationKind::Aes(_, pkcs11_client::AesKeyPurpose::Encryption)) => "Private, sensitive, nonextractable AES key for encryption/decryption only. ID and label: 1–128 bytes each.",
+            Some(crate::backend::GenerationKind::Aes(_, pkcs11_client::AesKeyPurpose::Authentication)) => "Private, sensitive, nonextractable AES key for full-tag CMAC generation/verification only. ID and label: 1–128 bytes each.",
             Some(crate::backend::GenerationKind::Aes(_, pkcs11_client::AesKeyPurpose::Wrapping)) => "Private, sensitive, nonextractable AES key for wrapping/unwrapping only. Targets must permit export. ID and label: 1–128 bytes each.",
             _ => "Signing pair. The private key is sensitive and nonextractable; the public key shares its label and ID.",
         }).size(14),

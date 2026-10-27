@@ -353,8 +353,9 @@ rechecks the selected token before calling the provider.
 private key permitting only derivation, on P-256/P-384/P-521. Export the public
 key with `export_public` for peer exchange; authenticate that exchange separately.
 `generate_aes_key` creates a private, sensitive, nonextractable AES-128/192/256
-key. Choose `Encryption` for encryption/decryption, or `Wrapping` for
-wrapping/unwrapping. Other operation permissions are disabled.
+key. Choose `Encryption` for encryption/decryption, `Wrapping` for
+wrapping/unwrapping, or `Authentication` for AES-CMAC generation/verification.
+Authentication keys allow CKM_AES_CMAC only. Other operation permissions are disabled.
 
 ```no_run
 use pkcs11_client::{
@@ -629,6 +630,20 @@ ciphertext corruption can succeed with a different secret through ML-KEM implici
 rejection. Invalid lengths fail before crypto. Always-authenticate decapsulation
 is not implemented. No operation or authentication is retried;
 close the session before releasing ciphertext when cleanup must be checked.
+
+## AES-CMAC
+
+`ManagementSession::aes_cmac_capabilities(key, MacOperation::Generate|Verify)`
+checks current key permissions and native full-tag CMAC support.
+`mac_aes_cmac(key, message)` returns a 16-byte tag; `verify_aes_cmac(key, message,
+tag)` verifies on the token and returns `Error::MacMismatch` for incorrect length
+or contents. It requires verification permission independently of generation.
+
+The AES secret must be sensitive and nonextractable. Messages may be empty and
+are limited to 16 MiB. RO sessions are supported. A completed verification mismatch
+leaves the session reusable; other native failures invalidate it. No key values,
+software MAC, truncation or retry are exposed. Check session closure before
+releasing the result. Generate a dedicated key using `AesKeyPurpose::Authentication`.
 
 ## HKDF
 

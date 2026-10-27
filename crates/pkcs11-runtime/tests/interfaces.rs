@@ -214,3 +214,62 @@ fn digest_entry_points_flags_bounded_outputs_and_failures() {
         module.finalize().unwrap();
     }
 }
+
+#[test]
+fn cmac_permissions_pointers_bounded_outputs_and_verification_failures() {
+    use pkcs11_runtime::{Error, MacOperation, ObjectRef, SessionMode};
+    for fault in 0..=15 {
+        let fixture = Fixture::from_source("cmac.c", V::V2_40, fault, false);
+        let module = fixture.load(InterfaceSelection::Auto).unwrap();
+        let token = module
+            .resolve_token_uri(&"pkcs11:token=cmac".parse().unwrap())
+            .unwrap();
+        let key =
+            ObjectRef::new("pkcs11:token=cmac;id=%01;type=secret-key".parse().unwrap()).unwrap();
+        for operation in [MacOperation::Generate, MacOperation::Verify] {
+            let mut session = token.open_session(SessionMode::ReadOnly).unwrap();
+            let unsupported = match operation {
+                MacOperation::Generate => [1, 2, 12, 14].contains(&fault),
+                MacOperation::Verify => [10, 11, 13, 15].contains(&fault),
+            };
+            if unsupported {
+                assert!(matches!(
+                    session.aes_cmac_capabilities(&key, operation),
+                    Err(Error::UnsupportedMac)
+                ));
+                session.info().unwrap();
+            } else if operation == MacOperation::Generate {
+                let result = session.mac_aes_cmac(&key, b"message");
+                if [3, 4, 5, 6, 7].contains(&fault) {
+                    assert!(result.is_err());
+                    assert!(matches!(session.info(), Err(Error::Closed)));
+                } else {
+                    assert_eq!(result.unwrap(), [0xAB; 16]);
+                    session.info().unwrap();
+                }
+            } else if [3, 8, 9].contains(&fault) {
+                assert!(
+                    session
+                        .verify_aes_cmac(&key, b"message", &[0xAB; 16])
+                        .is_err()
+                );
+                assert!(matches!(session.info(), Err(Error::Closed)));
+            } else {
+                for tag in [&[][..], &[0; 16][..], &[0; 17][..]] {
+                    assert!(matches!(
+                        session.verify_aes_cmac(&key, b"message", tag),
+                        Err(Error::MacMismatch)
+                    ));
+                    session.info().unwrap();
+                }
+                session
+                    .verify_aes_cmac(&key, b"message", &[0xAB; 16])
+                    .unwrap();
+                session.info().unwrap();
+            }
+            session.close().unwrap();
+        }
+        drop(token);
+        module.finalize().unwrap();
+    }
+}

@@ -63,6 +63,8 @@ pub enum AesKeyPurpose {
     Encryption,
     /// Wrapping/unwrapping only; mechanism support is checked by the consuming operation.
     Wrapping,
+    /// MAC generation/verification only, restricted to CKM_AES_CMAC.
+    Authentication,
 }
 /// Generate a persistent EC pair for derivation, with no signing permission.
 #[derive(Clone, Copy)]
@@ -180,7 +182,7 @@ impl Token<'_> {
         ))
     }
     /// Advertised AES generation sizes in bytes, with a GenerateKey entry point.
-    /// Does not guarantee template acceptance or encryption/wrapping mode support.
+    /// Does not guarantee template acceptance or later cipher, wrapping or MAC support.
     pub fn aes_generation_options(&self) -> Result<Vec<AesKeySize>, Error> {
         if !self.module.raw()?.is_fn_supported(Function::GenerateKey)
             || !self.mechanisms()?.contains(&MechanismType::AES_KEY_GEN)
@@ -363,8 +365,8 @@ impl<'m> Session<'m> {
         ))
     }
     /// Generate one private, sensitive, nonextractable AES key in an RW session.
-    /// Only encryption/decryption or wrapping/unwrapping is enabled; derivation,
-    /// signing and verification are disabled. No extractability/trust override is
+    /// Only the selected encryption, wrapping or CMAC authentication permissions
+    /// are enabled; derivation is disabled. No extractability/trust override is
     /// accepted. A wrapping key does not make nonextractable targets exportable.
     /// Capabilities and duplicate secret IDs are rechecked before the provider call.
     /// This is not transactional with concurrent writers. No key bytes are read,
@@ -390,9 +392,17 @@ impl<'m> Session<'m> {
         for attr in &mut template {
             match attr {
                 Attribute::Encrypt(value) | Attribute::Decrypt(value) => *value = encryption,
-                Attribute::Wrap(value) | Attribute::Unwrap(value) => *value = !encryption,
+                Attribute::Wrap(value) | Attribute::Unwrap(value) => {
+                    *value = request.purpose == AesKeyPurpose::Wrapping;
+                }
+                Attribute::Sign(value) | Attribute::Verify(value) => {
+                    *value = request.purpose == AesKeyPurpose::Authentication;
+                }
                 _ => {}
             }
+        }
+        if request.purpose == AesKeyPurpose::Authentication {
+            template.push(Attribute::AllowedMechanisms(vec![MechanismType::AES_CMAC]));
         }
         template.push(Attribute::ValueLen(
             request

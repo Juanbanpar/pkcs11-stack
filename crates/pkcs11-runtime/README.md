@@ -326,6 +326,23 @@ rejected before generation. Checks are not transactional with concurrent writers
 failures may leave objects and are never retried. Advertised generation choices
 do not establish support for any OAEP digest profile.
 
+## AES-CMAC
+
+`Session::aes_cmac_capabilities(key, MacOperation::Generate|Verify)` checks a
+sensitive, nonextractable AES secret, its length, direction-specific permission,
+allowed mechanisms, provider flags and native entry points. AES mechanism bounds
+are in bytes. Metadata and provider failures propagate; advertised support is advisory.
+
+`mac_aes_cmac(key, message)` uses CKM_AES_CMAC and returns a full 16-byte tag.
+`verify_aes_cmac(key, message, tag)` uses native verification with CKA_VERIFY;
+it does not generate a tag for comparison. Messages may be empty and are bounded
+to 16 MiB. Both permit RO sessions and never read key values. Incorrect tag length
+or a completed native verification mismatch returns `Error::MacMismatch`, leaving
+the session usable. Other native failures, unwinds and malformed outputs invalidate
+it. Generation uses fixed-size output storage without a provider-length allocation.
+Check session closure before releasing results. Truncated CMAC, software fallback
+and retries are not exposed. A shared-key MAC does not identify an individual signer.
+
 ## ECDH and AES key generation
 
 `Token::ecdh_generation_options` reports P-256/P-384/P-521 generation choices;
@@ -339,7 +356,9 @@ RW sessions accept `EcdhKeyPairRequest` through `generate_ecdh_key_pair` and
 private key is sensitive, nonextractable and derivation-only, with per-operation
 authentication disabled. AES keys are private, sensitive and nonextractable.
 `AesKeyPurpose::Encryption` permits encryption/decryption only; `Wrapping`
-permits wrapping/unwrapping only. No key values are read or returned.
+permits wrapping/unwrapping only. `Authentication` permits MAC generation and
+verification only, restricted by CKA_ALLOWED_MECHANISMS to CKM_AES_CMAC.
+No key values are read or returned.
 
 Both requests require nonempty ID/label fields of at most 128 bytes. Generation
 rechecks capabilities and rejects existing persistent public/private IDs for EC

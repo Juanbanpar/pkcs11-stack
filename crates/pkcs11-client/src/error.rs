@@ -3,6 +3,9 @@
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum Error {
+    /// A supplied authentication tag does not verify.
+    #[error("MAC verification failed")]
+    MacMismatch,
     /// Reading input failed after a token digest operation was initialized.
     #[error("digest input could not be read")]
     DigestInput,
@@ -74,7 +77,7 @@ impl Error {
             }
             Self::MissingAttributeStatus | Self::ProviderInUse => ErrorKind::Runtime,
             Self::Runtime(error) => match error {
-                Runtime::SignatureMismatch => ErrorKind::Client,
+                Runtime::SignatureMismatch | Runtime::MacMismatch => ErrorKind::Client,
                 Runtime::NotFound(_) | Runtime::Ambiguous { .. } => ErrorKind::Selection,
                 Runtime::InvalidParameters(_)
                 | Runtime::InvalidObjectReference
@@ -88,7 +91,8 @@ impl Error {
                 | Runtime::ProtectedPathUnavailable
                 | Runtime::ReadWriteRequired
                 | Runtime::RandomUnavailable => ErrorKind::Policy,
-                Runtime::UnsupportedCipher
+                Runtime::UnsupportedMac
+                | Runtime::UnsupportedCipher
                 | Runtime::UnsupportedKeyOperation
                 | Runtime::UnsupportedAesGcm => ErrorKind::Policy,
                 _ => ErrorKind::Runtime,
