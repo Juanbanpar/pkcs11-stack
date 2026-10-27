@@ -22,7 +22,7 @@ mod hybrid;
 mod key_operations;
 mod ml_dsa;
 mod ml_kem;
-pub use encryption::{RsaCipherOperation, RsaOaepCapabilities};
+pub use encryption::{RsaCipherOperation, RsaOaepCapabilities, RsaOaepParameters};
 pub use hkdf::{HkdfCapabilities, HkdfOutput, HkdfRequest};
 pub use key_operations::{EcdhDerivation, KeyOperation, KeyOperationProfile};
 pub use ml_dsa::{

@@ -41,6 +41,32 @@ impl std::fmt::Debug for DecryptRequest<'_> {
 /// Owned plaintext; Debug is redacted and storage zeroizes on drop.
 pub type Plaintext = SecretBox<Vec<u8>>;
 impl ManagementSession<'_> {
+    /// Encrypt once with explicit SHA-2 OAEP/MGF1 digests and a bounded binary
+    /// label. Provider support is checked on use, without fallback or retries.
+    pub fn encrypt_oaep(
+        &mut self,
+        key: &PublicKeyRef,
+        parameters: &RsaOaepParameters<'_>,
+        plaintext: &[u8],
+    ) -> Result<Vec<u8>, Error> {
+        Ok(self
+            .session
+            .encrypt_rsa_oaep_with_parameters(key, parameters, plaintext)?)
+    }
+    /// Decrypt once with explicit SHA-2 OAEP/MGF1 digests and binary label.
+    /// Optional per-operation authentication follows initialization. No plaintext
+    /// is returned on failure; native and returned plaintext buffers zeroize.
+    pub fn decrypt_oaep(
+        &mut self,
+        key: &PrivateKeyRef,
+        parameters: &RsaOaepParameters<'_>,
+        ciphertext: &[u8],
+        context: Option<Pin<'_>>,
+    ) -> Result<Plaintext, Error> {
+        Ok(self
+            .session
+            .decrypt_rsa_oaep_with_parameters(key, parameters, ciphertext, context)?)
+    }
     /// Advisory SHA-2 choices after current key permissions and mechanism checks.
     /// Never probes a provider by performing an encryption/decryption operation.
     pub fn oaep_options(

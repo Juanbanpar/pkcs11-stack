@@ -20,6 +20,42 @@ pub enum RsaCipherOperation {
     /// Decrypt using a private key with CKA_DECRYPT.
     Decrypt,
 }
+/// Explicit SHA-2 OAEP parameters. The label is public context, not sender
+/// authentication; decryption must use the same digests and label as encryption.
+#[derive(Clone, Copy)]
+pub struct RsaOaepParameters<'a> {
+    /// Hash of the OAEP label; determines the maximum plaintext length.
+    pub digest: DigestAlgorithm,
+    /// Independently selected MGF1 digest.
+    pub mgf_digest: DigestAlgorithm,
+    /// Binary label, at most 4096 bytes. Empty uses the standard default label.
+    pub label: &'a [u8],
+}
+impl std::fmt::Debug for RsaOaepParameters<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RsaOaepParameters")
+            .field("digest", &self.digest)
+            .field("mgf_digest", &self.mgf_digest)
+            .finish_non_exhaustive()
+    }
+}
+impl RsaOaepParameters<'_> {
+    /// Matching OAEP/MGF1 digests with the empty label.
+    pub const fn new(digest: DigestAlgorithm) -> Self {
+        Self {
+            digest,
+            mgf_digest: digest,
+            label: &[],
+        }
+    }
+    /// Validate application bounds without accessing a provider.
+    pub fn validate(&self) -> Result<(), Error> {
+        if self.label.len() > 4096 {
+            return Err(Error::InvalidParameters("OAEP label length"));
+        }
+        Ok(())
+    }
+}
 /// Current key size after class, permission and mechanism checks.
 #[derive(Clone, Copy, Debug)]
 pub struct RsaOaepCapabilities {
@@ -33,19 +69,29 @@ impl RsaOaepCapabilities {
     pub fn ciphertext_length(self) -> usize {
         self.modulus_bits.div_ceil(8)
     }
-    /// Maximum plaintext for an empty label and matching SHA-2/MGF1 digests.
+    /// Maximum plaintext for the OAEP hash; independent of label length or MGF1.
     pub fn maximum_plaintext(self, digest: DigestAlgorithm) -> usize {
         self.ciphertext_length()
             .saturating_sub(2 * digest.output_len() + 2)
     }
 }
-fn mechanism(digest: DigestAlgorithm) -> Mechanism<'static> {
-    let (hash, mgf) = match digest {
-        DigestAlgorithm::Sha256 => (MechanismType::SHA256, PkcsMgfType::MGF1_SHA256),
-        DigestAlgorithm::Sha384 => (MechanismType::SHA384, PkcsMgfType::MGF1_SHA384),
-        DigestAlgorithm::Sha512 => (MechanismType::SHA512, PkcsMgfType::MGF1_SHA512),
+fn mechanism<'a>(parameters: &RsaOaepParameters<'a>) -> Mechanism<'a> {
+    let hash = match parameters.digest {
+        DigestAlgorithm::Sha256 => MechanismType::SHA256,
+        DigestAlgorithm::Sha384 => MechanismType::SHA384,
+        DigestAlgorithm::Sha512 => MechanismType::SHA512,
     };
-    Mechanism::RsaPkcsOaep(PkcsOaepParams::new(hash, mgf, PkcsOaepSource::empty()))
+    let mgf = match parameters.mgf_digest {
+        DigestAlgorithm::Sha256 => PkcsMgfType::MGF1_SHA256,
+        DigestAlgorithm::Sha384 => PkcsMgfType::MGF1_SHA384,
+        DigestAlgorithm::Sha512 => PkcsMgfType::MGF1_SHA512,
+    };
+    let source = if parameters.label.is_empty() {
+        PkcsOaepSource::empty()
+    } else {
+        PkcsOaepSource::data_specified(parameters.label)
+    };
+    Mechanism::RsaPkcsOaep(PkcsOaepParams::new(hash, mgf, source))
 }
 fn capabilities(
     object: &crate::Object<'_, '_>,
@@ -135,15 +181,26 @@ impl Session<'_> {
         digest: DigestAlgorithm,
         plaintext: &[u8],
     ) -> Result<Vec<u8>, Error> {
+        self.encrypt_rsa_oaep_with_parameters(key, &RsaOaepParameters::new(digest), plaintext)
+    }
+    /// Encrypt once with an explicit hash, MGF1 digest and binary label.
+    /// Parameter support is advisory. Rejection never changes the parameters or retries.
+    pub fn encrypt_rsa_oaep_with_parameters(
+        &mut self,
+        key: &PublicKeyRef,
+        parameters: &RsaOaepParameters<'_>,
+        plaintext: &[u8],
+    ) -> Result<Vec<u8>, Error> {
+        parameters.validate()?;
         let object = self.resolve(key.as_object_ref())?;
         let caps = capabilities(&object, RsaCipherOperation::Encrypt)?;
-        if plaintext.len() > caps.maximum_plaintext(digest) {
+        if plaintext.len() > caps.maximum_plaintext(parameters.digest) {
             return Err(Error::InvalidParameters("OAEP plaintext length"));
         }
         let raw = object.session.raw()?;
         object.session.healthy.set(false);
         let result = raw
-            .encrypt(&mechanism(digest), object.handle, plaintext)
+            .encrypt(&mechanism(parameters), object.handle, plaintext)
             .map_err(|e| backend("RSA OAEP encrypt", e))?;
         if result.len() != caps.ciphertext_length() {
             return Err(Error::InvalidCiphertext);
@@ -172,6 +229,23 @@ impl Session<'_> {
         ciphertext: &[u8],
         context_pin: Option<Pin<'_>>,
     ) -> Result<SecretBox<Vec<u8>>, Error> {
+        self.decrypt_rsa_oaep_with_parameters(
+            key,
+            &RsaOaepParameters::new(digest),
+            ciphertext,
+            context_pin,
+        )
+    }
+    /// Decrypt once with explicit OAEP parameters and optional context authentication.
+    /// Validation precedes initialization. Failed plaintext buffers zeroize; no retry.
+    pub fn decrypt_rsa_oaep_with_parameters(
+        &mut self,
+        key: &PrivateKeyRef,
+        parameters: &RsaOaepParameters<'_>,
+        ciphertext: &[u8],
+        context_pin: Option<Pin<'_>>,
+    ) -> Result<SecretBox<Vec<u8>>, Error> {
+        parameters.validate()?;
         let object = self.resolve(key.as_object_ref())?;
         let caps = capabilities(&object, RsaCipherOperation::Decrypt)?;
         if ciphertext.len() != caps.ciphertext_length() {
@@ -191,7 +265,7 @@ impl Session<'_> {
         };
         let raw = object.session.raw()?;
         object.session.healthy.set(false);
-        raw.decrypt_init(&mechanism(digest), object.handle)
+        raw.decrypt_init(&mechanism(parameters), object.handle)
             .map_err(|e| backend("RSA OAEP decrypt", e))?;
         if caps.always_authenticate {
             raw.login(UserType::ContextSpecific, pin)
@@ -200,7 +274,7 @@ impl Session<'_> {
         let plaintext = raw
             .decrypt_initialized(ciphertext, caps.ciphertext_length())
             .map_err(|e| backend("RSA OAEP decrypt", e))?;
-        if plaintext.expose_secret().len() > caps.maximum_plaintext(digest) {
+        if plaintext.expose_secret().len() > caps.maximum_plaintext(parameters.digest) {
             return Err(Error::InvalidCiphertext);
         }
         object.session.healthy.set(true);
@@ -221,8 +295,27 @@ mod tests {
         assert_eq!(caps.maximum_plaintext(DigestAlgorithm::Sha384), 158);
         assert_eq!(caps.maximum_plaintext(DigestAlgorithm::Sha512), 126);
         assert_eq!(
-            mechanism(DigestAlgorithm::Sha256).mechanism_type(),
+            mechanism(&RsaOaepParameters::new(DigestAlgorithm::Sha256)).mechanism_type(),
             MechanismType::RSA_PKCS_OAEP
+        );
+        let parameters = RsaOaepParameters {
+            digest: DigestAlgorithm::Sha256,
+            mgf_digest: DigestAlgorithm::Sha512,
+            label: b"label-redaction-canary",
+        };
+        parameters.validate().unwrap();
+        assert!(!format!("{parameters:?}").contains("canary"));
+        let Mechanism::RsaPkcsOaep(params) = mechanism(&parameters) else {
+            panic!("OAEP mechanism");
+        };
+        assert_eq!(params.hash_alg(), MechanismType::SHA256);
+        assert!(
+            RsaOaepParameters {
+                label: &[0; 4097],
+                ..parameters
+            }
+            .validate()
+            .is_err()
         );
     }
 }

@@ -268,6 +268,14 @@ and an empty label. RSA sizes are limited to 2048–16384 bits; plaintext must f
 the OAEP bound and ciphertext must be modulus-width. An error or panic during a
 provider operation prevents session reuse.
 
+`encrypt_rsa_oaep_with_parameters` and `decrypt_rsa_oaep_with_parameters`
+accept `RsaOaepParameters` with independently selected SHA-256/384/512 hashes
+for OAEP and MGF1, and a binary label bounded to 4096 bytes. Empty labels use
+the standard null-pointer/zero-length representation. The plaintext bound
+depends only on the OAEP hash. The parameters must be conveyed separately from
+the ciphertext and matched for decryption. Provider rejection never changes
+the selected parameters. See [OASIS OAEP parameters](https://docs.oasis-open.org/pkcs11/pkcs11-spec/v3.2/pkcs11-spec-v3.2.html#_Toc234407225).
+
 `decrypt_rsa_oaep_with_context` supports always-authenticate private keys with a
 separate context credential. The sequence is decrypt initialization, context login,
 then single-part completion. Ordinary `decrypt_rsa_oaep` requires no context

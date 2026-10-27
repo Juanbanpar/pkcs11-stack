@@ -19,7 +19,7 @@ pub use key_operations::{
     DeriveRequest, EcdhKdf, EcdhOutput, EcdhPeer, EcdhRequest, KeyOperation, KeyOperationProfile,
     SecretKeyIdentity, UnwrapRequest, WrapRequest,
 };
-pub use pkcs11_runtime::RsaCipherOperation;
+pub use pkcs11_runtime::{RsaCipherOperation, RsaOaepParameters};
 mod client;
 mod error;
 mod generation;

@@ -455,6 +455,13 @@ allowed mechanisms and RSA bounds before offering SHA-256/SHA-384/SHA-512 choice
 Each choice uses matching OAEP/MGF1 digests and an empty label. Providers may still
 reject a digest parameter; advertisement is advisory and no probe operation occurs.
 
+`encrypt_oaep` and `decrypt_oaep` accept `RsaOaepParameters` for independent
+SHA-256/384/512 OAEP and MGF1 digests and a binary label up to 4096 bytes.
+`RsaOaepParameters::new(digest)` selects matching digests and an empty label.
+The OAEP hash determines the plaintext bound; MGF1 and label length do not change it.
+Decryption requires the exact parameters used for encryption. Ciphertext contains
+no parameter metadata. Unsupported parameters fail without probing or retrying.
+
 `encrypt` accepts a `PublicKeyRef` and `EncryptRequest`; `decrypt` accepts a
 `PrivateKeyRef` and `DecryptRequest`. Both resolve the selector afresh and execute
 once on the token, with no fallback or padding downgrade. RSA keys must have
