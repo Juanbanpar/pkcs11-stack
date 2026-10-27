@@ -79,6 +79,7 @@ pub(crate) struct Inputs {
     pub bytes: zeroize::Zeroizing<Vec<u8>>,
     pub certificate_document: Option<pkcs11_client::CertificateDocument>,
     pub public_key: Option<pkcs11_client::ClassicalPublicKey>,
+    pub oaep_label: Vec<u8>,
     pub verification_certificate: Option<VerificationCertificate>,
     pub domain_context: Vec<u8>,
     pub signature: Vec<u8>,
@@ -145,6 +146,15 @@ impl Inputs {
             return Err(usage("only one verification input may read stdin"));
         }
         let aes_gcm = aes_gcm::Inputs::load(name, m)?;
+        let oaep_label = match get(m, "label-hex") {
+            Some(value) if value.len() > 8192 => {
+                return Err(usage("OAEP label exceeds 4096 bytes"));
+            }
+            Some("") | None => vec![],
+            Some(value) => {
+                unhex(value).map_err(|_| usage("OAEP label must be even-length hexadecimal"))?
+            }
+        };
         let digest_file = if name == "digest" && get(m, "input") != Some("-") {
             Some(std::fs::File::open(need(m, "input")?)?)
         } else {
@@ -304,6 +314,7 @@ impl Inputs {
             bytes: zeroize::Zeroizing::new(bytes),
             certificate_document,
             public_key,
+            oaep_label,
             verification_certificate,
             domain_context,
             signature,
@@ -598,23 +609,27 @@ fn management_operation(
         "encrypt-rsa-oaep" => {
             let key = pkcs11_client::PublicKeyRef::new(uri(m, "object")?)
                 .map_err(pkcs11_client::Error::from)?;
-            return Ok(Output::Binary(session.encrypt(
+            return Ok(Output::Binary(session.encrypt_oaep(
                 &key,
-                &pkcs11_client::EncryptRequest {
+                &pkcs11_client::RsaOaepParameters {
                     digest: digest(need(m, "digest")?),
-                    plaintext: &inputs.bytes,
+                    mgf_digest: digest(get(m, "mgf-digest").unwrap_or(need(m, "digest")?)),
+                    label: &inputs.oaep_label,
                 },
+                &inputs.bytes,
             )?));
         }
         "decrypt-rsa-oaep" => {
             let key = pkcs11_client::PrivateKeyRef::new(uri(m, "object")?)
                 .map_err(pkcs11_client::Error::from)?;
-            return Ok(Output::SecretBinary(session.decrypt_with_context(
+            return Ok(Output::SecretBinary(session.decrypt_oaep(
                 &key,
-                &pkcs11_client::DecryptRequest {
+                &pkcs11_client::RsaOaepParameters {
                     digest: digest(need(m, "digest")?),
-                    ciphertext: &inputs.bytes,
+                    mgf_digest: digest(get(m, "mgf-digest").unwrap_or(need(m, "digest")?)),
+                    label: &inputs.oaep_label,
                 },
+                &inputs.bytes,
                 inputs.context.pin(),
             )?));
         }

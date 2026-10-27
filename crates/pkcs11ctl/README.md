@@ -454,7 +454,9 @@ verification. PSS requires `--mgf-digest` and `--salt-length`. `--hashing` and
 The `verify` command continues to verify against certificates in software.
 
 `encrypt-rsa-oaep` and `decrypt-rsa-oaep` take `--object`, `--digest`, `--input`
-and `--output`. They use SHA-256/384/512, a matching MGF1 digest and an empty
-label. Input is one RSA block; output files are never overwritten. Decryption
+and `--output`. They use SHA-256/384/512; `--mgf-digest` defaults to `--digest`.
+Optional `--label-hex` supplies up to 4096 bytes of binary context; the default
+label is empty. Decryption requires the same digests and label. Ciphertext carries
+no parameter metadata. Input is one RSA block; output files are never overwritten. Decryption
 accepts `--context-pin-file` or `--context-protected-path`, separately from USER
 login. Per-operation credentials are not cached or retried.

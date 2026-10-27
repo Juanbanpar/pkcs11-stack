@@ -6,6 +6,40 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 struct Scratch(PathBuf);
+#[test]
+fn oaep_labels_are_validated_before_module_loading() {
+    let dir = Scratch::new();
+    let input = dir.0.join("input");
+    let output = dir.0.join("output");
+    std::fs::write(&input, [0; 256]).unwrap();
+    for command in ["encrypt-rsa-oaep", "decrypt-rsa-oaep"] {
+        for label in ["0".into(), "gg".into(), "00".repeat(4097)] {
+            let result = run(&[
+                "--module",
+                "/must-not-load",
+                command,
+                "--object",
+                if command.starts_with("encrypt") {
+                    "pkcs11:token=t;id=%01;type=public"
+                } else {
+                    "pkcs11:token=t;id=%01;type=private"
+                },
+                "--digest",
+                "sha256",
+                "--mgf-digest",
+                "sha512",
+                "--label-hex",
+                &label,
+                "--input",
+                input.to_str().unwrap(),
+                "--output",
+                output.to_str().unwrap(),
+            ]);
+            assert_eq!(result.status.code(), Some(2));
+            assert!(!output.exists());
+        }
+    }
+}
 impl Scratch {
     fn new() -> Self {
         static NEXT: AtomicUsize = AtomicUsize::new(0);

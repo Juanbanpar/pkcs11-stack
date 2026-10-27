@@ -55,6 +55,133 @@ fn external(program: &str, args: &[&str]) {
 }
 #[test]
 #[ignore = "requires tools/test-softhsm.sh disposable store"]
+fn oaep_explicit_mgf_and_binary_label_interoperate_and_preserve_outputs() {
+    assert_eq!(std::env::var("PKCS11_TEST_ISOLATED").as_deref(), Ok("1"));
+    if std::env::var("PKCS11_TEST_REQUIRE_RSA_OAEP_SHA2").as_deref() != Ok("1") {
+        return;
+    }
+    let root = PathBuf::from(std::env::var_os("PKCS11_CLIENT_TEST_DIR").unwrap());
+    let f = Fixture {
+        module: std::env::var("PKCS11_TEST_MODULE").unwrap(),
+        pin: root.join("oaep-parameters.pin").to_str().unwrap().into(),
+        so: String::new(),
+        root,
+    };
+    std::fs::write(&f.pin, b"12345678\n").unwrap();
+    let input = f.path("cli-oaep-parameters-message");
+    let cipher = f.path("cli-oaep-parameters-cipher");
+    let plain = f.path("cli-oaep-parameters-plain");
+    std::fs::write(&input, b"explicit OAEP context").unwrap();
+    let result = f.run(&[
+        "encrypt-rsa-oaep",
+        "--object",
+        "pkcs11:token=client-test;id=%20;type=public",
+        "--digest",
+        "sha256",
+        "--mgf-digest",
+        "sha512",
+        "--label-hex",
+        "00ff0123",
+        "--input",
+        &input,
+        "--output",
+        &cipher,
+    ]);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    external(
+        "openssl",
+        &[
+            "pkeyutl",
+            "-decrypt",
+            "-inkey",
+            &f.path("cipher.key"),
+            "-in",
+            &cipher,
+            "-out",
+            &plain,
+            "-pkeyopt",
+            "rsa_padding_mode:oaep",
+            "-pkeyopt",
+            "rsa_oaep_md:sha256",
+            "-pkeyopt",
+            "rsa_mgf1_md:sha512",
+            "-pkeyopt",
+            "rsa_oaep_label:00ff0123",
+        ],
+    );
+    assert_eq!(
+        std::fs::read(&plain).unwrap(),
+        std::fs::read(&input).unwrap()
+    );
+    external(
+        "openssl",
+        &[
+            "pkeyutl",
+            "-encrypt",
+            "-pubin",
+            "-keyform",
+            "DER",
+            "-inkey",
+            &f.path("cipher-public.der"),
+            "-in",
+            &input,
+            "-out",
+            &cipher,
+            "-pkeyopt",
+            "rsa_padding_mode:oaep",
+            "-pkeyopt",
+            "rsa_oaep_md:sha256",
+            "-pkeyopt",
+            "rsa_mgf1_md:sha512",
+            "-pkeyopt",
+            "rsa_oaep_label:00ff0123",
+        ],
+    );
+    std::fs::remove_file(&plain).unwrap();
+    let args = |label, mgf| {
+        vec![
+            "decrypt-rsa-oaep",
+            "--object",
+            "pkcs11:token=client-test;id=%21;type=private",
+            "--digest",
+            "sha256",
+            "--mgf-digest",
+            mgf,
+            "--label-hex",
+            label,
+            "--input",
+            &cipher,
+            "--output",
+            &plain,
+            "--pin-file",
+            &f.pin,
+            "--context-pin-file",
+            &f.pin,
+        ]
+    };
+    for (label, mgf) in [("00ff0124", "sha512"), ("00ff0123", "sha384")] {
+        f.fail(&args(label, mgf), 5);
+        assert!(!std::path::Path::new(&plain).exists());
+    }
+    let args = args("00ff0123", "sha512");
+    let result = f.run(&args);
+    assert!(result.status.success());
+    assert_eq!(
+        std::fs::read(&plain).unwrap(),
+        std::fs::read(&input).unwrap()
+    );
+    f.fail(&args, 6);
+    assert_eq!(
+        std::fs::read(&plain).unwrap(),
+        std::fs::read(&input).unwrap()
+    );
+}
+#[test]
+#[ignore = "requires tools/test-softhsm.sh disposable store"]
 fn command_workflows() {
     assert_eq!(std::env::var("PKCS11_TEST_ISOLATED").as_deref(), Ok("1"));
     let root = PathBuf::from(std::env::var("PKCS11_CLIENT_TEST_DIR").unwrap());
