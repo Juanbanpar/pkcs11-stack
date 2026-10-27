@@ -158,6 +158,7 @@ pub(crate) struct Inputs {
     pub public_key: Option<MlKemPublicKey>,
     ecdh_peer: Option<EcdhPeer>,
     salt: Vec<u8>,
+    salt_key: Option<pkcs11_client::ObjectRef>,
     info: Vec<u8>,
 }
 impl Inputs {
@@ -225,6 +226,13 @@ impl Inputs {
                     *target = bounded_input(path, 4096)?;
                 }
             }
+            if name == "derive-hkdf" && get(m, "salt-key").is_some() {
+                let salt = uri(m, "salt-key")?;
+                if salt.path_attribute("type") != Some(b"secret-key") {
+                    return Err(usage("salt-key requires type=secret-key"));
+                }
+                inputs.salt_key = Some(object_reference(salt)?);
+            }
             let id = unhex(need(m, "id")?)?;
             let request = hkdf_request(m, &inputs, &id)?;
             if name == "derive-hybrid" {
@@ -233,6 +241,10 @@ impl Inputs {
                 }
                 request
                     .validate_hybrid()
+                    .map_err(pkcs11_client::Error::from)?;
+            } else if inputs.salt_key.is_some() {
+                request
+                    .validate_with_salt_key(hkdf_mode(m)?)
                     .map_err(pkcs11_client::Error::from)?;
             } else {
                 request
@@ -287,6 +299,8 @@ pub(crate) fn operation(
                     &object_reference(uri(m, "post-quantum")?)?,
                     &request,
                 )?;
+            } else if let Some(salt_key) = &inputs.establishment.salt_key {
+                session.derive_hkdf_with_salt_key(&reference, salt_key, &request, hkdf_mode(m)?)?;
             } else {
                 session.derive_hkdf_with_mode(&reference, &request, hkdf_mode(m)?)?;
             }

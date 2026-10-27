@@ -620,6 +620,13 @@ pub(crate) fn command() -> Command {
                 .about("Derive a persistent nonextractable token key using HKDF")
                 .arg(
                     value(
+                        "salt-key",
+                        "Token-held salt URI with type=secret-key; same token",
+                    )
+                    .conflicts_with("salt-file"),
+                )
+                .arg(
+                    value(
                         "mode",
                         "HKDF stage; extract requires a hash-length derivation-secret output",
                     )

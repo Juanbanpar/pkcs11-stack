@@ -240,6 +240,14 @@ output profile, with empty salt. The caller must establish the PRK's origin;
 key metadata cannot prove it. Nonempty parameters for a disabled stage are
 rejected. JSON derivation results include the selected `mode`.
 
+`derive-hkdf --salt-key 'pkcs11:serial=123;id=%02;type=secret-key'` uses a
+persistent salt key on the selected token. It conflicts with `--salt-file` and
+requires extraction; expand-only mode rejects it. Salt keys must be sensitive,
+nonextractable generic/HKDF secrets of 1–4096 bytes with derivation permission
+and permitted HKDF use. The key is resolved again in the derivation session;
+its value is never read. Wrong token, missing/ambiguous key and policy failures
+produce no success result. The fixed hybrid combiner retains public byte salt.
+
 `derive-hybrid --object CLASSICAL --post-quantum PQ --digest sha512` combines a
 P-256 ECDH secret followed by an ML-KEM-768 secret using token-side concatenation
 and HKDF-SHA512. Other output/identity options match `derive-hkdf`. Both inputs

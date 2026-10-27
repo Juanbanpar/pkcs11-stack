@@ -457,7 +457,7 @@ fn cli_ecdh_explicit_kdf_outputs_and_p521_hkdf_chain() {
 
 #[test]
 #[ignore = "requires tools/test-kem-hkdf.sh disposable Kryoptic store"]
-fn cli_hkdf_extract_expand_matches_default_combined_operation() {
+fn cli_hkdf_token_salt_extract_expand_matches_byte_salt_operation() {
     assert_eq!(
         std::env::var("PKCS11_TEST_KDF_ISOLATED").as_deref(),
         Ok("1")
@@ -485,6 +485,8 @@ fn cli_hkdf_extract_expand_matches_default_combined_operation() {
         let base = format!("pkcs11:token=kdf-test;id=%A0%{index:02X};type=secret-key");
         let uri =
             |case| format!("pkcs11:token=kdf-test;id=%EA%{index:02X}%{case:02X};type=secret-key");
+        let salt_key = format!("pkcs11:token=kdf-test;id=%F8%53%{index:02X}%01;type=secret-key");
+        std::fs::write(&salt, vec![0x0C; length.parse::<usize>().unwrap()]).unwrap();
         let extract_id = format!("ea{index:02x}00");
         let args = [
             "derive-hkdf",
@@ -498,8 +500,8 @@ fn cli_hkdf_extract_expand_matches_default_combined_operation() {
             "derivation-secret",
             "--length",
             length,
-            "--salt-file",
-            &salt,
+            "--salt-key",
+            &salt_key,
             "--id",
             &extract_id,
             "--label",
@@ -607,7 +609,44 @@ fn cli_hkdf_extract_expand_matches_default_combined_operation() {
             &f.pin,
         ]);
         assert_eq!(std::fs::read(recovered).unwrap(), b"CLI staged agreement");
-        for target in [&prk, &expanded, &combined] {
+        let key_id = format!("ea{index:02x}03");
+        f.ok(&[
+            "derive-hkdf",
+            "--object",
+            &base,
+            "--digest",
+            digest,
+            "--kind",
+            "aes256",
+            "--salt-key",
+            &salt_key,
+            "--info-file",
+            &info,
+            "--id",
+            &key_id,
+            "--label",
+            "CLI token salt combined",
+            "--pin-file",
+            &f.pin,
+            "--confirm",
+        ]);
+        let key_combined = uri(3);
+        let recovered = f.path(&format!("recovered-key-{index}"));
+        f.ok(&[
+            "decrypt-aes-gcm",
+            "--object",
+            &key_combined,
+            "--nonce",
+            &nonce,
+            "--input",
+            &ciphertext,
+            "--output",
+            &recovered,
+            "--pin-file",
+            &f.pin,
+        ]);
+        assert_eq!(std::fs::read(recovered).unwrap(), b"CLI staged agreement");
+        for target in [&prk, &expanded, &combined, &key_combined] {
             f.ok(&[
                 "delete",
                 "--object",
@@ -618,4 +657,51 @@ fn cli_hkdf_extract_expand_matches_default_combined_operation() {
             ]);
         }
     }
+}
+
+#[test]
+fn hkdf_salt_key_preflight_rejects_disabled_conflicting_and_nonsecret_inputs() {
+    let root =
+        std::env::temp_dir().join(format!("pkcs11-hkdf-salt-preflight-{}", std::process::id()));
+    std::fs::create_dir(&root).unwrap();
+    let f = Fixture {
+        module: "/missing-provider".into(),
+        root,
+        pin: String::new(),
+    };
+    let valid = "pkcs11:token=test;id=%02;type=secret-key";
+    for (uri, extra) in [
+        (valid, vec!["--mode", "expand"]),
+        (valid, vec!["--salt-file", "/missing-salt"]),
+        ("pkcs11:token=test;id=%02;type=public", vec![]),
+        (
+            "pkcs11:token=test;id=%02;type=secret-key?pin-value=secret-canary",
+            vec![],
+        ),
+        ("pkcs11:id=%02;type=secret-key", vec![]),
+        ("not-a-pkcs11-uri", vec![]),
+    ] {
+        let mut args = vec![
+            "derive-hkdf",
+            "--object",
+            "pkcs11:token=test;id=%01;type=secret-key",
+            "--digest",
+            "sha256",
+            "--kind",
+            "aes256",
+            "--id",
+            "03",
+            "--label",
+            "output",
+            "--salt-key",
+            uri,
+            "--confirm",
+        ];
+        args.extend(extra);
+        let output = f.run(&args);
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        assert!(!String::from_utf8_lossy(&output.stderr).contains("secret-canary"));
+    }
+    std::fs::remove_dir_all(f.root).unwrap();
 }
