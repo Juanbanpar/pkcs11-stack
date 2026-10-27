@@ -427,12 +427,18 @@ fn hkdf_salt_keys_use_native_handles_without_value_reads_and_preserve_failure_he
 }
 
 #[test]
-fn counter_kdf_native_fields_bit_bounds_and_failure_health() {
+fn kbkdf_modes_native_fields_bit_bounds_and_failure_health() {
     use pkcs11_runtime::{
-        DigestAlgorithm, Error, KbkdfOutput, KbkdfRequest, ObjectRef, SessionMode,
+        DigestAlgorithm, Error, KbkdfMode, KbkdfOutput, KbkdfRequest, ObjectRef, SessionMode,
     };
-    for fault in 0..=8 {
-        let fixture = Fixture::from_source("kbkdf.c", V::V3_2, fault, false);
+    for case in (0..=9).chain(20..=29) {
+        let fault = case % 20;
+        let mode = if case >= 20 {
+            KbkdfMode::Feedback
+        } else {
+            KbkdfMode::Counter
+        };
+        let fixture = Fixture::from_source("kbkdf.c", V::V3_2, case, false);
         let module = fixture.load(InterfaceSelection::Auto).unwrap();
         let token = module
             .resolve_token_uri(&"pkcs11:token=cmac".parse().unwrap())
@@ -440,6 +446,29 @@ fn counter_kdf_native_fields_bit_bounds_and_failure_health() {
         let key =
             ObjectRef::new("pkcs11:token=cmac;id=%01;type=secret-key".parse().unwrap()).unwrap();
         let mut session = token.open_session(SessionMode::ReadWrite).unwrap();
+        if fault == 0 {
+            let options = session.kbkdf_options(&key).unwrap();
+            assert!(options.get(mode).is_some());
+            let other = if mode == KbkdfMode::Counter {
+                KbkdfMode::Feedback
+            } else {
+                KbkdfMode::Counter
+            };
+            assert_eq!(options.get(other), None);
+        } else if fault == 9 {
+            assert!(matches!(
+                session.kbkdf_options(&key),
+                Err(Error::Backend {
+                    operation: "mechanism info",
+                    ..
+                })
+            ));
+        } else if fault != 5 {
+            assert!(matches!(
+                session.kbkdf_options(&key),
+                Err(Error::UnsupportedKeyOperation)
+            ));
+        }
         for empty in [false, true] {
             let request = KbkdfRequest {
                 digest: DigestAlgorithm::Sha256,
@@ -449,7 +478,12 @@ fn counter_kdf_native_fields_bit_bounds_and_failure_health() {
                 id: &[3],
                 label: b"derived",
             };
-            let result = session.derive_kbkdf(&key, &request);
+            let iv = if mode == KbkdfMode::Feedback && !empty {
+                &[0xA5; 32][..]
+            } else {
+                &[]
+            };
+            let result = session.derive_kbkdf_with_mode(&key, &request, mode, iv);
             if fault == 0 {
                 result.unwrap();
                 session.info().unwrap();
@@ -463,6 +497,15 @@ fn counter_kdf_native_fields_bit_bounds_and_failure_health() {
                 ));
                 assert!(matches!(session.info(), Err(Error::Closed)));
                 break;
+            } else if fault == 9 {
+                assert!(matches!(
+                    result,
+                    Err(Error::Backend {
+                        operation: "mechanism info",
+                        ..
+                    })
+                ));
+                session.info().unwrap();
             } else {
                 assert!(matches!(result, Err(Error::UnsupportedKeyOperation)));
                 session.info().unwrap();

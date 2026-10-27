@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Native counter-mode KDF compared with the independent OpenSSL KBKDF implementation.
+//! Native counter/feedback KDFs compared with the independent OpenSSL KBKDF implementation.
 use cryptoki::{
     context::{CInitializeArgs, CInitializeFlags, Pkcs11},
     mechanism::Mechanism,
@@ -7,8 +7,8 @@ use cryptoki::{
     session::UserType,
 };
 use pkcs11_runtime::{
-    Attribute, AttributeType, Authentication, DigestAlgorithm, Error, KbkdfOutput, KbkdfRequest,
-    MechanismType, Module, ObjectClass, ObjectRef, Pin, SessionMode,
+    Attribute, AttributeType, Authentication, DigestAlgorithm, Error, KbkdfMode, KbkdfOutput,
+    KbkdfRequest, MechanismType, Module, ObjectClass, ObjectRef, Pin, SessionMode,
 };
 use secrecy::SecretString;
 fn reference(id: &[u8]) -> ObjectRef {
@@ -35,12 +35,17 @@ fn base(id: &[u8], kind: KeyType, length: usize) -> Vec<Attribute> {
         Attribute::Decrypt(false),
         Attribute::Wrap(false),
         Attribute::Unwrap(false),
-        Attribute::AllowedMechanisms(vec![MechanismType::SP800_108_COUNTER_KDF]),
+        Attribute::AllowedMechanisms(vec![
+            MechanismType::SP800_108_COUNTER_KDF,
+            MechanismType::SP800_108_FEEDBACK_KDF,
+        ]),
         Attribute::Id(id.to_vec()),
         Attribute::Value(vec![0x0B; length]),
     ]
 }
 fn expected(
+    mode: KbkdfMode,
+    iv: &[u8],
     digest: DigestAlgorithm,
     key_length: usize,
     output: KbkdfOutput,
@@ -55,7 +60,11 @@ fn expected(
         "-keylen",
         &output.length().to_string(),
         "-kdfopt",
-        "mode:COUNTER",
+        if mode == KbkdfMode::Counter {
+            "mode:COUNTER"
+        } else {
+            "mode:FEEDBACK"
+        },
         "-kdfopt",
         "mac:HMAC",
         "-kdfopt",
@@ -77,6 +86,9 @@ fn expected(
     if !context.is_empty() {
         cmd.args(["-kdfopt", &format!("hexinfo:{}", hex(context))]);
     }
+    if !iv.is_empty() {
+        cmd.args(["-kdfopt", &format!("hexseed:{}", hex(iv))]);
+    }
     let out = cmd.arg("KBKDF").output().unwrap();
     assert!(
         out.status.success(),
@@ -88,7 +100,17 @@ fn expected(
 }
 #[test]
 #[ignore = "requires tools/test-kem-hkdf.sh with the SP800-108 Kryoptic build"]
-fn counter_kdf_openssl_outputs_key_types_permissions_and_bounds() {
+fn kbkdf_modes_openssl_outputs_key_types_permissions_and_bounds() {
+    for mode in KbkdfMode::ALL {
+        check_mode(mode);
+    }
+}
+fn check_mode(mode: KbkdfMode) {
+    let canonical_id = if mode == KbkdfMode::Counter {
+        0x82
+    } else {
+        0x8A
+    };
     assert_eq!(
         std::env::var("PKCS11_TEST_KDF_ISOLATED").as_deref(),
         Ok("1")
@@ -99,10 +121,10 @@ fn counter_kdf_openssl_outputs_key_types_permissions_and_bounds() {
         .resolve_token_uri(&"pkcs11:token=kdf-test".parse().unwrap())
         .unwrap();
     assert!(
-        token
-            .mechanisms()
-            .unwrap()
-            .contains(&MechanismType::SP800_108_COUNTER_KDF),
+        token.mechanisms().unwrap().contains(&match mode {
+            KbkdfMode::Counter => MechanismType::SP800_108_COUNTER_KDF,
+            KbkdfMode::Feedback => MechanismType::SP800_108_FEEDBACK_KDF,
+        }),
         "rebuild the provider with tools/build-kem-hkdf-provider.sh"
     );
     let pin = SecretString::from("12345678");
@@ -124,7 +146,7 @@ fn counter_kdf_openssl_outputs_key_types_permissions_and_bounds() {
             let id = [0xFA, 0x80, index as u8, u8::from(typed)];
             session.create_object(&base(&id, kind, key_length)).unwrap();
             let key = reference(&id);
-            let caps = session.kbkdf_capabilities(&key).unwrap();
+            let caps = session.kbkdf_capabilities_with_mode(&key, mode).unwrap();
             assert_eq!(caps.input_length, key_length);
             for candidate in [
                 DigestAlgorithm::Sha256,
@@ -134,7 +156,7 @@ fn counter_kdf_openssl_outputs_key_types_permissions_and_bounds() {
                 assert_eq!(caps.supports(candidate), !typed || candidate == digest);
                 if !caps.supports(candidate) {
                     assert!(matches!(
-                        session.derive_kbkdf(
+                        session.derive_kbkdf_with_mode(
                             &key,
                             &KbkdfRequest {
                                 digest: candidate,
@@ -143,7 +165,9 @@ fn counter_kdf_openssl_outputs_key_types_permissions_and_bounds() {
                                 output: KbkdfOutput::Aes256,
                                 id: b"wrong-prf",
                                 label: b"wrong"
-                            }
+                            },
+                            mode,
+                            &[]
                         ),
                         Err(Error::UnsupportedKeyOperation)
                     ));
@@ -170,6 +194,12 @@ fn counter_kdf_openssl_outputs_key_types_permissions_and_bounds() {
                     2 => (long.as_slice(), long.as_slice()),
                     _ => (&[][..], b"context".as_slice()),
                 };
+                let iv_storage = if mode == KbkdfMode::Feedback && case % 2 == 0 {
+                    vec![0xA5; digest.output_len()]
+                } else {
+                    Vec::new()
+                };
+                let iv = iv_storage.as_slice();
                 let request = KbkdfRequest {
                     digest,
                     kdf_label: label,
@@ -178,7 +208,9 @@ fn counter_kdf_openssl_outputs_key_types_permissions_and_bounds() {
                     id: &id,
                     label: b"counter output",
                 };
-                session.derive_kbkdf(&key, &request).unwrap();
+                session
+                    .derive_kbkdf_with_mode(&key, &request, mode, iv)
+                    .unwrap();
                 let object = session.resolve(&reference(&id)).unwrap();
                 let attrs = object
                     .read_attributes(&[
@@ -229,16 +261,21 @@ fn counter_kdf_openssl_outputs_key_types_permissions_and_bounds() {
                 proofs.push((
                     id.to_vec(),
                     output,
-                    expected(digest, key_length, output, label, context),
+                    expected(mode, iv, digest, key_length, output, label, context),
                 ));
                 assert!(matches!(
-                    session.derive_kbkdf(&key, &request),
+                    session.derive_kbkdf_with_mode(&key, &request, mode, iv),
                     Err(Error::InvalidParameters(_))
                 ));
             }
             session.resolve(&key).unwrap().destroy().unwrap();
         }
-        let id = [0xFA, 0x82, index as u8];
+        let id = [0xFA, canonical_id, index as u8];
+        let iv = if mode == KbkdfMode::Feedback {
+            vec![0xA5; digest.output_len()]
+        } else {
+            Vec::new()
+        };
         let request = KbkdfRequest {
             digest,
             kdf_label: b"application",
@@ -248,12 +285,14 @@ fn counter_kdf_openssl_outputs_key_types_permissions_and_bounds() {
             label: b"counter canonical AES",
         };
         session
-            .derive_kbkdf(&reference(&[0xA0, index as u8]), &request)
+            .derive_kbkdf_with_mode(&reference(&[0xA0, index as u8]), &request, mode, &iv)
             .unwrap();
         proofs.push((
             id.to_vec(),
             request.output,
             expected(
+                mode,
+                &iv,
                 digest,
                 digest.output_len(),
                 request.output,
@@ -283,11 +322,11 @@ fn counter_kdf_openssl_outputs_key_types_permissions_and_bounds() {
             .unwrap() = bad;
         session.create_object(&attrs).unwrap();
         assert!(matches!(
-            session.kbkdf_capabilities(&reference(&id)),
+            session.kbkdf_capabilities_with_mode(&reference(&id), mode),
             Err(Error::UnsupportedKeyOperation)
         ));
         assert!(matches!(
-            session.derive_kbkdf(
+            session.derive_kbkdf_with_mode(
                 &reference(&id),
                 &KbkdfRequest {
                     digest: DigestAlgorithm::Sha256,
@@ -296,7 +335,9 @@ fn counter_kdf_openssl_outputs_key_types_permissions_and_bounds() {
                     output: KbkdfOutput::Aes256,
                     id: b"policy-output",
                     label: b"policy"
-                }
+                },
+                mode,
+                &[]
             ),
             Err(Error::UnsupportedKeyOperation)
         ));
@@ -316,11 +357,15 @@ fn counter_kdf_openssl_outputs_key_types_permissions_and_bounds() {
             id: &[0xFA, 0x85, (length == 4096) as u8],
             label: b"base bounds",
         };
-        session.derive_kbkdf(&reference(&id), &request).unwrap();
+        session
+            .derive_kbkdf_with_mode(&reference(&id), &request, mode, &[])
+            .unwrap();
         proofs.push((
             request.id.to_vec(),
             request.output,
             expected(
+                mode,
+                &[],
                 request.digest,
                 length,
                 request.output,
@@ -340,7 +385,7 @@ fn counter_kdf_openssl_outputs_key_types_permissions_and_bounds() {
     };
     let mut ro = token.open_session(SessionMode::ReadOnly).unwrap();
     assert!(matches!(
-        ro.derive_kbkdf(&reference(&[0xA0, 0]), &request),
+        ro.derive_kbkdf_with_mode(&reference(&[0xA0, 0]), &request, mode, &[]),
         Err(Error::ReadWriteRequired)
     ));
     ro.close().unwrap();
@@ -400,7 +445,7 @@ fn counter_kdf_openssl_outputs_key_types_permissions_and_bounds() {
             );
         }
         session.destroy_object(imported).unwrap();
-        if !id.starts_with(&[0xFA, 0x82]) {
+        if !id.starts_with(&[0xFA, canonical_id]) {
             session.destroy_object(key).unwrap();
         }
     }

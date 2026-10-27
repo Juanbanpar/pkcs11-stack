@@ -10,14 +10,58 @@ use cryptoki::{
         Mechanism,
         kbkdf::{
             Endianness, KbkdfCounterFormat, KbkdfDkmLengthFormat, KbkdfDkmLengthMethod,
-            KbkdfParams, PrfDataParam, PrfDataParamType,
+            KbkdfFeedbackParams, KbkdfParams, PrfDataParam, PrfDataParamType,
         },
     },
     object::KeyType,
 };
 use std::num::NonZeroUsize;
 
-/// Output type and permissions for the counter-mode SP 800-108 profile.
+/// Explicit SP 800-108 mode. Existing calls continue to use counter mode.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum KbkdfMode {
+    /// PRF input starts with a 32-bit big-endian counter.
+    #[default]
+    Counter,
+    /// PRF input starts with the previous PRF output, then the counter.
+    Feedback,
+}
+impl KbkdfMode {
+    /// Supported mode profiles; individual provider support remains advisory.
+    pub const ALL: [Self; 2] = [Self::Counter, Self::Feedback];
+    fn mechanism(self) -> MechanismType {
+        match self {
+            Self::Counter => MechanismType::SP800_108_COUNTER_KDF,
+            Self::Feedback => MechanismType::SP800_108_FEEDBACK_KDF,
+        }
+    }
+}
+impl std::fmt::Display for KbkdfMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Counter => "Counter",
+            Self::Feedback => "Feedback",
+        })
+    }
+}
+/// Advisory PRF choices per mode, inspected from the same selected key.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct KbkdfOptions {
+    /// Permitted counter-mode profile, if supported.
+    pub counter: Option<KbkdfCapabilities>,
+    /// Permitted feedback-mode profile, if supported.
+    pub feedback: Option<KbkdfCapabilities>,
+}
+impl KbkdfOptions {
+    /// Get the inspected profile for a mode. Execution rechecks native support.
+    pub fn get(self, mode: KbkdfMode) -> Option<KbkdfCapabilities> {
+        match mode {
+            KbkdfMode::Counter => self.counter,
+            KbkdfMode::Feedback => self.feedback,
+        }
+    }
+}
+/// Output type and permissions for the SP 800-108 profiles.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum KbkdfOutput {
     /// AES-128 with encryption/decryption permission only.
@@ -43,7 +87,8 @@ impl KbkdfOutput {
         }
     }
 }
-/// SP 800-108 counter mode with HMAC-SHA-256/384/512. The exact PRF input is
+/// SP 800-108 with HMAC-SHA-256/384/512, using counter mode by default.
+/// The counter-mode PRF input is
 /// `[i]_32 || kdf_label || 0x00 || context || [L]_32`, with big-endian integers
 /// and L in bits. One persistent, private, sensitive, nonextractable key results.
 #[derive(Clone, Copy)]
@@ -62,6 +107,19 @@ pub struct KbkdfRequest<'a> {
     pub label: &'a [u8],
 }
 impl KbkdfRequest<'_> {
+    /// Validate this request and an explicit mode's public IV. Counter mode
+    /// requires an empty IV. Feedback accepts an omitted IV or exactly one PRF
+    /// output block (32/48/64 bytes). Empty IVs are omitted, never synthesized.
+    pub fn validate_with_mode(&self, mode: KbkdfMode, iv: &[u8]) -> Result<(), Error> {
+        self.validate()?;
+        match mode {
+            KbkdfMode::Counter if !iv.is_empty() => Err(Error::InvalidParameters("counter KDF IV")),
+            KbkdfMode::Feedback if !iv.is_empty() && iv.len() != self.digest.output_len() => {
+                Err(Error::InvalidParameters("feedback KDF IV length"))
+            }
+            _ => Ok(()),
+        }
+    }
     /// Validate identity, input and output bounds without I/O. Callers establish
     /// an unambiguous protocol encoding for label/context and authenticate peers.
     pub fn validate(&self) -> Result<(), Error> {
@@ -83,7 +141,7 @@ impl std::fmt::Debug for KbkdfRequest<'_> {
             .finish_non_exhaustive()
     }
 }
-/// Advisory native counter-mode PRF choices for one selected key. Does not
+/// Advisory native PRF choices for one selected key and mode. Does not
 /// promise native acceptance of individual PRF parameters or output templates.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct KbkdfCapabilities {
@@ -106,7 +164,7 @@ impl KbkdfCapabilities {
         }
     }
 }
-fn capabilities(object: &Object<'_, '_>) -> Result<KbkdfCapabilities, Error> {
+fn capabilities(object: &Object<'_, '_>, mode: KbkdfMode) -> Result<KbkdfCapabilities, Error> {
     for (kind, expected) in [
         (
             AttributeType::Class,
@@ -138,7 +196,7 @@ fn capabilities(object: &Object<'_, '_>) -> Result<KbkdfCapabilities, Error> {
     if !caps.sha256 && !caps.sha384 && !caps.sha512 {
         return Err(Error::UnsupportedKeyOperation);
     }
-    let mechanism = MechanismType::SP800_108_COUNTER_KDF;
+    let mechanism = mode.mechanism();
     permits(object, mechanism)?;
     let token = object.session.token();
     if !token.module.raw()?.is_fn_supported(Function::DeriveKey)
@@ -158,7 +216,34 @@ impl Session<'_> {
     /// Requires sensitive/nonextractable policy, CKA_DERIVE, permitted mechanism,
     /// bit-based mechanism bounds and a native C_DeriveKey entry point.
     pub fn kbkdf_capabilities(&mut self, base: &ObjectRef) -> Result<KbkdfCapabilities, Error> {
-        capabilities(&self.resolve(base)?)
+        self.kbkdf_capabilities_with_mode(base, KbkdfMode::Counter)
+    }
+    /// Inspect native support for an explicit mode without performing derivation.
+    /// Key policy, mechanism flags and bit-based bounds are checked per mode.
+    pub fn kbkdf_capabilities_with_mode(
+        &mut self,
+        base: &ObjectRef,
+        mode: KbkdfMode,
+    ) -> Result<KbkdfCapabilities, Error> {
+        capabilities(&self.resolve(base)?, mode)
+    }
+    /// Inspect both modes. Only unsupported profiles are omitted; selection and
+    /// provider errors propagate. Returns UnsupportedKeyOperation if neither qualifies.
+    pub fn kbkdf_options(&mut self, base: &ObjectRef) -> Result<KbkdfOptions, Error> {
+        let object = self.resolve(base)?;
+        let inspect = |mode| match capabilities(&object, mode) {
+            Ok(caps) => Ok(Some(caps)),
+            Err(Error::UnsupportedKeyOperation) => Ok(None),
+            Err(error) => Err(error),
+        };
+        let options = KbkdfOptions {
+            counter: inspect(KbkdfMode::Counter)?,
+            feedback: inspect(KbkdfMode::Feedback)?,
+        };
+        if options.counter.is_none() && options.feedback.is_none() {
+            return Err(Error::UnsupportedKeyOperation);
+        }
+        Ok(options)
     }
     /// Derive one key via CKM_SP800_108_COUNTER_KDF. Requires RW mode. Uses a
     /// 32-bit big-endian counter, zero separator and 32-bit big-endian sum-of-keys
@@ -170,7 +255,22 @@ impl Session<'_> {
         base: &ObjectRef,
         request: &KbkdfRequest<'_>,
     ) -> Result<(), Error> {
-        request.validate()?;
+        self.derive_kbkdf_with_mode(base, request, KbkdfMode::Counter, &[])
+    }
+    /// Derive once using an explicit mode and public feedback IV. Counter mode
+    /// rejects nonempty IVs; feedback accepts empty or hash-length IVs. Feedback
+    /// PRF input is `K(i-1) || [i]_32 || label || 0x00 || context || [L]_32`,
+    /// with K(0) equal to the supplied IV. Integers are big-endian; L is in bits.
+    /// Requires the same key policy, RW access and checked closure as derive_kbkdf.
+    /// Native rejection invalidates the session and is never retried in another mode.
+    pub fn derive_kbkdf_with_mode(
+        &mut self,
+        base: &ObjectRef,
+        request: &KbkdfRequest<'_>,
+        mode: KbkdfMode,
+        iv: &[u8],
+    ) -> Result<(), Error> {
+        request.validate_with_mode(mode, iv)?;
         self.validate()?;
         if self.mode != SessionMode::ReadWrite {
             return Err(Error::ReadWriteRequired);
@@ -188,7 +288,7 @@ impl Session<'_> {
                 .map_err(|_| Error::InvalidParameters("SP800-108 output length"))?,
         ));
         let object = self.resolve(base)?;
-        if !capabilities(&object)?.supports(request.digest) {
+        if !capabilities(&object, mode)?.supports(request.digest) {
             return Err(Error::UnsupportedKeyOperation);
         }
         const WIDTH: NonZeroUsize = NonZeroUsize::new(32).unwrap();
@@ -196,8 +296,15 @@ impl Session<'_> {
         let length =
             KbkdfDkmLengthFormat::new(KbkdfDkmLengthMethod::SumOfKeys, Endianness::Big, WIDTH);
         let mut fields = vec![PrfDataParam::new(PrfDataParamType::IterationVariable(
-            Some(&counter),
+            if mode == KbkdfMode::Counter {
+                Some(&counter)
+            } else {
+                None
+            },
         ))];
+        if mode == KbkdfMode::Feedback {
+            fields.push(PrfDataParam::new(PrfDataParamType::Counter(&counter)));
+        }
         if !request.kdf_label.is_empty() {
             fields.push(PrfDataParam::new(PrfDataParamType::ByteArray(
                 request.kdf_label,
@@ -215,7 +322,15 @@ impl Session<'_> {
             DigestAlgorithm::Sha384 => MechanismType::SHA384_HMAC,
             DigestAlgorithm::Sha512 => MechanismType::SHA512_HMAC,
         };
-        let mechanism = Mechanism::KbkdfCounter(KbkdfParams::new(prf, &fields, None));
+        let mechanism = match mode {
+            KbkdfMode::Counter => Mechanism::KbkdfCounter(KbkdfParams::new(prf, &fields, None)),
+            KbkdfMode::Feedback => Mechanism::KbkdfFeedback(KbkdfFeedbackParams::new(
+                prf,
+                &fields,
+                (!iv.is_empty()).then_some(iv),
+                None,
+            )),
+        };
         object
             .session
             .write_operation("derive SP800-108 key", |raw| {
@@ -239,6 +354,25 @@ mod tests {
         };
         request.validate().unwrap();
         assert!(!format!("{request:?}").contains("canary"));
+        for digest in [
+            DigestAlgorithm::Sha256,
+            DigestAlgorithm::Sha384,
+            DigestAlgorithm::Sha512,
+        ] {
+            let request = KbkdfRequest { digest, ..request };
+            for iv in [&[][..], &vec![0xA5; digest.output_len()][..]] {
+                request.validate_with_mode(KbkdfMode::Feedback, iv).unwrap();
+            }
+            for length in [1, 31, 33, 65, 4097] {
+                let iv = vec![0; length];
+                assert!(
+                    request
+                        .validate_with_mode(KbkdfMode::Feedback, &iv)
+                        .is_err()
+                );
+                assert!(request.validate_with_mode(KbkdfMode::Counter, &iv).is_err());
+            }
+        }
         for length in [1, 4096] {
             KbkdfRequest {
                 kdf_label: &[],

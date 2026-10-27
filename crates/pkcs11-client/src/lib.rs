@@ -33,7 +33,7 @@ pub use generation::{
 };
 mod hkdf;
 mod kbkdf;
-pub use pkcs11_runtime::{KbkdfCapabilities, KbkdfOutput, KbkdfRequest};
+pub use pkcs11_runtime::{KbkdfCapabilities, KbkdfMode, KbkdfOptions, KbkdfOutput, KbkdfRequest};
 mod hmac;
 pub use pkcs11_runtime::{HMAC_MAXIMUM_MESSAGE, HmacAlgorithm, HmacCapabilities, HmacKeyRequest};
 mod management;

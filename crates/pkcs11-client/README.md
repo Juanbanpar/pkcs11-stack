@@ -737,7 +737,7 @@ Peer authentication and protocol context selection remain application concerns.
 An altered ML-KEM ciphertext can produce a different derived key without an error.
 `derive_hkdf` accepts one input; the hybrid combiner below accepts two.
 
-## SP 800-108 counter-mode KDF
+## SP 800-108 KDF
 
 `ManagementSession::kbkdf_capabilities` inspects native counter-mode support for a
 selected generic or matching SHA-256/384/512 HMAC secret. Bases must be sensitive,
@@ -776,6 +776,19 @@ AES-128/192/256 encryption/decryption key, or a 1–4096-byte generic derivation
 secret. New IDs/labels are 1–128 bytes; duplicate secret IDs are rejected.
 No key values leave the token and native rejection never triggers a retry or
 software fallback. Failed calls may leave persistent effects; check closure.
+
+For feedback mode, call `derive_kbkdf_with_mode(base, request,
+KbkdfMode::Feedback, iv)`. The PRF input prepends K(i-1) before the existing
+counter/label/separator/context/length fields; K(0) is the supplied public IV.
+The IV must be empty or match the hash output length (32/48/64 bytes). An empty
+IV supplies no initial bytes. `KbkdfMode::Counter` rejects a nonempty IV and
+keeps the original `derive_kbkdf` behavior.
+
+`kbkdf_capabilities_with_mode` inspects one mode; `kbkdf_options` returns the
+permitted counter/feedback profiles. Only unsupported profiles are omitted.
+Selection/provider failures propagate, and execution checks the selected mode
+again without substitution or software fallback. Both modes retain the same
+output types, permissions, bounds and checked session lifecycle.
 
 ## Application hybrid derivation
 

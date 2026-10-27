@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-use crate::{Error, KbkdfCapabilities, KbkdfRequest, ManagementSession, ObjectRef};
+use crate::{
+    Error, KbkdfCapabilities, KbkdfMode, KbkdfOptions, KbkdfRequest, ManagementSession, ObjectRef,
+};
 impl ManagementSession<'_> {
     /// Inspect native SP 800-108 counter-mode support for one generic/SHA-2 HMAC
     /// secret. Requires sensitivity, nonextractability and derivation permission.
@@ -18,5 +20,34 @@ impl ManagementSession<'_> {
         request: &KbkdfRequest<'_>,
     ) -> Result<(), Error> {
         Ok(self.session.derive_kbkdf(base, request)?)
+    }
+    /// Inspect a selected key for an explicit counter or feedback profile.
+    pub fn kbkdf_capabilities_with_mode(
+        &mut self,
+        base: &ObjectRef,
+        mode: KbkdfMode,
+    ) -> Result<KbkdfCapabilities, Error> {
+        Ok(self.session.kbkdf_capabilities_with_mode(base, mode)?)
+    }
+    /// Inspect both modes, omitting unsupported profiles while preserving
+    /// selection/provider failures. No key values are read.
+    pub fn kbkdf_options(&mut self, base: &ObjectRef) -> Result<KbkdfOptions, Error> {
+        Ok(self.session.kbkdf_options(base)?)
+    }
+    /// Derive using an explicit mode. Feedback takes an optional public IV:
+    /// empty or exactly 32/48/64 bytes matching the hash. Counter rejects an IV.
+    /// The counter and output bit length are 32-bit big-endian, with a zero
+    /// separator and one output key. Same permissions and cleanup contract as
+    /// derive_kbkdf; no mode substitution, retry or software fallback.
+    pub fn derive_kbkdf_with_mode(
+        &mut self,
+        base: &ObjectRef,
+        request: &KbkdfRequest<'_>,
+        mode: KbkdfMode,
+        iv: &[u8],
+    ) -> Result<(), Error> {
+        Ok(self
+            .session
+            .derive_kbkdf_with_mode(base, request, mode, iv)?)
     }
 }

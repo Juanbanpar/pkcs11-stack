@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Counter-mode client permissions and agreement with runtime reference keys.
+//! Counter/feedback client permissions and agreement with runtime reference keys.
 use pkcs11_client::{
     AesGcmDecryptRequest, AesGcmEncryptRequest, Attribute, AttributeType, Authentication,
-    DigestAlgorithm, ErrorKind, KbkdfOutput, KbkdfRequest, ObjectRef, Pin, Provider, SessionMode,
+    DigestAlgorithm, ErrorKind, KbkdfMode, KbkdfOutput, KbkdfRequest, ObjectRef, Pin, Provider,
+    SessionMode,
 };
 use secrecy::{ExposeSecret, SecretString};
 fn key(id: &[u8]) -> ObjectRef {
@@ -16,7 +17,12 @@ fn key(id: &[u8]) -> ObjectRef {
 }
 #[test]
 #[ignore = "requires tools/test-kem-hkdf.sh SP800-108 provider"]
-fn client_counter_kdf_permissions_outputs_and_runtime_agreement() {
+fn client_kbkdf_modes_permissions_outputs_and_runtime_agreement() {
+    for mode in KbkdfMode::ALL {
+        check_mode(mode);
+    }
+}
+fn check_mode(mode: KbkdfMode) {
     assert_eq!(
         std::env::var("PKCS11_TEST_KDF_ISOLATED").as_deref(),
         Ok("1")
@@ -40,7 +46,14 @@ fn client_counter_kdf_permissions_outputs_and_runtime_agreement() {
     .enumerate()
     {
         let base = key(&[0xA0, index as u8]);
-        let caps = session.kbkdf_capabilities(&base).unwrap();
+        let iv = if mode == KbkdfMode::Feedback {
+            vec![0xA5; digest.output_len()]
+        } else {
+            Vec::new()
+        };
+        let options = session.kbkdf_options(&base).unwrap();
+        let caps = options.get(mode).unwrap();
+        assert!(options.counter.is_some() && options.feedback.is_some());
         assert_eq!(caps.input_length, digest.output_len());
         for (case, output) in [
             KbkdfOutput::Aes256,
@@ -61,15 +74,34 @@ fn client_counter_kdf_permissions_outputs_and_runtime_agreement() {
             let mut ro = provider
                 .management(&token, SessionMode::ReadOnly, Authentication::None)
                 .unwrap();
-            assert_eq!(ro.kbkdf_capabilities(&base).unwrap(), caps);
+            assert_eq!(ro.kbkdf_capabilities_with_mode(&base, mode).unwrap(), caps);
             assert_eq!(
-                ro.derive_kbkdf(&base, &request).unwrap_err().kind(),
+                ro.derive_kbkdf_with_mode(&base, &request, mode, &iv)
+                    .unwrap_err()
+                    .kind(),
                 ErrorKind::Policy
             );
             ro.close().unwrap();
-            session.derive_kbkdf(&base, &request).unwrap();
             assert_eq!(
-                session.derive_kbkdf(&base, &request).unwrap_err().kind(),
+                session
+                    .derive_kbkdf_with_mode(&base, &request, mode, &[0; 1])
+                    .unwrap_err()
+                    .kind(),
+                ErrorKind::Input
+            );
+            session.state().unwrap();
+            if mode == KbkdfMode::Counter {
+                session.derive_kbkdf(&base, &request).unwrap();
+            } else {
+                session
+                    .derive_kbkdf_with_mode(&base, &request, mode, &iv)
+                    .unwrap();
+            }
+            assert_eq!(
+                session
+                    .derive_kbkdf_with_mode(&base, &request, mode, &iv)
+                    .unwrap_err()
+                    .kind(),
                 ErrorKind::Input
             );
             session.state().unwrap();
@@ -108,7 +140,7 @@ fn client_counter_kdf_permissions_outputs_and_runtime_agreement() {
             if generic {
                 assert!(
                     session
-                        .kbkdf_capabilities(&derived)
+                        .kbkdf_capabilities_with_mode(&derived, mode)
                         .unwrap()
                         .supports(DigestAlgorithm::Sha512)
                 );
@@ -133,7 +165,15 @@ fn client_counter_kdf_permissions_outputs_and_runtime_agreement() {
                     .unwrap();
                 let recovered = session
                     .decrypt_aes_gcm(
-                        &key(&[0xFA, 0x82, index as u8]),
+                        &key(&[
+                            0xFA,
+                            if mode == KbkdfMode::Counter {
+                                0x82
+                            } else {
+                                0x8A
+                            },
+                            index as u8,
+                        ]),
                         &AesGcmDecryptRequest {
                             nonce: &nonce,
                             aad: b"counter proof",
@@ -143,7 +183,10 @@ fn client_counter_kdf_permissions_outputs_and_runtime_agreement() {
                     .unwrap();
                 assert_eq!(recovered.expose_secret(), b"client counter agreement");
                 assert_eq!(
-                    session.kbkdf_capabilities(&derived).unwrap_err().kind(),
+                    session
+                        .kbkdf_capabilities_with_mode(&derived, mode)
+                        .unwrap_err()
+                        .kind(),
                     ErrorKind::Policy
                 );
             }

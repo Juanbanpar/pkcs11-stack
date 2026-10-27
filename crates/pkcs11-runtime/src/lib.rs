@@ -23,7 +23,7 @@ pub use generation::{
 };
 mod hkdf;
 mod kbkdf;
-pub use kbkdf::{KbkdfCapabilities, KbkdfOutput, KbkdfRequest};
+pub use kbkdf::{KbkdfCapabilities, KbkdfMode, KbkdfOptions, KbkdfOutput, KbkdfRequest};
 mod hmac;
 mod mac;
 pub use hmac::{HMAC_MAXIMUM_MESSAGE, HmacAlgorithm, HmacCapabilities, HmacKeyRequest};

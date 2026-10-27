@@ -626,7 +626,7 @@ persistent effects, and session closure must be checked when cleanup matters.
 Applications authenticate the peer and define salt/context within their protocol.
 HKDF does not authenticate ML-KEM ciphertexts or combine classical/PQC secrets.
 
-## SP 800-108 counter-mode KDF
+## SP 800-108 KDF
 
 `Session::kbkdf_capabilities` inspects a generic or matching SHA-256/384/512 HMAC
 secret. This application requires a 16–4096-byte sensitive, nonextractable base
@@ -651,6 +651,21 @@ existing secret IDs are rejected, without a transaction against concurrent write
 No values are read, no base is deleted, and no retry, rollback or software
 fallback occurs. Native errors invalidate the session and may leave persistent
 effects. Check session closure before reporting success.
+
+`Session::derive_kbkdf_with_mode(base, request, mode, iv)` also supports
+`KbkdfMode::Feedback`. Its PRF input is
+`K(i-1) || [i]_32 || kdf_label || 0x00 || context || [L]_32`, with K(0) equal
+to the supplied IV. Counter and sum-of-keys output bit length remain 32-bit
+big-endian. This application accepts an omitted IV or exactly one PRF output
+block (32/48/64 bytes). An empty IV is passed as native NULL/0, without supplying
+initial bytes. Counter mode rejects a nonempty IV. Mode/IV errors are rejected
+before native derivation; no failed mode is replaced with another.
+
+`kbkdf_capabilities_with_mode` checks one explicit mode. `kbkdf_options` inspects
+both modes on the same selected key, omitting unsupported profiles while
+propagating selection/provider errors. Each mode checks its own native mechanism,
+allowed mechanisms, derive flag and bit-based key-size bounds. A token may support
+only one mode. The original capability and derivation methods retain counter mode.
 
 ## Application hybrid derivation
 
