@@ -703,6 +703,13 @@ impl UiState {
                             {
                                 form.hmac_algorithm = algorithm;
                             }
+                            if let crate::backend::KeyProfile::AesCmac(options) = profile
+                                && let Some(profile) = pkcs11_client::AesCmacProfile::ALL
+                                    .into_iter()
+                                    .find(|profile| options.supports(*profile))
+                            {
+                                form.cmac_profile = profile;
+                            }
                             if let crate::backend::KeyProfile::Kbkdf(options) = profile
                                 && let Some(mode) = pkcs11_client::KbkdfMode::ALL
                                     .into_iter()

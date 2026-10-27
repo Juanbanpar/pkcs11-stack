@@ -161,6 +161,12 @@ impl Registry {
                 ]
                 .map(|purpose| GenerationKind::Aes(size, purpose))
             }))
+            .chain(
+                choices
+                    .aes_cmac_general
+                    .into_iter()
+                    .map(|size| GenerationKind::Aes(size, AesKeyPurpose::AuthenticationGeneral)),
+            )
             .collect())
     }
     fn management_action(

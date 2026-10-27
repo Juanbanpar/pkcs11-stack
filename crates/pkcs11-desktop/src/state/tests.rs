@@ -2917,45 +2917,88 @@ fn hkdf_stages_clear_disabled_inputs_and_enforce_prk_outputs() {
 #[test]
 fn cmac_forms_allow_read_only_crypto_and_scope_files_and_profiles() {
     use crate::backend::{CryptoMode, KeyJob, KeyProfile};
-    for mode in [CryptoMode::Mac, CryptoMode::VerifyMac] {
-        let (mut state, old, _) = key_state(CryptoMode::Derive);
-        state.dismiss_key_operation(old);
-        state.objects[0].class = Some(pkcs11_client::ObjectClass::SECRET_KEY);
-        state.object_details.as_mut().unwrap().key_type = Some(pkcs11_client::KeyType::AES);
-        state.loaded_modules[0].tokens[0].write_protected = true;
-        let BackendCommand::CryptoOptions { id, scope, .. } =
-            state.open_key_operation(mode).unwrap()
-        else {
-            panic!("MAC options")
-        };
-        state.event(complete(
-            id,
-            BackendResult::KeyOptions {
-                scope,
-                profile: KeyProfile::AesCmac(pkcs11_client::AesCmacCapabilities {
-                    key_size: pkcs11_client::AesKeySize::Bits256,
-                }),
-            },
-        ));
-        assert!(state.submit_key_operation(id).is_none());
-        state.key_edit(id, KeyField::Input, "message.bin".into());
-        state.key_edit(id, KeyField::Output, "tag.bin".into());
-        let (picker, save) = state.key_picker(id, KeyField::Output).unwrap();
-        assert_eq!(save, mode == CryptoMode::Mac);
-        state.key_picked(picker, Some("chosen-tag.bin".into()));
-        let BackendCommand::KeyOperation {
-            job: KeyJob::Cmac { input, tag },
-            scope: actual,
-            ..
-        } = state.submit_key_operation(id).unwrap()
-        else {
-            panic!("MAC job")
-        };
-        assert_eq!(input, PathBuf::from("message.bin"));
-        assert_eq!(tag, PathBuf::from("chosen-tag.bin"));
-        assert_eq!(actual, scope);
-        state.key_picked(picker, Some("stale.bin".into()));
-        assert!(state.key_form.is_none());
+    for general in [false, true] {
+        for mode in [CryptoMode::Mac, CryptoMode::VerifyMac] {
+            let (mut state, old, _) = key_state(CryptoMode::Derive);
+            state.dismiss_key_operation(old);
+            state.objects[0].class = Some(pkcs11_client::ObjectClass::SECRET_KEY);
+            state.object_details.as_mut().unwrap().key_type = Some(pkcs11_client::KeyType::AES);
+            state.loaded_modules[0].tokens[0].write_protected = true;
+            let BackendCommand::CryptoOptions { id, scope, .. } =
+                state.open_key_operation(mode).unwrap()
+            else {
+                panic!("MAC options")
+            };
+            state.event(complete(
+                id,
+                BackendResult::KeyOptions {
+                    scope,
+                    profile: KeyProfile::AesCmac(pkcs11_client::AesCmacOptions {
+                        full: !general,
+                        general,
+                        key_size: pkcs11_client::AesKeySize::Bits256,
+                    }),
+                },
+            ));
+            let selected = state.key_form.as_ref().unwrap().cmac_profile;
+            assert_eq!(
+                selected,
+                if general {
+                    pkcs11_client::AesCmacProfile::General { tag_length: 16 }
+                } else {
+                    pkcs11_client::AesCmacProfile::Full
+                }
+            );
+            let forbidden = if general {
+                pkcs11_client::AesCmacProfile::Full
+            } else {
+                pkcs11_client::AesCmacProfile::General { tag_length: 8 }
+            };
+            state.cmac_profile(id, forbidden);
+            state.cmac_profile(RequestId(id.0 + 1), pkcs11_client::AesCmacProfile::Full);
+            state.cmac_profile(id, pkcs11_client::AesCmacProfile::General { tag_length: 7 });
+            assert_eq!(state.key_form.as_ref().unwrap().cmac_profile, selected);
+            if general {
+                for tag_length in 8..=16 {
+                    let profile = pkcs11_client::AesCmacProfile::General { tag_length };
+                    state.cmac_profile(id, profile);
+                    assert_eq!(state.key_form.as_ref().unwrap().cmac_profile, profile);
+                }
+                state.cmac_profile(id, pkcs11_client::AesCmacProfile::General { tag_length: 8 });
+            }
+            assert!(state.submit_key_operation(id).is_none());
+            state.key_edit(id, KeyField::Input, "message.bin".into());
+            state.key_edit(id, KeyField::Output, "tag.bin".into());
+            let (picker, save) = state.key_picker(id, KeyField::Output).unwrap();
+            assert_eq!(save, mode == CryptoMode::Mac);
+            state.key_picked(picker, Some("chosen-tag.bin".into()));
+            let BackendCommand::KeyOperation {
+                job:
+                    KeyJob::Cmac {
+                        input,
+                        tag,
+                        profile,
+                    },
+                scope: actual,
+                ..
+            } = state.submit_key_operation(id).unwrap()
+            else {
+                panic!("MAC job")
+            };
+            assert_eq!(input, PathBuf::from("message.bin"));
+            assert_eq!(tag, PathBuf::from("chosen-tag.bin"));
+            assert_eq!(actual, scope);
+            assert_eq!(
+                profile,
+                if general {
+                    pkcs11_client::AesCmacProfile::General { tag_length: 8 }
+                } else {
+                    pkcs11_client::AesCmacProfile::Full
+                }
+            );
+            state.key_picked(picker, Some("stale.bin".into()));
+            assert!(state.key_form.is_none());
+        }
     }
 }
 

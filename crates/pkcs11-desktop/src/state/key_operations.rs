@@ -27,6 +27,7 @@ impl std::fmt::Display for WrapTarget {
     }
 }
 pub struct KeyForm {
+    pub cmac_profile: pkcs11_client::AesCmacProfile,
     pub hmac_algorithm: pkcs11_client::HmacAlgorithm,
     pub wrap_algorithm: pkcs11_client::AesKeyWrapAlgorithm,
     pub hkdf: HkdfForm,
@@ -155,6 +156,7 @@ impl UiState {
         let id = self.begin(OperationKind::CryptoOptions)?;
         self.clear_crypto_form();
         self.key_form = Some(KeyForm {
+            cmac_profile: pkcs11_client::AesCmacProfile::Full,
             hmac_algorithm: pkcs11_client::HmacAlgorithm::default(),
             wrap_algorithm: pkcs11_client::AesKeyWrapAlgorithm::Kw,
             hkdf: HkdfForm::default(),
@@ -242,6 +244,19 @@ impl UiState {
             && form.targets.contains(&target)
         {
             form.target = Some(target);
+        }
+    }
+    pub fn cmac_profile(&mut self, id: RequestId, profile: pkcs11_client::AesCmacProfile) {
+        if !self.can_submit() {
+            return;
+        }
+        if let Some(form) = &mut self.key_form
+            && form.id == id
+            && matches!(form.scope.mode, CryptoMode::Mac | CryptoMode::VerifyMac)
+            && let Some(KeyProfile::AesCmac(options)) = form.profile
+            && options.supports(profile)
+        {
+            form.cmac_profile = profile;
         }
     }
     pub fn hmac_algorithm(&mut self, id: RequestId, algorithm: pkcs11_client::HmacAlgorithm) {
@@ -364,7 +379,9 @@ impl UiState {
                         && matches!(form.profile, Some(KeyProfile::Hmac(caps)) if caps.supports(form.hmac_algorithm))
                 }
                 CryptoMode::Mac | CryptoMode::VerifyMac => {
-                    !form.input.is_empty() && !form.output.is_empty()
+                    matches!(form.profile, Some(KeyProfile::AesCmac(options)) if options.supports(form.cmac_profile))
+                        && !form.input.is_empty()
+                        && !form.output.is_empty()
                 }
                 CryptoMode::Hkdf => hkdf_job.is_some(),
                 CryptoMode::Kbkdf => kbkdf_job.is_some(),
@@ -427,6 +444,7 @@ impl UiState {
                     .unwrap_or_else(|| PathBuf::from(form.output)),
             },
             CryptoMode::Mac | CryptoMode::VerifyMac => KeyJob::Cmac {
+                profile: form.cmac_profile,
                 input,
                 tag: form
                     .picked_output

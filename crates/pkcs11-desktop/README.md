@@ -438,9 +438,20 @@ USER login is required; these operations also work on write-protected tokens.
 Select a message file (empty through 16 MiB) and a new tag output file for creation,
 or an existing raw 16-byte tag for verification. The worker rechecks capabilities
 and writes a generated tag after checked session closure. Existing outputs are
-preserved. A mismatch is reported separately from a provider failure. No key value,
-truncated tag or software MAC is exposed. A shared-key MAC does not identify an
-individual signer.
+preserved. A mismatch is reported separately from a provider failure. No key values or software MACs are exposed. A shared-key MAC does not identify
+an individual signer.
+
+For general tags, generate an **AES-CMAC general authentication** key. This
+purpose is offered only for sizes with advertised generator and general-CMAC
+support. These keys permit only the general mechanism and MAC operations;
+existing authentication keys retain their full-tag restriction.
+
+The MAC form offers the permitted tag profiles. General tags range from 8 to
+16 bytes, defaulting to 16 when the full profile is unavailable. Select the
+agreed length before use and keep it fixed for that key's lifetime. The worker
+checks the exact tag length, permissions and native profile again. It generates
+and verifies general tags directly on the token, without software truncation,
+profile substitution or retry. Stale profile edits are discarded.
 
 ## SP 800-108 KDF
 

@@ -1647,7 +1647,9 @@ fn cmac_forms_accept_files_without_signature_or_cipher_parameters() {
             id,
             result: Ok(BackendResult::KeyOptions {
                 scope,
-                profile: KeyProfile::AesCmac(pkcs11_client::AesCmacCapabilities {
+                profile: KeyProfile::AesCmac(pkcs11_client::AesCmacOptions {
+                    full: true,
+                    general: false,
                     key_size: pkcs11_client::AesKeySize::Bits256,
                 }),
             }),
@@ -1862,6 +1864,57 @@ fn counter_kdf_form_selects_prf_by_keyboard_and_keeps_protocol_inputs_separate()
     let _ = app.update(Message::KbkdfDigest {
         id,
         digest: crate::state::KbkdfDigest(pkcs11_client::DigestAlgorithm::Sha512),
+    });
+    assert!(app.state.key_form.is_none());
+}
+
+#[test]
+fn cmac_general_tag_profiles_select_with_keyboard_and_reject_stale_edits() {
+    fn initial() -> UiState {
+        use crate::backend::{BackendCommand, BackendEvent, BackendResult, CryptoMode, KeyProfile};
+        let mut state = populated_state();
+        state.token_page = TokenPage::Objects;
+        state.selected_object = Some(ResourceId(6));
+        state.object_details.as_mut().unwrap().key_type = Some(pkcs11_client::KeyType::AES);
+        let BackendCommand::CryptoOptions { id, scope, .. } =
+            state.open_key_operation(CryptoMode::Mac).unwrap()
+        else {
+            panic!("CMAC options")
+        };
+        state.event(BackendEvent::Completed {
+            id,
+            result: Ok(BackendResult::KeyOptions {
+                scope,
+                profile: KeyProfile::AesCmac(pkcs11_client::AesCmacOptions {
+                    key_size: pkcs11_client::AesKeySize::Bits256,
+                    full: false,
+                    general: true,
+                }),
+            }),
+        });
+        state
+    }
+    let mut app = run_focused(
+        initial,
+        &["type enter", "type tab", "type enter"],
+        Some("choice-AES-CMAC tag profile"),
+    );
+    let id = app.state.key_form.as_ref().unwrap().id;
+    assert_eq!(
+        app.state.key_form.as_ref().unwrap().cmac_profile,
+        pkcs11_client::AesCmacProfile::General { tag_length: 15 }
+    );
+    for dark in [false, true] {
+        render_screen(&app.state, "aes-cmac-general-create", 1060, 900, dark);
+    }
+    app.state.key_form.as_mut().unwrap().scope.mode = crate::backend::CryptoMode::VerifyMac;
+    for dark in [false, true] {
+        render_screen(&app.state, "aes-cmac-general-verify", 1060, 900, dark);
+    }
+    let _ = app.update(Message::DismissKeyOperation(id));
+    let _ = app.update(Message::CmacProfile {
+        id,
+        profile: pkcs11_client::AesCmacProfile::Full,
     });
     assert!(app.state.key_form.is_none());
 }

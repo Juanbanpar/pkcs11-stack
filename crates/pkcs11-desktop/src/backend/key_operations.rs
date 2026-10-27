@@ -17,7 +17,7 @@ use std::{
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum KeyProfile {
     Hmac(pkcs11_client::HmacCapabilities),
-    AesCmac(pkcs11_client::AesCmacCapabilities),
+    AesCmac(pkcs11_client::AesCmacOptions),
     AesWrapping(AesKeyWrapCapabilities),
     Hkdf(pkcs11_client::HkdfCapabilities),
     Kbkdf(pkcs11_client::KbkdfOptions),
@@ -65,6 +65,7 @@ pub enum KeyJob {
         tag: PathBuf,
     },
     Cmac {
+        profile: pkcs11_client::AesCmacProfile,
         input: PathBuf,
         tag: PathBuf,
     },
@@ -180,7 +181,7 @@ impl Registry {
                     .map_err(|e| BackendError::from(&e))
             } else if matches!(scope.mode, CryptoMode::Mac | CryptoMode::VerifyMac) {
                 session
-                    .aes_cmac_capabilities(&reference, super::cmac::operation(scope.mode)?)
+                    .aes_cmac_options(&reference, super::cmac::operation(scope.mode)?)
                     .map(KeyProfile::AesCmac)
                     .map_err(|e| BackendError::from(&e))
             } else if scope.mode == CryptoMode::Kbkdf {

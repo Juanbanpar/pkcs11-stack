@@ -59,7 +59,7 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
     } else {
         let description = if let Some(KeyProfile::AesCmac(caps)) = form.profile {
             format!(
-                "AES-{} with a full 16-byte tag. The sensitive, nonextractable key stays on the token. Native support and permissions are checked again before use.",
+                "AES-{} with an explicitly selected tag profile. The sensitive, nonextractable key stays on the token. Native support and permissions are checked again before use.",
                 caps.key_size.length() * 8
             )
         } else if form.loaded {
@@ -68,6 +68,15 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
             "Reading AES-CMAC capabilities…".into()
         };
         content = content.push(text(description).size(14));
+        let profiles: Vec<_> = pkcs11_client::AesCmacProfile::ALL.into_iter().filter(|profile| matches!(form.profile, Some(KeyProfile::AesCmac(options)) if options.supports(*profile))).collect();
+        content = content.push(
+            pick_list(profiles, Some(form.cmac_profile), move |profile| {
+                Message::CmacProfile { id, profile }
+            })
+            .placeholder("AES-CMAC tag profile")
+            .enabled(enabled && form.profile.is_some()),
+        );
+        content = content.push(text("Agree on the tag length before using the key and keep it fixed for that key's lifetime. General tags use native token support; full-tag keys keep their existing restriction.").size(14));
     }
     for (field, placeholder, value) in [
         (KeyField::Input, "Message file (up to 16 MiB)", &form.input),
@@ -82,7 +91,7 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
                         _ => "Tag input file (exactly 64 bytes)",
                     }
                 } else {
-                    "Tag input file (exactly 16 bytes)"
+                    "Tag input file (exact selected length)"
                 }
             } else {
                 "New tag output file"
@@ -108,7 +117,7 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
             .align_y(iced::Alignment::End),
         );
     }
-    content = content.push(text(if verify { "Verify the exact message and full tag with the shared key. A matching tag authenticates possession of that key; it does not identify an individual signer." } else { "Empty messages are allowed. Only the raw tag is written, after session closure succeeds. Existing files are never overwritten; failure may leave an empty or partial file." }).size(14));
+    content = content.push(text(if verify { "Verify the exact message and selected tag length with the shared key. A matching tag authenticates possession of that key; it does not identify an individual signer." } else { "Empty messages are allowed. Only the raw tag is written, after session closure succeeds. Existing files are never overwritten; failure may leave an empty or partial file." }).size(14));
     content = content.push(
         row![
             button(if verify { "Verify tag" } else { "Create tag" })
