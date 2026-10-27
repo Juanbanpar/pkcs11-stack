@@ -84,6 +84,10 @@ pub enum Message {
         id: RequestId,
         choice: CipherChoice,
     },
+    CipherMgf {
+        id: RequestId,
+        choice: crate::state::OaepMgfChoice,
+    },
     CipherBrowse {
         id: RequestId,
         field: CipherField,
@@ -239,6 +243,7 @@ impl std::fmt::Debug for Message {
             Self::CipherPin { .. } => "CipherPin",
             Self::CipherProtected { .. } => "CipherProtected",
             Self::CipherChoice { .. } => "CipherChoice",
+            Self::CipherMgf { .. } => "CipherMgf",
             Self::CipherBrowse { .. } => "CipherBrowse",
             Self::CipherPicked { .. } => "CipherPicked",
             Self::SubmitCipher(_) => "SubmitCipher",
@@ -427,6 +432,7 @@ impl App {
             Message::CipherPin { id, pin } => self.state.cipher_pin(id, pin),
             Message::CipherProtected { id, enabled } => self.state.cipher_protected(id, enabled),
             Message::CipherChoice { id, choice } => self.state.cipher_choice(id, choice),
+            Message::CipherMgf { id, choice } => self.state.cipher_mgf(id, choice),
             Message::CipherPicked { id, path } => self.state.cipher_picked(id, path),
             Message::SubmitCipher(id) => {
                 let command = self.state.submit_cipher(id);

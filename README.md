@@ -85,8 +85,8 @@ Standalone SHA-2 and SHA-3 token hashing supports single-part and streaming
 operations. The CLI and desktop stream files in bounded chunks; failed or
 unfinished digest operations discard their sessions.
 
-RSA-OAEP encryption/decryption supports SHA-2 with a matching MGF1 digest and
-empty label. It processes one RSA block. Raw ECDH creates token-held generic
+RSA-OAEP encryption/decryption supports independently selected SHA-2 OAEP/MGF1
+digests and binary labels. It processes one RSA block. Raw ECDH creates token-held generic
 secrets on P-256/P-384/P-521. Explicit ANSI X9.63 and NIST SP 800-56A SHA-2
 KDFs can instead produce AES keys or generic derivation secrets; AES key
 wrapping and unwrapping use RFC 3394.

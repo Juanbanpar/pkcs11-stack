@@ -1241,6 +1241,62 @@ fn aes_gcm_file_form_accepts_nonce_and_aad_without_running_crypto() {
 }
 
 #[test]
+fn oaep_form_accepts_binary_label_and_independent_mgf_digest() {
+    fn initial() -> UiState {
+        use crate::backend::{
+            BackendCommand, BackendEvent, BackendResult, CipherParameters, CryptoMode,
+        };
+        let mut state = state();
+        state.token_page = TokenPage::Objects;
+        let mut key = object(4, "RSA encryption key");
+        key.uri = Some("pkcs11:serial=A;id=%04;type=public".into());
+        state.object_details = Some(crate::backend::ObjectDetails {
+            fields: vec![],
+            key_type: Some(pkcs11_client::KeyType::RSA),
+        });
+        state.objects = vec![key];
+        state.selected_object = Some(ResourceId(4));
+        let BackendCommand::CryptoOptions { id, scope, .. } =
+            state.open_cipher(CryptoMode::Encrypt).unwrap()
+        else {
+            panic!("options");
+        };
+        state.event(BackendEvent::Completed {
+            id,
+            result: Ok(BackendResult::CipherOptions {
+                scope,
+                choices: vec![CipherParameters::Oaep(pkcs11_client::OaepChoice {
+                    digest: pkcs11_client::DigestAlgorithm::Sha256,
+                    maximum_plaintext: 190,
+                    ciphertext_length: 256,
+                    always_authenticate: false,
+                })],
+            }),
+        });
+        state
+    }
+    let mut app = run_focused(
+        initial,
+        &["type \"00ff0123\""],
+        Some("input-OAEP label (hexadecimal, optional; up to 4096 bytes)"),
+    );
+    let form = app.state.cipher_form.as_ref().unwrap();
+    let id = form.id;
+    assert_eq!(form.oaep_label, "00ff0123");
+    let _ = app.update(Message::CipherMgf {
+        id,
+        choice: crate::state::OaepMgfChoice(Some(pkcs11_client::DigestAlgorithm::Sha512)),
+    });
+    assert_eq!(
+        app.state.cipher_form.as_ref().unwrap().oaep_mgf.0,
+        Some(pkcs11_client::DigestAlgorithm::Sha512)
+    );
+    for dark in [false, true] {
+        render_screen(&app.state, "oaep-explicit", 1060, 720, dark);
+    }
+}
+
+#[test]
 fn ml_dsa_verification_form_accepts_context_without_authentication() {
     fn verification() -> UiState {
         use crate::backend::{

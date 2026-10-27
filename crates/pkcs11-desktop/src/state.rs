@@ -19,7 +19,7 @@ mod key_operations;
 pub use hkdf::{HkdfForm, HkdfOutputChoice};
 pub use key_operations::{KeyField, KeyForm, WrapTarget};
 mod crypto;
-pub use cipher::{CipherChoice, CipherField, CipherForm};
+pub use cipher::{CipherChoice, CipherField, CipherForm, OaepMgfChoice};
 mod digest;
 mod management;
 mod random;

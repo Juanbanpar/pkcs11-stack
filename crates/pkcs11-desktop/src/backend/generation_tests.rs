@@ -313,6 +313,7 @@ fn software_token_typed_generation_permissions_and_use() {
             registry.cipher(
                 scope,
                 CipherJob {
+                    oaep: None,
                     choice,
                     context: Some(SecretInput::Value("12345678".into())),
                     aes_gcm: None,

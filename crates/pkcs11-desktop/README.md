@@ -195,13 +195,16 @@ ignored. Operations are not retried.
 
 On **Objects**, select a public RSA key and choose **Encrypt RSA OAEP**, or log in
 as USER and select a private RSA key for **Decrypt RSA OAEP**. Client-provided
-choices display SHA-2 digest and byte limits. OAEP uses a matching MGF1 digest and
-empty label; output is one raw RSA block, with no header. Select the same digest
-when decrypting. This handles small payloads, not bulk files or sender authentication.
+choices display SHA-2 digest and byte limits. MGF1 defaults to the OAEP digest;
+it can independently use SHA-256/384/512. The optional hexadecimal label holds
+up to 4096 binary bytes. Output is one raw RSA block, with no header. Supply the
+same digests and label when decrypting. This handles small payloads, not bulk files
+or sender authentication.
 
 Permissions, allowed mechanisms and bounds are checked again at execution.
 Always-authenticate keys require a separate per-operation PIN or protected
-path. Changing the cipher choice or leaving the form clears the credential.
+path. Changing the cipher choice, MGF1 digest or label, or leaving the form,
+clears the credential.
 Vendor digest-parameter rejection never causes a retry, SHA-1 fallback or padding
 downgrade. Input and plaintext buffers, including failed decryption output, use
 zeroizing storage.

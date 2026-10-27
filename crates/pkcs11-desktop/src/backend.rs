@@ -18,7 +18,7 @@ pub use hkdf::HkdfJob;
 mod key_operations;
 pub use key_operations::{EcdhParameters, KeyJob, KeyProfile};
 mod crypto;
-pub use cipher::{AesGcmFiles, CipherJob, CipherParameters};
+pub use cipher::{AesGcmFiles, CipherJob, CipherParameters, OaepSettings};
 mod digest;
 mod management;
 mod random;
@@ -395,13 +395,13 @@ impl BackendError {
                 "Check the operation files, new secret label and hexadecimal ID. EC needs SPKI DER, AES needs a 24/32/40-byte wrapped blob, and ML-KEM ciphertext must match the displayed parameter set."
             }
             Self::OaepParametersRejected => {
-                "The provider rejected these OAEP digest parameters. No digest downgrade or fallback was attempted."
+                "The provider rejected these OAEP parameters. No digest downgrade or fallback was attempted."
             }
             Self::CipherUnavailable => {
-                "Select a permitted RSA key or an AES secret key. AES and private-key operations require USER login. Per-operation-authentication RSA decryption is unsupported."
+                "Select a permitted RSA key or an AES secret key. AES and private-key operations require USER login. Always-authenticate RSA keys also require a per-operation credential."
             }
             Self::CipherInput => {
-                "Provide valid cipher parameters, bounded input, optional AAD and a new output path. AES-GCM requires a 24-digit hexadecimal nonce and a full tag."
+                "Provide valid cipher parameters, bounded input and a new output path. OAEP labels use at most 4096 hexadecimal bytes. AES-GCM requires a 24-digit hexadecimal nonce, a full tag and the exact AAD."
             }
             Self::RandomUnavailable => {
                 "Select an initialized token that advertises a random generator."

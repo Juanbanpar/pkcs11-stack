@@ -3,7 +3,7 @@ use crate::ui::{button, checkbox, components::EMPHASIS, pick_list, text_input};
 use crate::{
     app::Message,
     backend::{CipherParameters, CryptoMode},
-    state::{CipherField, UiState},
+    state::{CipherField, OaepMgfChoice, UiState},
 };
 use iced::{
     Element,
@@ -27,7 +27,7 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
         text(if aes {
             "AES-GCM supports up to 16 MiB of plaintext and 1 MiB of AAD. Ciphertext includes a full 16-byte tag; the nonce and AAD are separate."
         } else {
-            "RSA-OAEP uses the selected SHA-2 digest for both OAEP and MGF1, with an empty label. It handles one RSA block; large-file encryption is not supported."
+            "RSA-OAEP handles one RSA block. Decryption requires the same OAEP hash, MGF1 digest and binary label used for encryption. These parameters are not stored in the ciphertext."
         }).size(14),
     ].spacing(10);
     if !aes {
@@ -37,6 +37,27 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
             })
             .placeholder("OAEP digest")
             .enabled(enabled),
+        );
+        content = content.push(
+            row![
+                pick_list(OaepMgfChoice::ALL, Some(form.oaep_mgf), move |choice| {
+                    Message::CipherMgf { id, choice }
+                })
+                .enabled(enabled),
+                text_input(
+                    "OAEP label (hexadecimal, optional; up to 4096 bytes)",
+                    &form.oaep_label
+                )
+                .on_input_maybe(enabled.then_some(move |value| {
+                    Message::CipherEdit {
+                        id,
+                        field: CipherField::Label,
+                        value,
+                    }
+                })),
+            ]
+            .spacing(10)
+            .align_y(iced::Alignment::End),
         );
     }
     match form.choice.map(|choice|choice.0) {

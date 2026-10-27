@@ -50,6 +50,137 @@ fn command(args: &[&str]) {
     );
 }
 #[test]
+#[ignore = "requires the isolated SHA-2 OAEP SoftHSM runner"]
+fn software_token_oaep_explicit_parameters_and_validation_before_output() {
+    assert_eq!(std::env::var("PKCS11_TEST_ISOLATED").as_deref(), Ok("1"));
+    if std::env::var("PKCS11_TEST_REQUIRE_RSA_OAEP_SHA2").as_deref() != Ok("1") {
+        return;
+    }
+    let root = PathBuf::from(std::env::var_os("PKCS11_CLIENT_TEST_DIR").unwrap());
+    let mut registry = Registry::default();
+    let module = registry
+        .load(&PathBuf::from(
+            std::env::var_os("PKCS11_TEST_MODULE").unwrap(),
+        ))
+        .unwrap();
+    let token = registry.modules[0]
+        .entry
+        .tokens
+        .iter()
+        .find(|t| t.label == "client-test")
+        .unwrap()
+        .id;
+    registry
+        .login(
+            module,
+            token,
+            LoginRole::User,
+            SecretInput::Value("12345678".into()),
+        )
+        .unwrap();
+    let mut objects = registry.objects(module, token).unwrap();
+    let current = scope(module, token, &objects, CryptoMode::Encrypt);
+    let choice = match registry.cipher_options(current).unwrap() {
+        BackendResult::CipherOptions { choices, .. } => choices
+            .into_iter()
+            .find(|c| matches!(c, CipherParameters::Oaep(c) if c.digest == DigestAlgorithm::Sha256))
+            .unwrap(),
+        _ => panic!("OAEP options"),
+    };
+    let input = root.join("desktop-oaep-explicit-message");
+    let cipher = root.join("desktop-oaep-explicit-cipher");
+    let plain = root.join("desktop-oaep-explicit-plain");
+    std::fs::write(&input, b"desktop explicit OAEP").unwrap();
+    let job = |input, output, label| CipherJob {
+        choice,
+        context: None,
+        aes_gcm: None,
+        oaep: Some(OaepSettings {
+            mgf_digest: DigestAlgorithm::Sha512,
+            label,
+        }),
+        input,
+        output,
+    };
+    objects = managed(
+        registry.cipher(
+            current,
+            job(input.clone(), cipher.clone(), vec![0, 255, 1, 35]),
+        ),
+        None,
+    );
+    command(&[
+        "pkeyutl",
+        "-decrypt",
+        "-inkey",
+        root.join("cipher.key").to_str().unwrap(),
+        "-in",
+        cipher.to_str().unwrap(),
+        "-out",
+        plain.to_str().unwrap(),
+        "-pkeyopt",
+        "rsa_padding_mode:oaep",
+        "-pkeyopt",
+        "rsa_oaep_md:sha256",
+        "-pkeyopt",
+        "rsa_mgf1_md:sha512",
+        "-pkeyopt",
+        "rsa_oaep_label:00ff0123",
+    ]);
+    assert_eq!(
+        std::fs::read(&plain).unwrap(),
+        std::fs::read(&input).unwrap()
+    );
+    command(&[
+        "pkeyutl",
+        "-encrypt",
+        "-pubin",
+        "-keyform",
+        "DER",
+        "-inkey",
+        root.join("cipher-public.der").to_str().unwrap(),
+        "-in",
+        input.to_str().unwrap(),
+        "-out",
+        cipher.to_str().unwrap(),
+        "-pkeyopt",
+        "rsa_padding_mode:oaep",
+        "-pkeyopt",
+        "rsa_oaep_md:sha256",
+        "-pkeyopt",
+        "rsa_mgf1_md:sha512",
+        "-pkeyopt",
+        "rsa_oaep_label:00ff0123",
+    ]);
+    std::fs::remove_file(&plain).unwrap();
+    let current = scope(module, token, &objects, CryptoMode::Decrypt);
+    objects = managed(
+        registry.cipher(
+            current,
+            job(cipher.clone(), plain.clone(), vec![0, 255, 1, 35]),
+        ),
+        None,
+    );
+    assert_eq!(
+        std::fs::read(&plain).unwrap(),
+        std::fs::read(&input).unwrap()
+    );
+    let rejected = root.join("desktop-oaep-explicit-rejected");
+    let current = scope(module, token, &objects, CryptoMode::Encrypt);
+    objects = managed(
+        registry.cipher(current, job(input, rejected.clone(), vec![0; 4097])),
+        Some(BackendError::CipherInput),
+    );
+    assert!(!rejected.exists());
+    let current = scope(module, token, &objects, CryptoMode::Decrypt);
+    managed(
+        registry.cipher(current, job(cipher, rejected.clone(), vec![0, 255, 1, 36])),
+        Some(BackendError::Client(pkcs11_client::ErrorKind::Runtime)),
+    );
+    assert!(std::fs::read(&rejected).unwrap().is_empty());
+    registry.close().unwrap();
+}
+#[test]
 #[ignore = "requires the isolated SoftHSM runner"]
 fn software_token_oaep_interoperability_permissions_and_file_failures() {
     assert_eq!(std::env::var("PKCS11_TEST_ISOLATED").as_deref(), Ok("1"));
@@ -130,6 +261,7 @@ fn software_token_oaep_interoperability_permissions_and_file_failures() {
         let result = registry.cipher(
             current,
             CipherJob {
+                oaep: None,
                 context: None,
                 aes_gcm: None,
                 choice: CipherParameters::Oaep(choice),
@@ -188,6 +320,7 @@ fn software_token_oaep_interoperability_permissions_and_file_failures() {
             registry.cipher(
                 target,
                 CipherJob {
+                    oaep: None,
                     context: None,
                     aes_gcm: None,
                     choice: CipherParameters::Oaep(choice),
@@ -227,6 +360,7 @@ fn software_token_oaep_interoperability_permissions_and_file_failures() {
             registry.cipher(
                 target,
                 CipherJob {
+                    oaep: None,
                     context: None,
                     aes_gcm: None,
                     choice: CipherParameters::Oaep(choice),
@@ -263,6 +397,7 @@ fn software_token_oaep_interoperability_permissions_and_file_failures() {
             registry.cipher(
                 auth_scope,
                 CipherJob {
+                    oaep: None,
                     context: None,
                     aes_gcm: None,
                     choice: auth_choice,
@@ -289,6 +424,7 @@ fn software_token_oaep_interoperability_permissions_and_file_failures() {
             registry.cipher(
                 auth_scope,
                 CipherJob {
+                    oaep: None,
                     context: Some(SecretInput::Value("12345678".into())),
                     aes_gcm: None,
                     choice: auth_choice,
@@ -308,6 +444,7 @@ fn software_token_oaep_interoperability_permissions_and_file_failures() {
             registry.cipher(
                 target,
                 CipherJob {
+                    oaep: None,
                     context: None,
                     aes_gcm: None,
                     choice: CipherParameters::Oaep(choice),
@@ -326,6 +463,7 @@ fn software_token_oaep_interoperability_permissions_and_file_failures() {
             registry.cipher(
                 target,
                 CipherJob {
+                    oaep: None,
                     context: None,
                     aes_gcm: None,
                     choice: CipherParameters::Oaep(choice),
@@ -344,6 +482,7 @@ fn software_token_oaep_interoperability_permissions_and_file_failures() {
             registry.cipher(
                 target,
                 CipherJob {
+                    oaep: None,
                     context: None,
                     aes_gcm: None,
                     choice: CipherParameters::Oaep(choice),

@@ -5,8 +5,8 @@ use super::{
 };
 use pkcs11_client::{
     AES_GCM_MAXIMUM_AAD, AES_GCM_MAXIMUM_PLAINTEXT, AES_GCM_TAG_LENGTH, AesGcmCapabilities,
-    AesGcmDecryptRequest, AesGcmEncryptRequest, AesGcmOperation, DecryptRequest, EncryptRequest,
-    OaepChoice, ObjectClass, PrivateKeyRef, PublicKeyRef, RsaCipherOperation, SessionState,
+    AesGcmDecryptRequest, AesGcmEncryptRequest, AesGcmOperation, DigestAlgorithm, OaepChoice,
+    ObjectClass, PrivateKeyRef, PublicKeyRef, RsaCipherOperation, RsaOaepParameters, SessionState,
 };
 use secrecy::{ExposeSecret, ExposeSecretMut, SecretBox};
 use std::{
@@ -29,10 +29,15 @@ pub struct AesGcmFiles {
     pub nonce: [u8; 12],
     pub aad: Option<PathBuf>,
 }
+pub struct OaepSettings {
+    pub mgf_digest: DigestAlgorithm,
+    pub label: Vec<u8>,
+}
 pub struct CipherJob {
     pub choice: CipherParameters,
     pub context: Option<SecretInput>,
     pub aes_gcm: Option<AesGcmFiles>,
+    pub oaep: Option<OaepSettings>,
     pub input: PathBuf,
     pub output: PathBuf,
 }
@@ -111,6 +116,21 @@ impl Registry {
     fn cipher_action(&self, scope: CryptoScope, job: CipherJob) -> Result<(), BackendError> {
         let (index, uri, reference, operation) = self.cipher_reference(scope)?;
         let module = &self.modules[index];
+        let parameters = match job.choice {
+            CipherParameters::Oaep(choice) => {
+                let parameters = RsaOaepParameters {
+                    digest: choice.digest,
+                    mgf_digest: job.oaep.as_ref().map_or(choice.digest, |p| p.mgf_digest),
+                    label: job.oaep.as_ref().map_or(&[][..], |p| p.label.as_slice()),
+                };
+                parameters
+                    .validate()
+                    .map_err(|_| BackendError::CipherInput)?;
+                Some(parameters)
+            }
+            CipherParameters::AesGcm(_) if job.oaep.is_none() => None,
+            _ => return Err(BackendError::CipherInput),
+        };
         if job.context.is_some()
             && !matches!(operation, CipherTarget::Rsa(RsaCipherOperation::Decrypt))
         {
@@ -216,6 +236,7 @@ impl Registry {
             let CipherParameters::Oaep(choice) = job.choice else {
                 return Err(BackendError::CipherUnavailable);
             };
+            let parameters = parameters.as_ref().ok_or(BackendError::CipherInput)?;
             if !session
                 .oaep_options(&reference, operation)
                 .map_err(|e| cipher_error(&e))?
@@ -233,13 +254,7 @@ impl Registry {
                     let key =
                         PublicKeyRef::new(selector).map_err(|_| BackendError::CipherUnavailable)?;
                     session
-                        .encrypt(
-                            &key,
-                            &EncryptRequest {
-                                digest: choice.digest,
-                                plaintext: input.expose_secret(),
-                            },
-                        )
+                        .encrypt_oaep(&key, parameters, input.expose_secret())
                         .map(|bytes| SecretBox::new(Box::new(bytes)))
                         .map_err(|e| cipher_error(&e))
                 }
@@ -247,12 +262,10 @@ impl Registry {
                     let key = PrivateKeyRef::new(selector)
                         .map_err(|_| BackendError::CipherUnavailable)?;
                     session
-                        .decrypt_with_context(
+                        .decrypt_oaep(
                             &key,
-                            &DecryptRequest {
-                                digest: choice.digest,
-                                ciphertext: input.expose_secret(),
-                            },
+                            parameters,
+                            input.expose_secret(),
                             job.context.as_ref().map(|secret| match secret {
                                 SecretInput::Value(pin) => pkcs11_client::Pin::Value(pin),
                                 SecretInput::ProtectedPath => pkcs11_client::Pin::ProtectedPath,

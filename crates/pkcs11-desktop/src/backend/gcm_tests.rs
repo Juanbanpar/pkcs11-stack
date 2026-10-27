@@ -93,6 +93,7 @@ fn software_token_gcm_files_known_answers_tampering_and_failure_cleanup() {
         registry.cipher(
             key,
             CipherJob {
+                oaep: None,
                 context: None,
                 choice: CipherParameters::AesGcm(AesGcmCapabilities {
                     key_size: AesKeySize::Bits128,
@@ -142,6 +143,7 @@ fn software_token_gcm_files_known_answers_tampering_and_failure_cleanup() {
         let cipher = root.join(format!("cipher-{index}"));
         let output = root.join(format!("plain-{index}"));
         let job = |input: PathBuf, output: PathBuf, nonce, aad: Option<PathBuf>| CipherJob {
+            oaep: None,
             context: None,
             choice: caps,
             aes_gcm: Some(AesGcmFiles { nonce, aad }),

@@ -1,9 +1,31 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use super::*;
-use crate::backend::{AesGcmFiles, CipherJob, CipherParameters, CryptoMode, CryptoScope};
+use crate::backend::{
+    AesGcmFiles, CipherJob, CipherParameters, CryptoMode, CryptoScope, OaepSettings,
+};
 use pkcs11_client::{DigestAlgorithm, KeyType, ObjectClass};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CipherChoice(pub CipherParameters);
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct OaepMgfChoice(pub Option<DigestAlgorithm>);
+impl OaepMgfChoice {
+    pub const ALL: [Self; 4] = [
+        Self(None),
+        Self(Some(DigestAlgorithm::Sha256)),
+        Self(Some(DigestAlgorithm::Sha384)),
+        Self(Some(DigestAlgorithm::Sha512)),
+    ];
+}
+impl std::fmt::Display for OaepMgfChoice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self.0 {
+            None => "MGF1: match OAEP digest",
+            Some(DigestAlgorithm::Sha256) => "MGF1: SHA-256",
+            Some(DigestAlgorithm::Sha384) => "MGF1: SHA-384",
+            Some(DigestAlgorithm::Sha512) => "MGF1: SHA-512",
+        })
+    }
+}
 impl std::fmt::Display for CipherChoice {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let choice = match self.0 {
@@ -25,6 +47,7 @@ pub enum CipherField {
     Output,
     Nonce,
     Aad,
+    Label,
 }
 pub struct CipherForm {
     pub id: RequestId,
@@ -38,6 +61,8 @@ pub struct CipherForm {
     pub pin: SecretString,
     pub protected_path: bool,
     pub aad: String,
+    pub oaep_mgf: OaepMgfChoice,
+    pub oaep_label: String,
     picked_aad: Option<PathBuf>,
     picked_input: Option<PathBuf>,
     picked_output: Option<PathBuf>,
@@ -97,6 +122,8 @@ impl UiState {
             pin: SecretString::default(),
             protected_path: false,
             aad: String::new(),
+            oaep_mgf: OaepMgfChoice::default(),
+            oaep_label: String::new(),
             picked_aad: None,
             picked_input: None,
             picked_output: None,
@@ -117,6 +144,11 @@ impl UiState {
         {
             match field {
                 CipherField::Nonce => form.nonce = value,
+                CipherField::Label => {
+                    form.oaep_label = value;
+                    form.pin = SecretString::default();
+                    form.protected_path = false;
+                }
                 CipherField::Aad => {
                     form.aad = value;
                     form.picked_aad = None;
@@ -142,6 +174,19 @@ impl UiState {
             && form.choices.contains(&choice)
         {
             form.choice = Some(choice);
+            form.pin = SecretString::default();
+            form.protected_path = false;
+        }
+    }
+    pub fn cipher_mgf(&mut self, id: RequestId, choice: OaepMgfChoice) {
+        if !self.can_submit() {
+            return;
+        }
+        if let Some(form) = &mut self.cipher_form
+            && form.id == id
+            && matches!(form.choice, Some(CipherChoice(CipherParameters::Oaep(_))))
+        {
+            form.oaep_mgf = choice;
             form.pin = SecretString::default();
             form.protected_path = false;
         }
@@ -179,7 +224,7 @@ impl UiState {
         field: CipherField,
     ) -> Option<(RequestId, bool)> {
         let form = self.cipher_form.as_ref()?;
-        if matches!(field, CipherField::Nonce) {
+        if matches!(field, CipherField::Nonce | CipherField::Label) {
             return None;
         }
         if !self.can_submit() || form.id != id || form.picker.is_some() {
@@ -200,7 +245,7 @@ impl UiState {
             form.picker = None;
             if let Some(path) = path {
                 match field {
-                    CipherField::Nonce => {}
+                    CipherField::Nonce | CipherField::Label => {}
                     CipherField::Aad => {
                         form.aad = path.to_string_lossy().into_owned();
                         form.picked_aad = Some(path);
@@ -262,6 +307,25 @@ impl UiState {
         } else {
             None
         };
+        let oaep = if let CipherParameters::Oaep(choice) = form.choice?.0 {
+            let label = if form.oaep_label.is_empty() {
+                Some(Vec::new())
+            } else if form.oaep_label.len() <= 8192 {
+                management::identifier(&form.oaep_label)
+            } else {
+                None
+            };
+            let Some(label) = label else {
+                self.notification = Some(Notification::Error(BackendError::CipherInput));
+                return None;
+            };
+            Some(OaepSettings {
+                mgf_digest: form.oaep_mgf.0.unwrap_or(choice.digest),
+                label,
+            })
+        } else {
+            None
+        };
         let form = self.cipher_form.take()?;
         let context = match form.choice?.0 {
             CipherParameters::Oaep(choice) if choice.always_authenticate => {
@@ -276,6 +340,7 @@ impl UiState {
         let job = CipherJob {
             context,
             aes_gcm,
+            oaep,
             choice: form.choice?.0,
             input: form
                 .picked_input

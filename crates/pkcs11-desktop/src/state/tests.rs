@@ -1460,6 +1460,32 @@ fn cipher_forms_validate_and_submit_once_without_restoring_a_navigated_token() {
     assert_eq!(state.selected_token, Some(ResourceId(3)));
     assert!(state.objects.is_empty());
 }
+
+#[test]
+fn oaep_form_preserves_explicit_parameters_and_rejects_invalid_labels() {
+    use pkcs11_client::DigestAlgorithm;
+    for invalid in ["0".into(), "zz".into(), "00".repeat(4097)] {
+        let (mut state, id, _) = cipher_state(crate::backend::CryptoMode::Decrypt);
+        state.cipher_edit(id, CipherField::Input, "cipher.bin".into());
+        state.cipher_edit(id, CipherField::Output, "plain.bin".into());
+        state.cipher_edit(id, CipherField::Label, invalid);
+        assert!(state.submit_cipher(id).is_none());
+        assert!(state.cipher_form.is_some());
+    }
+    let (mut state, id, _) = cipher_state(crate::backend::CryptoMode::Decrypt);
+    assert!(state.cipher_form.as_ref().unwrap().oaep_mgf.0.is_none());
+    assert!(state.cipher_picker(id, CipherField::Label).is_none());
+    state.cipher_edit(id, CipherField::Input, "cipher.bin".into());
+    state.cipher_edit(id, CipherField::Output, "plain.bin".into());
+    state.cipher_edit(id, CipherField::Label, "00ff0123".into());
+    state.cipher_mgf(id, OaepMgfChoice(Some(DigestAlgorithm::Sha512)));
+    let BackendCommand::Cipher { job, .. } = state.submit_cipher(id).unwrap() else {
+        panic!("cipher job");
+    };
+    let parameters = job.oaep.unwrap();
+    assert_eq!(parameters.mgf_digest, DigestAlgorithm::Sha512);
+    assert_eq!(parameters.label, [0, 255, 1, 35]);
+}
 #[test]
 fn cipher_options_picker_and_message_scopes_reject_old_results() {
     let (mut state, id, scope) = cipher_state(crate::backend::CryptoMode::Encrypt);
@@ -2527,6 +2553,31 @@ fn cipher_context_credentials_clear_on_choice_change_and_protected_path() {
         "context-canary"
     );
     state.cipher_choice(id, choice);
+    assert!(
+        state
+            .cipher_form
+            .as_ref()
+            .unwrap()
+            .pin
+            .expose_secret()
+            .is_empty()
+    );
+    state.cipher_pin(id, "mgf-canary".into());
+    state.cipher_mgf(
+        id,
+        OaepMgfChoice(Some(pkcs11_client::DigestAlgorithm::Sha512)),
+    );
+    assert!(
+        state
+            .cipher_form
+            .as_ref()
+            .unwrap()
+            .pin
+            .expose_secret()
+            .is_empty()
+    );
+    state.cipher_pin(id, "label-canary".into());
+    state.cipher_edit(id, CipherField::Label, "00ff".into());
     assert!(
         state
             .cipher_form
