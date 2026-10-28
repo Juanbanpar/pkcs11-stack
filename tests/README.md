@@ -114,7 +114,7 @@ minimum usable provider interface.
 
 | ID / status | First table | Functions | Acceptance criteria or scope gate |
 | --- | --- | --- | --- |
-| O1 Partial: streaming signatures/MACs | 2.40 | Covered above | Runtime/client implement native full/general HMAC and AES-CMAC, RSA PKCS#1/PSS and named-curve ECDSA streaming, plus pure ML-DSA signing streams. Classical guards/readers preserve hashing policy, context login, bounded output and completed-mismatch reuse, with read/update/final/drop failure tests. CLI HMAC/AES-CMAC file/stdin generation and verification now select multipart explicitly, preserving full/general profiles, the 16 MiB limit and checked output commit. Remaining: pure EdDSA multipart support with an implementing provider, CLI signature workflows and desktop file workflows. ML-DSA streaming verification is implemented in O6; the older verification API is single-part for that mechanism. Preserve existing single-part APIs. |
+| O1 Partial: streaming signatures/MACs | 2.40 | Covered above | Runtime/client implement native full/general HMAC and AES-CMAC, RSA PKCS#1/PSS and named-curve ECDSA streaming, plus pure ML-DSA signing streams. Classical guards/readers preserve hashing policy, context login, bounded output and completed-mismatch reuse, with read/update/final/drop failure tests. CLI HMAC/AES-CMAC file/stdin generation and verification now select multipart explicitly, preserving full/general profiles, the 16 MiB limit and checked output commit. CLI RSA/ECDSA signing, token verification and certificate verification stream original messages with explicit selection and a 64 MiB limit; binding/per-signature checks read input once. Remaining: pure EdDSA multipart support with an implementing provider, ML-DSA CLI streaming and desktop file workflows. ML-DSA streaming verification is implemented in O6; the older verification API is single-part for that mechanism. Preserve existing single-part APIs. |
 | O2 Partial: streaming encryption | 2.40 | Covered above | Bounded AES-GCM guards/readers are implemented, with authenticated plaintext release only after finalization, zeroizing quarantine, explicit input budgets and native/provider failures covered. CLI file/stdin workflows implement explicit multipart selection and checked output commit; native fixtures inject session-close/finalization failures. Remaining: desktop multipart file integration and a bounded staging design for a larger-file profile. Single-part execution remains the CLI default. |
 | O4 Deferred: named-user login | 3.0 | `C_LoginUser` | Require a provider that authenticates the supplied username: pinned Kryoptic returns `CKR_FUNCTION_NOT_SUPPORTED`, while pinned SoftHSM ignores the username and delegates to `C_Login`. Neither establishes named-user authentication. Explicit username/role/PIN input, redacted diagnostics, protected-path and token-wide authentication rules. Test wrong username/PIN, SO/RO conflicts and unavailable tables/pointers; no fallback to anonymous `C_Login` or second authentication attempt. |
 | O7 Deferred: message-based AEAD | 3.0 | `C_MessageEncryptInit`, `C_EncryptMessage`, `C_EncryptMessageBegin`, `C_EncryptMessageNext`, `C_MessageEncryptFinal`, `C_MessageDecryptInit`, `C_DecryptMessage`, `C_DecryptMessageBegin`, `C_DecryptMessageNext`, `C_MessageDecryptFinal` | Agree on an explicit message/nonce/AAD contract and find a provider supporting it. Test multiple messages per initialization, distinct nonces, tag/output bounds, finalization, failure cleanup and authenticated output release. Existing single-part GCM remains independently supported. |
@@ -137,6 +137,17 @@ verification success. `mac_multipart_provider.rs` compares CLI tags with OpenSSL
 and single-part token verification across empty, one-byte and 1,000,003-byte
 messages. Both SoftHSM lanes require the full-tag subset; Kryoptic requires all ten
 HMAC hashes, all three AES key sizes and half/full-length general profiles.
+
+`pkcs11ctl/tests/signature_multipart.rs` uses independent headers across all four
+interface versions to check hashing-policy dispatch, context authentication,
+missing pointers, malformed output, input/read failures and withheld output through
+close/finalization errors. Offline CLI fixtures verify all eight digests for RSA
+PKCS#1/PSS and P-256/P-384/P-521. SoftHSM CLI tests compare streamed signatures
+with OpenSSL and both native and certificate verification, including empty input,
+stdin, general message sizes, binding and a 64 MiB always-authenticate stdin message.
+The upstream lane requires combined ECDSA and all SHA-3 profiles; the packaged lane
+asserts combined ECDSA failure without software retry. Client tests also verify
+pool reuse/discard behavior and replacement-key rejection for bound readers.
 
 ### Metadata and classical algorithm backlog
 

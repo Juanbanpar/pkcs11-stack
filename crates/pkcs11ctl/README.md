@@ -198,6 +198,27 @@ certificate option. `bind` accepts the same hashing-policy choices.
 
 RSA signatures are modulus-width bytes. ECDSA is fixed-width `r || s`, not DER.
 DER/PEM conversion is not implemented.
+
+`sign --multipart` streams an original RSA/ECDSA message through the client's
+zeroizing 64 KiB reader buffer, with a 64 MiB input limit. The selected hashing
+policy still applies: token hashing uses native update/final calls; software
+hashing is incremental and completes through the raw signing mechanism.
+`--certificate` retains the binding probe and checks the completed signature
+against that certificate using an incremental hash of the same message. Input is
+read once, including stdin; no seek or plaintext staging file is used. Context
+authentication still follows initialization for each signature.
+
+`verify-token --multipart` uses the corresponding streaming token verification
+path and hashing policy. `verify --multipart` incrementally hashes in software
+and verifies against the selected token certificate or `--certificate-file`.
+These modes accept original RSA/ECDSA messages only; caller digests, EdDSA and
+ML-DSA are rejected before provider loading. File/stdin limits are checked during
+reading as well as regular-file preflight. Read errors return 6, oversized input
+returns 2, and native failures are never retried through another hashing path.
+Signatures and verification success follow checked session/client closure and
+module finalization. Existing buffered workflows remain the default; `plan` and
+`capabilities` continue to describe single-part execution.
+
 `--input -` reads stdin. Binary commands require `--output PATH`; `-` writes raw
 bytes to stdout. New output files use exclusive creation and mode 0600 on Unix;
 existing files are never overwritten. An output destination is reserved before

@@ -91,6 +91,10 @@ mechanisms or incremental software hashing with raw completion. Client readers
 use zeroizing 64 KiB buffers; signature output is limited to 1024 bytes. Context
 authentication occurs after initialization. Incomplete or failed streams discard
 sessions; completed verification mismatches permit reuse.
+CLI `sign`, `verify` and `verify-token` select RSA/ECDSA message streaming with
+`--multipart`, retaining the selected hashing policy and certificate binding.
+Input is read once with a 64 MiB limit; signatures and success follow checked
+closure. Certificate verification uses incremental software hashing.
 
 Standalone SHA-2 and SHA-3 token hashing supports single-part and streaming
 operations. The CLI and desktop stream files in bounded chunks; failed or

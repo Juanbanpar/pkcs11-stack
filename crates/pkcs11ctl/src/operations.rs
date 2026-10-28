@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use crate::{
     aes_cmac, aes_gcm, aes_key_wrap, eddsa, generation, hmac, inspect, kbkdf, key_establishment,
-    mac_input::MultipartInput, ml_dsa, support::*,
+    ml_dsa, stream_input::MultipartInput, support::*,
 };
 use clap::ArgMatches;
 use pkcs11_client::{
@@ -82,6 +82,14 @@ fn request<'a>(m: &ArgMatches, bytes: &'a [u8]) -> Result<SignRequest<'a>> {
         pss,
     })
 }
+fn parameters(m: &ArgMatches) -> Result<pkcs11_client::SignatureParameters> {
+    let request = request(m, &[])?;
+    Ok(pkcs11_client::SignatureParameters {
+        algorithm: request.algorithm,
+        digest: request.digest,
+        pss: request.pss,
+    })
+}
 pub(crate) enum VerificationCertificate {
     Classical(pkcs11_client::Certificate),
     MlDsa(pkcs11_client::MlDsaCertificate),
@@ -92,7 +100,7 @@ pub(crate) struct Inputs {
     pub aes_gcm: Option<aes_gcm::Inputs>,
     pub hmac_tag: Option<Vec<u8>>,
     pub cmac_tag: Option<Vec<u8>>,
-    pub mac_input: Option<MultipartInput>,
+    pub stream_input: Option<MultipartInput>,
     pub digest_file: Option<std::fs::File>,
     pub credential: Credential,
     pub context: Credential,
@@ -114,6 +122,14 @@ impl Inputs {
     pub fn load(name: &str, m: &ArgMatches) -> Result<Self> {
         let ml_dsa = ml_dsa::selected(m);
         let eddsa = eddsa::selected(m);
+        if matches!(name, "sign" | "verify" | "verify-token") && flag(m, "multipart") {
+            if ml_dsa || eddsa || get(m, "input-kind") == Some("digest") {
+                return Err(usage(
+                    "multipart signature input requires an original RSA/ECDSA message",
+                ));
+            }
+            request(m, &[])?;
+        }
         if eddsa {
             eddsa::validate_options(m)?;
         } else if ml_dsa {
@@ -179,7 +195,7 @@ impl Inputs {
         }
         let hmac_tag = hmac::load(name, m)?;
         let cmac_tag = aes_cmac::load(name, m)?;
-        let mac_input = MultipartInput::load(name, m)?;
+        let stream_input = MultipartInput::load(name, m)?;
         let aes_gcm = aes_gcm::Inputs::load(name, m)?;
         let oaep_label = match get(m, "label-hex") {
             Some(value) if value.len() > 8192 => {
@@ -195,7 +211,7 @@ impl Inputs {
         } else {
             None
         };
-        let bytes = if aes_gcm::selected(name) || name == "digest" || mac_input.is_some() {
+        let bytes = if aes_gcm::selected(name) || name == "digest" || stream_input.is_some() {
             vec![]
         } else if let Some(path) = get(m, "input") {
             if let Some(limit) = key_establishment::input_limit(name, m)? {
@@ -373,7 +389,7 @@ impl Inputs {
         Ok(Self {
             aes_gcm,
             cmac_tag,
-            mac_input,
+            stream_input,
             hmac_tag,
             digest_file,
             establishment,
@@ -401,7 +417,14 @@ pub(crate) fn verify(
 ) -> Result<Value> {
     match certificate {
         VerificationCertificate::Classical(certificate) => {
-            certificate.verify_signature(&request(m, &inputs.bytes)?, &inputs.signature)?;
+            if let Some(input) = &inputs.stream_input {
+                let parameters = parameters(m)?;
+                input.read(|mut reader| {
+                    certificate.verify_reader(parameters, &mut reader, &inputs.signature)
+                })?;
+            } else {
+                certificate.verify_signature(&request(m, &inputs.bytes)?, &inputs.signature)?;
+            }
         }
         VerificationCertificate::EdDsa(certificate) => {
             certificate.verify_signature(&eddsa::request(m, &inputs.bytes)?, &inputs.signature)?;
@@ -531,14 +554,21 @@ fn client_operation(
     if name == "verify-token" {
         let key =
             pkcs11_client::PublicKeyRef::new(uri(m, "key")?).map_err(pkcs11_client::Error::from)?;
-        client.verify_token(
-            &key,
-            &pkcs11_client::VerifyRequest {
-                parameters: request(m, &inputs.bytes)?,
-                signature: &inputs.signature,
-            },
-            auth(),
-        )?;
+        if let Some(input) = &inputs.stream_input {
+            let parameters = parameters(m)?;
+            input.read(|mut reader| {
+                client.verify_token_reader(&key, parameters, auth(), &mut reader, &inputs.signature)
+            })?;
+        } else {
+            client.verify_token(
+                &key,
+                &pkcs11_client::VerifyRequest {
+                    parameters: request(m, &inputs.bytes)?,
+                    signature: &inputs.signature,
+                },
+                auth(),
+            )?;
+        }
         return Ok(Output::Structured(
             json!({"verified":true,"verification":"token"}),
         ));
@@ -577,6 +607,37 @@ fn client_operation(
             json!({"bound":true,"key":inspect::key_kind(identity.certificate().key_kind()),"trust_validated":false})
         }
         "sign" => {
+            if let Some(input) = &inputs.stream_input {
+                let parameters = parameters(m)?;
+                let signature = if get(m, "certificate").is_some() {
+                    let certificate = client.certificate(uri(m, "certificate")?, auth())?;
+                    certificate
+                        .validate_signing_request(&parameters.request(SignInput::Message(&[])))?;
+                    client.streaming_plan(&key, parameters, auth())?;
+                    let identity =
+                        client.bind_identity(key, certificate, auth(), inputs.context.pin())?;
+                    input.read(|mut reader| {
+                        client.sign_identity_reader(
+                            &identity,
+                            parameters,
+                            auth(),
+                            inputs.context.pin(),
+                            &mut reader,
+                        )
+                    })?
+                } else {
+                    input.read(|mut reader| {
+                        client.sign_reader(
+                            &key,
+                            parameters,
+                            auth(),
+                            inputs.context.pin(),
+                            &mut reader,
+                        )
+                    })?
+                };
+                return Ok(Output::Binary(signature));
+            }
             let request = request(m, &inputs.bytes)?;
             let signature = if get(m, "certificate").is_some() {
                 let certificate = client.certificate(uri(m, "certificate")?, auth())?;
@@ -676,7 +737,7 @@ fn management_operation(
             m,
             &inputs.bytes,
             inputs.hmac_tag.as_deref(),
-            inputs.mac_input.as_ref(),
+            inputs.stream_input.as_ref(),
         );
     }
     if aes_cmac::selected(name) {
@@ -686,7 +747,7 @@ fn management_operation(
             m,
             &inputs.bytes,
             inputs.cmac_tag.as_deref(),
-            inputs.mac_input.as_ref(),
+            inputs.stream_input.as_ref(),
         );
     }
     if aes_gcm::selected(name) {

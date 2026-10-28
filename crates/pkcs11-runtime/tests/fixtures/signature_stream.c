@@ -13,6 +13,14 @@
 static CK_ULONG inits, logins, updates, finals, cancellations, part_length;
 static CK_FLAGS direction;
 static int finding_public;
+static CK_RV stream_close(CK_SESSION_HANDLE s) {
+    CK_RV rv = close_session(s);
+    return FAULT == 49 ? CKR_DEVICE_ERROR : rv;
+}
+static CK_RV stream_finalize(CK_VOID_PTR reserved) {
+    CK_RV rv = finalize(reserved);
+    return FAULT == 50 ? CKR_DEVICE_ERROR : rv;
+}
 static CK_RV stream_info(CK_SESSION_HANDLE s, CK_SESSION_INFO_PTR out) {
     CK_RV rv = session_info(s,out);
     out->ulDeviceError = (inits << 24) | (logins << 16) | (updates << 8) | (finals << 4) | cancellations;
@@ -149,6 +157,7 @@ CK_RV C_GetInterface(CK_UTF8CHAR_PTR name, CK_VERSION_PTR version, CK_INTERFACE_
 #endif
 CK_RV C_GetFunctionList(CK_FUNCTION_LIST_PTR_PTR out) {
     stream_base_function_list(out);
+    functions.C_CloseSession = stream_close; functions.C_Finalize = stream_finalize;
     functions.C_GetSessionInfo = stream_info; functions.C_GetTokenInfo = stream_token;
     functions.C_FindObjectsInit = stream_find_init;
     functions.C_GetAttributeValue = stream_attributes; functions.C_GetMechanismInfo = stream_mechanism_info;

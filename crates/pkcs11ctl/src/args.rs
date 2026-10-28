@@ -225,6 +225,10 @@ pub(crate) fn command() -> Command {
         );
     let sign = Command::new("sign")
         .about("Sign once; with a certificate, bind first and verify the output")
+        .arg(flag(
+            "multipart",
+            "Stream an original RSA/ECDSA message with the selected hashing policy; at most 64 MiB",
+        ))
         .arg(value(
             "certificate",
             "Explicit certificate URI; binding adds one signature",
@@ -238,6 +242,7 @@ pub(crate) fn command() -> Command {
         .arg(value("pool-size", "Number of concurrent leases, 1..=64").default_value("2"));
     let verify = Command::new("verify")
         .about("Verify a raw signature using a certificate; no certificate trust validation")
+        .arg(flag("multipart", "Verify an original RSA/ECDSA message using incremental software hashing; at most 64 MiB"))
         .arg(
             value("certificate", "Token certificate URI with type=cert")
                 .required_unless_present("certificate-file"),
@@ -421,6 +426,7 @@ pub(crate) fn command() -> Command {
             signing(
                 Command::new("verify-token")
                     .about("Verify a raw RSA/ECDSA/EdDSA signature on the token using a public key")
+                    .arg(flag("multipart", "Stream an original RSA/ECDSA message with the selected hashing policy; at most 64 MiB"))
                     .arg(required("key", "Stable public-key URI with type=public"))
                     .arg(required("signature", "Raw signature file; - reads stdin")),
             )

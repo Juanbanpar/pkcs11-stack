@@ -239,7 +239,10 @@ fn verifies_independent_fixtures_without_loading_a_module() {
             if kind == "rsa-pss" {
                 args.extend(["--mgf-digest", digest, "--salt-length", "20"]);
             }
+            let single = run(&args);
+            args.push("--multipart");
             let result = run(&args);
+            assert_eq!(result.stdout, single.stdout);
             assert!(
                 result.status.success(),
                 "{}",
@@ -1600,4 +1603,68 @@ fn hkdf_stages_reject_inapplicable_parameters_before_loading() {
         assert_eq!(output.status.code(), Some(2));
         assert!(output.stdout.is_empty());
     }
+}
+
+#[test]
+fn multipart_signature_shape_and_budget_fail_before_module_loading() {
+    let scratch = Scratch::new();
+    let output = scratch.0.join("output");
+    let missing = scratch.0.join("missing");
+    for algorithm in ["ed25519", "ml-dsa-44"] {
+        for command in ["sign", "verify"] {
+            let mut args = vec![
+                "--module",
+                "/must-not-load",
+                command,
+                "--algorithm",
+                algorithm,
+                "--input",
+                missing.to_str().unwrap(),
+                "--multipart",
+            ];
+            if command == "sign" {
+                args.extend([
+                    "--key",
+                    "pkcs11:token=test;id=%01;type=private",
+                    "--output",
+                    output.to_str().unwrap(),
+                ]);
+            } else {
+                args.extend([
+                    "--certificate-file",
+                    missing.to_str().unwrap(),
+                    "--signature",
+                    missing.to_str().unwrap(),
+                ]);
+            }
+            let result = run(&args);
+            assert_eq!(result.status.code(), Some(2));
+            assert!(result.stdout.is_empty());
+            assert!(!output.exists());
+        }
+    }
+    let huge = scratch.0.join("huge");
+    std::fs::File::create(&huge)
+        .unwrap()
+        .set_len(64 * 1024 * 1024 + 1)
+        .unwrap();
+    let result = run(&[
+        "--module",
+        "/must-not-load",
+        "sign",
+        "--key",
+        "pkcs11:token=test;id=%01;type=private",
+        "--algorithm",
+        "rsa-pkcs1",
+        "--digest",
+        "sha256",
+        "--input",
+        huge.to_str().unwrap(),
+        "--output",
+        output.to_str().unwrap(),
+        "--multipart",
+    ]);
+    assert_eq!(result.status.code(), Some(2));
+    assert!(result.stdout.is_empty());
+    assert!(!output.exists());
 }

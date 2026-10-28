@@ -12,6 +12,7 @@ impl MultipartInput {
         let maximum = match name {
             "mac-hmac" | "verify-hmac" => pkcs11_client::HMAC_MAXIMUM_MESSAGE,
             "mac-aes-cmac" | "verify-aes-cmac" => pkcs11_client::AES_CMAC_MAXIMUM_MESSAGE,
+            "sign" | "verify" | "verify-token" => 64 * 1024 * 1024,
             _ => return Ok(None),
         };
         if !flag(m, "multipart") {
@@ -24,7 +25,7 @@ impl MultipartInput {
         if let Some(file) = &file {
             let metadata = file.metadata()?;
             if metadata.is_file() && metadata.len() > maximum as u64 {
-                return Err(usage("MAC input exceeds the size limit"));
+                return Err(usage("multipart input exceeds the size limit"));
             }
         }
         Ok(Some(Self { file, maximum }))
@@ -45,7 +46,7 @@ impl MultipartInput {
         };
         let result = operation(&mut reader);
         if reader.exceeded {
-            return Err(usage("MAC input exceeds the size limit"));
+            return Err(usage("multipart input exceeds the size limit"));
         }
         result.map_err(Failure::from)
     }

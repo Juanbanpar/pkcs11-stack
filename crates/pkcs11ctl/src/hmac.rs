@@ -57,7 +57,7 @@ pub(crate) fn operation(
     m: &ArgMatches,
     message: &[u8],
     tag: Option<&[u8]>,
-    multipart: Option<&crate::mac_input::MultipartInput>,
+    multipart: Option<&crate::stream_input::MultipartInput>,
 ) -> Result<Output> {
     let key = object_reference(uri(m, "object")?)?;
     match name {
