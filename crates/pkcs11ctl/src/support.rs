@@ -63,7 +63,9 @@ impl From<pkcs11_client::Error> for Failure {
         use pkcs11_client::ErrorKind;
         if matches!(
             e,
-            pkcs11_client::Error::DigestInput | pkcs11_client::Error::CipherInput
+            pkcs11_client::Error::DigestInput
+                | pkcs11_client::Error::CipherInput
+                | pkcs11_client::Error::MacInput
         ) {
             return Self {
                 code: 6,
@@ -297,6 +299,7 @@ mod cleanup_tests {
         for error in [
             pkcs11_client::Error::DigestInput,
             pkcs11_client::Error::CipherInput,
+            pkcs11_client::Error::MacInput,
         ] {
             let failure = Failure::from(error);
             assert_eq!(failure.code, 6);
