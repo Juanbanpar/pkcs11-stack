@@ -60,6 +60,11 @@ mod signing;
 mod verification;
 pub use pool::{SessionLease, SessionPool};
 pub use signing::*;
+mod signature_stream;
+pub use signature_stream::{
+    CLASSICAL_SIGNATURE_MAXIMUM_LENGTH, SignatureParameters, SigningOperation,
+    VerificationOperation,
+};
 pub use verification::{VerificationCapabilities, VerifyRequest};
 
 pub use cryptoki::context::{Function, InterfaceInfo, InterfaceSelection, InterfaceVersion};

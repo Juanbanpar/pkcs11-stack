@@ -210,6 +210,52 @@ fn verify_native(
     session.verify(&public, &request, policy).unwrap();
 }
 static NEXT: AtomicUsize = AtomicUsize::new(0);
+fn streaming_parameters(request: &SignRequest<'_>) -> SignatureParameters {
+    SignatureParameters {
+        algorithm: request.algorithm,
+        digest: request.digest,
+        pss: request.pss,
+    }
+}
+fn verify_stream(
+    session: &mut Session<'_>,
+    key: &PrivateKeyRef,
+    parameters: SignatureParameters,
+    policy: &SigningPolicy,
+    message: &[u8],
+    signature: &[u8],
+) {
+    let selector = key.as_object_ref().uri();
+    let public = PublicKeyRef::new(uri(
+        std::str::from_utf8(selector.path_attribute("serial").unwrap()).unwrap(),
+        std::str::from_utf8(selector.path_attribute("object").unwrap()).unwrap(),
+        "public",
+    ))
+    .unwrap();
+    let mut changed = signature.to_vec();
+    changed[0] ^= 1;
+    for supplied in [
+        signature,
+        &[][..],
+        &changed[..],
+        &signature[..signature.len() - 1],
+    ] {
+        let mut operation = session
+            .start_verification(&public, parameters, policy)
+            .unwrap();
+        operation.update(&[]).unwrap();
+        for chunk in message.chunks(7) {
+            operation.update(chunk).unwrap();
+        }
+        let result = operation.finish(supplied);
+        if supplied == signature {
+            result.unwrap();
+        } else {
+            assert!(matches!(result, Err(Error::SignatureMismatch)));
+        }
+        session.info().unwrap();
+    }
+}
 fn verify(root: &Path, key: &[u8], request: &SignRequest<'_>, message: &[u8], signature: &[u8]) {
     let dir = root.join(format!("verify-{}", NEXT.fetch_add(1, Ordering::Relaxed)));
     std::fs::create_dir(&dir).unwrap();
@@ -585,6 +631,69 @@ fn pooled_signing_and_recovery() {
                 let signature = lease.session().sign(&key, &req, &policy, None).unwrap();
                 verify(root, public, &req, b"signing fixture", &signature);
                 verify_native(lease.session(), &key, &req, &policy, &signature);
+                if let SignInput::Message(message) = req.input {
+                    let parameters = streaming_parameters(&req);
+                    if algorithm == SignatureAlgorithm::Ecdsa
+                        && std::env::var("PKCS11_TEST_REQUIRE_EC_MULTIPART").as_deref() != Ok("1")
+                        && lease
+                            .session()
+                            .streaming_key_capabilities(&key)
+                            .unwrap()
+                            .plan(&req, &policy)
+                            .unwrap()
+                            .hash_location()
+                            == HashLocation::Token
+                    {
+                        // Packaged 2.7.0 rc1 advertises combined ECDSA but allows
+                        // only single-part use. Keep this failure distinct from
+                        // software hashing; a failed native init/update is not retried.
+                        let mut operation = lease
+                            .session()
+                            .start_signing(&key, parameters, &policy, None)
+                            .unwrap();
+                        assert!(matches!(
+                            operation.update(b"probe"),
+                            Err(Error::Backend {
+                                source: cryptoki::error::Error::Pkcs11(
+                                    cryptoki::error::RvError::OperationNotInitialized,
+                                    Function::SignUpdate
+                                ),
+                                ..
+                            })
+                        ));
+                        drop(operation);
+                        assert!(lease.session().info().is_err());
+                        drop(lease);
+                        lease = pool
+                            .try_acquire(Authentication::User(Pin::Value(&user)))
+                            .unwrap();
+                        continue;
+                    }
+                    for message in [&[][..], message] {
+                        let parameters = streaming_parameters(&req);
+                        let mut operation = lease
+                            .session()
+                            .start_signing(&key, parameters, &policy, None)
+                            .unwrap();
+                        let plan = operation.plan().clone();
+                        operation.update(&[]).unwrap_or_else(|error| {
+                            panic!("{parameters:?}, {hashing:?}, {plan:?}: {error:?}")
+                        });
+                        for chunk in message.chunks(3) {
+                            operation.update(chunk).unwrap();
+                        }
+                        let signature = operation.finish().unwrap();
+                        verify(root, public, &req, message, &signature);
+                        verify_stream(
+                            lease.session(),
+                            &key,
+                            parameters,
+                            &policy,
+                            message,
+                            &signature,
+                        );
+                    }
+                }
             }
         }
     }
@@ -601,6 +710,26 @@ fn pooled_signing_and_recovery() {
         let signature = lease.session().sign(&key, &req, &policy, None).unwrap();
         verify(root, public, &req, b"signing fixture", &signature);
         verify_native(lease.session(), &key, &req, &policy, &signature);
+        let streaming_policy = SigningPolicy {
+            hashing: HashingPolicy::SoftwareOnly,
+            ..policy.clone()
+        };
+        let mut operation = lease
+            .session()
+            .start_signing(&key, streaming_parameters(&req), &streaming_policy, None)
+            .unwrap();
+        operation.update(b"signing ").unwrap();
+        operation.update(b"fixture").unwrap();
+        let signature = operation.finish().unwrap();
+        verify(root, public, &req, b"signing fixture", &signature);
+        verify_stream(
+            lease.session(),
+            &key,
+            streaming_parameters(&req),
+            &streaming_policy,
+            b"signing fixture",
+            &signature,
+        );
     }
     for salt_len in [0, 20, 222] {
         let req = SignRequest {
@@ -731,6 +860,25 @@ fn pooled_signing_and_recovery() {
             .sign(&auth_key, &request, &software, Some(Pin::Value(&user)))
             .unwrap();
         verify(root, &auth, &request, b"signing fixture", &signature);
+        for hashing in [HashingPolicy::TokenOnly, HashingPolicy::SoftwareOnly] {
+            let policy = SigningPolicy {
+                hashing,
+                ..Default::default()
+            };
+            let mut operation = lease
+                .session()
+                .start_signing(
+                    &auth_key,
+                    streaming_parameters(&request),
+                    &policy,
+                    Some(Pin::Value(&user)),
+                )
+                .unwrap();
+            operation.update(b"signing ").unwrap();
+            operation.update(b"fixture").unwrap();
+            let signature = operation.finish().unwrap();
+            verify(root, &auth, &request, b"signing fixture", &signature);
+        }
         let hashed = Sha256::digest(b"signing fixture");
         let prehashed = SignRequest {
             input: SignInput::Digest(&hashed),
@@ -774,6 +922,21 @@ fn pooled_signing_and_recovery() {
             );
             let signature = result.unwrap();
             verify(root, &ec_auth, &ec_request, b"signing fixture", &signature);
+            if std::env::var("PKCS11_TEST_REQUIRE_EC_MULTIPART").as_deref() == Ok("1") {
+                let mut operation = lease
+                    .session()
+                    .start_signing(
+                        &ec_auth_key,
+                        streaming_parameters(&ec_request),
+                        &SigningPolicy::default(),
+                        Some(Pin::Value(&user)),
+                    )
+                    .unwrap();
+                operation.update(b"signing ").unwrap();
+                operation.update(b"fixture").unwrap();
+                let signature = operation.finish().unwrap();
+                verify(root, &ec_auth, &ec_request, b"signing fixture", &signature);
+            }
             combined_ec_checks += 1;
         }
         let raw_policy = SigningPolicy {
@@ -789,6 +952,19 @@ fn pooled_signing_and_recovery() {
                 Some(Pin::Value(&user)),
             )
             .unwrap();
+        verify(root, &ec_auth, &ec_request, b"signing fixture", &signature);
+        let mut operation = lease
+            .session()
+            .start_signing(
+                &ec_auth_key,
+                streaming_parameters(&ec_request),
+                &raw_policy,
+                Some(Pin::Value(&user)),
+            )
+            .unwrap();
+        operation.update(b"signing ").unwrap();
+        operation.update(b"fixture").unwrap();
+        let signature = operation.finish().unwrap();
         verify(root, &ec_auth, &ec_request, b"signing fixture", &signature);
         let hashed = match digest {
             DigestAlgorithm::Sha224 => Sha224::digest(b"signing fixture").to_vec(),

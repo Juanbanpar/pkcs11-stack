@@ -9,6 +9,11 @@ Published crate SHA-256:
 
 Local changes:
 
+- `src/session/signing_macing.rs`: expose initialized single-part verification
+  completion, without reinitialization or retry, for incremental software hashing
+  under the runtime signing policy. Existing single-part verification delegates
+  to the same init/completion calls.
+
 - `src/session/signing_macing.rs`: complete multipart signing into caller-bounded
   storage, without output-size queries, allocation or retries; reject returned
   lengths exceeding that storage. Multipart MAC fixtures exercise this path

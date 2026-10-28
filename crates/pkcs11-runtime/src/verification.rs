@@ -58,7 +58,10 @@ impl VerificationCapabilities {
             })
     }
 }
-fn capabilities(object: &Object<'_, '_>) -> Result<VerificationCapabilities, Error> {
+pub(crate) fn capabilities(
+    object: &Object<'_, '_>,
+    streaming: bool,
+) -> Result<VerificationCapabilities, Error> {
     if !matches!(
         attribute(object, AttributeType::Class, true)?,
         Some(Attribute::Class(ObjectClass::PUBLIC_KEY))
@@ -79,8 +82,6 @@ fn capabilities(object: &Object<'_, '_>) -> Result<VerificationCapabilities, Err
         _ => return Err(Error::MissingMetadata("CKA_ALLOWED_MECHANISMS")),
     };
     let module = object.session.token().module.raw()?;
-    let entry_points =
-        module.is_fn_supported(Function::VerifyInit) && module.is_fn_supported(Function::Verify);
     let token = object.session.token();
     let mut mechanisms = Vec::new();
     for mechanism in token.mechanisms()? {
@@ -88,7 +89,13 @@ fn capabilities(object: &Object<'_, '_>) -> Result<VerificationCapabilities, Err
             let info = token.mechanism_info(mechanism)?;
             mechanisms.push(SigningMechanism {
                 mechanism,
-                can_sign: info.verify() && entry_points,
+                can_sign: info.verify()
+                    && if streaming {
+                        crate::signature_stream::Direction::Verify.supported(module, mechanism)
+                    } else {
+                        module.is_fn_supported(Function::VerifyInit)
+                            && module.is_fn_supported(Function::Verify)
+                    },
                 minimum_bits: info.min_key_size(),
                 maximum_bits: info.max_key_size(),
             });
@@ -110,7 +117,7 @@ impl Session<'_> {
         &mut self,
         key: &PublicKeyRef,
     ) -> Result<VerificationCapabilities, Error> {
-        capabilities(&self.resolve(key.as_object_ref())?)
+        capabilities(&self.resolve(key.as_object_ref())?, false)
     }
     /// Verify once on the token, with explicit hashing policy and no fallback
     /// after initialization. A mismatch terminates the operation and remains a
@@ -123,7 +130,7 @@ impl Session<'_> {
         policy: &SigningPolicy,
     ) -> Result<(), Error> {
         let object = self.resolve(key.as_object_ref())?;
-        let caps = capabilities(&object)?;
+        let caps = capabilities(&object, false)?;
         let plan = caps.plan(&request.parameters, policy)?;
         let expected = match caps.key() {
             KeyKind::Rsa { bits } => bits.div_ceil(8),

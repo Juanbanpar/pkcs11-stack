@@ -97,7 +97,10 @@ static CK_RV signature_verify(CK_SESSION_HANDLE s, CK_BYTE_PTR data, CK_ULONG le
     if (rv != CKR_OK) return rv;
     return size == written && !memcmp(sig,out,size) ? CKR_OK : CKR_SIGNATURE_INVALID;
 }
-CK_RV C_GetFunctionList(CK_FUNCTION_LIST_PTR_PTR out) {
+#ifndef SIGNATURE_FUNCTION_LIST
+#define SIGNATURE_FUNCTION_LIST C_GetFunctionList
+#endif
+CK_RV SIGNATURE_FUNCTION_LIST(CK_FUNCTION_LIST_PTR_PTR out) {
     functions.C_GetMechanismList = signature_mechanisms; functions.C_GetMechanismInfo = signature_info;
     functions.C_GetAttributeValue = signature_attributes; functions.C_Login = signature_login;
     functions.C_SignInit = signature_init; functions.C_Sign = signature_sign;

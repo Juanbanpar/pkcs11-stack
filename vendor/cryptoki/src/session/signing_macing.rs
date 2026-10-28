@@ -168,17 +168,13 @@ impl Session {
         data: &[u8],
         signature: &[u8],
     ) -> Result<()> {
-        let mut mechanism: CK_MECHANISM = mechanism.into();
+        self.verify_init(mechanism, key)?;
+        self.verify_initialized(data, signature)
+    }
 
-        unsafe {
-            Rv::from(get_pkcs11!(self.client(), C_VerifyInit)(
-                self.handle(),
-                &mut mechanism as CK_MECHANISM_PTR,
-                key.handle(),
-            ))
-            .into_result(Function::VerifyInit)?;
-        }
-
+    /// Complete initialized single-part verification once, without initializing
+    /// or retrying. Do not call after any `verify_update` calls.
+    pub fn verify_initialized(&self, data: &[u8], signature: &[u8]) -> Result<()> {
         unsafe {
             Rv::from(get_pkcs11!(self.client(), C_Verify)(
                 self.handle(),

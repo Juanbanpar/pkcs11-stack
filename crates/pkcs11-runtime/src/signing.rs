@@ -570,7 +570,10 @@ pub(crate) fn key_kind(object: &Object<'_, '_>) -> Result<KeyKind, Error> {
         _ => Err(Error::UnsupportedSigning("key type")),
     }
 }
-fn capabilities(object: &Object<'_, '_>) -> Result<KeyCapabilities, Error> {
+pub(crate) fn capabilities(
+    object: &Object<'_, '_>,
+    streaming: bool,
+) -> Result<KeyCapabilities, Error> {
     let key = key_kind(object)?;
     let can_sign = match attribute(object, AttributeType::Sign, true)? {
         Some(Attribute::Sign(value)) => value,
@@ -595,7 +598,10 @@ fn capabilities(object: &Object<'_, '_>) -> Result<KeyCapabilities, Error> {
         let info = token.mechanism_info(mechanism)?;
         mechanisms.push(SigningMechanism {
             mechanism,
-            can_sign: info.sign(),
+            can_sign: info.sign()
+                && (!streaming
+                    || crate::signature_stream::Direction::Sign
+                        .supported(token.module.raw()?, mechanism)),
             minimum_bits: info.min_key_size(),
             maximum_bits: info.max_key_size(),
         });
@@ -643,7 +649,7 @@ pub(crate) fn supported_mechanism(m: MechanismType) -> bool {
 impl Session<'_> {
     /// Discover current signing capability from the resolved private key and token.
     pub fn key_capabilities(&mut self, key: &PrivateKeyRef) -> Result<KeyCapabilities, Error> {
-        capabilities(&self.resolve(&key.0)?)
+        capabilities(&self.resolve(&key.0)?, false)
     }
     /// Resolve, rediscover, plan and sign once. No operation is transparently retried.
     ///
@@ -673,7 +679,7 @@ impl Session<'_> {
         context_pin: Option<Pin<'_>>,
     ) -> Result<Vec<u8>, Error> {
         let object = self.resolve(&key.0)?;
-        let capabilities = capabilities(&object)?;
+        let capabilities = capabilities(&object, false)?;
         let plan = capabilities.plan(request, policy)?;
         let pin = if plan.context_authentication {
             object
