@@ -66,6 +66,7 @@ impl From<pkcs11_client::Error> for Failure {
             pkcs11_client::Error::DigestInput
                 | pkcs11_client::Error::CipherInput
                 | pkcs11_client::Error::MacInput
+                | pkcs11_client::Error::SignatureInput
         ) {
             return Self {
                 code: 6,
@@ -300,6 +301,7 @@ mod cleanup_tests {
             pkcs11_client::Error::DigestInput,
             pkcs11_client::Error::CipherInput,
             pkcs11_client::Error::MacInput,
+            pkcs11_client::Error::SignatureInput,
         ] {
             let failure = Failure::from(error);
             assert_eq!(failure.code, 6);
