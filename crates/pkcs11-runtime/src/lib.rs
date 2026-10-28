@@ -17,6 +17,8 @@ mod digest;
 pub use digest::{DigestMode, DigestOperation, HashAlgorithm};
 mod ecdh;
 pub use ecdh::{EcdhKdf, EcdhKeyRequest, EcdhOutput};
+mod eddsa;
+pub use eddsa::{EdDsaCapabilities, EdDsaCurve, EdDsaPublicKey, EdDsaRequest};
 mod encryption;
 mod generation;
 pub use generation::{

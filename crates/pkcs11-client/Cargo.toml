@@ -18,6 +18,8 @@ p256.workspace = true
 p384.workspace = true
 p521.workspace = true
 ml-dsa.workspace = true
+ed25519-dalek.workspace = true
+ed448-goldilocks-plus.workspace = true
 sha2.workspace = true
 sha3.workspace = true
 

@@ -937,3 +937,29 @@ fn hash_file(session: &mut ManagementSession<'_>, file: &mut std::fs::File)
 Supported hash choices are SHA-224/256/384/512, SHA-512/224, SHA-512/256 and the
 four fixed-output SHA-3 hashes. Signature and MGF choices remain separate.
 Check session closure before publishing the digest.
+
+## Pure Ed25519 and Ed448
+
+`EdDsaRequest { curve, message }` accepts original messages, including empty input.
+`Client::sign_eddsa` and `verify_eddsa` execute the explicit pure profile without
+external hashing, prehash/context variants or fallback. These APIs do not use
+`SigningPolicy::digests`; choosing an `EdDsaCurve` explicitly enables that curve.
+Management sessions expose the same operations and bounded persistent generation.
+`GenerationCapabilities::eddsa` supplies advisory frontend choices.
+
+`EdDsaVerifyingKey::from_spki_der` validates one canonical
+[RFC 8410](https://www.rfc-editor.org/rfc/rfc8410.html) document with absent
+algorithm parameters and raw 32/57-byte public keys. Decoding rejects identity,
+non-prime-subgroup and noncanonical points. `verify_signature` checks pure
+[RFC 8032](https://www.rfc-editor.org/rfc/rfc8032.html) signatures in software.
+`import_eddsa_public_key` creates verification-only public objects with explicit
+1–128-byte ID/label in RW mode; duplicate public IDs are rejected.
+`export_eddsa_public_key` and `ManagementSession::export_public` validate public
+material before emitting SPKI DER. Private keys and seeds are never imported or
+exported by these APIs.
+
+`EdDsaCertificate` retains exact certificate bytes and a software verifier.
+`bind_eddsa_identity` proves possession using one domain-separated message;
+`sign_eddsa_identity` checks every signature against that retained certificate,
+including after a key is replaced under the same selector. Verification failures
+discard the lease. Parsing and binding do not establish certificate trust.

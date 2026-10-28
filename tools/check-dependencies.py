@@ -28,8 +28,8 @@ for ident in members:
         raise SystemExit(f"Forbidden sibling dependencies for {name}: {siblings - allowed[name]}")
     if "cryptoki" in direct and name != "pkcs11-runtime":
         raise SystemExit(f"Only runtime may directly consume cryptoki: {name}")
-    if "ml-dsa" in direct and name != "pkcs11-client":
-        raise SystemExit(f"Only client may directly consume the ML-DSA software verifier: {name}")
+    if {"ml-dsa", "ed25519-dalek", "ed448-goldilocks-plus"} & direct and name != "pkcs11-client":
+        raise SystemExit(f"Only client may directly consume ML-DSA/EdDSA software verifiers: {name}")
     if name == "pkcs11ctl" and "pkcs11-client" not in direct:
         raise SystemExit("CLI must reuse client")
     if name == "pkcs11-desktop" and "pkcs11-client" not in direct:

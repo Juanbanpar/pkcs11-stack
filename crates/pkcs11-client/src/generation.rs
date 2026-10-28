@@ -23,6 +23,8 @@ pub struct GenerationCapabilities {
     pub hmac: Vec<crate::HmacAlgorithm>,
     /// Algorithms for secrets restricted to native general HMAC mechanisms.
     pub hmac_general: Vec<crate::HmacAlgorithm>,
+    /// Pure Ed25519 and Ed448 signing curves.
+    pub eddsa: Vec<crate::EdDsaCurve>,
     /// Pure ML-DSA parameter sets.
     pub ml_dsa: Vec<crate::MlDsaParameterSet>,
     /// ML-KEM parameter sets.
@@ -45,6 +47,7 @@ impl Provider {
             aes_cmac_general: selected.aes_cmac_general_generation_options()?,
             hmac: selected.hmac_generation_options()?,
             hmac_general: selected.hmac_general_generation_options()?,
+            eddsa: selected.eddsa_generation_options()?,
             ml_dsa: self.ml_dsa_generation_options(token)?,
             ml_kem: self.ml_kem_generation_options(token)?,
         })

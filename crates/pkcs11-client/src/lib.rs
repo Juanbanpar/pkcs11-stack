@@ -16,7 +16,12 @@ pub use aes_gcm::{
 };
 mod certificate;
 mod digest;
+mod eddsa;
+mod eddsa_certificate;
+pub use eddsa::EdDsaVerifyingKey;
+pub use eddsa_certificate::{EdDsaCertificate, EdDsaIdentity};
 pub use pkcs11_runtime::{DigestMode, HashAlgorithm};
+pub use pkcs11_runtime::{EdDsaCapabilities, EdDsaCurve, EdDsaRequest};
 mod encryption;
 mod key_operations;
 pub use encryption::{DecryptRequest, EncryptRequest, OaepChoice, Plaintext};

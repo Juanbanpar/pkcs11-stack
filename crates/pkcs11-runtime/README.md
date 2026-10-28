@@ -764,3 +764,28 @@ RSA or fixed-width ECDSA `r || s` signature.
 mismatch returns `Error::SignatureMismatch`; completed mismatch operations leave
 the session usable. Other native failures discard it. No certificate is required,
 no trust decision is made, and no software verification or execution retry occurs.
+
+## Pure EdDSA
+
+`EdDsaCurve::{Ed25519, Ed448}` and `EdDsaRequest` are independent of ECDSA,
+`DigestAlgorithm` and classical signing policy. Requests contain the expected
+curve and original message; empty messages are valid. Context and prehash
+variants are not exposed. RFC 8410 OID keys imply pure EdDSA without mechanism parameters. For RFC 8032
+curve-name keys, Ed25519 uses no parameter and Ed448 uses `CK_EDDSA_PARAMS`
+with `phFlag=false` and an empty context. Execution preserves this distinction
+from [PKCS #11 3.2 sections 6.3.5 and 6.3.14](https://docs.oasis-open.org/pkcs11/pkcs11-spec/v3.2/pkcs11-spec-v3.2.html).
+
+`Token::eddsa_generation_options` reports advertised generation choices using
+255/448-bit mechanism bounds. `Session::generate_eddsa_key_pair` requires RW mode,
+explicit 1–128-byte ID/label and no existing pair ID. Templates restrict keys to
+EdDSA signing/verification; private material is sensitive and nonextractable.
+Concurrent writers can race; generation is never retried or rolled back.
+
+`Session::eddsa_capabilities` accepts a public/private object selector and reads
+bounded metadata. `sign_eddsa` and `verify_eddsa` recheck the curve, key permissions,
+allowed mechanisms, flags and native entry points. Signing initializes once,
+performs context login when required, then completes into a fixed 64/114-byte
+buffer without a length query. Errors after initialization discard the session;
+verification mismatches remain reusable. `eddsa_public_key` reads only public,
+non-private CKA_EC_POINT values with the exact DER OCTET STRING encoding. The
+client adds canonical point validation and RFC 8410 SPKI encoding.

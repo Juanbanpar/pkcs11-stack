@@ -15,6 +15,9 @@ elif [[ "${1:-}" == sha3 ]]; then
     out="$out/sha3"
     digests=(sha3-224 sha3-256 sha3-384 sha3-512)
     keys=(rsa p256 p384 p521)
+elif [[ "${1:-}" == eddsa ]]; then
+    out="$out/eddsa"
+    keys=(ed25519 ed448)
 elif [[ $# != 0 ]]; then
     exit 2
 fi
@@ -28,10 +31,14 @@ for key in "${keys[@]}"; do
         p256) options=(-newkey ec -pkeyopt ec_paramgen_curve:prime256v1) ;;
         p384) options=(-newkey ec -pkeyopt ec_paramgen_curve:secp384r1) ;;
         p521) options=(-newkey ec -pkeyopt ec_paramgen_curve:secp521r1) ;;
-        ed25519) options=(-newkey ed25519) ;;
+        ed25519|ed448) options=(-newkey "$key") ;;
     esac
     openssl req -x509 "${options[@]}" -nodes -subj "/CN=pkcs11-client-$key-fixture" \
         -days 1 -keyout "$scratch/$key.pem" -outform DER -out "$out/$key.der" 2>/dev/null
+    if [[ "${1:-}" == eddsa ]]; then
+        openssl pkeyutl -sign -rawin -inkey "$scratch/$key.pem" -in "$out/message.txt" -out "$out/$key.sig"
+        continue
+    fi
     [[ "$key" != ed25519 ]] || continue
     for digest in "${digests[@]}"; do
         openssl dgst "-$digest" -sign "$scratch/$key.pem" \

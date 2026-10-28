@@ -9,7 +9,7 @@ signatures are intentionally outside the client trust boundary.
 `rsa-*.sig` use PKCS#1 v1.5 unless named `rsa-pss-*` (20-byte salt, matching MGF1).
 EC signatures use ASN.1 DER; unit tests convert to the runtime's fixed-width format.
 Every signature covers the exact bytes of `message.txt`, including its newline.
-Ed25519 supplies an unsupported-key certificate case.
+Ed25519 supplies an unsupported-key certificate case for the classical API.
 
 `mldsa44`, `mldsa65` and `mldsa87` contain ML-DSA certificates, SPKI public keys,
 and raw message signatures generated with OpenSSL 3.5.9 by
@@ -34,3 +34,8 @@ The `sha3/` fixtures cover SHA3-224/256/384/512 with RSA PKCS#1 v1.5,
 RSA-PSS and all three supported EC curves. Regenerate with
 `tools/generate-client-fixtures.sh sha3`. They use the same message and signature
 formats, with a 20-byte PSS salt and matching MGF1. Generated with OpenSSL 3.5.9.
+
+The `eddsa/` fixtures contain Ed25519/Ed448 certificates and raw pure-message
+signatures over their exact `message.txt`. Regenerate with
+`tools/generate-client-fixtures.sh eddsa`; temporary private keys are removed.
+The client tests also use the published RFC 8032 empty-message vectors.
