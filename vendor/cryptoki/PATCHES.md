@@ -9,6 +9,11 @@ Published crate SHA-256:
 
 Local changes:
 
+- `src/object.rs`: preserve unknown numeric object, key, certificate, profile,
+  validation and validation-authority types. Display vendor key types numerically
+  instead of the literal `key_type`. Native metadata fixtures check decoding,
+  malformed lengths and runtime/client policy boundaries.
+
 - `src/object.rs`: decode `CKA_VALIDATION_VENDOR_URI` as its named attribute
   type, matching its existing encoding and byte-value representation.
 

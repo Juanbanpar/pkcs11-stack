@@ -275,6 +275,12 @@ create persistent public objects; certificate metadata comes from
 use CKA_OBJECT_ID. Selectors still follow the runtime's CKA_ID semantics, so use
 unique labels to select data objects. IDs/labels do not imply uniqueness.
 
+Unknown object classes and numeric key/certificate/profile/validation types remain
+readable in requested attributes without suppressing other objects in a listing.
+They do not enable typed key import, export or cryptographic operations. Raw public
+certificate/data export retains its existing behavior. Classes outside RFC 7512's
+object types have no object locator; they remain visible through `objects`.
+
 `object_locator(&token, &attributes)` builds an object URI from available class,
 label and CKA_ID reads. Empty label/ID bytes remain exact constraints; token and
 module-path constraints are preserved. It returns `None` for missing identity,

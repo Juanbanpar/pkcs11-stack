@@ -89,3 +89,53 @@ fn newer_metadata_attribute_ids_round_trip() {
         assert_eq!(AttributeType::try_from(raw).unwrap(), kind);
     }
 }
+
+#[test]
+fn opaque_metadata_ids_survive_construction_and_numeric_display() {
+    use cryptoki::{
+        object::{
+            CertificateType, KeyType, ObjectClass, ProfileIdType, ValidationAuthorityType,
+            ValidationType,
+        },
+        types::Ulong,
+    };
+    for raw in [0x7fff_0001, 0x8000_0001, *Ulong::new(!0)] {
+        let class = ObjectClass::try_from(raw).unwrap();
+        let key = KeyType::try_from(raw).unwrap();
+        let certificate = CertificateType::try_from(raw).unwrap();
+        let profile = ProfileIdType::try_from(raw).unwrap();
+        let validation = ValidationType::try_from(raw).unwrap();
+        let authority = ValidationAuthorityType::try_from(raw).unwrap();
+        assert_eq!(*class, raw);
+        assert_eq!(*key, raw);
+        assert_eq!(*certificate, raw);
+        assert_eq!(*profile.as_ref(), raw);
+        assert_eq!(*validation, raw);
+        assert_eq!(*authority, raw);
+        for display in [
+            class.to_string(),
+            key.to_string(),
+            certificate.to_string(),
+            profile.to_string(),
+            validation.to_string(),
+            authority.to_string(),
+        ] {
+            assert!(display.contains(&format!("{raw:08x}")), "{display}");
+        }
+    }
+    assert!(KeyType::new_vendor_defined(0x7fff_0001).is_err());
+    assert_eq!(
+        *ObjectClass::try_from(*ObjectClass::PRIVATE_KEY).unwrap(),
+        *ObjectClass::PRIVATE_KEY
+    );
+    assert_eq!(
+        KeyType::try_from(*KeyType::RSA).unwrap().to_string(),
+        "CKK_RSA"
+    );
+    assert_eq!(
+        CertificateType::try_from(*CertificateType::X_509)
+            .unwrap()
+            .to_string(),
+        "CKC_X_509"
+    );
+}

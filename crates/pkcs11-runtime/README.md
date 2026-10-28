@@ -102,9 +102,12 @@ initialization behavior are outside this ownership guarantee.
 Slots and token flags use cryptoki's representations directly. Tokens expose
 locator-compatible stable metadata separately from their diagnostic slot ID.
 Mechanism discovery and allowed-mechanism attributes preserve all numeric IDs,
-including unknown and vendor-defined values. Representability does not enable
-typed execution of an unsupported algorithm. The workspace uses a locally
-patched [cryptoki 0.12.1](../../vendor/cryptoki/PATCHES.md) for this behavior.
+including unknown and vendor-defined values. Object class, key type, certificate
+type, profile ID and validation type/authority attributes also retain unknown
+numeric values. Mixed object discovery keeps unfamiliar objects alongside known
+ones; malformed scalar lengths and provider errors still fail the read.
+Representability does not enable typed execution of an unsupported algorithm. The
+workspace uses a locally patched [cryptoki 0.12.1](../../vendor/cryptoki/PATCHES.md) for this behavior.
 `resolve_token(TokenSelector)` intentionally resolves token-only criteria within
 this explicitly loaded module, distinguishing no match, one match and ambiguity.
 `resolve_token_uri(&Pkcs11Uri)` also checks module and slot constraints, rejects

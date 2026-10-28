@@ -1702,7 +1702,9 @@ impl From<ParameterSetType> for SlhDsaParameterSetType {
 
 #[derive(Copy, Debug, Clone, PartialEq, Eq)]
 #[repr(transparent)]
-/// Identifier of the class of an object
+/// Identifier of the class of an object.
+///
+/// Unknown numeric values remain inspectable; they do not imply operation support.
 pub struct ObjectClass {
     val: CK_OBJECT_CLASS,
 }
@@ -1800,17 +1802,15 @@ impl TryFrom<CK_OBJECT_CLASS> for ObjectClass {
             CKO_PROFILE => Ok(ObjectClass::PROFILE),
             CKO_VALIDATION => Ok(ObjectClass::VALIDATION),
 
-            _ => {
-                error!("Object class {object_class} is not supported.");
-                Err(Error::NotSupported)
-            }
+            _ => Ok(Self { val: object_class }),
         }
     }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(transparent)]
-/// Key type
+/// Numeric key type, preserving unknown standard and vendor values for metadata.
+/// A value is not evidence of support for a cryptographic operation.
 pub struct KeyType {
     val: CK_KEY_TYPE,
 }
@@ -2052,7 +2052,6 @@ impl KeyType {
             CKK_ML_KEM => String::from(stringify!(CKK_ML_KEM)),
             CKK_ML_DSA => String::from(stringify!(CKK_ML_DSA)),
             CKK_SLH_DSA => String::from(stringify!(CKK_SLH_DSA)),
-            CKK_VENDOR_DEFINED..=CK_ULONG::MAX => String::from(stringify!(key_type)),
             _ => format!("unknown ({key_type:08x})"),
         }
     }
@@ -2137,10 +2136,7 @@ impl TryFrom<CK_KEY_TYPE> for KeyType {
             CKK_ML_DSA => Ok(KeyType::ML_DSA),
             CKK_SLH_DSA => Ok(KeyType::SLH_DSA),
             CKK_VENDOR_DEFINED..=CK_ULONG::MAX => KeyType::new_vendor_defined(key_type),
-            _ => {
-                error!("Key type {key_type} is not supported.");
-                Err(Error::NotSupported)
-            }
+            _ => Ok(Self { val: key_type }),
         }
     }
 }
@@ -2160,7 +2156,7 @@ pub enum AttributeInfo {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(transparent)]
-/// The certificate type
+/// Numeric certificate type, including unknown standard and vendor values.
 pub struct CertificateType {
     val: CK_CERTIFICATE_TYPE,
 }
@@ -2213,17 +2209,16 @@ impl TryFrom<CK_CERTIFICATE_TYPE> for CertificateType {
             CKC_X_509 => Ok(CertificateType::X_509),
             CKC_X_509_ATTR_CERT => Ok(CertificateType::X_509_ATTR),
             CKC_WTLS => Ok(CertificateType::WTLS),
-            _ => {
-                error!("Certificate type {certificate_type} is not supported.");
-                Err(Error::NotSupported)
-            }
+            _ => Ok(Self {
+                val: certificate_type,
+            }),
         }
     }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(transparent)]
-/// The PKCS#11 Profile ID
+/// The PKCS#11 Profile ID, preserving unknown numeric values.
 ///
 /// The profiles and their meaning is defined in the following document:
 ///
@@ -2302,17 +2297,14 @@ impl TryFrom<CK_PROFILE_ID> for ProfileIdType {
             CKP_PUBLIC_CERTIFICATES_TOKEN => Ok(ProfileIdType::PUBLIC_CERTIFICATES_TOKEN),
             CKP_COMPLETE_PROVIDER => Ok(ProfileIdType::COMPLETE_PROVIDER),
             CKP_HKDF_TLS_TOKEN => Ok(ProfileIdType::HKDF_TLS_TOKEN),
-            _ => {
-                error!("Profile Id {} is not supported.", profile_id);
-                Err(Error::NotSupported)
-            }
+            _ => Ok(Self { val: profile_id }),
         }
     }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(transparent)]
-/// The PKCS#11 3.2 Validation Type
+/// The PKCS#11 3.2 Validation Type, preserving unknown numeric values.
 ///
 /// identifies the type of validation
 pub struct ValidationType {
@@ -2383,17 +2375,16 @@ impl TryFrom<CK_VALIDATION_TYPE> for ValidationType {
             CKV_TYPE_HARDWARE => Ok(ValidationType::HARDWARE),
             CKV_TYPE_FIRMWARE => Ok(ValidationType::FIRMWARE),
             CKV_TYPE_HYBRID => Ok(ValidationType::HYBRID),
-            _ => {
-                error!("Validation type {} is not supported.", validation_type);
-                Err(Error::NotSupported)
-            }
+            _ => Ok(Self {
+                val: validation_type,
+            }),
         }
     }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(transparent)]
-/// The PKCS#11 3.2 Validation Authority Type
+/// The PKCS#11 3.2 Validation Authority Type, preserving unknown numeric values.
 ///
 /// identifies the type of validation authority
 pub struct ValidationAuthorityType {
@@ -2456,13 +2447,9 @@ impl TryFrom<CK_VALIDATION_AUTHORITY_TYPE> for ValidationAuthorityType {
             CKV_AUTHORITY_TYPE_UNSPECIFIED => Ok(ValidationAuthorityType::UNSPECIFIED),
             CKV_AUTHORITY_TYPE_NIST_CMVP => Ok(ValidationAuthorityType::NIST_CMVP),
             CKV_AUTHORITY_TYPE_COMMON_CRITERIA => Ok(ValidationAuthorityType::COMMON_CRITERIA),
-            _ => {
-                error!(
-                    "Validation Authority type {} is not supported.",
-                    authority_type
-                );
-                Err(Error::NotSupported)
-            }
+            _ => Ok(Self {
+                val: authority_type,
+            }),
         }
     }
 }

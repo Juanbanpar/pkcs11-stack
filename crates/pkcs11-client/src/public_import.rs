@@ -314,6 +314,11 @@ mod tests {
             assert!(ClassicalPublicKey::from_spki_der(&bytes[..bytes.len() / 2]).is_err());
         }
         let mut rsa = SubjectPublicKeyInfoOwned::from_der(&spki("rsa")).unwrap();
+        rsa.algorithm.oid = ObjectIdentifier::new_unwrap("1.3.6.1.4.1.55555.1");
+        assert!(matches!(
+            ClassicalPublicKey::from_spki_der(&rsa.to_der().unwrap()),
+            Err(Error::InvalidPublicKey)
+        ));
         rsa.algorithm.oid = ObjectIdentifier::new_unwrap("1.2.840.113549.1.1.10");
         assert!(ClassicalPublicKey::from_spki_der(&rsa.to_der().unwrap()).is_err());
         rsa.algorithm.oid = ObjectIdentifier::new_unwrap("1.2.840.113549.1.1.1");
