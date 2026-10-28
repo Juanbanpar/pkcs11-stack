@@ -1158,6 +1158,56 @@ fn key_actions_follow_typed_metadata_instead_of_labels_or_formatted_fields() {
     }
 }
 
+#[test]
+fn opaque_classes_and_key_types_do_not_offer_crypto_actions() {
+    use crate::backend::CryptoMode::*;
+    use pkcs11_client::{KeyType as K, ObjectClass as C};
+    for raw in [0x7fff0001, 0x80000001, std::os::raw::c_ulong::MAX] {
+        let opaque = K::try_from(raw).unwrap();
+        for (class, kind) in [
+            (C::PRIVATE_KEY, opaque),
+            (C::PUBLIC_KEY, opaque),
+            (C::SECRET_KEY, opaque),
+            (C::try_from(raw).unwrap(), K::RSA),
+        ] {
+            let mut state = managing();
+            state.token_page = TokenPage::Objects;
+            let mut object = object_entry(4, "RSA");
+            object.class = Some(class);
+            state.objects = vec![object];
+            state.selected_object = Some(ResourceId(4));
+            state.object_details = Some(ObjectDetails {
+                key_type: Some(kind),
+                fields: Vec::new(),
+            });
+            for mode in [Sign, Verify] {
+                assert!(!state.can_open_crypto(mode));
+                assert!(state.open_crypto(mode).is_none());
+            }
+            for mode in [Encrypt, Decrypt] {
+                assert!(!state.can_open_cipher(mode));
+                assert!(state.open_cipher(mode).is_none());
+            }
+            for mode in [
+                Derive,
+                Wrap,
+                Unwrap,
+                Hmac,
+                VerifyHmac,
+                Mac,
+                VerifyMac,
+                Hkdf,
+                Kbkdf,
+                Encapsulate,
+                Decapsulate,
+            ] {
+                assert!(!state.can_open_key_operation(mode));
+                assert!(state.open_key_operation(mode).is_none());
+            }
+        }
+    }
+}
+
 fn ml_dsa_state(
     mode: crate::backend::CryptoMode,
 ) -> (UiState, RequestId, crate::backend::CryptoScope) {

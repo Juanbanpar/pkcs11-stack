@@ -60,6 +60,10 @@ Object summaries use the client's locator builder. Their `uri` is `null` when th
 available metadata cannot form a supported selector; other summaries remain
 available. Duplicate locators can still be ambiguous when passed to `inspect`.
 
+Unknown object classes remain in `objects` with a numeric class and a null URI.
+`inspect --attributes key-type` preserves unknown numeric key types. This metadata
+does not enable unsupported key export or cryptographic operations.
+
 `inspect --attributes` accepts a comma-separated list: `class`, `label`, `id`,
 `object-id`, `private`, `sign`, `verify`, `encrypt`, `decrypt`, `wrap`, `unwrap`,
 `derive`, `sensitive`, `extractable`, `always-authenticate`,

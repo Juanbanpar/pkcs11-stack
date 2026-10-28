@@ -6,6 +6,10 @@ identity, initialization, authentication flags and PIN limits. Log in as USER or
 SO to browse visible persistent objects. Filter object lists and advertised
 mechanisms, then select an entry for metadata details.
 
+Unknown classes remain in the object list with their numeric IDs. Unknown key and
+certificate types appear numerically in details. Classes without an RFC 7512
+object type have no selectable locator; unfamiliar key types offer no crypto actions.
+
 ## Usage
 
 Select **Add Module**, choose a library with **Browse**, or enter its path, then

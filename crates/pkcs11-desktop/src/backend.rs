@@ -15,6 +15,8 @@ mod cipher;
 mod cmac;
 mod hkdf;
 mod kbkdf;
+#[cfg(all(test, unix))]
+mod opaque_metadata_tests;
 pub use kbkdf::KbkdfJob;
 mod hmac;
 mod kem;
