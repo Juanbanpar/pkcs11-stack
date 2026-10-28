@@ -287,9 +287,12 @@ inventing RFC 7512 selectors. Both query optional attributes regardless of the
 selected interface version. The profile includes unique IDs, public-key-info,
 profile IDs, validation metadata and numeric object validation flags, with a
 65,536-byte limit per attribute. Empty values remain available; sensitive,
-unsupported and unavailable statuses remain distinct. Nonempty public-key-info
-must parse as SPKI DER, including for unknown algorithms; malformed DER returns
-`InvalidPublicKey` without changing session health. Native length/scalar errors
+unsupported and unavailable statuses remain distinct. Identity reads during
+resolution use the same limit. `inspect_bounded` applies a caller-supplied limit
+to identity and explicitly requested attributes; ordinary `inspect` remains
+available for callers choosing its existing allocation behavior. Nonempty
+public-key-info must parse as SPKI DER, including for unknown algorithms; malformed
+DER returns `InvalidPublicKey` without changing session health. Native length/scalar errors
 invalidate the session. No secret values or nested templates are requested, and
 URI metadata is never fetched. Unique IDs do not replace CKA_ID association or
 existing selector rules. `PUBLIC_METADATA_FIELDS` lists the profile's names.

@@ -175,3 +175,31 @@ fn summaries_defer_optional_key_metadata_but_include_unaddressable_snapshots() {
     session.close().unwrap();
     provider.finalize().unwrap();
 }
+
+#[test]
+fn selected_public_metadata_and_inspection_bound_identity_reads() {
+    for public_profile in [true, false] {
+        let fixture = MetadataModule::from_source("public_metadata.c", 16);
+        let provider = Provider::load(fixture.path()).unwrap();
+        let mut session = provider
+            .management(
+                &"pkcs11:token=cmac".parse().unwrap(),
+                SessionMode::ReadOnly,
+                Authentication::None,
+            )
+            .unwrap();
+        let reference = pkcs11_client::object_reference(
+            "pkcs11:token=cmac;id=%03;type=public".parse().unwrap(),
+        )
+        .unwrap();
+        let result = if public_profile {
+            session.public_metadata(&reference)
+        } else {
+            session.inspect_bounded(&reference, &[A::KeyType], PUBLIC_METADATA_MAX_ATTRIBUTE)
+        };
+        assert!(result.is_err());
+        assert!(session.state().is_err());
+        session.close().unwrap();
+        provider.finalize().unwrap();
+    }
+}

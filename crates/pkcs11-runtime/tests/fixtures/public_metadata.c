@@ -15,6 +15,10 @@ static CK_RV public_attributes(CK_SESSION_HANDLE s, CK_OBJECT_HANDLE h, CK_ATTRI
         CK_BYTE bytes[sizeof(CK_ULONG)+1] = {0};
         const CK_BYTE *data = bytes;
         int variable = 0;
+        if (metadata_fault == 16 && a->type == CKA_LABEL) {
+            if (a->pValue) return CKR_DEVICE_ERROR;
+            a->ulValueLen = 65537; continue;
+        }
         switch (a->type) {
             case CKA_VALUE: return CKR_DEVICE_ERROR;
             case CKA_UNIQUE_ID: data = (const CK_BYTE *)"unique-id"; length = 9; variable = 1; break;

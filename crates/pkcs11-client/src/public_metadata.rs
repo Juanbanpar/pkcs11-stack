@@ -109,7 +109,12 @@ impl ManagementSession<'_> {
     /// Nonempty public-key-info must be SPKI DER; unknown algorithms are allowed
     /// for inspection and do not acquire typed execution support.
     pub fn public_metadata(&mut self, reference: &ObjectRef) -> Result<Vec<AttributeRead>, Error> {
-        metadata(&self.session.resolve(reference)?, true)
+        metadata(
+            &self
+                .session
+                .resolve_bounded(reference, PUBLIC_METADATA_MAX_ATTRIBUTE)?,
+            true,
+        )
     }
     /// Inspect public metadata of every visible persistent object, including
     /// profile/validation objects that have no RFC 7512 selector. Handles never

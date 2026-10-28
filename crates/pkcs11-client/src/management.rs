@@ -286,6 +286,13 @@ pub struct AttributeRead {
     pub values: Option<AttributeValues>,
 }
 fn read(object: &Object<'_, '_>, types: &[AttributeType]) -> Result<Vec<AttributeRead>, Error> {
+    read_bounded(object, types, usize::MAX)
+}
+fn read_bounded(
+    object: &Object<'_, '_>,
+    types: &[AttributeType],
+    maximum: usize,
+) -> Result<Vec<AttributeRead>, Error> {
     types
         .iter()
         .map(|&kind| {
@@ -295,7 +302,7 @@ fn read(object: &Object<'_, '_>, types: &[AttributeType]) -> Result<Vec<Attribut
                 .next()
                 .ok_or(Error::MissingAttributeStatus)?;
             let values = if matches!(status, AttributeInfo::Available(_)) {
-                Some(object.read_attributes(&[kind])?)
+                Some(object.read_attributes_bounded(&[kind], maximum)?)
             } else {
                 None
             };
@@ -452,6 +459,21 @@ impl ManagementSession<'_> {
         types: &[AttributeType],
     ) -> Result<Vec<AttributeRead>, Error> {
         read(&self.session.resolve(reference)?, types)
+    }
+    /// Resolve one object and read explicitly requested attributes with a byte
+    /// limit per attribute, including identity reads during resolution. Values
+    /// may include secrets if requested explicitly; Debug remains redacted.
+    pub fn inspect_bounded(
+        &mut self,
+        reference: &ObjectRef,
+        types: &[AttributeType],
+        maximum: usize,
+    ) -> Result<Vec<AttributeRead>, Error> {
+        read_bounded(
+            &self.session.resolve_bounded(reference, maximum)?,
+            types,
+            maximum,
+        )
     }
     /// Export raw certificate/data bytes, without interpreting the signing algorithm.
     /// Private/public/secret key objects are rejected before reading their value.

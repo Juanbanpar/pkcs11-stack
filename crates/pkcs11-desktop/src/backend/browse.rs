@@ -388,9 +388,10 @@ impl Registry {
             self.modules[index].read_mode(token)?,
             |session| {
                 let reads = session
-                    .inspect(
+                    .inspect_bounded(
                         &reference,
                         &attributes.iter().map(|(kind, _)| *kind).collect::<Vec<_>>(),
+                        pkcs11_client::PUBLIC_METADATA_MAX_ATTRIBUTE,
                     )
                     .map_err(|e| BackendError::from(&e))?;
                 let public = session

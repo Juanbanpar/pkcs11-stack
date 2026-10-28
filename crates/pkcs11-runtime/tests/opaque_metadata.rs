@@ -211,3 +211,44 @@ fn ordinary_attribute_reads_reject_an_oversized_success_length_before_decoding()
     drop(token);
     module.finalize().unwrap();
 }
+
+#[test]
+fn bounded_resolution_rejects_oversized_identity_before_allocation() {
+    let fixture = MetadataModule::from_source("public_metadata.c", 16);
+    let module = Module::load(fixture.path()).unwrap();
+    let token = module
+        .resolve_token_uri(&"pkcs11:token=cmac".parse().unwrap())
+        .unwrap();
+    let reference =
+        pkcs11_runtime::ObjectRef::new("pkcs11:token=cmac;id=%03;type=public".parse().unwrap())
+            .unwrap();
+    for maximum in [65_536, usize::MAX] {
+        let mut session = token.open_session(SessionMode::ReadOnly).unwrap();
+        let error = session.resolve_bounded(&reference, maximum).unwrap_err();
+        if maximum == 65_536 {
+            assert!(matches!(
+                error,
+                Error::Backend {
+                    source: cryptoki::error::Error::InvalidValue,
+                    ..
+                }
+            ));
+        } else {
+            // The fixture returns a device error only if the label value is fetched.
+            assert!(matches!(
+                error,
+                Error::Backend {
+                    source: cryptoki::error::Error::Pkcs11(
+                        cryptoki::error::RvError::DeviceError,
+                        _
+                    ),
+                    ..
+                }
+            ));
+        }
+        assert!(matches!(session.info(), Err(Error::Closed)));
+        session.close().unwrap();
+    }
+    drop(token);
+    module.finalize().unwrap();
+}

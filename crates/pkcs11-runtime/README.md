@@ -145,6 +145,8 @@ formatting upstream input buffers in Debug.
 attribute before allocation. Returned lengths must fit the allocated buffers;
 length growth is not retried. Malformed scalars, oversized values and provider
 failures invalidate the session. Validation versions require exactly two bytes.
+`resolve_bounded` also limits identity attribute reads before matching an object;
+ordinary `resolve` retains its existing allocation behavior.
 
 `Session::session_validation_flags` queries `CKS_LAST_VALIDATION_OK` through the
 selected 3.2 table. It returns the provider's full numeric flags, including unknown

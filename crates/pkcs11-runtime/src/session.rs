@@ -267,6 +267,16 @@ impl<'m> Session<'m> {
     /// All URI constraints are checked, including module, slot and token metadata;
     /// no match or multiple matches is an error. No handle is cached in ObjectRef.
     pub fn resolve(&mut self, reference: &ObjectRef) -> Result<Object<'_, 'm>, Error> {
+        self.resolve_bounded(reference, usize::MAX)
+    }
+    /// Resolve with a per-attribute byte limit on the class/label/ID/token
+    /// identity reads as well. Oversized or malformed identity values invalidate
+    /// the session. Selector matching and ambiguity rules are unchanged.
+    pub fn resolve_bounded(
+        &mut self,
+        reference: &ObjectRef,
+        maximum: usize,
+    ) -> Result<Object<'_, 'm>, Error> {
         self.validate()?;
         if !self
             .token
@@ -281,7 +291,7 @@ impl<'m> Session<'m> {
         let mut matches = Vec::new();
         for handle in handles {
             let values = raw
-                .get_attributes(
+                .get_attributes_bounded(
                     handle,
                     &[
                         AttributeType::Class,
@@ -289,6 +299,7 @@ impl<'m> Session<'m> {
                         AttributeType::Id,
                         AttributeType::Token,
                     ],
+                    maximum,
                 )
                 .map_err(|e| self.failed("object identity", e))?;
             let mut identity = ObjectIdentity::default();
