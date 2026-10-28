@@ -298,7 +298,7 @@ impl Registry {
             self.modules[index].read_mode(token)?,
             |session| {
                 session
-                    .public_object_metadata()
+                    .public_object_summaries()
                     .map_err(|e| BackendError::from(&e))
             },
         )?;

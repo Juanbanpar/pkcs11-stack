@@ -293,6 +293,9 @@ must parse as SPKI DER, including for unknown algorithms; malformed DER returns
 invalidate the session. No secret values or nested templates are requested, and
 URI metadata is never fetched. Unique IDs do not replace CKA_ID association or
 existing selector rules. `PUBLIC_METADATA_FIELDS` lists the profile's names.
+`public_object_summaries` reads only class/label/ID for ordinary objects and adds
+metadata snapshots for profiles/validations without selectors. Browsers can defer
+ordinary key metadata to selection without losing those unaddressable objects.
 
 `ManagementSession::session_validation_flags` queries the provider's last-operation
 flags before closing that session. `None` is unavailable and `Some(0)` is reported

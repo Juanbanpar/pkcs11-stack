@@ -34,6 +34,7 @@ static CK_RV public_attributes(CK_SESSION_HANDLE s, CK_OBJECT_HANDLE h, CK_ATTRI
                 continue;
             }
         }
+        if (metadata_fault == 15 && h <= 6) return CKR_DEVICE_ERROR;
         if (metadata_fault >= 2 && metadata_fault <= 4) {
             a->ulValueLen = CK_UNAVAILABLE_INFORMATION;
             if (metadata_fault != 4) status = metadata_fault == 2 ? CKR_ATTRIBUTE_SENSITIVE : CKR_ATTRIBUTE_TYPE_INVALID;

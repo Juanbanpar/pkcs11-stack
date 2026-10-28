@@ -71,7 +71,7 @@ fn read(object: &Object<'_, '_>, kind: A) -> Result<AttributeRead, Error> {
     })
 }
 
-fn metadata(object: &Object<'_, '_>) -> Result<Vec<AttributeRead>, Error> {
+fn metadata(object: &Object<'_, '_>, detailed: bool) -> Result<Vec<AttributeRead>, Error> {
     let class = read(object, A::Class)?;
     let kind = class.values.as_ref().and_then(|v| {
         v.expose_values().iter().find_map(|a| match a {
@@ -80,6 +80,12 @@ fn metadata(object: &Object<'_, '_>) -> Result<Vec<AttributeRead>, Error> {
         })
     });
     let mut reads = vec![class];
+    if !detailed && !matches!(kind, Some(C::PROFILE | C::VALIDATION)) {
+        for attribute in [A::Label, A::Id] {
+            reads.push(read(object, attribute)?);
+        }
+        return Ok(reads);
+    }
     for &(attribute, _) in &PUBLIC_METADATA_FIELDS[1..] {
         let applicable = match attribute {
             A::Label | A::Id | A::Token | A::Private | A::UniqueId => true,
@@ -103,7 +109,7 @@ impl ManagementSession<'_> {
     /// Nonempty public-key-info must be SPKI DER; unknown algorithms are allowed
     /// for inspection and do not acquire typed execution support.
     pub fn public_metadata(&mut self, reference: &ObjectRef) -> Result<Vec<AttributeRead>, Error> {
-        metadata(&self.session.resolve(reference)?)
+        metadata(&self.session.resolve(reference)?, true)
     }
     /// Inspect public metadata of every visible persistent object, including
     /// profile/validation objects that have no RFC 7512 selector. Handles never
@@ -114,7 +120,17 @@ impl ManagementSession<'_> {
         self.session
             .find_objects(&[Attribute::Token(true)])?
             .iter()
-            .map(metadata)
+            .map(|object| metadata(object, true))
+            .collect()
+    }
+    /// Read bounded class/label/ID summaries, with public metadata snapshots for
+    /// profile/validation objects that have no RFC 7512 selector. Ordinary keys
+    /// and other objects defer optional metadata to `public_metadata` on selection.
+    pub fn public_object_summaries(&mut self) -> Result<Vec<Vec<AttributeRead>>, Error> {
+        self.session
+            .find_objects(&[Attribute::Token(true)])?
+            .iter()
+            .map(|object| metadata(object, false))
             .collect()
     }
 }

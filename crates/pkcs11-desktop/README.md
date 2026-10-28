@@ -10,9 +10,9 @@ Unknown classes remain in the object list with their numeric IDs. Unknown key an
 certificate types appear numerically in details. Classes without an RFC 7512
 object type have no selectable locator; unfamiliar key types offer no crypto actions.
 
-Browsing reads bounded public metadata, including profile and validation objects.
-Those entries show a read-only metadata snapshot without an object locator or key
-actions. Other objects include unique IDs, SPKI size and validation flags in their
+Browsing reads bounded class/label/ID summaries and public metadata snapshots for
+profile and validation objects. Those entries have no object locator or key
+actions. Other objects read unique IDs, SPKI size and validation flags in their
 selected details. Optional fields retain available/empty, sensitive, unsupported
 and unavailable states. Each public attribute is limited to 65,536 bytes. Validation
 URIs are plain metadata and are not opened or fetched. These provider reports do

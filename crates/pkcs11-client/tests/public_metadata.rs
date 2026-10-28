@@ -138,3 +138,40 @@ fn client_validation_query_retains_same_session_operation_flags() {
     session.close().unwrap();
     provider.finalize().unwrap();
 }
+
+#[test]
+fn summaries_defer_optional_key_metadata_but_include_unaddressable_snapshots() {
+    // Optional reads on ordinary objects are fatal in this fixture.
+    let fixture = MetadataModule::from_source("public_metadata.c", 15);
+    let provider = Provider::load(fixture.path()).unwrap();
+    let mut session = provider
+        .management(
+            &"pkcs11:token=cmac".parse().unwrap(),
+            SessionMode::ReadOnly,
+            Authentication::None,
+        )
+        .unwrap();
+    let rows = session.public_object_summaries().unwrap();
+    assert_eq!(rows.len(), 8);
+    for row in &rows[..6] {
+        assert_eq!(
+            row.iter().map(|read| read.kind).collect::<Vec<_>>(),
+            [A::Class, A::Label, A::Id]
+        );
+    }
+    assert!(
+        rows[6]
+            .iter()
+            .any(|read| read.kind == A::ValidationFlag && read.values.is_some())
+    );
+    assert!(
+        rows[7]
+            .iter()
+            .any(|read| read.kind == A::ProfileId && read.values.is_some())
+    );
+    session.state().unwrap();
+    // Explicit full inspection still attempts optional attributes and reports errors.
+    assert!(session.public_object_metadata().is_err());
+    session.close().unwrap();
+    provider.finalize().unwrap();
+}

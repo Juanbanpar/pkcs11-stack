@@ -94,3 +94,22 @@ fn profile_and_validation_metadata_remain_readable_without_object_uris() {
         registry.close().unwrap();
     }
 }
+
+#[test]
+fn browsing_defers_ordinary_metadata_until_selection() {
+    let fixture = MetadataModule::from_source("public_metadata.c", 15);
+    let mut registry = Registry::default();
+    let module = registry.load(fixture.path()).unwrap();
+    let token = registry.modules[0].entry.tokens[0].id;
+    let objects = registry.objects(module, token).unwrap();
+    assert_eq!(objects.len(), 8);
+    assert_eq!(objects[2].fields.len(), 3);
+    assert!(
+        objects[6]
+            .fields
+            .iter()
+            .any(|field| field.name == "Validation flag" && field.value.is_some())
+    );
+    assert!(registry.inspect(module, token, objects[2].id).is_err());
+    registry.close().unwrap();
+}
