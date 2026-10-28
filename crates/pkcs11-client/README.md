@@ -69,6 +69,16 @@ cancellation permits reuse only after confirmed native termination. Signing outp
 is limited to 1024 bytes (RSA through 8192 bits, or P-256/P-384/P-521 r || s).
 These management APIs do not perform certificate binding or establish trust.
 
+[`Client::sign_reader`] and [`Client::verify_token_reader`] provide the same
+message workflows through exclusive pool leases. [`Client::streaming_plan`]
+checks the entry points required by the selected hashing policy.
+[`Client::sign_identity_reader`] verifies each signature against the bound
+certificate before release, using an incremental software hash of the same input
+without changing the signing policy. It reads once without seeking or buffering
+the whole message; association failure discards the lease. [`Certificate::verify_reader`]
+verifies original messages through incremental software hashing, including offline
+use. These APIs impose no total input limit; callers set budgets and check closure.
+
 Streaming capability queries are advisory. A combined mechanism and its entry points
 do not guarantee provider multipart support. Packaged SoftHSM 2.7.0 rc1 rejects
 combined ECDSA updates; choose software hashing explicitly or use a provider with

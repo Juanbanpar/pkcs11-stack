@@ -1,9 +1,125 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use crate::{
-    Error, ManagementSession, Pin, PrivateKeyRef, PublicKeyRef, SignPlan, SignatureParameters,
-    SigningChoice, SigningOptions, SigningPolicy, input::read_chunks,
+    Authentication, Client, Error, Identity, ManagementSession, Pin, PrivateKeyRef, PublicKeyRef,
+    SignInput, SignPlan, SignatureParameters, SigningChoice, SigningOptions, SigningPolicy,
+    input::read_chunks,
 };
 use std::io::Read;
+
+impl Client<'_> {
+    /// Plan RSA/ECDSA message streaming under this client's policy and live
+    /// multipart/raw entry points. Advisory only; execution rechecks capabilities.
+    pub fn streaming_plan(
+        &self,
+        key: &PrivateKeyRef,
+        parameters: SignatureParameters,
+        authentication: Authentication<'_>,
+    ) -> Result<SignPlan, Error> {
+        Ok(self
+            .pool()
+            .try_acquire(authentication)?
+            .session()
+            .streaming_key_capabilities(key)?
+            .plan(&parameters.request(SignInput::Message(&[])), self.policy())?)
+    }
+    /// Sign an original RSA/ECDSA message using an exclusive pool lease and a
+    /// zeroizing 64 KiB reader buffer. Hashing follows this client's policy; context
+    /// authentication follows init. No binding is performed. Callers enforce input
+    /// budgets and check close before releasing output. Read/native/unwind failures
+    /// discard the lease; no fallback or retry occurs after initialization.
+    pub fn sign_reader(
+        &self,
+        key: &PrivateKeyRef,
+        parameters: SignatureParameters,
+        authentication: Authentication<'_>,
+        context_pin: Option<Pin<'_>>,
+        reader: &mut impl Read,
+    ) -> Result<Vec<u8>, Error> {
+        let mut lease = self.pool().try_acquire(authentication)?;
+        let mut operation =
+            lease
+                .session()
+                .start_signing(key, parameters, self.policy(), context_pin)?;
+        read_chunks(
+            reader,
+            |bytes| Ok(operation.update(bytes)?),
+            Error::SignatureInput,
+        )?;
+        Ok(operation.finish()?)
+    }
+    /// Verify an original RSA/ECDSA message with a selected token public key and
+    /// an exclusive pool lease. Hashing follows this client's policy. A zeroizing
+    /// 64 KiB buffer supports empty input and Interrupted reads; callers enforce
+    /// budgets. Completed mismatches permit reuse, while read/native/unwind errors
+    /// discard the initialized lease. Check close before publishing success.
+    pub fn verify_token_reader(
+        &self,
+        key: &PublicKeyRef,
+        parameters: SignatureParameters,
+        authentication: Authentication<'_>,
+        reader: &mut impl Read,
+        signature: &[u8],
+    ) -> Result<(), Error> {
+        let mut lease = self.pool().try_acquire(authentication)?;
+        let mut operation = lease
+            .session()
+            .start_verification(key, parameters, self.policy())?;
+        read_chunks(
+            reader,
+            |bytes| Ok(operation.update(bytes)?),
+            Error::SignatureInput,
+        )?;
+        match operation.finish(signature) {
+            Err(pkcs11_runtime::Error::SignatureMismatch) => Err(Error::SignatureMismatch),
+            result => Ok(result?),
+        }
+    }
+    /// Sign a reader and verify the result against the bound certificate before
+    /// release, detecting replacement keys under the same selector. Certificate
+    /// parameters are validated before checkout or input. Incremental software
+    /// hashing for this association check does not change the token/software
+    /// signing policy. The message is read once through a zeroizing 64 KiB buffer;
+    /// no full-message buffer, seek or retry is used. Input budgets and checked
+    /// closure remain caller-owned. Read/native/unwind or association failures
+    /// discard the lease; certificate trust remains application-owned.
+    pub fn sign_identity_reader(
+        &self,
+        identity: &Identity,
+        parameters: SignatureParameters,
+        authentication: Authentication<'_>,
+        context_pin: Option<Pin<'_>>,
+        reader: &mut impl Read,
+    ) -> Result<Vec<u8>, Error> {
+        identity
+            .certificate()
+            .validate_signing_request(&parameters.request(SignInput::Message(&[])))?;
+        let mut lease = self.pool().try_acquire(authentication)?;
+        let mut operation = lease.session().start_signing(
+            identity.key(),
+            parameters,
+            self.policy(),
+            context_pin,
+        )?;
+        let mut hash = crate::certificate::message_hasher(parameters.digest);
+        read_chunks(
+            reader,
+            |bytes| {
+                hash.update(bytes);
+                Ok(operation.update(bytes)?)
+            },
+            Error::SignatureInput,
+        )?;
+        let signature = operation.finish()?;
+        if let Err(error) = identity.certificate().verify(
+            &parameters.request(SignInput::Digest(&hash.finalize())),
+            &signature,
+        ) {
+            lease.discard();
+            return Err(error);
+        }
+        Ok(signature)
+    }
+}
 
 /// Exclusive RSA/ECDSA message signer. Hashing follows the selected policy.
 /// Dropping before completion or confirmed cancellation discards the session.

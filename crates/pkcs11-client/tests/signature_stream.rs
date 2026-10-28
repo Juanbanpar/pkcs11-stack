@@ -256,3 +256,88 @@ fn reader_unwind_discards_initialized_signing_and_verification() {
         }
     }
 }
+
+#[test]
+fn pooled_readers_reuse_completed_operations_and_discard_failed_streams() {
+    use std::num::NonZeroUsize;
+    for hashing in [HashingPolicy::TokenOnly, HashingPolicy::SoftwareOnly] {
+        let fixture = SignatureStreamModule::new(3, 2, 0, 0, false, 224, 0);
+        let provider = Provider::load(fixture.path()).unwrap();
+        let client = provider
+            .client(
+                &"pkcs11:token=cmac".parse().unwrap(),
+                NonZeroUsize::new(1).unwrap(),
+                policy(hashing),
+            )
+            .unwrap();
+        let generation = || {
+            client
+                .pool()
+                .try_acquire(Authentication::None)
+                .unwrap()
+                .generation()
+        };
+        let initial = generation();
+        client
+            .streaming_plan(&private(), parameters(), Authentication::None)
+            .unwrap();
+        let mut input = Input::new(false);
+        let signature = client
+            .sign_reader(
+                &private(),
+                parameters(),
+                Authentication::None,
+                None,
+                &mut input,
+            )
+            .unwrap();
+        assert_eq!(input.maximum_buffer, 64 * 1024);
+        assert_eq!(signature, vec![0xAB; 256]);
+        for tag in [&signature[..], &[0; 256][..]] {
+            let mut input = Input::new(false);
+            let result = client.verify_token_reader(
+                &public(),
+                parameters(),
+                Authentication::None,
+                &mut input,
+                tag,
+            );
+            if tag == signature {
+                result.unwrap();
+            } else {
+                assert!(matches!(result, Err(Error::SignatureMismatch)));
+            }
+            assert_eq!(generation(), initial);
+        }
+        for verification in [false, true] {
+            let before = generation();
+            let mut input = Input::new(true);
+            let error = if verification {
+                client
+                    .verify_token_reader(
+                        &public(),
+                        parameters(),
+                        Authentication::None,
+                        &mut input,
+                        &signature,
+                    )
+                    .unwrap_err()
+            } else {
+                client
+                    .sign_reader(
+                        &private(),
+                        parameters(),
+                        Authentication::None,
+                        None,
+                        &mut input,
+                    )
+                    .unwrap_err()
+            };
+            assert!(matches!(error, Error::SignatureInput));
+            assert!(!error.to_string().contains("canary"));
+            assert_ne!(generation(), before);
+        }
+        client.close().unwrap();
+        provider.finalize().unwrap();
+    }
+}

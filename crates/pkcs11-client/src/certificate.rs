@@ -4,12 +4,25 @@ use crate::{
 };
 use p256::ecdsa::signature::hazmat::PrehashVerifier;
 use rsa::{BigUint, Pkcs1v15Sign, Pss, RsaPublicKey, traits::PublicKeyParts};
-use sha2::{Digest, Sha224, Sha256, Sha384, Sha512};
+use sha2::{Digest, Sha224, Sha256, Sha384, Sha512, digest::DynDigest};
 use sha3::{Sha3_224, Sha3_256, Sha3_384, Sha3_512};
 use x509_cert::der::{
     Decode, Encode,
     asn1::{Null, ObjectIdentifier},
 };
+
+pub(crate) fn message_hasher(algorithm: DigestAlgorithm) -> Box<dyn DynDigest> {
+    match algorithm {
+        DigestAlgorithm::Sha224 => Box::new(Sha224::new()),
+        DigestAlgorithm::Sha256 => Box::new(Sha256::new()),
+        DigestAlgorithm::Sha384 => Box::new(Sha384::new()),
+        DigestAlgorithm::Sha512 => Box::new(Sha512::new()),
+        DigestAlgorithm::Sha3_224 => Box::new(Sha3_224::new()),
+        DigestAlgorithm::Sha3_256 => Box::new(Sha3_256::new()),
+        DigestAlgorithm::Sha3_384 => Box::new(Sha3_384::new()),
+        DigestAlgorithm::Sha3_512 => Box::new(Sha3_512::new()),
+    }
+}
 
 /// Exact X.509 DER and public metadata, independent of supported signing algorithms.
 /// Parsing alone does not validate certificate trust or the subject public key.
@@ -222,6 +235,32 @@ impl Certificate {
                 other => other,
             })
     }
+    /// Verify an original RSA/ECDSA message using incremental software hashing
+    /// and a zeroizing 64 KiB input buffer. Parameters are checked before reading.
+    /// Empty input and Interrupted reads are supported; callers enforce budgets.
+    /// Read failures return SignatureInput without I/O diagnostics. No certificate
+    /// trust is established. Raw signatures use the same format as verify_signature.
+    pub fn verify_reader(
+        &self,
+        parameters: crate::SignatureParameters,
+        reader: &mut impl std::io::Read,
+        signature: &[u8],
+    ) -> Result<(), Error> {
+        self.validate_signing_request(&parameters.request(SignInput::Message(&[])))?;
+        let mut hash = message_hasher(parameters.digest);
+        crate::input::read_chunks(
+            reader,
+            |bytes| {
+                hash.update(bytes);
+                Ok(())
+            },
+            Error::SignatureInput,
+        )?;
+        self.verify_signature(
+            &parameters.request(SignInput::Digest(&hash.finalize())),
+            signature,
+        )
+    }
     pub(crate) fn verify(&self, request: &SignRequest<'_>, signature: &[u8]) -> Result<(), Error> {
         self.validate_signing_request(request)?;
         let hash = match request.input {
@@ -311,6 +350,79 @@ mod tests {
         )
         .unwrap()
     }
+
+    #[test]
+    fn reader_verification_handles_short_interrupted_and_failed_reads() {
+        use std::io::{self, Read};
+        struct Input {
+            bytes: &'static [u8],
+            interrupted: bool,
+            fail: bool,
+        }
+        impl Read for Input {
+            fn read(&mut self, out: &mut [u8]) -> io::Result<usize> {
+                assert_eq!(out.len(), 64 * 1024);
+                if !self.interrupted {
+                    self.interrupted = true;
+                    return Err(io::ErrorKind::Interrupted.into());
+                }
+                if self.bytes.is_empty() {
+                    return if self.fail {
+                        Err(io::Error::other("reader error canary"))
+                    } else {
+                        Ok(0)
+                    };
+                }
+                out[0] = self.bytes[0];
+                self.bytes = &self.bytes[1..];
+                Ok(1)
+            }
+        }
+        let certificate = Certificate::from_der(fixture("rsa.der")).unwrap();
+        let parameters = crate::SignatureParameters {
+            algorithm: SignatureAlgorithm::RsaPkcs1,
+            digest: DigestAlgorithm::Sha256,
+            pss: None,
+        };
+        let signature = fixture("rsa-sha256.sig");
+        for fail in [false, true] {
+            let mut reader = Input {
+                bytes: MESSAGE,
+                interrupted: false,
+                fail,
+            };
+            let result = certificate.verify_reader(parameters, &mut reader, &signature);
+            if fail {
+                let error = result.unwrap_err();
+                assert!(matches!(error, Error::SignatureInput));
+                assert!(!error.to_string().contains("canary"));
+            } else {
+                result.unwrap();
+            }
+            assert!(reader.bytes.is_empty());
+        }
+        assert!(matches!(
+            certificate.verify_reader(parameters, &mut &b"changed"[..], &signature),
+            Err(Error::SignatureMismatch)
+        ));
+        let mut reader = Input {
+            bytes: MESSAGE,
+            interrupted: false,
+            fail: false,
+        };
+        assert!(matches!(
+            certificate.verify_reader(
+                crate::SignatureParameters {
+                    algorithm: SignatureAlgorithm::Ecdsa,
+                    ..parameters
+                },
+                &mut reader,
+                &signature
+            ),
+            Err(Error::UnsupportedVerification)
+        ));
+        assert!(!reader.interrupted);
+    }
     #[test]
     fn independent_openssl_signatures() {
         for key in ["rsa", "p256", "p384", "p521"] {
@@ -374,6 +486,14 @@ mod tests {
                     };
                     certificate.verify(&request, &signature).unwrap();
                     certificate.verify_signature(&request, &signature).unwrap();
+                    let parameters = crate::SignatureParameters {
+                        algorithm: request.algorithm,
+                        digest,
+                        pss: request.pss,
+                    };
+                    certificate
+                        .verify_reader(parameters, &mut &MESSAGE[..], &signature)
+                        .unwrap();
                     let sha2 = match digest {
                         DigestAlgorithm::Sha3_224 => Some(DigestAlgorithm::Sha224),
                         DigestAlgorithm::Sha3_256 => Some(DigestAlgorithm::Sha256),
@@ -425,6 +545,17 @@ mod tests {
                         let signature = fixture(&format!("{prefix}rsa-pss-{name}.sig"));
                         certificate.verify(&request, &signature).unwrap();
                         certificate.verify_signature(&request, &signature).unwrap();
+                        certificate
+                            .verify_reader(
+                                crate::SignatureParameters {
+                                    algorithm: request.algorithm,
+                                    digest,
+                                    pss: request.pss,
+                                },
+                                &mut &MESSAGE[..],
+                                &signature,
+                            )
+                            .unwrap();
                         if let Some(sha2) = sha2 {
                             let changed = SignRequest {
                                 digest: sha2,

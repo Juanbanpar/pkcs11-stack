@@ -234,6 +234,29 @@ fn application_workflows() {
                         .sign_identity(identity, &request, auth(&pin), None)
                         .unwrap();
                     assert!(!signature.is_empty());
+                    if matches!(input, SignInput::Message(_)) {
+                        let parameters = SignatureParameters {
+                            algorithm,
+                            digest,
+                            pss: request.pss,
+                        };
+                        client
+                            .streaming_plan(identity.key(), parameters, auth(&pin))
+                            .unwrap();
+                        let signature = client
+                            .sign_identity_reader(
+                                identity,
+                                parameters,
+                                auth(&pin),
+                                None,
+                                &mut &message[..],
+                            )
+                            .unwrap();
+                        identity
+                            .certificate()
+                            .verify_reader(parameters, &mut &message[..], &signature)
+                            .unwrap();
+                    }
                 }
             }
         }
@@ -351,6 +374,20 @@ fn application_workflows() {
     let client = connect(&module, HashingPolicy::SoftwareOnly);
     assert!(matches!(
         client.sign_identity(&identities[0], &request, auth(&pin), None),
+        Err(Error::KeyCertificateMismatch)
+    ));
+    assert!(matches!(
+        client.sign_identity_reader(
+            &identities[0],
+            SignatureParameters {
+                algorithm: request.algorithm,
+                digest: request.digest,
+                pss: request.pss
+            },
+            auth(&pin),
+            None,
+            &mut &message[..]
+        ),
         Err(Error::KeyCertificateMismatch)
     ));
     // Mismatch discarded its lease; a different bound identity still works.
