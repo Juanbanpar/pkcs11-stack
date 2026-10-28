@@ -637,3 +637,26 @@ Verification requires an exact selected-length tag file, checked before module l
 `--tag-file -` is rejected. Mismatch returns exit code 4 without success output.
 Results follow checked session closure and module finalization; existing outputs
 are preserved. No truncation, software fallback or retry occurs.
+
+## Pure EdDSA
+
+Signature commands accept `--algorithm ed25519|ed448` with original message input.
+They reject digest, hashing-policy, PSS, domain-context and hedging options.
+`--context-pin-file` remains available for always-authenticate keys.
+
+```sh
+pkcs11ctl --module /path/to/module.so sign \
+  --key 'pkcs11:token=example;id=%01;type=private' \
+  --algorithm ed25519 --input message.bin --output signature.bin --pin-file user.pin
+```
+
+`generate --kind ed25519|ed448` creates sensitive, nonextractable signing pairs;
+`--bits` is rejected. `generation-options` includes an `eddsa` array.
+`capabilities`, `certificate`, `bind` and `export` select this family with
+`--key-family eddsa`. Public export emits RFC 8410 SPKI DER;
+`import --kind eddsa --purpose verification` imports that format with an explicit
+ID/label. Mutations require `--confirm` and RW access.
+`verify-token` uses the selected public key on the token; `verify` uses a token
+certificate or an offline `--certificate-file`. Certificate binding and software
+verification do not validate issuer trust. Signature files contain raw 64/114-byte
+RFC 8032 signatures. Context/prehash EdDSA and X25519/X448 remain unsupported.

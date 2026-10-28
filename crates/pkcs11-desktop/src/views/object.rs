@@ -62,7 +62,7 @@ pub fn detail(state: &UiState) -> Element<'_, Message> {
     let mut actions = column![].spacing(8);
     let kind = state.object_key_type();
     if object.class == Some(ObjectClass::PUBLIC_KEY)
-        && matches!(kind, Some(KeyType::RSA | KeyType::EC))
+        && matches!(kind, Some(KeyType::RSA | KeyType::EC | KeyType::EC_EDWARDS))
     {
         actions = actions.push(
             button("Verify on token…")
@@ -76,7 +76,10 @@ pub fn detail(state: &UiState) -> Element<'_, Message> {
     }
     match object.class {
         Some(ObjectClass::PRIVATE_KEY) => {
-            if matches!(kind, Some(KeyType::RSA | KeyType::EC | KeyType::ML_DSA)) {
+            if matches!(
+                kind,
+                Some(KeyType::RSA | KeyType::EC | KeyType::ML_DSA | KeyType::EC_EDWARDS)
+            ) {
                 actions = actions.push(
                     button("Sign file…")
                         .width(Length::Fill)

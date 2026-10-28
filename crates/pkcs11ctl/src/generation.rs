@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-use crate::{inspect, key_establishment, ml_dsa, support::*};
+use crate::{eddsa, inspect, key_establishment, ml_dsa, support::*};
 use clap::ArgMatches;
 use pkcs11_client::{
     AesKeyPurpose, AesKeyRequest, AesKeySize, EcdhKeyPairRequest, HmacAlgorithm, HmacKeyRequest,
@@ -82,6 +82,11 @@ pub(crate) fn validate(m: &ArgMatches) -> Result<()> {
     if kind == "rsa" && !matches!(get(m, "purpose"), None | Some("signing" | "encryption")) {
         return Err(usage("RSA purpose must be signing or encryption"));
     }
+    if eddsa::curve(Some(kind)).is_some()
+        && (id.is_empty() || id.len() > 128 || label.is_empty() || label.len() > 128)
+    {
+        return Err(usage("EdDSA ID and label must each contain 1..=128 bytes"));
+    }
     if let Some(algorithm) = hmac(kind) {
         HmacKeyRequest {
             algorithm,
@@ -109,6 +114,7 @@ pub(crate) fn validate(m: &ArgMatches) -> Result<()> {
         .map_err(|_| usage("AES ID and label must each contain 1..=128 bytes"))?;
     } else if key_establishment::parameter(Some(kind)).is_none()
         && ml_dsa::parameter(Some(kind)).is_none()
+        && eddsa::curve(Some(kind)).is_none()
     {
         let key = signing(m)?;
         if kind == "rsa" && get(m, "purpose") == Some("encryption") {
@@ -164,6 +170,9 @@ pub(crate) fn generate(session: &mut ManagementSession<'_>, m: &ArgMatches) -> R
     } else if let Some(parameter) = key_establishment::parameter(Some(kind)) {
         session.generate_ml_kem_key_pair(parameter, &id, label)?;
         key_establishment::key_info(parameter)
+    } else if let Some(curve) = eddsa::curve(Some(kind)) {
+        session.generate_eddsa_key_pair(curve, &id, label, flag(m, "always-authenticate"))?;
+        eddsa::key_info(curve)
     } else if let Some(parameter) = ml_dsa::parameter(Some(kind)) {
         session.generate_ml_dsa_key_pair(parameter, &id, label, flag(m, "always-authenticate"))?;
         ml_dsa::key_info(parameter)
@@ -207,6 +216,7 @@ pub(crate) fn options(provider: &Provider, m: &ArgMatches) -> Result<Value> {
         "aes_purposes":["encryption","wrapping","authentication","authentication-general"],
         "hmac_general":options.hmac_general.into_iter().map(|a|a.to_string()).collect::<Vec<_>>(),
         "hmac":options.hmac.into_iter().map(|a|a.to_string()).collect::<Vec<_>>(),
+        "eddsa":options.eddsa.into_iter().map(eddsa::key_info).collect::<Vec<_>>(),
         "ml_dsa":options.ml_dsa.into_iter().map(ml_dsa::key_info).collect::<Vec<_>>(),
         "ml_kem":options.ml_kem.into_iter().map(key_establishment::key_info).collect::<Vec<_>>()
     }))

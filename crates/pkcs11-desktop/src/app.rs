@@ -716,7 +716,7 @@ impl App {
                             let file = match purpose {
                                 FilePurpose::PublicKey => {
                                     dialog
-                                        .set_title("Select an RSA/EC SPKI DER public key")
+                                        .set_title("Select an RSA/EC/EdDSA SPKI DER public key")
                                         .pick_file()
                                         .await
                                 }

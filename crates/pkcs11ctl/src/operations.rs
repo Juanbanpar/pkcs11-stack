@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use crate::{
-    aes_cmac, aes_gcm, aes_key_wrap, generation, hmac, inspect, kbkdf, key_establishment, ml_dsa,
-    support::*,
+    aes_cmac, aes_gcm, aes_key_wrap, eddsa, generation, hmac, inspect, kbkdf, key_establishment,
+    ml_dsa, support::*,
 };
 use clap::ArgMatches;
 use pkcs11_client::{
@@ -85,6 +85,7 @@ fn request<'a>(m: &ArgMatches, bytes: &'a [u8]) -> Result<SignRequest<'a>> {
 pub(crate) enum VerificationCertificate {
     Classical(pkcs11_client::Certificate),
     MlDsa(pkcs11_client::MlDsaCertificate),
+    EdDsa(pkcs11_client::EdDsaCertificate),
 }
 // Validate non-provider inputs and load files before initializing a library or logging in.
 pub(crate) struct Inputs {
@@ -98,6 +99,7 @@ pub(crate) struct Inputs {
     pub bytes: zeroize::Zeroizing<Vec<u8>>,
     pub certificate_document: Option<pkcs11_client::CertificateDocument>,
     pub public_key: Option<pkcs11_client::ClassicalPublicKey>,
+    pub eddsa_key: Option<pkcs11_client::EdDsaVerifyingKey>,
     pub oaep_label: Vec<u8>,
     pub verification_certificate: Option<VerificationCertificate>,
     pub domain_context: Vec<u8>,
@@ -110,16 +112,21 @@ pub(crate) struct Inputs {
 impl Inputs {
     pub fn load(name: &str, m: &ArgMatches) -> Result<Self> {
         let ml_dsa = ml_dsa::selected(m);
-        if ml_dsa {
+        let eddsa = eddsa::selected(m);
+        if eddsa {
+            eddsa::validate_options(m)?;
+        } else if ml_dsa {
             ml_dsa::validate_options(m)?;
         } else if get(m, "context-file").is_some() || get(m, "hedging").is_some() {
             return Err(usage(
                 "context-file and hedging require an ML-DSA algorithm",
             ));
         }
-        if name == "export" && ml_dsa && uri(m, "object")?.path_attribute("type") != Some(b"public")
+        if name == "export"
+            && (ml_dsa || eddsa)
+            && uri(m, "object")?.path_attribute("type") != Some(b"public")
         {
-            return Err(usage("ML-DSA SPKI export requires type=public"));
+            return Err(usage("ML-DSA/EdDSA SPKI export requires type=public"));
         }
         let credential = Credential::load(m, "pin-file", "protected-path")?;
         let context = Credential::load(m, "context-pin-file", "context-protected-path")?;
@@ -199,7 +206,9 @@ impl Inputs {
                 bounded_input(path, 40)?
             } else if matches!(name, "encrypt-rsa-oaep" | "decrypt-rsa-oaep") {
                 bounded_input(path, 2048)?
-            } else if matches!(name, "verify" | "verify-token") || ml_dsa {
+            } else if name == "import" && get(m, "kind") == Some("eddsa") {
+                bounded_input(path, 4096)?
+            } else if matches!(name, "verify" | "verify-token") || ml_dsa || eddsa {
                 bounded_input(path, 64 * 1024 * 1024)?
             } else {
                 input(path)?
@@ -213,7 +222,9 @@ impl Inputs {
             None => vec![],
         };
         if matches!(name, "sign" | "plan" | "verify" | "verify-token") {
-            if ml_dsa {
+            if eddsa {
+                eddsa::request(m, &bytes)?;
+            } else if ml_dsa {
                 ml_dsa::request(m, &bytes, &domain_context)?;
             } else {
                 request(m, &bytes)?;
@@ -229,7 +240,11 @@ impl Inputs {
                 return Err(usage("certificate-file requires a file path"));
             }
             let der = bounded_input(path, 1024 * 1024)?;
-            let certificate = if ml_dsa {
+            let certificate = if eddsa {
+                let certificate = pkcs11_client::EdDsaCertificate::from_der(der)?;
+                certificate.validate_signing_request(&eddsa::request(m, &bytes)?)?;
+                VerificationCertificate::EdDsa(certificate)
+            } else if ml_dsa {
                 let certificate = pkcs11_client::MlDsaCertificate::from_der(der)?;
                 certificate.validate_signing_request(&ml_dsa::request(
                     m,
@@ -268,9 +283,22 @@ impl Inputs {
             .validate()?;
             Some(key)
         } else {
-            if name == "import" && get(m, "purpose").is_some() {
+            if name == "import" && get(m, "kind") != Some("eddsa") && get(m, "purpose").is_some() {
                 return Err(usage("--purpose applies only to public-key import"));
             }
+            None
+        };
+        let eddsa_key = if name == "import" && get(m, "kind") == Some("eddsa") {
+            if get(m, "purpose") != Some("verification") {
+                return Err(usage("EdDSA import requires --purpose verification"));
+            }
+            let id = unhex(need(m, "id")?)?;
+            let label = need(m, "label")?;
+            if id.is_empty() || id.len() > 128 || label.is_empty() || label.len() > 128 {
+                return Err(usage("EdDSA ID and label must each contain 1..=128 bytes"));
+            }
+            Some(pkcs11_client::EdDsaVerifyingKey::from_spki_der(&bytes)?)
+        } else {
             None
         };
         if let Some(id) = get(m, "id") {
@@ -353,6 +381,7 @@ impl Inputs {
             bytes: zeroize::Zeroizing::new(bytes),
             certificate_document,
             public_key,
+            eddsa_key,
             oaep_label,
             verification_certificate,
             domain_context,
@@ -370,6 +399,9 @@ pub(crate) fn verify(
     match certificate {
         VerificationCertificate::Classical(certificate) => {
             certificate.verify_signature(&request(m, &inputs.bytes)?, &inputs.signature)?;
+        }
+        VerificationCertificate::EdDsa(certificate) => {
+            certificate.verify_signature(&eddsa::request(m, &inputs.bytes)?, &inputs.signature)?;
         }
         VerificationCertificate::MlDsa(certificate) => {
             certificate.verify_signature(
@@ -486,6 +518,9 @@ fn client_operation(
     m: &ArgMatches,
     inputs: &Inputs,
 ) -> Result<Output> {
+    if eddsa::selected(m) {
+        return eddsa::client_operation(client, name, m, inputs);
+    }
     if ml_dsa::selected(m) {
         return ml_dsa::client_operation(client, name, m, inputs);
     }
@@ -739,6 +774,10 @@ fn management_operation(
                 let key = pkcs11_client::PublicKeyRef::new(uri(m, "object")?)
                     .map_err(pkcs11_client::Error::from)?;
                 session.export_ml_kem_public_key(&key)?
+            } else if eddsa::selected(m) {
+                let key = pkcs11_client::PublicKeyRef::new(uri(m, "object")?)
+                    .map_err(pkcs11_client::Error::from)?;
+                session.export_eddsa_public_key(&key)?
             } else if ml_dsa::selected(m) {
                 let key = pkcs11_client::PublicKeyRef::new(uri(m, "object")?)
                     .map_err(pkcs11_client::Error::from)?;
@@ -774,6 +813,16 @@ fn management_operation(
         "generate" => generation::generate(session, m)?,
         "import" => {
             let id = unhex(need(m, "id")?)?;
+            if need(m, "kind")? == "eddsa" {
+                let key = inputs
+                    .eddsa_key
+                    .as_ref()
+                    .ok_or_else(|| usage("missing EdDSA public key"))?;
+                session.import_eddsa_public_key(key, &id, need(m, "label")?.as_bytes())?;
+                return Ok(Output::Structured(
+                    json!({"imported":true,"purpose":"verification","key":eddsa::key_info(key.curve()),"id_hex":hex(&id)}),
+                ));
+            }
             if need(m, "kind")? == "public-key" {
                 session.import_classical_public_key(&pkcs11_client::PublicKeyImportRequest {
                     key: inputs

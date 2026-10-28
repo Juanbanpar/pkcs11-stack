@@ -9,6 +9,7 @@ impl std::fmt::Display for SignatureChoice {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let parameters = self.0.parameters;
         let parameters = match parameters {
+            SignatureProfile::EdDsa(curve) => return write!(f, "{curve:?} — original message"),
             SignatureProfile::Classical(parameters) => parameters,
             SignatureProfile::MlDsa(parameter) => {
                 return write!(
@@ -96,7 +97,12 @@ impl UiState {
                             object.class == Some(ObjectClass::PRIVATE_KEY)
                                 && matches!(
                                     self.object_key_type(),
-                                    Some(KeyType::RSA | KeyType::EC | KeyType::ML_DSA)
+                                    Some(
+                                        KeyType::RSA
+                                            | KeyType::EC
+                                            | KeyType::ML_DSA
+                                            | KeyType::EC_EDWARDS
+                                    )
                                 )
                                 && self
                                     .token()
@@ -107,7 +113,7 @@ impl UiState {
                                 || (object.class == Some(ObjectClass::PUBLIC_KEY)
                                     && matches!(
                                         self.object_key_type(),
-                                        Some(KeyType::RSA | KeyType::EC)
+                                        Some(KeyType::RSA | KeyType::EC | KeyType::EC_EDWARDS)
                                     ))
                         }
                         _ => false,
@@ -164,10 +170,13 @@ impl UiState {
                         .object()
                         .is_some_and(|object| object.class == Some(ObjectClass::PUBLIC_KEY))))
             || !self.can_submit()
-            || self.object_key_type() == Some(KeyType::ML_DSA)
-            || form
-                .choice
-                .is_some_and(|choice| matches!(choice.0.parameters, SignatureProfile::MlDsa(_)))
+            || matches!(
+                self.object_key_type(),
+                Some(KeyType::ML_DSA | KeyType::EC_EDWARDS)
+            )
+            || form.choice.is_some_and(|choice| {
+                !matches!(choice.0.parameters, SignatureProfile::Classical(_))
+            })
         {
             return None;
         }
@@ -333,7 +342,7 @@ impl UiState {
             || !form.loaded
             || (form.software_hashing
                 && form.choice.is_some_and(|choice| {
-                    matches!(choice.0.parameters, SignatureProfile::MlDsa(_))
+                    !matches!(choice.0.parameters, SignatureProfile::Classical(_))
                 }))
         {
             self.notification = Some(Notification::Error(BackendError::SignatureChoice));

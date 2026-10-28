@@ -439,7 +439,7 @@ impl BackendError {
                 "The signature is invalid for this certificate, input and parameters."
             }
             Self::ExportUnavailable => {
-                "Only public certificates, public data and supported RSA/EC public keys can be exported."
+                "Only public certificates, public data and supported RSA/EC/EdDSA public keys can be exported."
             }
             Self::RefreshAfterManagement => {
                 "The operation completed, but inventory refresh failed. Refresh before making another change."
@@ -455,7 +455,7 @@ impl BackendError {
                 "Check the HKDF output length, hexadecimal salt (at most 4096 bytes), UTF-8 context (at most 4096 bytes), label and new hexadecimal ID."
             }
             Self::PublicKeyImportInput => {
-                "Choose a valid RSA/EC SPKI DER key and purpose, with a label and hexadecimal ID of 1–128 bytes."
+                "Choose a valid RSA/EC/EdDSA SPKI DER key and purpose, with a label and hexadecimal ID of 1–128 bytes."
             }
             Self::MlKemImportInput => {
                 "Provide one ML-KEM SPKI DER public key of at most 2048 bytes, a label of 1–128 UTF-8 bytes and an ID of 1–128 hexadecimal bytes."

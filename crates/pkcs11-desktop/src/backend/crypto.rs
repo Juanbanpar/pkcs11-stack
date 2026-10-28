@@ -4,10 +4,10 @@ use super::{
     browse::read_session,
 };
 use pkcs11_client::{
-    AttributeType, Certificate, HashLocation, HashingPolicy, KeyType, ManagementSession,
-    MechanismType, MlDsaCertificate, MlDsaHedging, MlDsaParameterSet, MlDsaRequest,
-    MlDsaSigningPolicy, ObjectClass, Pin, PrivateKeyRef, PublicKeyRef, SessionState, SignInput,
-    SignatureParameters, SigningPolicy, VerifyRequest,
+    AttributeType, Certificate, EdDsaCertificate, EdDsaCurve, EdDsaRequest, HashLocation,
+    HashingPolicy, KeyType, ManagementSession, MechanismType, MlDsaCertificate, MlDsaHedging,
+    MlDsaParameterSet, MlDsaRequest, MlDsaSigningPolicy, ObjectClass, Pin, PrivateKeyRef,
+    PublicKeyRef, SessionState, SignInput, SignatureParameters, SigningPolicy, VerifyRequest,
 };
 use std::{
     fs::File,
@@ -44,6 +44,7 @@ pub struct CryptoScope {
 pub enum SignatureProfile {
     Classical(SignatureParameters),
     MlDsa(MlDsaParameterSet),
+    EdDsa(EdDsaCurve),
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SignatureOption {
@@ -93,16 +94,23 @@ fn read_bounded(path: &Path, maximum: u64) -> Result<Vec<u8>, BackendError> {
 enum VerificationCertificate {
     Classical(Certificate),
     MlDsa(MlDsaCertificate),
+    EdDsa(EdDsaCertificate),
 }
 impl VerificationCertificate {
     fn from_der(der: Vec<u8>) -> Result<Self, BackendError> {
         match Certificate::from_der(der.clone()) {
             Ok(certificate) => Ok(Self::Classical(certificate)),
-            // Only an unsupported key algorithm permits trying the ML-DSA parser.
-            // Malformed classical certificates retain their original error.
-            Err(pkcs11_client::Error::UnsupportedCertificateKey) => MlDsaCertificate::from_der(der)
-                .map(Self::MlDsa)
-                .map_err(|e| BackendError::from(&e)),
+            Err(pkcs11_client::Error::UnsupportedCertificateKey) => {
+                match MlDsaCertificate::from_der(der.clone()) {
+                    Ok(certificate) => Ok(Self::MlDsa(certificate)),
+                    Err(pkcs11_client::Error::UnsupportedCertificateKey) => {
+                        EdDsaCertificate::from_der(der)
+                            .map(Self::EdDsa)
+                            .map_err(|e| BackendError::from(&e))
+                    }
+                    Err(error) => Err(BackendError::from(&error)),
+                }
+            }
             Err(error) => Err(BackendError::from(&error)),
         }
     }
@@ -113,6 +121,7 @@ impl VerificationCertificate {
                 .into_iter()
                 .map(SignatureProfile::Classical)
                 .collect(),
+            Self::EdDsa(certificate) => vec![SignatureProfile::EdDsa(certificate.curve())],
             Self::MlDsa(certificate) => vec![SignatureProfile::MlDsa(certificate.parameter_set())],
         };
         parameters
@@ -133,6 +142,11 @@ impl VerificationCertificate {
             return Err(BackendError::SignatureChoice);
         }
         match job.parameters {
+            SignatureProfile::EdDsa(_)
+                if job.software_hashing || !job.domain_context.is_empty() =>
+            {
+                return Err(BackendError::SignatureChoice);
+            }
             SignatureProfile::MlDsa(_) if job.software_hashing => {
                 return Err(BackendError::SignatureChoice);
             }
@@ -147,6 +161,14 @@ impl VerificationCertificate {
         let input = read_bounded(&job.input, 16 * 1024 * 1024)?;
         let signature = read_bounded(&job.signature, 16 * 1024)?;
         let result = match (self, job.parameters) {
+            (Self::EdDsa(certificate), SignatureProfile::EdDsa(curve)) => certificate
+                .verify_signature(
+                    &EdDsaRequest {
+                        curve,
+                        message: &input,
+                    },
+                    &signature,
+                ),
             (Self::Classical(certificate), SignatureProfile::Classical(parameters)) => certificate
                 .verify_signature(&parameters.request(SignInput::Message(&input)), &signature),
             (Self::MlDsa(certificate), SignatureProfile::MlDsa(parameter_set)) => certificate
@@ -176,6 +198,24 @@ fn signing_options(
         .inspect(key.as_object_ref(), &[AttributeType::KeyType])
         .map_err(|e| BackendError::from(&e))?;
     match super::browse::key_type(&reads) {
+        Some(KeyType::EC_EDWARDS) => {
+            if software {
+                return Err(BackendError::SignatureChoice);
+            }
+            let caps = session
+                .eddsa_capabilities(key.as_object_ref())
+                .map_err(|e| BackendError::from(&e))?;
+            if !caps.can_sign {
+                return Err(BackendError::SigningUnavailable);
+            }
+            Ok((
+                vec![SignatureOption {
+                    parameters: SignatureProfile::EdDsa(caps.curve),
+                    plan: None,
+                }],
+                caps.always_authenticate,
+            ))
+        }
         Some(KeyType::ML_DSA) => {
             if software {
                 return Err(BackendError::SignatureChoice);
@@ -298,6 +338,25 @@ impl Registry {
         let (index, uri, key) = self.public_verification_location(scope)?;
         let module = &self.modules[index];
         read_session(module, &uri, module.read_mode(scope.token)?, |session| {
+            let reads = session
+                .inspect(key.as_object_ref(), &[AttributeType::KeyType])
+                .map_err(|e| BackendError::from(&e))?;
+            if super::browse::key_type(&reads) == Some(KeyType::EC_EDWARDS) {
+                if software {
+                    return Err(BackendError::SignatureChoice);
+                }
+                let caps = session
+                    .eddsa_capabilities(key.as_object_ref())
+                    .map_err(|e| BackendError::from(&e))?;
+                return Ok(if caps.can_verify {
+                    vec![SignatureOption {
+                        parameters: SignatureProfile::EdDsa(caps.curve),
+                        plan: None,
+                    }]
+                } else {
+                    vec![]
+                });
+            }
             Ok(session
                 .verification_options(&key, &policy(software))
                 .map_err(|e| BackendError::from(&e))?
@@ -310,9 +369,11 @@ impl Registry {
         })
     }
     fn verify_public_file(&self, scope: CryptoScope, job: CryptoJob) -> Result<(), BackendError> {
-        let SignatureProfile::Classical(parameters) = job.parameters else {
+        if matches!(job.parameters, SignatureProfile::MlDsa(_))
+            || (matches!(job.parameters, SignatureProfile::EdDsa(_)) && job.software_hashing)
+        {
             return Err(BackendError::SignatureChoice);
-        };
+        }
         if job.context.is_some() || !job.domain_context.is_empty() {
             return Err(BackendError::SignatureChoice);
         }
@@ -321,19 +382,29 @@ impl Registry {
         let signature = read_bounded(&job.signature, 16 * 1024)?;
         let module = &self.modules[index];
         read_session(module, &uri, module.read_mode(scope.token)?, |session| {
-            session
-                .verify_token(
+            match job.parameters {
+                SignatureProfile::EdDsa(curve) => session.verify_eddsa(
+                    &key,
+                    &EdDsaRequest {
+                        curve,
+                        message: &input,
+                    },
+                    &signature,
+                ),
+                SignatureProfile::Classical(parameters) => session.verify_token(
                     &key,
                     &VerifyRequest {
                         parameters: parameters.request(SignInput::Message(&input)),
                         signature: &signature,
                     },
                     &policy(job.software_hashing),
-                )
-                .map_err(|error| match error {
-                    pkcs11_client::Error::SignatureMismatch => BackendError::SignatureMismatch,
-                    other => BackendError::from(&other),
-                })
+                ),
+                SignatureProfile::MlDsa(_) => unreachable!(),
+            }
+            .map_err(|error| match error {
+                pkcs11_client::Error::SignatureMismatch => BackendError::SignatureMismatch,
+                other => BackendError::from(&other),
+            })
         })
     }
     pub(super) fn crypto_options(
@@ -383,6 +454,11 @@ impl Registry {
     }
     fn sign_file(&self, scope: CryptoScope, job: CryptoJob) -> Result<(), BackendError> {
         match job.parameters {
+            SignatureProfile::EdDsa(_)
+                if job.software_hashing || !job.domain_context.is_empty() =>
+            {
+                return Err(BackendError::SignatureChoice);
+            }
             SignatureProfile::MlDsa(parameter_set) => {
                 MlDsaRequest {
                     parameter_set,
@@ -436,6 +512,14 @@ impl Registry {
                 None
             };
             let signature = match job.parameters {
+                SignatureProfile::EdDsa(curve) => session.sign_eddsa(
+                    &key,
+                    &EdDsaRequest {
+                        curve,
+                        message: &input,
+                    },
+                    context,
+                ),
                 SignatureProfile::Classical(parameters) => session.sign(
                     &key,
                     &parameters.request(SignInput::Message(&input)),
@@ -525,3 +609,7 @@ mod tests;
 #[cfg(test)]
 #[path = "verification_tests.rs"]
 mod verification_tests;
+
+#[cfg(test)]
+#[path = "eddsa_tests.rs"]
+mod eddsa_tests;

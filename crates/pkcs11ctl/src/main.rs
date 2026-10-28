@@ -5,6 +5,7 @@ mod aes_cmac;
 mod aes_gcm;
 mod aes_key_wrap;
 mod args;
+mod eddsa;
 mod generation;
 mod hmac;
 mod inspect;

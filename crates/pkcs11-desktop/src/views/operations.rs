@@ -81,7 +81,7 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
             ),
             task_button(
                 lucide::upload(),
-                "Import RSA/EC Public Key",
+                "Import RSA/EC/EdDSA Public Key",
                 requirement,
                 ManagementTask::ImportPublicKey
             ),
@@ -114,12 +114,12 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
     };
     let form: Element<'_, Message> = match task {
         ManagementTask::ImportPublicKey => column![
-            text("Import RSA/EC public key").size(22).font(EMPHASIS), muted(hint),
-            row![text_input("RSA/EC public key file (SPKI DER)", &state.management.public_key.path).on_input_maybe(enabled.then_some(move |value| edit(ManagementField::PublicKeyPath, value))), button("Browse…").on_press_maybe((enabled && state.management.file_request.is_none()).then_some(Message::ChoosePublicKey))].spacing(10).align_y(iced::Alignment::End),
+            text("Import RSA/EC/EdDSA public key").size(22).font(EMPHASIS), muted(hint),
+            row![text_input("RSA/EC/EdDSA public key file (SPKI DER)", &state.management.public_key.path).on_input_maybe(enabled.then_some(move |value| edit(ManagementField::PublicKeyPath, value))), button("Browse…").on_press_maybe((enabled && state.management.file_request.is_none()).then_some(Message::ChoosePublicKey))].spacing(10).align_y(iced::Alignment::End),
             pick_list(PublicKeyPurposeChoice::ALL, Some(state.management.public_key.purpose), Message::PublicKeyPurpose).enabled(enabled),
             text_input("Public key label (1–128 UTF-8 bytes)", &state.management.public_key.label).on_input_maybe(enabled.then_some(move |value| edit(ManagementField::PublicKeyLabel, value))),
             text_input("Public key ID (1–128 hexadecimal bytes)", &state.management.public_key.id).on_input_maybe(enabled.then_some(move |value| edit(ManagementField::PublicKeyId, value))),
-            text("Accepts one SPKI DER public key up to 4096 bytes: RSA 2048–16384 or P-256/P-384/P-521. Verification or RSA encryption permissions are explicit; wrapping, recovery and derivation are disabled. Existing public-key IDs are rejected. Import does not establish identity, private-key possession or association with other objects sharing the ID.").size(14),
+            text("Accepts one SPKI DER public key up to 4096 bytes: RSA 2048–16384, P-256/P-384/P-521 or Ed25519/Ed448. Verification or RSA encryption permissions are explicit; wrapping, recovery and derivation are disabled. Existing public-key IDs are rejected. Import does not establish identity, private-key possession or association with other objects sharing the ID.").size(14),
             button("Import public key").style(button::primary).on_press_maybe(enabled.then_some(Message::ImportPublicKey)),
         ].spacing(12).into(),
         ManagementTask::ImportMlKem => column![
@@ -142,6 +142,7 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
             .on_toggle_maybe((enabled && state.management.key.is_some_and(|key| key.0.supports_context_authentication())).then_some(Message::AlwaysAuthenticate)),
         text(match state.management.key.map(|key| key.0) {
             Some(crate::backend::GenerationKind::Hmac(_)) => "Private, sensitive, nonextractable generic secret for the selected HMAC only. Signing/verification are enabled; encryption, wrapping and derivation are disabled. ID and label: 1–128 bytes each.",
+            Some(crate::backend::GenerationKind::EdDsa(_)) => "EdDSA signing pair. The private key is sensitive and nonextractable. Sign original messages without an external digest.",
             Some(crate::backend::GenerationKind::MlDsa(_)) => "ML-DSA signing pair. The private key is sensitive and nonextractable. Select the private key on Objects to sign a file, or the public key to export it.",
             Some(crate::backend::GenerationKind::MlKem(_)) => "ML-KEM encapsulation/decapsulation pair. The private key is sensitive and nonextractable. Select either key on Objects for ML-KEM operations, or export the public key.",
             Some(crate::backend::GenerationKind::RsaEncryption(_)) => "Encryption/decryption-only RSA pair. The private key is sensitive and nonextractable; signing, wrapping and derivation are disabled. ID and label: 1–128 bytes each.",

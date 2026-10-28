@@ -210,6 +210,7 @@ jobs:
           echo "SOFTHSM2_UTIL=$prefix/bin/softhsm2-util" >> "$GITHUB_ENV"
           echo "PKCS11_TEST_PQC_OPENSSL=$prefix/openssl/bin/openssl" >> "$GITHUB_ENV"
           echo 'PKCS11_TEST_REQUIRE_EC_MULTIPART=1' >> "$GITHUB_ENV"
+          echo 'PKCS11_TEST_REQUIRE_EDDSA=1' >> "$GITHUB_ENV"
           echo 'PKCS11_TEST_REQUIRE_SHA3_SIGNATURES=1' >> "$GITHUB_ENV"
           echo 'PKCS11_TEST_REQUIRE_RSA_OAEP_SHA2=1' >> "$GITHUB_ENV"
       - name: Install desktop native dependencies

@@ -19,6 +19,7 @@ pub enum GenerationKind {
     Signing(KeyKind),
     RsaEncryption(usize),
     MlDsa(MlDsaParameterSet),
+    EdDsa(pkcs11_client::EdDsaCurve),
     MlKem(MlKemParameterSet),
     Ecdh(NamedCurve),
     Aes(AesKeySize, AesKeyPurpose),
@@ -27,7 +28,7 @@ impl GenerationKind {
     pub fn supports_context_authentication(self) -> bool {
         matches!(
             self,
-            Self::Signing(_) | Self::MlDsa(_) | Self::RsaEncryption(_)
+            Self::Signing(_) | Self::MlDsa(_) | Self::EdDsa(_) | Self::RsaEncryption(_)
         )
     }
     pub fn validate(self, id: &[u8], label: &[u8], context: bool) -> Result<(), BackendError> {
@@ -41,6 +42,9 @@ impl GenerationKind {
                     }
                     .validate()
                     .is_ok()
+            }
+            Self::EdDsa(_) => {
+                !id.is_empty() && id.len() <= 128 && !label.is_empty() && label.len() <= 128
             }
             Self::Signing(_) | Self::MlDsa(_) => !id.is_empty() && !label.is_empty(),
             Self::RsaEncryption(bits) => RsaEncryptionKeyPairRequest {
@@ -69,6 +73,10 @@ impl GenerationKind {
         };
         valid.then_some(()).ok_or(BackendError::InvalidForm)
     }
+}
+enum ImportedPublicKey {
+    Classical(pkcs11_client::ClassicalPublicKey),
+    EdDsa(pkcs11_client::EdDsaVerifyingKey),
 }
 pub enum ManagementAction {
     ImportPublicKey {
@@ -157,6 +165,7 @@ impl Registry {
                     .into_iter()
                     .map(GenerationKind::HmacGeneral),
             )
+            .chain(choices.eddsa.into_iter().map(GenerationKind::EdDsa))
             .chain(choices.ml_dsa.into_iter().map(GenerationKind::MlDsa))
             .chain(choices.ml_kem.into_iter().map(GenerationKind::MlKem))
             .chain(choices.ecdh.into_iter().map(GenerationKind::Ecdh))
@@ -227,7 +236,7 @@ impl Registry {
             }
             _ => None,
         };
-        let classical_public_key = match &action {
+        let imported_public_key = match &action {
             ManagementAction::ImportPublicKey {
                 path,
                 id,
@@ -236,16 +245,34 @@ impl Registry {
             } => {
                 let bytes = super::key_operations::read(path, 4096)
                     .map_err(|_| BackendError::PublicKeyImportInput)?;
-                let key = pkcs11_client::ClassicalPublicKey::from_spki_der(&bytes)
-                    .map_err(|_| BackendError::PublicKeyImportInput)?;
-                pkcs11_client::PublicKeyImportRequest {
-                    key: &key,
-                    purpose: *purpose,
-                    id,
-                    label,
-                }
-                .validate()
-                .map_err(|_| BackendError::PublicKeyImportInput)?;
+                let key = match pkcs11_client::ClassicalPublicKey::from_spki_der(&bytes) {
+                    Ok(key) => {
+                        pkcs11_client::PublicKeyImportRequest {
+                            key: &key,
+                            purpose: *purpose,
+                            id,
+                            label,
+                        }
+                        .validate()
+                        .map_err(|_| BackendError::PublicKeyImportInput)?;
+                        ImportedPublicKey::Classical(key)
+                    }
+                    Err(pkcs11_client::Error::InvalidPublicKey) => {
+                        if *purpose != pkcs11_client::ClassicalPublicKeyPurpose::Verification
+                            || id.is_empty()
+                            || id.len() > 128
+                            || label.is_empty()
+                            || label.len() > 128
+                        {
+                            return Err(BackendError::PublicKeyImportInput);
+                        }
+                        ImportedPublicKey::EdDsa(
+                            pkcs11_client::EdDsaVerifyingKey::from_spki_der(&bytes)
+                                .map_err(|_| BackendError::PublicKeyImportInput)?,
+                        )
+                    }
+                    Err(_) => return Err(BackendError::PublicKeyImportInput),
+                };
                 Some(key)
             }
             _ => None,
@@ -302,6 +329,9 @@ impl Registry {
                                 label: &label,
                                 always_authenticate,
                             }),
+                        GenerationKind::EdDsa(curve) => {
+                            session.generate_eddsa_key_pair(curve, &id, &label, always_authenticate)
+                        }
                         GenerationKind::MlDsa(parameter) => session.generate_ml_dsa_key_pair(
                             parameter,
                             &id,
@@ -330,12 +360,19 @@ impl Registry {
                 }
                 ManagementAction::ImportPublicKey {
                     id, label, purpose, ..
-                } => session.import_classical_public_key(&pkcs11_client::PublicKeyImportRequest {
-                    key: classical_public_key.as_ref().expect("validated public key"),
-                    purpose,
-                    id: &id,
-                    label: &label,
-                }),
+                } => match imported_public_key.as_ref().expect("validated public key") {
+                    ImportedPublicKey::Classical(key) => session.import_classical_public_key(
+                        &pkcs11_client::PublicKeyImportRequest {
+                            key,
+                            purpose,
+                            id: &id,
+                            label: &label,
+                        },
+                    ),
+                    ImportedPublicKey::EdDsa(key) => {
+                        session.import_eddsa_public_key(key, &id, &label)
+                    }
+                },
                 ManagementAction::ImportMlKem { id, label, .. } => session
                     .import_ml_kem_public_key(
                         public_key.as_ref().expect("parsed public key"),

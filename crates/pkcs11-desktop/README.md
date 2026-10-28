@@ -520,3 +520,19 @@ The worker rechecks support and releases generated output after checked session
 closure. Existing outputs are preserved. Verification mismatches are separate
 from provider failures. These operations require USER login and also work on
 write-protected tokens. There is no software truncation, software MAC or retry.
+
+## Pure EdDSA
+
+Advertised generation choices include Ed25519 and Ed448 signing pairs. Private
+keys are sensitive and nonextractable; always-authenticate keys use a separate
+per-operation PIN. Selecting an Edwards private/public key offers signing/native
+verification with its observed curve. Certificate verification also recognizes
+RFC 8410 EdDSA keys. Operations use original messages, including empty files,
+without an external digest or domain-context control.
+
+The public-key import form accepts Ed25519/Ed448 SPKI DER for verification only;
+public export emits the same format. The client checks canonical public points,
+absent algorithm parameters and exact encoding lengths. Choices are checked
+again before execution. Context/prehash variants and Montgomery agreement are
+not exposed. Existing output files are preserved; certificate trust and
+private-key/certificate association are not asserted by desktop signing.

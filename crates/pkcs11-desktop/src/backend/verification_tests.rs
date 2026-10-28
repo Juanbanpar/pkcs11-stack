@@ -142,9 +142,10 @@ fn certificate_dispatch_and_ml_dsa_file_verification_are_provider_free() {
         );
     }
     assert!(VerificationCertificate::from_der(vec![1, 2, 3]).is_err());
-    assert!(
-        VerificationCertificate::from_der(std::fs::read(fixture("ed25519.der")).unwrap()).is_err()
-    );
+    assert!(matches!(
+        VerificationCertificate::from_der(std::fs::read(fixture("ed25519.der")).unwrap()),
+        Ok(VerificationCertificate::EdDsa(_))
+    ));
     std::fs::remove_dir_all(directory).unwrap();
 }
 

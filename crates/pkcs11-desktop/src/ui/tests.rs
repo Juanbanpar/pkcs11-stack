@@ -1196,6 +1196,53 @@ fn pqc_public_export_is_keyboard_accessible_without_login() {
 }
 
 #[test]
+fn eddsa_forms_keep_original_message_profiles_and_disable_hashing_and_context_edits() {
+    use crate::backend::{
+        BackendCommand, BackendEvent, BackendResult, CryptoMode, SignatureOption, SignatureProfile,
+    };
+    for curve in [
+        pkcs11_client::EdDsaCurve::Ed25519,
+        pkcs11_client::EdDsaCurve::Ed448,
+    ] {
+        let mut state = populated_state();
+        state.token_page = TokenPage::Objects;
+        state.object_details.as_mut().unwrap().key_type = Some(pkcs11_client::KeyType::EC_EDWARDS);
+        let BackendCommand::CryptoOptions { id, scope, .. } =
+            state.open_crypto(CryptoMode::Sign).unwrap()
+        else {
+            panic!("EdDSA options");
+        };
+        state.event(BackendEvent::Completed {
+            id,
+            result: Ok(BackendResult::CryptoOptions {
+                scope,
+                context: true,
+                options: vec![SignatureOption {
+                    parameters: SignatureProfile::EdDsa(curve),
+                    plan: None,
+                }],
+            }),
+        });
+        assert!(state.crypto_policy(id, true).is_none());
+        state.crypto_edit(
+            id,
+            crate::state::CryptoField::DomainContext,
+            "forbidden context".into(),
+        );
+        let form = state.crypto_form.as_ref().unwrap();
+        assert!(!form.software_hashing);
+        assert!(form.domain_context.is_empty());
+        assert_eq!(
+            form.choice.unwrap().to_string(),
+            format!("{curve:?} — original message")
+        );
+        for dark in [false, true] {
+            render_screen(&state, &format!("sign-{curve:?}"), 1060, 900, dark);
+        }
+    }
+}
+
+#[test]
 fn ml_dsa_signing_form_accepts_utf8_context_and_disallows_classical_hashing() {
     fn signing() -> UiState {
         use crate::backend::{

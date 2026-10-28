@@ -16,6 +16,7 @@ impl std::fmt::Display for KeyChoice {
             GenerationKind::Hmac(algorithm) => write!(f, "{algorithm} — authentication"),
             GenerationKind::RsaEncryption(bits) => write!(f, "RSA {bits} — encryption/decryption"),
             GenerationKind::Signing(KeyKind::Rsa { bits }) => write!(f, "RSA {bits} — signing"),
+            GenerationKind::EdDsa(curve) => write!(f, "{curve:?} — signing"),
             GenerationKind::MlDsa(parameter) => write!(
                 f,
                 "ML-DSA-{} — signing",
@@ -73,7 +74,7 @@ impl std::fmt::Display for PublicKeyPurposeChoice {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self.0 {
             pkcs11_client::ClassicalPublicKeyPurpose::Verification => {
-                "Signature verification (RSA/EC)"
+                "Signature verification (RSA/EC/EdDSA)"
             }
             pkcs11_client::ClassicalPublicKeyPurpose::Encryption => "Encryption (RSA only)",
         })

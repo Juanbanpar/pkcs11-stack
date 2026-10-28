@@ -31,7 +31,7 @@ fn key(command: Command) -> Command {
 fn key_family(command: Command) -> Command {
     command.arg(
         value("key-family", "Key/certificate algorithm family")
-            .value_parser(["classical", "ml-dsa"])
+            .value_parser(["classical", "ml-dsa", "eddsa"])
             .default_value("classical"),
     )
 }
@@ -74,21 +74,26 @@ fn signature(command: Command) -> Command {
             "rsa-pkcs1",
             "rsa-pss",
             "ecdsa",
+            "ed25519",
+            "ed448",
             "ml-dsa-44",
             "ml-dsa-65",
             "ml-dsa-87",
         ]))
         .arg(
-            value("digest", "Required for RSA/ECDSA; forbidden for ML-DSA")
-                .required_if_eq_any([
-                    ("algorithm", "rsa-pkcs1"),
-                    ("algorithm", "rsa-pss"),
-                    ("algorithm", "ecdsa"),
-                ])
-                .value_parser([
-                    "sha224", "sha256", "sha384", "sha512", "sha3-224", "sha3-256", "sha3-384",
-                    "sha3-512",
-                ]),
+            value(
+                "digest",
+                "Required for RSA/ECDSA; forbidden for ML-DSA/EdDSA",
+            )
+            .required_if_eq_any([
+                ("algorithm", "rsa-pkcs1"),
+                ("algorithm", "rsa-pss"),
+                ("algorithm", "ecdsa"),
+            ])
+            .value_parser([
+                "sha224", "sha256", "sha384", "sha512", "sha3-224", "sha3-256", "sha3-384",
+                "sha3-512",
+            ]),
         )
         .arg(value("mgf-digest", "Required for PSS only").value_parser([
             "sha224", "sha256", "sha384", "sha512", "sha3-224", "sha3-256", "sha3-384", "sha3-512",
@@ -201,7 +206,7 @@ pub(crate) fn command() -> Command {
         .about("Export certificate/data bytes or public-key SPKI DER; no trust validation")
         .arg(
             value("key-family", "Public-key algorithm family")
-                .value_parser(["classical", "ml-dsa", "ml-kem"])
+                .value_parser(["classical", "ml-dsa", "ml-kem", "eddsa"])
                 .default_value("classical"),
         )
         .arg(required(
@@ -290,6 +295,8 @@ pub(crate) fn command() -> Command {
             "p256",
             "p384",
             "p521",
+            "ed25519",
+            "ed448",
             "ml-dsa-44",
             "ml-dsa-65",
             "ml-dsa-87",
@@ -317,7 +324,13 @@ pub(crate) fn command() -> Command {
         ));
     let import = Command::new("import")
         .about("Import public certificate/key DER or data bytes")
-        .arg(required("kind", "Object kind").value_parser(["cert", "data", "ml-kem", "public-key"]))
+        .arg(required("kind", "Object kind").value_parser([
+            "cert",
+            "data",
+            "ml-kem",
+            "public-key",
+            "eddsa",
+        ]))
         .arg(required("input", "Input file; - reads stdin"))
         .arg(
             value("purpose", "Required for public-key import")
@@ -406,12 +419,12 @@ pub(crate) fn command() -> Command {
         auth(
             signing(
                 Command::new("verify-token")
-                    .about("Verify a raw RSA/ECDSA signature on the token using a public key")
+                    .about("Verify a raw RSA/ECDSA/EdDSA signature on the token using a public key")
                     .arg(required("key", "Stable public-key URI with type=public"))
                     .arg(required("signature", "Raw signature file; - reads stdin")),
             )
             .mut_arg("algorithm", |arg| {
-                arg.value_parser(["rsa-pkcs1", "rsa-pss", "ecdsa"])
+                arg.value_parser(["rsa-pkcs1", "rsa-pss", "ecdsa", "ed25519", "ed448"])
             }),
         ),
         auth(token(
