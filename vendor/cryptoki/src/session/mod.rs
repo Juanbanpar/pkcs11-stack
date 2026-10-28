@@ -10,6 +10,8 @@ use std::cell::Cell;
 use std::fmt::Formatter;
 use std::marker::PhantomData;
 
+mod cancellation;
+pub use cancellation::CancelFlags;
 mod decryption;
 mod digesting;
 mod encapsulation;

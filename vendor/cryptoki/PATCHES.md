@@ -9,6 +9,11 @@ Published crate SHA-256:
 
 Local changes:
 
+- `src/session/cancellation.rs`: add typed cancellation flags for object search,
+  encrypt/decrypt, digest, sign/MAC and verify operations through C_SessionCancel.
+  `src/error/rv.rs`, `rv_error.rs`: preserve named cancellation-failed and pending
+  responses. Independent 2.40/3.0/3.1/3.2 fixtures check flags, errors and table gates.
+
 - `src/mechanism/eddsa.rs`: bind borrowed contexts to the parameter lifetime,
   use NULL for an empty context, and remove the unused helper that returned a
   pointer to a temporary native parameter structure. Runtime fixtures check both

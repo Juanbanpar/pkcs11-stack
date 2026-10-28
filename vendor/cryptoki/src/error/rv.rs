@@ -42,6 +42,8 @@ impl From<CK_RV> for Rv {
             CKR_DEVICE_REMOVED => Rv::Error(RvError::DeviceRemoved),
             CKR_ENCRYPTED_DATA_INVALID => Rv::Error(RvError::EncryptedDataInvalid),
             CKR_ENCRYPTED_DATA_LEN_RANGE => Rv::Error(RvError::EncryptedDataLenRange),
+            CKR_OPERATION_CANCEL_FAILED => Rv::Error(RvError::OperationCancelFailed),
+            CKR_PENDING => Rv::Error(RvError::Pending),
             CKR_FUNCTION_CANCELED => Rv::Error(RvError::FunctionCanceled),
             CKR_FUNCTION_NOT_PARALLEL => Rv::Error(RvError::FunctionNotParallel),
             CKR_FUNCTION_NOT_SUPPORTED => Rv::Error(RvError::FunctionNotSupported),

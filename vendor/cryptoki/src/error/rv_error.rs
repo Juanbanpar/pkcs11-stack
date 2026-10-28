@@ -52,6 +52,10 @@ pub enum RvError {
     EncryptedDataLenRange,
     /// The function was canceled in mid-execution.  This happens to a cryptographic function if the function makes a CKN_SURRENDER application callback which returns CKR_CANCEL (see CKR_CANCEL). It also happens to a function that performs PIN entry through a protected path. The method used to cancel a protected path PIN entry operation is device dependent.
     FunctionCanceled,
+    /// At least one requested session operation could not be cancelled.
+    OperationCancelFailed,
+    /// The asynchronous operation has not completed; this is not success.
+    Pending,
     /// There is currently no function executing in parallel in the specified session.  This is a legacy error code which is only returned by the legacy functions C_GetFunctionStatus and C_CancelFunction.
     FunctionNotParallel,
     /// The requested function is not supported by this Cryptoki library.  Even unsupported functions in the Cryptoki API should have a “stub” in the library; this stub should simply return the value CKR_FUNCTION_NOT_SUPPORTED.
@@ -225,6 +229,8 @@ impl fmt::Display for RvError {
             RvError::EncryptedDataInvalid => write!(f, "The encrypted input to a decryption operation has been determined to be invalid ciphertext.  This return value has lower priority than CKR_ENCRYPTED_DATA_LEN_RANGE."),
             RvError::EncryptedDataLenRange => write!(f, "The ciphertext input to a decryption operation has been determined to be invalid ciphertext solely on the basis of its length.  Depending on the operation’s mechanism, this could mean that the ciphertext is too short, too long, or is not a multiple of some particular block size.  This return value has higher priority than CKR_ENCRYPTED_DATA_INVALID."),
             RvError::FunctionCanceled => write!(f, "The function was canceled in mid-execution.  This happens to a cryptographic function if the function makes a CKN_SURRENDER application callback which returns CKR_CANCEL (see CKR_CANCEL). It also happens to a function that performs PIN entry through a protected path. The method used to cancel a protected path PIN entry operation is device dependent."),
+            RvError::OperationCancelFailed => write!(f, "One or more requested session operations could not be cancelled."),
+            RvError::Pending => write!(f, "The asynchronous operation has not completed."),
             RvError::FunctionNotParallel => write!(f, "There is currently no function executing in parallel in the specified session.  This is a legacy error code which is only returned by the legacy functions C_GetFunctionStatus and C_CancelFunction."),
             RvError::FunctionNotSupported => write!(f, "The requested function is not supported by this Cryptoki library.  Even unsupported functions in the Cryptoki API should have a “stub” in the library; this stub should simply return the value CKR_FUNCTION_NOT_SUPPORTED."),
             RvError::CurveNotSupported => write!(f, " This curve is not supported by this token.  Used with Elliptic Curve mechanisms."),
