@@ -184,15 +184,20 @@ fn verifies_independent_fixtures_without_loading_a_module() {
     let dir = Scratch::new();
     let fixtures =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../pkcs11-client/tests/fixtures");
-    let message = fixtures.join("message.txt");
     for kind in ["rsa", "rsa-pss", "p256", "p384", "p521"] {
         let (algorithm, certificate) = match kind {
             "rsa" => ("rsa-pkcs1", "rsa"),
             "rsa-pss" => ("rsa-pss", "rsa"),
             _ => ("ecdsa", kind),
         };
-        let certificate = fixtures.join(format!("{certificate}.der"));
-        for digest in ["sha256", "sha384", "sha512"] {
+        for digest in ["sha224", "sha256", "sha384", "sha512"] {
+            let fixtures = if digest == "sha224" {
+                fixtures.join("sha224")
+            } else {
+                fixtures.clone()
+            };
+            let certificate = fixtures.join(format!("{certificate}.der"));
+            let message = fixtures.join("message.txt");
             let mut signature = fixtures.join(format!("{kind}-{digest}.sig"));
             if algorithm == "ecdsa" {
                 let encoded = std::fs::read(&signature).unwrap();

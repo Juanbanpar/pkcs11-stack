@@ -144,6 +144,9 @@ according to the object class. Generic/HKDF secrets offer HKDF derivation.
 Permissions and provider capabilities are checked again in the worker.
 
 To sign a file, log in as USER and select an unambiguous private key on **Objects**.
+SHA-224 signature choices follow SHA-256/384/512 when the key and hashing policy
+permit them. Existing choices retain their order; OAEP and KDF options are unchanged.
+
 For RSA/EC, choose **Sign file**, select a client-provided SHA-2 signature choice, and provide
 a message file and a new signature output path. Token hashing is required by
 default; **Allow software hashing** permits a fallback planned before signing.

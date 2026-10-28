@@ -21,7 +21,12 @@ impl Fixture {
     }
     fn ok(&self, args: &[&str]) -> Value {
         let out = self.run(args);
-        assert!(out.status.success(), "CLI command failed: {}", out.status);
+        assert!(
+            out.status.success(),
+            "CLI command {args:?} failed: {}: {}",
+            out.status,
+            String::from_utf8_lossy(&out.stderr)
+        );
         assert!(out.stderr.is_empty());
         let value: Value = serde_json::from_slice(&out.stdout).unwrap();
         assert_eq!(value["schema_version"], 1);
@@ -764,6 +769,67 @@ fn command_workflows() {
     );
     let message = f.path("cli-message");
     std::fs::write(&message, b"CLI signing message\n").unwrap();
+    for (algorithm, label) in [
+        ("rsa-pkcs1", "wrong"),
+        ("rsa-pss", "wrong"),
+        ("ecdsa", "p256"),
+    ] {
+        let private = format!("pkcs11:token=client-test;object={label};type=private");
+        let public = private.replace("type=private", "type=public");
+        let cert = private.replace("type=private", "type=cert");
+        let signature = f.path(&format!("cli-sha224-{algorithm}"));
+        let mut args = vec![
+            "sign",
+            "--key",
+            &private,
+            "--algorithm",
+            algorithm,
+            "--digest",
+            "sha224",
+            "--hashing",
+            "software",
+            "--input",
+            &message,
+            "--output",
+            &signature,
+            "--pin-file",
+            &f.pin,
+        ];
+        if algorithm == "rsa-pss" {
+            args.extend(["--mgf-digest", "sha224", "--salt-length", "28"]);
+        }
+        let signed = f.run(&args);
+        assert!(
+            signed.status.success(),
+            "{}",
+            String::from_utf8_lossy(&signed.stderr)
+        );
+        f.fail(&args, 6);
+        let mut verify = vec![
+            "verify-token",
+            "--key",
+            &public,
+            "--algorithm",
+            algorithm,
+            "--digest",
+            "sha224",
+            "--hashing",
+            "software",
+            "--input",
+            &message,
+            "--signature",
+            &signature,
+        ];
+        if algorithm == "rsa-pss" {
+            verify.extend(["--mgf-digest", "sha224", "--salt-length", "28"]);
+        }
+        assert_eq!(f.ok(&verify)["verified"], true);
+        verify[0] = "verify";
+        verify[1] = "--certificate";
+        verify[2] = &cert;
+        verify.drain(7..9); // Certificate verification always hashes in software.
+        assert_eq!(f.ok(&verify)["verified"], true);
+    }
     let signature = f.path("cli-signature");
     let plan = f.ok(&[
         "plan",

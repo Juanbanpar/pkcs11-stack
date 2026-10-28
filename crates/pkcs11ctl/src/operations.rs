@@ -19,20 +19,28 @@ pub(crate) enum Output {
 }
 pub(crate) fn digest(value: &str) -> DigestAlgorithm {
     match value {
+        "sha224" => DigestAlgorithm::Sha224,
         "sha256" => DigestAlgorithm::Sha256,
         "sha384" => DigestAlgorithm::Sha384,
         _ => DigestAlgorithm::Sha512,
     }
 }
 fn policy(m: &ArgMatches) -> SigningPolicy {
-    SigningPolicy {
+    let mut policy = SigningPolicy {
         hashing: match get(m, "hashing").unwrap_or("token") {
             "software" => HashingPolicy::SoftwareOnly,
             "allow-software" => HashingPolicy::AllowSoftware,
             _ => HashingPolicy::TokenOnly,
         },
         ..SigningPolicy::default()
+    };
+    if ["digest", "mgf-digest"]
+        .iter()
+        .any(|key| get(m, key) == Some("sha224"))
+    {
+        policy.digests.push(DigestAlgorithm::Sha224);
     }
+    policy
 }
 fn request<'a>(m: &ArgMatches, bytes: &'a [u8]) -> Result<SignRequest<'a>> {
     let algorithm = match need(m, "algorithm")? {

@@ -85,11 +85,11 @@ fn signature(command: Command) -> Command {
                     ("algorithm", "rsa-pss"),
                     ("algorithm", "ecdsa"),
                 ])
-                .value_parser(["sha256", "sha384", "sha512"]),
+                .value_parser(["sha224", "sha256", "sha384", "sha512"]),
         )
         .arg(
             value("mgf-digest", "Required for PSS only")
-                .value_parser(["sha256", "sha384", "sha512"]),
+                .value_parser(["sha224", "sha256", "sha384", "sha512"]),
         )
         .arg(value("salt-length", "Exact PSS salt length in bytes"))
         .arg(required("input", "Input file; - reads stdin"))

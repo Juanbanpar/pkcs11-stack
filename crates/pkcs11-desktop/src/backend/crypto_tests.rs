@@ -190,7 +190,10 @@ fn software_token_signing_verification_context_and_file_failures() {
     ] {
         let initial = scope(module, token, &objects, label, CryptoMode::Sign);
         let (options, context) = choices(&registry, initial, true);
-        assert!(!options.is_empty());
+        assert!(
+            matches!(options[0].parameters, SignatureProfile::Classical(p) if p.digest == DigestAlgorithm::Sha256)
+        );
+        assert!(options.iter().any(|option| matches!(option.parameters, SignatureProfile::Classical(p) if p.digest == DigestAlgorithm::Sha224)));
         assert!(!context);
         for option in options {
             sequence += 1;

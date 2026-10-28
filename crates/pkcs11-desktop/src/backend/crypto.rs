@@ -60,14 +60,17 @@ pub struct CryptoJob {
     pub context: Option<SecretInput>,
 }
 fn policy(software: bool) -> SigningPolicy {
-    SigningPolicy {
+    let mut policy = SigningPolicy {
         hashing: if software {
             HashingPolicy::AllowSoftware
         } else {
             HashingPolicy::TokenOnly
         },
         ..SigningPolicy::default()
-    }
+    };
+    // Offer SHA-224 explicitly after the existing digest choices.
+    policy.digests.push(pkcs11_client::DigestAlgorithm::Sha224);
+    policy
 }
 fn read_bounded(path: &Path, maximum: u64) -> Result<Vec<u8>, BackendError> {
     let mut bytes = Vec::new();

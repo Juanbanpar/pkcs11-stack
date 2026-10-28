@@ -250,6 +250,10 @@ Always-authenticate keys use the separate context PIN options described above,
 including two authentications for bound signing. Certificate verification is
 available offline or against a token certificate and establishes no issuer trust.
 
+RSA/ECDSA signature commands accept explicit `--digest sha224` and PSS
+`--mgf-digest sha224`; caller digests must contain exactly 28 bytes. Selecting
+SHA-224 enables it for that command. OAEP and KDF digest choices remain unchanged.
+
 ## ML-KEM and key derivation
 
 `generate --kind ml-kem-512|ml-kem-768|ml-kem-1024` creates a persistent public
