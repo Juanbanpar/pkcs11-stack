@@ -43,7 +43,7 @@ pub struct SignAdditionalContext<'a> {
     _marker: PhantomData<&'a [u8]>,
 }
 
-impl SignAdditionalContext<'_> {
+impl<'a> SignAdditionalContext<'a> {
     /// Construct ML-DSA and SLH-DSA signature parameters.
     ///
     /// # Arguments
@@ -54,7 +54,8 @@ impl SignAdditionalContext<'_> {
     /// # Returns
     ///
     /// A new [`SignAdditionalContext`] struct.
-    pub fn new(hedge: HedgeType, context: Option<&[u8]>) -> Self {
+    pub fn new(hedge: HedgeType, context: Option<&'a [u8]>) -> Self {
+        let context = context.filter(|bytes| !bytes.is_empty());
         if hedge == HedgeType::Preferred && context.is_none() {
             return Self {
                 inner: None,
@@ -104,7 +105,7 @@ pub struct HashSignAdditionalContext<'a> {
     _marker: PhantomData<&'a [u8]>,
 }
 
-impl HashSignAdditionalContext<'_> {
+impl<'a> HashSignAdditionalContext<'a> {
     /// Construct HashML-DSA or HashSLH-DSA Signature parameters.
     ///
     /// # Arguments
@@ -116,7 +117,8 @@ impl HashSignAdditionalContext<'_> {
     /// # Returns
     ///
     /// A new SignAdditionalContext struct.
-    pub fn new(hedge: HedgeType, context: Option<&[u8]>, hash: MechanismType) -> Self {
+    pub fn new(hedge: HedgeType, context: Option<&'a [u8]>, hash: MechanismType) -> Self {
+        let context = context.filter(|bytes| !bytes.is_empty());
         let (p_context, ul_context_len) = match context {
             Some(c) => (
                 c.as_ptr() as *mut _,

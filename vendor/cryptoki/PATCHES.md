@@ -9,6 +9,10 @@ Published crate SHA-256:
 
 Local changes:
 
+- `src/mechanism/dsa.rs`: tie pure/prehash additional-context parameter lifetimes
+  to their borrowed slices and normalize empty contexts to NULL. Runtime
+  compile-fail doctests reject dangling contexts for both wrappers.
+
 - `src/session/signing_macing.rs`: expose initialized single-part verification
   completion, without reinitialization or retry, for incremental software hashing
   under the runtime signing policy. Existing single-part verification delegates

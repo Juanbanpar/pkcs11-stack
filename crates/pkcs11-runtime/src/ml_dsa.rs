@@ -107,6 +107,27 @@ impl MlDsaRequest<'_> {
         }
         Ok(())
     }
+    /// Native parameter wrappers must not outlive their borrowed context.
+    ///
+    /// ```compile_fail,E0597
+    /// use cryptoki::mechanism::{Mechanism, dsa::{HedgeType, SignAdditionalContext}};
+    /// let parameters = {
+    ///     let context = vec![0xA5; 3];
+    ///     SignAdditionalContext::new(HedgeType::Required, Some(&context))
+    /// };
+    /// let _mechanism = Mechanism::MlDsa(parameters);
+    /// ```
+    ///
+    /// The prehash wrapper has the same lifetime constraint:
+    ///
+    /// ```compile_fail,E0597
+    /// use cryptoki::mechanism::{Mechanism, MechanismType, dsa::{HedgeType, HashSignAdditionalContext}};
+    /// let parameters = {
+    ///     let context = vec![0xA5; 3];
+    ///     HashSignAdditionalContext::new(HedgeType::Required, Some(&context), MechanismType::SHA256)
+    /// };
+    /// let _mechanism = Mechanism::HashMlDsa(parameters);
+    /// ```
     fn mechanism(&self) -> Mechanism<'_> {
         Mechanism::MlDsa(SignAdditionalContext::new(
             self.hedging.mechanism(),
