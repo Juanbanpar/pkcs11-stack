@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! Generated AES keys and authenticated-decryption failures through the client API.
 use pkcs11_client::{
-    AesGcmDecryptRequest, AesGcmEncryptRequest, AesGcmOperation, AesKeyPurpose, AesKeyRequest,
-    AesKeySize, Authentication, ErrorKind, ObjectRef, Pin, Provider, SessionMode,
+    AesGcmDecryptRequest, AesGcmEncryptRequest, AesGcmOperation, AesGcmStreamParameters,
+    AesKeyPurpose, AesKeyRequest, AesKeySize, Authentication, ErrorKind, ObjectRef, Pin, Provider,
+    SessionMode,
 };
 use secrecy::{ExposeSecret, SecretString};
 #[test]
@@ -84,10 +85,81 @@ fn typed_aes_gcm_permissions_redaction_and_failed_session_cleanup() {
                 .kind(),
             ErrorKind::Input
         );
+        struct Chunks<'a> {
+            bytes: std::io::Cursor<&'a [u8]>,
+            maximum: usize,
+            interrupted: bool,
+        }
+        impl std::io::Read for Chunks<'_> {
+            fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+                self.maximum = self.maximum.max(out.len());
+                if !self.interrupted {
+                    self.interrupted = true;
+                    return Err(std::io::ErrorKind::Interrupted.into());
+                }
+                let length = out.len().min(3071);
+                std::io::Read::read(&mut self.bytes, &mut out[..length])
+            }
+        }
+        let large: Vec<u8> = (0..1_000_003).map(|i| (i % 251) as u8).collect();
+        for (case, input) in [&[][..], encrypt.plaintext, &large].into_iter().enumerate() {
+            let nonce = [0x82 + index as u8 + case as u8; 12];
+            let parameters = AesGcmStreamParameters {
+                nonce: &nonce,
+                aad: b"reader context",
+                maximum_plaintext: input.len(),
+            };
+            let mut reader = Chunks {
+                bytes: std::io::Cursor::new(input),
+                maximum: 0,
+                interrupted: false,
+            };
+            let ciphertext = session
+                .encrypt_aes_gcm_reader(&key, parameters, &mut reader)
+                .unwrap();
+            assert_eq!(reader.maximum, 65536);
+            let expected = session
+                .encrypt_aes_gcm(
+                    &key,
+                    &AesGcmEncryptRequest {
+                        nonce: &nonce,
+                        aad: parameters.aad,
+                        plaintext: input,
+                    },
+                )
+                .unwrap();
+            assert_eq!(ciphertext, expected);
+            let mut reader = Chunks {
+                bytes: std::io::Cursor::new(&ciphertext),
+                maximum: 0,
+                interrupted: false,
+            };
+            let output = session
+                .decrypt_aes_gcm_reader(&key, parameters, &mut reader)
+                .unwrap();
+            assert_eq!(output.expose_secret(), input);
+            assert_eq!(reader.maximum, 65536);
+            assert!(!format!("{output:?} {parameters:?}").contains("canary"));
+            session.state().unwrap();
+        }
         session.state().unwrap();
         session.close().unwrap();
         let mut corrupted = ciphertext;
         *corrupted.last_mut().unwrap() ^= 1;
+        let mut session = provider
+            .management(&token, SessionMode::ReadOnly, Authentication::None)
+            .unwrap();
+        let parameters = AesGcmStreamParameters {
+            nonce: encrypt.nonce,
+            aad: encrypt.aad,
+            maximum_plaintext: encrypt.plaintext.len(),
+        };
+        let error = session
+            .decrypt_aes_gcm_reader(&key, parameters, &mut std::io::Cursor::new(&corrupted))
+            .unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::Runtime);
+        assert!(session.state().is_err());
+        session.close().unwrap();
         let mut session = provider
             .management(&token, SessionMode::ReadOnly, Authentication::None)
             .unwrap();

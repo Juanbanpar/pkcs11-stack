@@ -108,7 +108,10 @@ generation with explicit purposes.
 AES-GCM is available through the libraries, CLI and desktop with 12-byte
 caller-managed nonces, full 16-byte tags and authenticated, zeroizing plaintext
 output. File workflows use raw ciphertext followed by the tag, with a separate
-nonce and optional AAD file. Plaintext is limited to 16 MiB.
+nonce and optional AAD file. Plaintext is limited to 16 MiB. Runtime/client also
+expose multipart guards and readers with explicit budgets up to that limit.
+Native update plaintext stays in zeroizing quarantine until final authentication;
+CLI/desktop file workflows retain single-part execution.
 Full/general AES-CMAC and SHA-2/SHA-3 HMAC generation and native verification use
 dedicated sensitive, nonextractable authentication keys through the libraries,
 CLI and desktop. HMAC keys use the generic-secret generator available in 2.40.

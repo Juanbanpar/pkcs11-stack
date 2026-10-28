@@ -85,7 +85,7 @@ with [the 3.2 specification, section 5](https://docs.oasis-open.org/pkcs11/pkcs1
 not promise a generic wrapper, every mechanism, or provider conformance. Pointer
 presence and numeric mechanism recognition alone do not count as implementation.
 
-The 55 functions used by current workflows are:
+The 59 functions used by current workflows are:
 
 | Workflow | Functions | Implementation / evidence |
 | --- | --- | --- |
@@ -103,8 +103,9 @@ The 55 functions used by current workflows are:
 | ML-KEM | `C_EncapsulateKey`, `C_DecapsulateKey` | Runtime/client ML-KEM, CLI/desktop exchange; required Kryoptic lane. |
 | O5 Implemented: session validation diagnostics | `C_GetSessionValidationFlags` | Runtime/client same-session last-operation query; CLI fresh-session diagnostic. `session_validation.c` checks all selected interface versions, missing pointer, unsupported stub, zero, opaque bits, independent session state and fatal provider errors. No certification/trust inference. |
 | O6 Implemented: ML-DSA signature-first verification | `C_VerifySignatureInit`, `C_VerifySignature`, `C_VerifySignatureUpdate`, `C_VerifySignatureFinal` | Runtime/client explicit single-part and exclusive streaming workflows, with zeroizing 64 KiB readers. Independent 3.2 headers check argument order, context/signature lifetimes, exact selected-table/pointer gates, independent public-key permissions, empty input, completed mismatches and init/update/final/read/drop failures. Explicit cancellation uses the standard NULL-mechanism init and tests no generic/legacy fallback. Required Kryoptic tests cover all ML-DSA parameter sets, contexts, hedge modes, independent RustCrypto/OpenSSL verification, large readers and cancellation followed by reuse of the same pooled session. |
+| O2 Partial: bounded multipart AES-GCM | `C_EncryptUpdate`, `C_EncryptFinal`, `C_DecryptUpdate`, `C_DecryptFinal` | Runtime/client exclusive guards and zeroizing 64 KiB readers with explicit plaintext budgets through 16 MiB. Independent 2.40/3.0/3.1/3.2 headers check GCM parameters, direction-specific permissions/pointers, output bounds, split tags, budget errors, pending/error results, failed/abandoned sessions and explicit cancellation. Native update plaintext stays in zeroizing quarantine until final authentication; later failures wipe it. SoftHSM NIST vectors cover all AES key sizes and chunk boundaries; client readers cover empty and 1,000,003-byte input. Kryoptic requires cancellation followed by new operations and reuse of the same pooled session. |
 
-The remaining 49 functions are classified below. **Planned** means a concrete
+The remaining 45 functions are classified below. **Planned** means a concrete
 extension to an existing workflow; **deferred** needs the stated use case or
 provider/design gate; **excluded** conflicts with the current application boundary.
 These are application scope decisions, not statements that OASIS forbids a function.
@@ -114,7 +115,7 @@ minimum usable provider interface.
 | ID / status | First table | Functions | Acceptance criteria or scope gate |
 | --- | --- | --- | --- |
 | O1 Partial: streaming signatures/MACs | 2.40 | Covered above | Runtime/client implement native full/general HMAC and AES-CMAC, RSA PKCS#1/PSS and named-curve ECDSA streaming, plus pure ML-DSA signing streams. Classical guards/readers preserve hashing policy, context login, bounded output and completed-mismatch reuse, with read/update/final/drop failure tests. Remaining: pure EdDSA multipart support with an implementing provider and CLI/desktop file workflows. ML-DSA streaming verification is implemented in O6; the older verification API is single-part for that mechanism. Preserve existing single-part APIs. |
-| O2 Planned: streaming encryption | 2.40 | `C_EncryptUpdate`, `C_EncryptFinal`, `C_DecryptUpdate`, `C_DecryptFinal` | Start with a real supported multipart mechanism. Define bounded output and authenticated-decryption commit behavior before exposing file streaming. Test split tags, empty chunks, final authentication failure, zeroization and unchanged destination on failed verification; no unauthenticated plaintext release. |
+| O2 Partial: streaming encryption | 2.40 | Covered above | Bounded AES-GCM guards/readers are implemented, with authenticated plaintext release only after finalization, zeroizing quarantine, explicit input budgets and native/provider failures covered. Remaining: frontend multipart file workflows with checked closure and destination commit semantics; a larger-file profile needs a bounded plaintext staging design. Existing file workflows remain single-part. |
 | O4 Planned: named-user login | 3.0 | `C_LoginUser` | Explicit username/role/PIN input, redacted diagnostics, protected-path and token-wide authentication rules. Test wrong username/PIN, SO/RO conflicts and unavailable tables/pointers; no fallback to anonymous `C_Login` or second authentication attempt. |
 | O7 Deferred: message-based AEAD | 3.0 | `C_MessageEncryptInit`, `C_EncryptMessage`, `C_EncryptMessageBegin`, `C_EncryptMessageNext`, `C_MessageEncryptFinal`, `C_MessageDecryptInit`, `C_DecryptMessage`, `C_DecryptMessageBegin`, `C_DecryptMessageNext`, `C_MessageDecryptFinal` | Agree on an explicit message/nonce/AAD contract and find a provider supporting it. Test multiple messages per initialization, distinct nonces, tag/output bounds, finalization, failure cleanup and authenticated output release. Existing single-part GCM remains independently supported. |
 | O8 Deferred: message-based signatures/MACs | 3.0 | `C_MessageSignInit`, `C_SignMessage`, `C_SignMessageBegin`, `C_SignMessageNext`, `C_MessageSignFinal`, `C_MessageVerifyInit`, `C_VerifyMessage`, `C_VerifyMessageBegin`, `C_VerifyMessageNext`, `C_MessageVerifyFinal` | Require a concrete batched-message use case and provider. Test per-message parameters/authentication, exact tag/signature lengths, mismatches, process finalization and stale-session rejection. |
@@ -189,8 +190,9 @@ section 5.15.7. Provider tests require a new verification and same-generation po
 reuse after cancellation.
 The pinned SoftHSM source supports ML-DSA signing updates but explicitly disables
 EdDSA multipart operations. EdDSA streams remain provider-gated; frontend file
-workflows and O2 remain planned. Keep unconfirmed operations discarded on legacy
-providers. GMAC, additional
+workflows remain planned. O2 implements bounded AES-GCM multipart workflows and
+client readers; larger-file staging and frontend multipart integration remain open.
+Keep unconfirmed operations discarded on legacy providers. GMAC, additional
 SP800-108 modes/PRFs, PBKDF2, HashML-DSA/SLH-DSA and TLS extensions remain separate
 backlog items in the coverage table. Provider gaps do not justify implicit software
 fallback or weakening existing metadata/permission checks.
@@ -388,7 +390,20 @@ checked closure. CLI and desktop file tests cover explicit nonce/AAD parameters,
 raw-format round trips, tampered inputs, empty messages, output preservation and
 no plaintext release on authentication failure. Desktop forms reject stale
 choices/pickers and clear parameters on submission or navigation. Kryoptic additionally exercises ML-KEM → HKDF → AES-GCM for all
-three KEM parameter sets and an application hybrid-derived AES key. These tests do
+three KEM parameter sets and an application hybrid-derived AES key.
+
+Multipart provider tests reuse the NIST vectors with empty, one-byte, block-boundary
+and 64 KiB chunks. Client readers cover all AES key sizes with empty and
+1,000,003-byte messages, short/Interrupted reads, tampering and checked closure.
+Kryoptic tests cancellation in both directions followed by new operations and
+reuse of the same pooled session. Its native decryption updates return partial
+plaintext; SoftHSM withholds output until finalization. The runtime quarantines
+any native update output, checks the configured budget and exact final length,
+and releases plaintext only after authentication. Independent-header fixtures
+cover both output behaviors, malformed lengths, short buffers, early/final native
+failures, discarded operations, split tags and unavailable multipart pointers.
+Runtime unit tests inspect scratch storage to verify immediate wiping after an
+update error, including plaintext from earlier successful updates. These tests do
 not constitute algorithm validation.
 
 ## Dependency advisories

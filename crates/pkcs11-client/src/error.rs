@@ -6,6 +6,9 @@ pub enum Error {
     /// A supplied authentication tag does not verify.
     #[error("MAC verification failed")]
     MacMismatch,
+    /// Reading input failed after an AES-GCM stream was initialized.
+    #[error("cipher input could not be read")]
+    CipherInput,
     /// Reading input failed after a native MAC operation was initialized.
     #[error("MAC input could not be read")]
     MacInput,
@@ -78,7 +81,8 @@ impl Error {
     pub fn kind(&self) -> ErrorKind {
         use pkcs11_runtime::Error as Runtime;
         match self {
-            Self::DigestInput
+            Self::CipherInput
+            | Self::DigestInput
             | Self::MacInput
             | Self::SignatureInput
             | Self::UnsupportedExport

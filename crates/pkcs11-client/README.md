@@ -526,9 +526,28 @@ the session unusable; native error context is retained. Preflight rejection does
 not itself invalidate the session. Native decryption output buffers zeroize on
 failure and on drop.
 
+`aes_gcm_streaming_capabilities` checks multipart entry points independently.
+`start_aes_gcm_encryption` and `start_aes_gcm_decryption` return exclusive guards;
+`encrypt_aes_gcm_reader` and `decrypt_aes_gcm_reader` use zeroizing 64 KiB input
+buffers, with short and Interrupted reads supported. `AesGcmStreamParameters`
+sets an explicit plaintext budget from zero through 16 MiB. AAD is still limited
+to 1 MiB, and ciphertext includes the full 16-byte tag. Nonce/AAD borrows end
+after initialization. These are bounded multipart workflows, with results held
+in memory; they do not remove the profile's allocation limits.
+
+Decryption reserves the plaintext budget plus tag storage before initialization.
+Any native update plaintext stays in zeroizing quarantine and is returned only
+after final authentication and exact-length validation. Errors wipe the entire
+buffer, including earlier unauthenticated chunks. Read errors, input overruns,
+native failures and abandoned guards discard the initialized session. Explicit
+cancellation permits reuse only after native confirmation. `CipherInput` reports
+read failure without including I/O diagnostics. Check session closure before
+writing returned results to a destination. CLI/desktop file workflows retain
+their existing single-part implementation.
+
 Callers manage nonce uniqueness per key across writers, restarts and copies of key
-material. No nonce generation/tracking, retry, software fallback, streaming or file
-format is provided. Keep the nonce, AAD and protocol context with the ciphertext;
+material. No nonce generation/tracking, retry, software fallback or file format
+is provided. Keep the nonce, AAD and protocol context with the ciphertext;
 an error does not authorize nonce reuse. The CLI and desktop expose the same raw
 ciphertext/tag profile with an explicit nonce and optional AAD file.
 
