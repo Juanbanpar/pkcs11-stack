@@ -61,7 +61,10 @@ impl From<pkcs11_locator::Error> for Failure {
 impl From<pkcs11_client::Error> for Failure {
     fn from(e: pkcs11_client::Error) -> Self {
         use pkcs11_client::ErrorKind;
-        if matches!(e, pkcs11_client::Error::DigestInput) {
+        if matches!(
+            e,
+            pkcs11_client::Error::DigestInput | pkcs11_client::Error::CipherInput
+        ) {
             return Self {
                 code: 6,
                 kind: "io",
@@ -288,6 +291,18 @@ fn render(out: &mut impl Write, prefix: &str, value: &Value) -> std::io::Result<
 #[cfg(test)]
 mod cleanup_tests {
     use super::*;
+
+    #[test]
+    fn reader_failures_use_io_exit_status() {
+        for error in [
+            pkcs11_client::Error::DigestInput,
+            pkcs11_client::Error::CipherInput,
+        ] {
+            let failure = Failure::from(error);
+            assert_eq!(failure.code, 6);
+            assert_eq!(failure.kind, "io");
+        }
+    }
 
     #[test]
     fn cleanup_failure_takes_runtime_precedence_and_retains_both_errors() {
