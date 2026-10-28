@@ -11,6 +11,7 @@ mod hmac;
 mod inspect;
 mod kbkdf;
 mod key_establishment;
+mod mac_input;
 mod ml_dsa;
 mod operations;
 mod support;

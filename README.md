@@ -118,8 +118,9 @@ dedicated sensitive, nonextractable authentication keys through the libraries,
 CLI and desktop. HMAC keys use the generic-secret generator available in 2.40.
 Runtime and client also support native multipart MAC guards with explicit
 cancellation and client readers using zeroizing 64 KiB buffers. Streaming callers
-enforce their input budget; existing single-part MAC workflows retain the 16 MiB
-limit. Incomplete or failed streams discard their sessions; completed verification
+enforce their input budget. CLI MAC generation/verification selects native file/stdin
+streaming with `--multipart`, retaining the 16 MiB limit and single-part default.
+Incomplete or failed streams discard their sessions; completed verification
 mismatches permit reuse.
 SP 800-108 counter and feedback modes derive AES or generic derivation keys with
 HMAC-SHA-256/384/512 through the libraries, CLI and desktop, using explicit protocol

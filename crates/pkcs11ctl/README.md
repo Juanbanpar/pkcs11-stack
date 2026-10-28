@@ -607,6 +607,16 @@ tag still requires the general mechanism; rejection never falls back to full
 CMAC or another length. Agree on the length before communication and keep it
 fixed for that key's lifetime.
 
+`mac-aes-cmac` and `verify-aes-cmac` accept `--multipart` for native
+`C_SignUpdate`/`C_SignFinal` or `C_VerifyUpdate`/`C_VerifyFinal` execution.
+File/stdin input uses the client's zeroizing 64 KiB buffer; the 16 MiB message
+limit still applies, including files that grow after preflight. Full and general
+tag profiles keep their exact lengths and permissions. Single-part remains the
+default, and the capability command describes that mode. Missing multipart entry
+points or native failures end the operation without fallback or retry. Tags and
+verification success are released only after session closure and module finalization.
+Read errors return exit code 6; oversized input returns 2, with no output.
+
 Use `generate --kind aes256 --purpose authentication-general ...` for a separate
 private, sensitive, nonextractable key restricted to the general mechanism and
 MAC permissions. `generation-options` reports native compatible sizes in
@@ -654,6 +664,11 @@ Verification requires an exact selected-length tag file, checked before module l
 `--tag-file -` is rejected. Mismatch returns exit code 4 without success output.
 Results follow checked session closure and module finalization; existing outputs
 are preserved. No truncation, software fallback or retry occurs.
+
+`mac-hmac` and `verify-hmac` also accept `--multipart` with the same input,
+output and lifecycle rules as multipart AES-CMAC above. It applies to both full
+and general HMAC profiles. The capability command continues to inspect single-part
+support; multipart execution independently requires its native entry points.
 
 ## Pure EdDSA
 

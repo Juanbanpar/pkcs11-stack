@@ -47,6 +47,7 @@ pub(crate) fn operation(
     m: &ArgMatches,
     message: &[u8],
     tag: Option<&[u8]>,
+    multipart: Option<&crate::mac_input::MultipartInput>,
 ) -> Result<Output> {
     let profile = profile(m)?;
     let key = object_reference(uri(m, "object")?)?;
@@ -62,12 +63,23 @@ pub(crate) fn operation(
                 json!({"advisory":true,"algorithm":"aes-cmac","key_bits":caps.key_size.length()*8,"tag_length":profile.tag_length(),"operation":need(m,"operation")?}),
             ))
         }
-        "mac-aes-cmac" => Ok(Output::Binary(
-            session.mac_aes_cmac_with_profile(&key, message, profile)?,
-        )),
+        "mac-aes-cmac" => {
+            let tag = if let Some(input) = multipart {
+                input.read(|mut reader| session.aes_cmac_reader(&key, profile, &mut reader))?
+            } else {
+                session.mac_aes_cmac_with_profile(&key, message, profile)?
+            };
+            Ok(Output::Binary(tag))
+        }
         "verify-aes-cmac" => {
             let tag = tag.ok_or_else(|| usage("missing AES CMAC tag"))?;
-            session.verify_aes_cmac_with_profile(&key, message, tag, profile)?;
+            if let Some(input) = multipart {
+                input.read(|mut reader| {
+                    session.verify_aes_cmac_reader(&key, profile, &mut reader, tag)
+                })?;
+            } else {
+                session.verify_aes_cmac_with_profile(&key, message, tag, profile)?;
+            }
             Ok(Output::Structured(
                 json!({"verified":true,"algorithm":"aes-cmac"}),
             ))

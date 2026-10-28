@@ -28,6 +28,14 @@
 #undef C_GetFunctionList
 static CK_ULONG inits, updates, finals, cancels;
 static CK_FLAGS direction;
+static CK_RV stream_close(CK_SESSION_HANDLE s) {
+    CK_RV rv = close_session(s);
+    return FAULT == 37 ? CKR_DEVICE_ERROR : rv;
+}
+static CK_RV stream_finalize(CK_VOID_PTR reserved) {
+    CK_RV rv = finalize(reserved);
+    return FAULT == 38 ? CKR_DEVICE_ERROR : rv;
+}
 static CK_RV stream_info(CK_SESSION_HANDLE s, CK_SESSION_INFO_PTR out) {
     CK_RV rv = session_info(s, out);
     out->ulDeviceError = inits * 1000000UL + updates * 10000UL + finals * 100UL + cancels;
@@ -114,6 +122,8 @@ CK_RV C_GetInterface(CK_UTF8CHAR_PTR name, CK_VERSION_PTR version, CK_INTERFACE_
 #endif
 static CK_RV legacy_called(CK_SESSION_HANDLE s) { (void)s; cancels += 99; return CKR_GENERAL_ERROR; }
 CK_RV C_GetFunctionList(CK_FUNCTION_LIST_PTR_PTR out) {
+    functions.C_CloseSession = stream_close;
+    functions.C_Finalize = stream_finalize;
     functions.C_GetSessionInfo = stream_info;
     functions.C_GetAttributeValue = stream_attributes;
     functions.C_Sign = NULL; functions.C_Verify = NULL;

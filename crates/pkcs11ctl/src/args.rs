@@ -567,6 +567,7 @@ pub(crate) fn command() -> Command {
         auth(object(
             Command::new("mac-hmac")
                 .about("Generate a native HMAC")
+                .arg(flag("multipart", "Use native multipart MAC with a zeroizing input buffer; the 16 MiB limit remains"))
                 .arg(value("tag-length", "Native general tag bytes: half the hash output through full length; omitted selects full tag"))
                 .arg(
                     required("algorithm", "HMAC hash algorithm").value_parser([
@@ -591,6 +592,7 @@ pub(crate) fn command() -> Command {
         auth(object(
             Command::new("verify-hmac")
                 .about("Verify a native HMAC")
+                .arg(flag("multipart", "Use native multipart MAC with a zeroizing input buffer; the 16 MiB limit remains"))
                 .arg(value("tag-length", "Native general tag bytes: half the hash output through full length; omitted selects full tag"))
                 .arg(
                     required("algorithm", "HMAC hash algorithm").value_parser([
@@ -624,6 +626,7 @@ pub(crate) fn command() -> Command {
         auth(object(
             Command::new("mac-aes-cmac")
                 .about("Generate an AES-CMAC tag on the token")
+                .arg(flag("multipart", "Use native multipart MAC with a zeroizing input buffer; the 16 MiB limit remains"))
                 .arg(value(
                     "tag-length",
                     "Native general CMAC tag bytes (8–16); omitted uses full tag",
@@ -637,6 +640,7 @@ pub(crate) fn command() -> Command {
         auth(object(
             Command::new("verify-aes-cmac")
                 .about("Verify an AES-CMAC tag on the token")
+                .arg(flag("multipart", "Use native multipart MAC with a zeroizing input buffer; the 16 MiB limit remains"))
                 .arg(value(
                     "tag-length",
                     "Native general CMAC tag bytes (8–16); omitted uses full tag",

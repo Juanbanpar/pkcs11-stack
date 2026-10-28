@@ -57,6 +57,7 @@ pub(crate) fn operation(
     m: &ArgMatches,
     message: &[u8],
     tag: Option<&[u8]>,
+    multipart: Option<&crate::mac_input::MultipartInput>,
 ) -> Result<Output> {
     let key = object_reference(uri(m, "object")?)?;
     match name {
@@ -78,18 +79,26 @@ pub(crate) fn operation(
         }
         "mac-hmac" => {
             let algorithm = algorithm(m)?;
-            Ok(Output::Binary(session.mac_hmac_with_profile(
-                &key,
-                algorithm,
-                message,
-                profile(m, algorithm)?,
-            )?))
+            let profile = profile(m, algorithm)?;
+            let tag = if let Some(input) = multipart {
+                input
+                    .read(|mut reader| session.hmac_reader(&key, algorithm, profile, &mut reader))?
+            } else {
+                session.mac_hmac_with_profile(&key, algorithm, message, profile)?
+            };
+            Ok(Output::Binary(tag))
         }
         "verify-hmac" => {
             let algorithm = algorithm(m)?;
             let tag = tag.ok_or_else(|| usage("missing HMAC tag"))?;
             let profile = profile(m, algorithm)?;
-            session.verify_hmac_with_profile(&key, algorithm, message, tag, profile)?;
+            if let Some(input) = multipart {
+                input.read(|mut reader| {
+                    session.verify_hmac_reader(&key, algorithm, profile, &mut reader, tag)
+                })?;
+            } else {
+                session.verify_hmac_with_profile(&key, algorithm, message, tag, profile)?;
+            }
             Ok(Output::Structured(
                 json!({"verified":true,"algorithm":algorithm.to_string(),"tag_length":profile.tag_length(algorithm),"general_tag":matches!(profile, HmacTagProfile::General { .. })}),
             ))

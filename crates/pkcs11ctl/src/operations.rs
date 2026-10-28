@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use crate::{
     aes_cmac, aes_gcm, aes_key_wrap, eddsa, generation, hmac, inspect, kbkdf, key_establishment,
-    ml_dsa, support::*,
+    mac_input::MultipartInput, ml_dsa, support::*,
 };
 use clap::ArgMatches;
 use pkcs11_client::{
@@ -92,6 +92,7 @@ pub(crate) struct Inputs {
     pub aes_gcm: Option<aes_gcm::Inputs>,
     pub hmac_tag: Option<Vec<u8>>,
     pub cmac_tag: Option<Vec<u8>>,
+    pub mac_input: Option<MultipartInput>,
     pub digest_file: Option<std::fs::File>,
     pub credential: Credential,
     pub context: Credential,
@@ -178,6 +179,7 @@ impl Inputs {
         }
         let hmac_tag = hmac::load(name, m)?;
         let cmac_tag = aes_cmac::load(name, m)?;
+        let mac_input = MultipartInput::load(name, m)?;
         let aes_gcm = aes_gcm::Inputs::load(name, m)?;
         let oaep_label = match get(m, "label-hex") {
             Some(value) if value.len() > 8192 => {
@@ -193,7 +195,7 @@ impl Inputs {
         } else {
             None
         };
-        let bytes = if aes_gcm::selected(name) || name == "digest" {
+        let bytes = if aes_gcm::selected(name) || name == "digest" || mac_input.is_some() {
             vec![]
         } else if let Some(path) = get(m, "input") {
             if let Some(limit) = key_establishment::input_limit(name, m)? {
@@ -371,6 +373,7 @@ impl Inputs {
         Ok(Self {
             aes_gcm,
             cmac_tag,
+            mac_input,
             hmac_tag,
             digest_file,
             establishment,
@@ -667,10 +670,24 @@ fn management_operation(
         return kbkdf::operation(session, name, m, &inputs.kbkdf);
     }
     if hmac::selected(name) {
-        return hmac::operation(session, name, m, &inputs.bytes, inputs.hmac_tag.as_deref());
+        return hmac::operation(
+            session,
+            name,
+            m,
+            &inputs.bytes,
+            inputs.hmac_tag.as_deref(),
+            inputs.mac_input.as_ref(),
+        );
     }
     if aes_cmac::selected(name) {
-        return aes_cmac::operation(session, name, m, &inputs.bytes, inputs.cmac_tag.as_deref());
+        return aes_cmac::operation(
+            session,
+            name,
+            m,
+            &inputs.bytes,
+            inputs.cmac_tag.as_deref(),
+            inputs.mac_input.as_ref(),
+        );
     }
     if aes_gcm::selected(name) {
         return aes_gcm::operation(session, name, m, inputs.aes_gcm.as_ref());
