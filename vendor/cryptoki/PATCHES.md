@@ -9,6 +9,11 @@ Published crate SHA-256:
 
 Local changes:
 
+- `src/session/{encryption,decryption}.rs`: add caller-bounded multipart update
+  and final calls without output-size queries, allocation or retries. Validate
+  returned lengths before exposing them; runtime owns decryption quarantine and
+  zeroization. Independent 2.40/3.0/3.1/3.2 fixtures check bounds and native errors.
+
 - `src/session/signing_macing.rs`: expose explicit signature-first cancellation
   through `C_VerifySignatureInit` with a NULL mechanism, key and signature.
   Runtime fixtures check exact arguments and operation termination against the

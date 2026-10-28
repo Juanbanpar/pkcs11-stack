@@ -141,4 +141,44 @@ impl Session {
 
         Ok(encrypted_data)
     }
+
+    /// Continue initialized multipart encryption into caller-bounded storage.
+    /// Makes no output-size query, allocation or retry; validates the returned length.
+    pub fn encrypt_update_into(&self, data: &[u8], output: &mut [u8]) -> Result<usize> {
+        let mut written = output.len().try_into()?;
+        unsafe {
+            Rv::from(get_pkcs11!(self.client(), C_EncryptUpdate)(
+                self.handle(),
+                data.as_ptr() as *mut u8,
+                data.len().try_into()?,
+                output.as_mut_ptr(),
+                &mut written,
+            ))
+            .into_result(Function::EncryptUpdate)?;
+        }
+        let written: usize = written.try_into()?;
+        if written > output.len() {
+            return Err(crate::error::Error::InvalidValue);
+        }
+        Ok(written)
+    }
+
+    /// Finalize multipart encryption into caller-bounded storage.
+    /// Makes no output-size query, allocation or retry; validates the returned length.
+    pub fn encrypt_final_into(&self, output: &mut [u8]) -> Result<usize> {
+        let mut written = output.len().try_into()?;
+        unsafe {
+            Rv::from(get_pkcs11!(self.client(), C_EncryptFinal)(
+                self.handle(),
+                output.as_mut_ptr(),
+                &mut written,
+            ))
+            .into_result(Function::EncryptFinal)?;
+        }
+        let written: usize = written.try_into()?;
+        if written > output.len() {
+            return Err(crate::error::Error::InvalidValue);
+        }
+        Ok(written)
+    }
 }

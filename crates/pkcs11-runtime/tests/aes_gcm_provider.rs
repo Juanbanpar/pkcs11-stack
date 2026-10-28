@@ -4,9 +4,9 @@
 mod vectors;
 use cryptoki::object::KeyType;
 use pkcs11_runtime::{
-    AesGcmDecryptRequest, AesGcmEncryptRequest, AesGcmOperation, AesKeyPurpose, AesKeyRequest,
-    AesKeySize, Attribute, Authentication, Error, MechanismType, Module, ObjectClass, ObjectRef,
-    Pin, SessionMode,
+    AesGcmDecryptRequest, AesGcmEncryptRequest, AesGcmOperation, AesGcmStreamParameters,
+    AesKeyPurpose, AesKeyRequest, AesKeySize, Attribute, Authentication, Error, MechanismType,
+    Module, ObjectClass, ObjectRef, Pin, SessionMode,
 };
 use secrecy::{ExposeSecret, SecretString};
 fn hex(s: &str) -> Vec<u8> {
@@ -86,6 +86,40 @@ fn nist_vectors_tampering_policy_and_generated_keys() {
         let output = session.decrypt_aes_gcm(&key, &request).unwrap();
         assert_eq!(output.expose_secret(), &plaintext);
         assert!(!format!("{output:?}").contains("canary"));
+        let parameters = AesGcmStreamParameters {
+            nonce: &nonce,
+            aad: &aad,
+            maximum_plaintext: plaintext.len(),
+        };
+        for operation in [AesGcmOperation::Encrypt, AesGcmOperation::Decrypt] {
+            assert_eq!(
+                session
+                    .aes_gcm_streaming_capabilities(&key, operation)
+                    .unwrap()
+                    .key_size
+                    .length(),
+                v.key.len() / 2
+            );
+        }
+        for size in [1, 15, 16, 17, 65536] {
+            let mut operation = session.start_aes_gcm_encryption(&key, parameters).unwrap();
+            let mut encrypted = operation.update(&[]).unwrap();
+            for chunk in plaintext.chunks(size) {
+                encrypted.extend(operation.update(chunk).unwrap());
+            }
+            encrypted.extend(operation.finish().unwrap());
+            assert_eq!(
+                encrypted, ciphertext,
+                "multipart vector {index}, chunk {size}"
+            );
+            let mut operation = session.start_aes_gcm_decryption(&key, parameters).unwrap();
+            operation.update(&[]).unwrap();
+            for chunk in ciphertext.chunks(size) {
+                operation.update(chunk).unwrap();
+            }
+            assert_eq!(operation.finish().unwrap().expose_secret(), &plaintext);
+            session.info().unwrap();
+        }
         // Short inputs fail validation without making the session unusable.
         assert!(matches!(
             session.decrypt_aes_gcm(
@@ -116,6 +150,23 @@ fn nist_vectors_tampering_policy_and_generated_keys() {
                     ciphertext.pop();
                 }
             }
+            let mut stream_session = token.open_session(SessionMode::ReadOnly).unwrap();
+            let mut operation = stream_session
+                .start_aes_gcm_decryption(
+                    &key,
+                    AesGcmStreamParameters {
+                        nonce: &nonce,
+                        aad: &aad,
+                        maximum_plaintext: plaintext.len(),
+                    },
+                )
+                .unwrap();
+            for chunk in ciphertext.chunks(3) {
+                operation.update(chunk).unwrap();
+            }
+            assert!(operation.finish().is_err());
+            assert!(stream_session.info().is_err());
+            stream_session.close().unwrap();
             let mut session = token.open_session(SessionMode::ReadOnly).unwrap();
             let result = session.decrypt_aes_gcm(
                 &key,

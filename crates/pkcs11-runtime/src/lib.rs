@@ -11,10 +11,12 @@ pub use aes_cmac::{
     AesCmacProfile, MacOperation,
 };
 mod aes_gcm;
+mod aes_gcm_stream;
 pub use aes_gcm::{
     AES_GCM_MAXIMUM_AAD, AES_GCM_MAXIMUM_PLAINTEXT, AES_GCM_NONCE_LENGTH, AES_GCM_TAG_LENGTH,
     AesGcmCapabilities, AesGcmDecryptRequest, AesGcmEncryptRequest, AesGcmOperation,
 };
+pub use aes_gcm_stream::{AesGcmDecryption, AesGcmEncryption, AesGcmStreamParameters};
 mod digest;
 pub use digest::{DigestMode, DigestOperation, HashAlgorithm};
 mod ecdh;

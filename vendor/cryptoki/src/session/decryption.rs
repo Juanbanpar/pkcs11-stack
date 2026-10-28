@@ -187,4 +187,46 @@ impl Session {
 
         Ok(data)
     }
+
+    /// Continue initialized multipart decryption into caller-bounded storage.
+    /// Makes no output-size query, allocation or retry. Output may be
+    /// unauthenticated: callers must quarantine it and zeroize it on failure.
+    pub fn decrypt_update_into(&self, encrypted_data: &[u8], output: &mut [u8]) -> Result<usize> {
+        let mut written = output.len().try_into()?;
+        unsafe {
+            Rv::from(get_pkcs11!(self.client(), C_DecryptUpdate)(
+                self.handle(),
+                encrypted_data.as_ptr() as *mut u8,
+                encrypted_data.len().try_into()?,
+                output.as_mut_ptr(),
+                &mut written,
+            ))
+            .into_result(Function::DecryptUpdate)?;
+        }
+        let written: usize = written.try_into()?;
+        if written > output.len() {
+            return Err(crate::error::Error::InvalidValue);
+        }
+        Ok(written)
+    }
+
+    /// Finalize multipart decryption into caller-bounded storage.
+    /// Makes no output-size query, allocation or retry. Callers must zeroize the
+    /// entire output on failure, including any bytes written before the error.
+    pub fn decrypt_final_into(&self, output: &mut [u8]) -> Result<usize> {
+        let mut written = output.len().try_into()?;
+        unsafe {
+            Rv::from(get_pkcs11!(self.client(), C_DecryptFinal)(
+                self.handle(),
+                output.as_mut_ptr(),
+                &mut written,
+            ))
+            .into_result(Function::DecryptFinal)?;
+        }
+        let written: usize = written.try_into()?;
+        if written > output.len() {
+            return Err(crate::error::Error::InvalidValue);
+        }
+        Ok(written)
+    }
 }
