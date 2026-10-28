@@ -14,6 +14,10 @@ pub struct MetadataModule {
 impl MetadataModule {
     /// Select opaque scalar patterns (0–2), malformed lengths (3–14), or a native error (15).
     pub fn new(fault: u8) -> Self {
+        Self::from_source("opaque_metadata.c", fault)
+    }
+    /// Compile another metadata fixture using the same independent headers.
+    pub fn from_source(source: &str, fault: u8) -> Self {
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let dir = std::env::temp_dir().join(format!(
             "pkcs11-opaque-{}-{}",
@@ -43,7 +47,7 @@ impl MetadataModule {
             .arg(format!("-DFAULT={fault}"))
             .arg("-I")
             .arg(root.join("headers/3.2"))
-            .arg(root.join("opaque_metadata.c"))
+            .arg(root.join(source))
             .arg("-o")
             .arg(fixture.path())
             .output()

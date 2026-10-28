@@ -103,7 +103,10 @@ static CK_RV metadata_attributes(CK_SESSION_HANDLE s, CK_OBJECT_HANDLE h, CK_ATT
     }
     return status;
 }
-CK_RV C_GetFunctionList(CK_FUNCTION_LIST_PTR_PTR out) {
+#ifndef OPAQUE_FUNCTION_LIST
+#define OPAQUE_FUNCTION_LIST C_GetFunctionList
+#endif
+CK_RV OPAQUE_FUNCTION_LIST(CK_FUNCTION_LIST_PTR_PTR out) {
     functions.C_FindObjectsInit = metadata_find_init;
     functions.C_FindObjects = metadata_find;
     functions.C_GetAttributeValue = metadata_attributes;

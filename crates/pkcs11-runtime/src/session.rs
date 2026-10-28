@@ -146,6 +146,45 @@ impl<'m> Session<'m> {
             .get_session_info()
             .map_err(|e| self.failed("session info", e))
     }
+    /// Query provider-reported `CKS_LAST_VALIDATION_OK` flags in this session.
+    ///
+    /// Bits identify provider validations, including unknown bits. They describe
+    /// the last completed operation in this same session, not certification or
+    /// trust. Query immediately after the operation of interest. `None` means
+    /// the selected table, pointer or provider does not support the query;
+    /// `Some(0)` is an available zero value. Other native errors invalidate the
+    /// session and are not retried.
+    pub fn session_validation_flags(&self) -> Result<Option<u64>, Error> {
+        use cryptoki::{
+            context::Function,
+            error::{Error as NativeError, RvError},
+            session::ValidationFlagsType,
+        };
+        self.validate()?;
+        if !self
+            .token
+            .module
+            .supports_function(Function::GetSessionValidationFlags)
+        {
+            return Ok(None);
+        }
+        match self
+            .raw()?
+            .get_validation_flags(ValidationFlagsType::VALIDATION_OK)
+        {
+            Ok(bits) => {
+                // CK_FLAGS is 32 bits on Windows and 64 bits on 64-bit Unix.
+                #[allow(clippy::useless_conversion)]
+                let bits: u64 = bits.into();
+                Ok(Some(bits))
+            }
+            Err(NativeError::Pkcs11(
+                RvError::FunctionNotSupported,
+                Function::GetSessionValidationFlags,
+            )) => Ok(None),
+            Err(error) => Err(self.failed("session validation flags", error)),
+        }
+    }
     /// Apply an explicit authentication policy without storing PINs or retrying.
     ///
     /// USER/SO login state is shared by this application's sessions on the token.
@@ -371,6 +410,21 @@ impl Object<'_, '_> {
         self.session
             .raw()?
             .get_attributes(self.handle, types)
+            .map(AttributeValues)
+            .map_err(|e| self.session.failed("read attributes", e))
+    }
+    /// Read requested attributes with a per-attribute byte limit before native
+    /// allocation and decoding. Oversized or malformed native values invalidate
+    /// the session; changing lengths are not retried. Values remain redacted.
+    pub fn read_attributes_bounded(
+        &self,
+        types: &[AttributeType],
+        maximum: usize,
+    ) -> Result<AttributeValues, Error> {
+        self.session.validate()?;
+        self.session
+            .raw()?
+            .get_attributes_bounded(self.handle, types, maximum)
             .map(AttributeValues)
             .map_err(|e| self.session.failed("read attributes", e))
     }

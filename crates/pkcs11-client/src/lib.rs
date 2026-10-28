@@ -55,7 +55,9 @@ pub use pkcs11_runtime::{MlKemCapabilities, MlKemOperation, MlKemParameterSet, M
 mod object_locator;
 mod public_export;
 mod public_import;
+mod public_metadata;
 pub use public_import::{ClassicalPublicKey, ClassicalPublicKeyPurpose, PublicKeyImportRequest};
+pub use public_metadata::{PUBLIC_METADATA_FIELDS, PUBLIC_METADATA_MAX_ATTRIBUTE};
 mod random;
 mod signature_options;
 

@@ -187,3 +187,27 @@ fn opaque_key_types_do_not_enable_typed_operations() {
         module.finalize().unwrap();
     }
 }
+
+#[test]
+fn ordinary_attribute_reads_reject_an_oversized_success_length_before_decoding() {
+    let fixture = MetadataModule::from_source("public_metadata.c", 7);
+    let module = Module::load(fixture.path()).unwrap();
+    let token = module
+        .resolve_token_uri(&"pkcs11:token=cmac".parse().unwrap())
+        .unwrap();
+    let mut session = token.open_session(SessionMode::ReadOnly).unwrap();
+    {
+        let objects = session.find_objects(&[Attribute::Id(vec![1])]).unwrap();
+        assert!(matches!(
+            objects[0].read_attributes(&[AttributeType::UniqueId]),
+            Err(Error::Backend {
+                source: cryptoki::error::Error::InvalidValue,
+                ..
+            })
+        ));
+    }
+    assert!(matches!(session.info(), Err(Error::Closed)));
+    session.close().unwrap();
+    drop(token);
+    module.finalize().unwrap();
+}

@@ -141,6 +141,20 @@ protect such data and must not log it. Templates and values are never logged by
 the runtime. Errors retain operation and upstream return-value context without
 formatting upstream input buffers in Debug.
 
+`Object::read_attributes_bounded` applies a caller-supplied byte limit to each
+attribute before allocation. Returned lengths must fit the allocated buffers;
+length growth is not retried. Malformed scalars, oversized values and provider
+failures invalidate the session. Validation versions require exactly two bytes.
+
+`Session::session_validation_flags` queries `CKS_LAST_VALIDATION_OK` through the
+selected 3.2 table. It returns the provider's full numeric flags, including unknown
+bits. `None` means an older table, missing pointer or unsupported native query;
+`Some(0)` is an available zero. Other native errors invalidate the session. Query
+immediately after the operation of interest in the same session. Flags from a
+fresh session do not describe another session's operations. They do not establish
+independent validation, certification or trust. See specification sections
+[4.15.3 and 5.6.11](https://docs.oasis-open.org/pkcs11/pkcs11-spec/v3.2/pkcs11-spec-v3.2.pdf).
+
 ## Authentication and concurrency
 
 Authentication explicitly supports no state change, USER login, SO login and

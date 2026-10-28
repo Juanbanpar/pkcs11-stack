@@ -281,6 +281,24 @@ They do not enable typed key import, export or cryptographic operations. Raw pub
 certificate/data export retains its existing behavior. Classes outside RFC 7512's
 object types have no object locator; they remain visible through `objects`.
 
+`public_metadata` reads a bounded public inspection profile for one object;
+`public_object_metadata` also includes profile and validation objects without
+inventing RFC 7512 selectors. Both query optional attributes regardless of the
+selected interface version. The profile includes unique IDs, public-key-info,
+profile IDs, validation metadata and numeric object validation flags, with a
+65,536-byte limit per attribute. Empty values remain available; sensitive,
+unsupported and unavailable statuses remain distinct. Nonempty public-key-info
+must parse as SPKI DER, including for unknown algorithms; malformed DER returns
+`InvalidPublicKey` without changing session health. Native length/scalar errors
+invalidate the session. No secret values or nested templates are requested, and
+URI metadata is never fetched. Unique IDs do not replace CKA_ID association or
+existing selector rules. `PUBLIC_METADATA_FIELDS` lists the profile's names.
+
+`ManagementSession::session_validation_flags` queries the provider's last-operation
+flags before closing that session. `None` is unavailable and `Some(0)` is reported
+zero; unknown bits survive. Query immediately after the operation of interest.
+Validation objects and flags are provider reports, not independent trust decisions.
+
 `object_locator(&token, &attributes)` builds an object URI from available class,
 label and CKA_ID reads. Empty label/ID bytes remain exact constraints; token and
 module-path constraints are preserved. It returns `None` for missing identity,

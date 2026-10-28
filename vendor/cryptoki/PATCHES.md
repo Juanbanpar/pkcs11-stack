@@ -9,6 +9,12 @@ Published crate SHA-256:
 
 Local changes:
 
+- `src/session/object_management.rs`: add per-attribute bounded reads, and reject
+  returned lengths exceeding allocated buffers before decoding, including when a
+  provider incorrectly returns success. Existing reads use the same length checks.
+- `src/object.rs`: decode validation versions from exactly two bytes, rejecting
+  short and oversized values instead of indexing unchecked bytes.
+
 - `src/object.rs`: preserve unknown numeric object, key, certificate, profile,
   validation and validation-authority types. Display vendor key types numerically
   instead of the literal `key_type`. Native metadata fixtures check decoding,

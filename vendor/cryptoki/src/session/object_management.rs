@@ -527,6 +527,18 @@ impl Session {
         object: ObjectHandle,
         attributes: &[AttributeType],
     ) -> Result<Vec<Attribute>> {
+        self.get_attributes_bounded(object, attributes, usize::MAX)
+    }
+
+    /// Read attributes with a per-attribute allocation limit, checked before
+    /// allocation and after each native call. Changing lengths are not retried.
+    /// Oversized values return `InvalidValue`; malformed values fail decoding.
+    pub fn get_attributes_bounded(
+        &self,
+        object: ObjectHandle,
+        attributes: &[AttributeType],
+        maximum: usize,
+    ) -> Result<Vec<Attribute>> {
         // Step 1: Build pass1 template
         // - Pre-allocate buffers for attributes with known fixed size
         // - Use NULL pointers for all other attributes to query their size
@@ -535,6 +547,9 @@ impl Session {
 
         for attr_type in attributes.iter() {
             if let Some(size) = attr_type.fixed_size() {
+                if size > maximum {
+                    return Err(Error::InvalidValue);
+                }
                 // We know the needed size, we allocate
                 let buffer = vec![0u8; size];
                 template1.push(CK_ATTRIBUTE {
@@ -584,7 +599,12 @@ impl Session {
             if attr.ulValueLen == CK_UNAVAILABLE_INFORMATION {
                 // Skip unavailable attributes
                 continue;
-            } else if attr.pValue.is_null() {
+            }
+            let length: usize = attr.ulValueLen.try_into()?;
+            if length > maximum {
+                return Err(Error::InvalidValue);
+            }
+            if attr.pValue.is_null() {
                 // NULL pointer - needs fetching in pass2
                 // Note: even if ulValueLen is 0, we still need to fetch as 0 length attributes are legit
                 pass2_indices.push(i);
@@ -640,6 +660,10 @@ impl Session {
                 // Add indices satisfied by pass2 into pass1_indices
                 for (i, &idx) in pass2_indices.iter().enumerate() {
                     if template2[i].ulValueLen != CK_UNAVAILABLE_INFORMATION {
+                        let length: usize = template2[i].ulValueLen.try_into()?;
+                        if length > buffers[idx].len() || length > maximum {
+                            return Err(Error::InvalidValue);
+                        }
                         pass1_indices.push(idx);
                     }
                 }

@@ -61,6 +61,13 @@ pub struct PoolDiagnostic {
     pub session_state: SessionState,
 }
 impl ManagementSession<'_> {
+    /// Provider-reported flags for the last completed operation in this session.
+    /// `None` is unavailable; `Some(0)` is a reported zero. Unknown bits survive.
+    /// Query immediately after the operation of interest, before closing its
+    /// session. This is not an independent validation or trust decision.
+    pub fn session_validation_flags(&self) -> Result<Option<u64>, Error> {
+        Ok(self.session.session_validation_flags()?)
+    }
     /// Advisory native verification choices, shared by application frontends.
     pub fn verification_options(
         &mut self,

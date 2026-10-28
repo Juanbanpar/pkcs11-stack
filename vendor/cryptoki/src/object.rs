@@ -1257,7 +1257,8 @@ impl TryFrom<CK_ATTRIBUTE> for Attribute {
                 CK_VALIDATION_AUTHORITY_TYPE::from_ne_bytes(val.try_into()?).try_into()?,
             )),
             AttributeType::ValidationVersion => {
-                Ok(Attribute::ValidationVersion(Version::new(val[0], val[1])))
+                let [major, minor]: [u8; size_of::<CK_VERSION>()] = val.try_into()?;
+                Ok(Attribute::ValidationVersion(Version::new(major, minor)))
             }
             AttributeType::AllowedMechanisms => {
                 if val.len() % size_of::<CK_MECHANISM_TYPE>() != 0 {
