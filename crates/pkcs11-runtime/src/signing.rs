@@ -12,7 +12,7 @@ use cryptoki::{
     session::UserType,
 };
 use pkcs11_locator::Pkcs11Uri;
-use sha2::{Digest, Sha256, Sha384, Sha512};
+use sha2::{Digest, Sha224, Sha256, Sha384, Sha512};
 use std::borrow::Cow;
 
 macro_rules! reference {
@@ -54,6 +54,8 @@ reference!(
 /// Supported SHA-2 digests.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DigestAlgorithm {
+    /// SHA-224; signatures require explicit inclusion in the signing policy.
+    Sha224,
     /// SHA-256.
     Sha256,
     /// SHA-384.
@@ -65,6 +67,7 @@ impl DigestAlgorithm {
     /// Digest length in bytes.
     pub fn output_len(self) -> usize {
         match self {
+            Self::Sha224 => 28,
             Self::Sha256 => 32,
             Self::Sha384 => 48,
             Self::Sha512 => 64,
@@ -72,6 +75,7 @@ impl DigestAlgorithm {
     }
     fn mechanism(self) -> MechanismType {
         match self {
+            Self::Sha224 => MechanismType::SHA224,
             Self::Sha256 => MechanismType::SHA256,
             Self::Sha384 => MechanismType::SHA384,
             Self::Sha512 => MechanismType::SHA512,
@@ -79,6 +83,7 @@ impl DigestAlgorithm {
     }
     fn mgf(self) -> PkcsMgfType {
         match self {
+            Self::Sha224 => PkcsMgfType::MGF1_SHA224,
             Self::Sha256 => PkcsMgfType::MGF1_SHA256,
             Self::Sha384 => PkcsMgfType::MGF1_SHA384,
             Self::Sha512 => PkcsMgfType::MGF1_SHA512,
@@ -86,6 +91,7 @@ impl DigestAlgorithm {
     }
     fn hash(self, data: &[u8]) -> Vec<u8> {
         match self {
+            Self::Sha224 => Sha224::digest(data).to_vec(),
             Self::Sha256 => Sha256::digest(data).to_vec(),
             Self::Sha384 => Sha384::digest(data).to_vec(),
             Self::Sha512 => Sha512::digest(data).to_vec(),
@@ -159,7 +165,8 @@ pub struct SigningPolicy {
     pub algorithms: Vec<SignatureAlgorithm>,
     /// Allowed named EC curves.
     pub curves: Vec<NamedCurve>,
-    /// Allowed message and MGF1 digests.
+    /// Allowed message and MGF1 digests. Defaults to SHA-256/384/512;
+    /// add SHA-224 explicitly when required for interoperability.
     pub digests: Vec<DigestAlgorithm>,
 }
 impl Default for SigningPolicy {
@@ -382,6 +389,7 @@ pub(crate) fn mechanism(
         SignatureAlgorithm::RsaPkcs1 => {
             if combined {
                 match request.digest {
+                    Sha224 => Mechanism::Sha224RsaPkcs,
                     Sha256 => Mechanism::Sha256RsaPkcs,
                     Sha384 => Mechanism::Sha384RsaPkcs,
                     Sha512 => Mechanism::Sha512RsaPkcs,
@@ -393,6 +401,7 @@ pub(crate) fn mechanism(
         SignatureAlgorithm::Ecdsa => {
             if combined {
                 match request.digest {
+                    Sha224 => Mechanism::EcdsaSha224,
                     Sha256 => Mechanism::EcdsaSha256,
                     Sha384 => Mechanism::EcdsaSha384,
                     Sha512 => Mechanism::EcdsaSha512,
@@ -415,6 +424,7 @@ pub(crate) fn mechanism(
             };
             if combined {
                 match request.digest {
+                    Sha224 => Mechanism::Sha224RsaPkcsPss(params),
                     Sha256 => Mechanism::Sha256RsaPkcsPss(params),
                     Sha384 => Mechanism::Sha384RsaPkcsPss(params),
                     Sha512 => Mechanism::Sha512RsaPkcsPss(params),
@@ -426,8 +436,9 @@ pub(crate) fn mechanism(
     })
 }
 fn digest_info(digest: DigestAlgorithm, data: &[u8]) -> Vec<u8> {
-    // DER DigestInfo for the three fixed SHA-2 OIDs, with explicit NULL parameters.
+    // DER DigestInfo for the fixed SHA-2 OIDs, with explicit NULL parameters.
     let (len, oid) = match digest {
+        DigestAlgorithm::Sha224 => (0x2d, 4),
         DigestAlgorithm::Sha256 => (0x31, 1),
         DigestAlgorithm::Sha384 => (0x41, 2),
         DigestAlgorithm::Sha512 => (0x51, 3),
@@ -561,12 +572,15 @@ pub(crate) fn supported_mechanism(m: MechanismType) -> bool {
         MechanismType::RSA_PKCS,
         MechanismType::RSA_PKCS_PSS,
         MechanismType::ECDSA,
+        MechanismType::SHA224_RSA_PKCS,
         MechanismType::SHA256_RSA_PKCS,
         MechanismType::SHA384_RSA_PKCS,
         MechanismType::SHA512_RSA_PKCS,
+        MechanismType::SHA224_RSA_PKCS_PSS,
         MechanismType::SHA256_RSA_PKCS_PSS,
         MechanismType::SHA384_RSA_PKCS_PSS,
         MechanismType::SHA512_RSA_PKCS_PSS,
+        MechanismType::ECDSA_SHA224,
         MechanismType::ECDSA_SHA256,
         MechanismType::ECDSA_SHA384,
         MechanismType::ECDSA_SHA512,

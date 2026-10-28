@@ -20,6 +20,7 @@ impl std::fmt::Display for OaepMgfChoice {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self.0 {
             None => "MGF1: match OAEP digest",
+            Some(DigestAlgorithm::Sha224) => "MGF1: SHA-224",
             Some(DigestAlgorithm::Sha256) => "MGF1: SHA-256",
             Some(DigestAlgorithm::Sha384) => "MGF1: SHA-384",
             Some(DigestAlgorithm::Sha512) => "MGF1: SHA-512",
@@ -35,6 +36,7 @@ impl std::fmt::Display for CipherChoice {
             CipherParameters::Oaep(choice) => choice,
         };
         f.write_str(match choice.digest {
+            DigestAlgorithm::Sha224 => "RSA-OAEP / SHA-224",
             DigestAlgorithm::Sha256 => "RSA-OAEP / SHA-256",
             DigestAlgorithm::Sha384 => "RSA-OAEP / SHA-384",
             DigestAlgorithm::Sha512 => "RSA-OAEP / SHA-512",

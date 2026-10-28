@@ -28,6 +28,7 @@ impl std::fmt::Display for SignatureChoice {
             SignatureAlgorithm::Ecdsa => "ECDSA",
         };
         let digest = match parameters.digest {
+            DigestAlgorithm::Sha224 => "SHA-224",
             DigestAlgorithm::Sha256 => "SHA-256",
             DigestAlgorithm::Sha384 => "SHA-384",
             DigestAlgorithm::Sha512 => "SHA-512",

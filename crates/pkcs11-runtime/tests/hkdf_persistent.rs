@@ -111,6 +111,7 @@ fn public_expected_stage(
             .collect::<String>()
     };
     let hash = match digest {
+        DigestAlgorithm::Sha224 => "SHA224",
         DigestAlgorithm::Sha256 => "SHA256",
         DigestAlgorithm::Sha384 => "SHA384",
         DigestAlgorithm::Sha512 => "SHA512",

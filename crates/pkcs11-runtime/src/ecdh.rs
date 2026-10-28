@@ -18,18 +18,21 @@ use cryptoki::{
 pub enum EcdhKdf {
     /// No KDF: preserve the complete raw shared secret for a later KDF.
     Null,
-    /// ANSI X9.63: Hash(Z || counter || shared info), with a big-endian counter.
+    /// ANSI X9.63 with SHA-256/384/512: Hash(Z || counter || shared info).
+    /// The counter is big-endian.
     X963(DigestAlgorithm),
-    /// NIST SP 800-56A: Hash(counter || Z || shared info).
+    /// NIST SP 800-56A with SHA-256/384/512: Hash(counter || Z || shared info).
     Sp80056a(DigestAlgorithm),
 }
 impl EcdhKdf {
     fn parameters(self, info: &[u8]) -> EcKdf<'_> {
         match self {
             Self::Null => EcKdf::null(),
+            Self::X963(DigestAlgorithm::Sha224) => EcKdf::sha224(info),
             Self::X963(DigestAlgorithm::Sha256) => EcKdf::sha256(info),
             Self::X963(DigestAlgorithm::Sha384) => EcKdf::sha384(info),
             Self::X963(DigestAlgorithm::Sha512) => EcKdf::sha512(info),
+            Self::Sp80056a(DigestAlgorithm::Sha224) => EcKdf::sha224_sp800(info),
             Self::Sp80056a(DigestAlgorithm::Sha256) => EcKdf::sha256_sp800(info),
             Self::Sp80056a(DigestAlgorithm::Sha384) => EcKdf::sha384_sp800(info),
             Self::Sp80056a(DigestAlgorithm::Sha512) => EcKdf::sha512_sp800(info),
@@ -96,6 +99,12 @@ impl EcdhKeyRequest<'_> {
     /// Validate shape, identity and size bounds without provider calls. Point
     /// membership must be checked by the caller; pkcs11-client validates SPKI input.
     pub fn validate(&self) -> Result<(), Error> {
+        if matches!(
+            self.kdf,
+            EcdhKdf::X963(DigestAlgorithm::Sha224) | EcdhKdf::Sp80056a(DigestAlgorithm::Sha224)
+        ) {
+            return Err(Error::InvalidParameters("ECDH digest"));
+        }
         validate_secret_identity(self.id, self.label)?;
         let point_length = match self.curve {
             NamedCurve::P256 => 65,

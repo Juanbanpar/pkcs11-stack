@@ -54,6 +54,7 @@ pub(crate) fn candidates(key: KeyKind) -> Vec<SignatureParameters> {
                 DigestAlgorithm::Sha256,
                 DigestAlgorithm::Sha384,
                 DigestAlgorithm::Sha512,
+                DigestAlgorithm::Sha224,
             ]
             .into_iter()
             .map(move |digest| SignatureParameters {
@@ -138,6 +139,15 @@ mod tests {
         assert_eq!(options(&caps, &policy).choices.len(), 3);
         caps.mechanisms[0].mechanism = MechanismType::SHA384_RSA_PKCS;
         assert!(options(&caps, &policy).always_authenticate);
+        caps.mechanisms[0].mechanism = MechanismType::SHA224_RSA_PKCS;
+        assert!(options(&caps, &policy).choices.is_empty());
+        policy.digests.push(DigestAlgorithm::Sha224);
+        let choices = options(&caps, &policy);
+        assert_eq!(choices.choices.len(), 1);
+        assert_eq!(
+            choices.choices[0].parameters.digest,
+            DigestAlgorithm::Sha224
+        );
         caps.can_sign = false;
         assert!(options(&caps, &policy).choices.is_empty());
     }

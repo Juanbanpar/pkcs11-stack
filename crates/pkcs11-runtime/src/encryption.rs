@@ -20,7 +20,7 @@ pub enum RsaCipherOperation {
     /// Decrypt using a private key with CKA_DECRYPT.
     Decrypt,
 }
-/// Explicit SHA-2 OAEP parameters. The label is public context, not sender
+/// Explicit SHA-256/384/512 OAEP parameters. The label is public context, not sender
 /// authentication; decryption must use the same digests and label as encryption.
 #[derive(Clone, Copy)]
 pub struct RsaOaepParameters<'a> {
@@ -48,8 +48,11 @@ impl RsaOaepParameters<'_> {
             label: &[],
         }
     }
-    /// Validate application bounds without accessing a provider.
+    /// Validate SHA-256/384/512 digest choices and application bounds without I/O.
     pub fn validate(&self) -> Result<(), Error> {
+        if self.digest == DigestAlgorithm::Sha224 || self.mgf_digest == DigestAlgorithm::Sha224 {
+            return Err(Error::InvalidParameters("OAEP digest"));
+        }
         if self.label.len() > 4096 {
             return Err(Error::InvalidParameters("OAEP label length"));
         }
@@ -77,11 +80,13 @@ impl RsaOaepCapabilities {
 }
 fn mechanism<'a>(parameters: &RsaOaepParameters<'a>) -> Mechanism<'a> {
     let hash = match parameters.digest {
+        DigestAlgorithm::Sha224 => MechanismType::SHA224,
         DigestAlgorithm::Sha256 => MechanismType::SHA256,
         DigestAlgorithm::Sha384 => MechanismType::SHA384,
         DigestAlgorithm::Sha512 => MechanismType::SHA512,
     };
     let mgf = match parameters.mgf_digest {
+        DigestAlgorithm::Sha224 => PkcsMgfType::MGF1_SHA224,
         DigestAlgorithm::Sha256 => PkcsMgfType::MGF1_SHA256,
         DigestAlgorithm::Sha384 => PkcsMgfType::MGF1_SHA384,
         DigestAlgorithm::Sha512 => PkcsMgfType::MGF1_SHA512,

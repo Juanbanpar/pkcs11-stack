@@ -3,7 +3,7 @@
 use pkcs11_client::*;
 use pkcs11_runtime::Error as RuntimeError;
 use secrecy::SecretString;
-use sha2::{Digest, Sha256, Sha384, Sha512};
+use sha2::{Digest, Sha224, Sha256, Sha384, Sha512};
 use std::{num::NonZeroUsize, path::PathBuf, process::Command};
 
 fn uri(label: &str, class: &str) -> Pkcs11Uri {
@@ -20,6 +20,12 @@ fn connect(module: &Module, hashing: HashingPolicy) -> Client<'_> {
         &"pkcs11:token=client-test".parse().unwrap(),
         NonZeroUsize::new(2).unwrap(),
         SigningPolicy {
+            digests: vec![
+                DigestAlgorithm::Sha256,
+                DigestAlgorithm::Sha384,
+                DigestAlgorithm::Sha512,
+                DigestAlgorithm::Sha224,
+            ],
             hashing,
             ..SigningPolicy::default()
         },
@@ -150,6 +156,25 @@ fn application_workflows() {
         let cert = client.certificate(uri(label, "cert"), auth(&pin)).unwrap();
         identities.push(client.bind_identity(key, cert, auth(&pin), None).unwrap());
     }
+    let sha224 = Client::connect(
+        &module,
+        &"pkcs11:token=client-test".parse().unwrap(),
+        NonZeroUsize::new(1).unwrap(),
+        SigningPolicy {
+            hashing: HashingPolicy::SoftwareOnly,
+            digests: vec![DigestAlgorithm::Sha224],
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let sha224_key = sha224
+        .private_key(uri("rsa", "private"), auth(&pin))
+        .unwrap();
+    let sha224_cert = sha224.certificate(uri("rsa", "cert"), auth(&pin)).unwrap();
+    sha224
+        .bind_identity(sha224_key, sha224_cert, auth(&pin), None)
+        .unwrap();
+    sha224.close().unwrap();
     let message = b"application signing round trip";
     for identity in &identities {
         let rsa = matches!(identity.certificate().key_kind(), KeyKind::Rsa { .. });
@@ -159,11 +184,13 @@ fn application_workflows() {
             &[SignatureAlgorithm::Ecdsa]
         };
         for digest in [
+            DigestAlgorithm::Sha224,
             DigestAlgorithm::Sha256,
             DigestAlgorithm::Sha384,
             DigestAlgorithm::Sha512,
         ] {
             let hash = match digest {
+                DigestAlgorithm::Sha224 => Sha224::digest(message).to_vec(),
                 DigestAlgorithm::Sha256 => Sha256::digest(message).to_vec(),
                 DigestAlgorithm::Sha384 => Sha384::digest(message).to_vec(),
                 DigestAlgorithm::Sha512 => Sha512::digest(message).to_vec(),

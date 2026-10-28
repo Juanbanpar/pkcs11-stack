@@ -69,6 +69,7 @@ fn expected(
         "mac:HMAC",
         "-kdfopt",
         match digest {
+            DigestAlgorithm::Sha224 => "digest:SHA224",
             DigestAlgorithm::Sha256 => "digest:SHA256",
             DigestAlgorithm::Sha384 => "digest:SHA384",
             DigestAlgorithm::Sha512 => "digest:SHA512",

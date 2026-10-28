@@ -284,6 +284,7 @@ fn binding_request(
             DigestAlgorithm::Sha256,
             DigestAlgorithm::Sha384,
             DigestAlgorithm::Sha512,
+            DigestAlgorithm::Sha224,
         ] {
             let request = SignRequest {
                 algorithm,
@@ -339,6 +340,11 @@ mod tests {
         capabilities.mechanisms[0].mechanism = MechanismType::RSA_PKCS;
         policy.hashing = HashingPolicy::SoftwareOnly;
         binding_request(&capabilities, &policy).unwrap();
+        policy.digests = vec![DigestAlgorithm::Sha224];
+        assert_eq!(
+            binding_request(&capabilities, &policy).unwrap().digest,
+            DigestAlgorithm::Sha224
+        );
         capabilities.always_authenticate = true;
         let request = binding_request(&capabilities, &policy).unwrap();
         assert!(

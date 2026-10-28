@@ -24,3 +24,8 @@ preserve the signed message, certificates and signatures byte for byte.
 `mlkem512.spki.der`, `mlkem768.spki.der` and `mlkem1024.spki.der` are RFC 9935
 public keys generated with OpenSSL 3.5.9 by `tools/generate-ml-kem-fixtures.sh`.
 The generator removes its temporary private keys on exit.
+
+The `sha224/` fixtures cover SHA-224 with RSA PKCS#1 v1.5, RSA-PSS and
+P-256/P-384/P-521. Regenerate with `tools/generate-client-fixtures.sh sha224`;
+this keeps existing fixtures intact. The same signature formats and 20-byte PSS
+salt apply. Generated with OpenSSL 3.5.9.

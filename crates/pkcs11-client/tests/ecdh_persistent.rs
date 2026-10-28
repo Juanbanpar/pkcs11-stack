@@ -7,7 +7,7 @@ use pkcs11_client::{
 };
 use pkcs11_runtime::{Attribute, AttributeInfo, AttributeType, KeyType, Module, ObjectClass};
 use secrecy::SecretString;
-use sha2::{Digest, Sha256, Sha384, Sha512};
+use sha2::{Digest, Sha224, Sha256, Sha384, Sha512};
 use std::{path::PathBuf, process::Command};
 
 fn reference(id: &[u8], kind: &str) -> ObjectRef {
@@ -29,6 +29,7 @@ fn openssl(args: &[&str]) -> Vec<u8> {
 }
 fn hash(digest: DigestAlgorithm, input: &[u8]) -> Vec<u8> {
     match digest {
+        DigestAlgorithm::Sha224 => Sha224::digest(input).to_vec(),
         DigestAlgorithm::Sha256 => Sha256::digest(input).to_vec(),
         DigestAlgorithm::Sha384 => Sha384::digest(input).to_vec(),
         DigestAlgorithm::Sha512 => Sha512::digest(input).to_vec(),

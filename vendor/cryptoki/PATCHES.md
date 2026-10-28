@@ -62,6 +62,8 @@ Local changes:
 - `src/session/decryption.rs`: expose bounded single-part completion after
   explicit initialization and context login. Output storage uses SecretBox before
   the native call so failed plaintext buffers zeroize as well as successful ones.
+- `src/mechanism/mod.rs`: add combined SHA-224 RSA-PSS with native PSS
+  parameters and named reverse conversions for SHA-224 signature/hash IDs.
 - `rustfmt.toml`: retain upstream's 2021 formatting independently of the workspace.
 
 The workspace uses this path dependency, including from the separate fuzz

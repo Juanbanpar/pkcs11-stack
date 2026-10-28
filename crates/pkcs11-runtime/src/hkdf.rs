@@ -129,6 +129,9 @@ impl HkdfRequest<'_> {
     }
     /// Validate the default extract-and-expand profile without I/O.
     pub fn validate(&self) -> Result<(), Error> {
+        if self.digest == DigestAlgorithm::Sha224 {
+            return Err(Error::InvalidParameters("HKDF digest"));
+        }
         validate_secret_identity(self.id, self.label)?;
         if self.salt.len() > 4096 || self.info.len() > 4096 {
             return Err(Error::InvalidParameters("HKDF salt or info length"));
@@ -225,6 +228,9 @@ impl Session<'_> {
         base: &ObjectRef,
         digest: DigestAlgorithm,
     ) -> Result<HkdfCapabilities, Error> {
+        if digest == DigestAlgorithm::Sha224 {
+            return Err(Error::UnsupportedKeyOperation);
+        }
         let profile = capabilities(&self.resolve(base)?)?;
         if profile.digest != digest {
             return Err(Error::UnsupportedKeyOperation);
@@ -315,6 +321,7 @@ impl Session<'_> {
             None
         };
         let hash = match request.digest {
+            DigestAlgorithm::Sha224 => MechanismType::SHA224,
             DigestAlgorithm::Sha256 => MechanismType::SHA256,
             DigestAlgorithm::Sha384 => MechanismType::SHA384,
             DigestAlgorithm::Sha512 => MechanismType::SHA512,

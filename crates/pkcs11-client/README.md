@@ -178,6 +178,13 @@ computed digest, distinct from a message that still needs hashing.
 
 ## Identity association and verification
 
+SHA-224 RSA PKCS#1 v1.5, RSA-PSS and ECDSA require adding
+`DigestAlgorithm::Sha224` to `SigningPolicy::digests`. The default policy stays
+SHA-256/384/512. Certificate verification accepts SHA-224 for messages and exact
+28-byte prehashes; software PSS verification requires matching message/MGF digests.
+Binding probes try SHA-224 after existing choices when policy permits it.
+OAEP, HKDF, SP800-108 and ECDH KDF profiles remain SHA-256/384/512.
+
 `Client::signing_options` offers common SHA-2 message-signing choices under current
 key capabilities and the client's policy, including the planned mechanism and
 hashing boundary. PSS choices use a matching MGF1 digest and digest-length salt.
@@ -206,7 +213,7 @@ are rejected. `der` retains the certificate; `spki_der` exposes its public key.
 then verifies the result with the selected certificate. It does not infer a
 binding from matching labels or IDs. This also works when a token does not expose
 its EC private key's public point. Binding uses the client's policy, tries plans
-in RSA-PSS / PKCS#1 order (ECDSA for EC), then SHA-256 / SHA-384 / SHA-512, with PSS
+in RSA-PSS / PKCS#1 order (ECDSA for EC), then SHA-256 / SHA-384 / SHA-512 / SHA-224, with PSS
 salt length equal to digest length. Exactly one selected token operation executes.
 No permitted probe produces `NoBindingMechanism`.
 

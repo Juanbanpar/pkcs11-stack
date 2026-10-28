@@ -252,6 +252,7 @@ fn software_token_oaep_interoperability_permissions_and_file_failures() {
     let mut supported = 0;
     for choice in choices {
         let digest = match choice.digest {
+            DigestAlgorithm::Sha224 => "sha224",
             DigestAlgorithm::Sha256 => "sha256",
             DigestAlgorithm::Sha384 => "sha384",
             DigestAlgorithm::Sha512 => "sha512",

@@ -268,7 +268,10 @@ when a combined mechanism is unavailable; `SoftwareOnly` explicitly selects it.
 again. These caller-provided digests already crossed a software hashing boundary.
 PSS always requires explicit salt and MGF1 parameters. RSA raw PKCS#1 v1.5 includes
 DigestInfo; ECDSA returns fixed-width `r || s` for P-256/P-384/P-521, without DER
-conversion. SHA-256/384/512 are supported. Signing input Debug redacts bytes; PINs
+conversion. SHA-256/384/512 are enabled by default. Add `DigestAlgorithm::Sha224`
+to `SigningPolicy::digests` to permit SHA-224 signatures and MGF1 explicitly;
+SHA-224 prehashes contain exactly 28 bytes. OAEP and KDF profiles remain
+SHA-256/384/512. Signing input Debug redacts bytes; PINs
 stay borrowed SecretStrings. Message/digest buffers are not zeroizing storage.
 
 `PrivateKeyRef`, `PublicKeyRef` and `CertificateRef` require explicit URI classes.

@@ -269,3 +269,154 @@ fn typed_references_and_inputs_keep_identity_and_redaction() {
     let req = request(SignInput::Message(b"signing-canary"));
     assert!(!format!("{req:?}").contains("signing-canary"));
 }
+
+#[test]
+fn sha224_is_explicit_and_respects_hashing_permissions_and_pss_bounds() {
+    for (algorithm, combined, raw, kind) in [
+        (
+            SignatureAlgorithm::RsaPkcs1,
+            MechanismType::SHA224_RSA_PKCS,
+            MechanismType::RSA_PKCS,
+            KeyKind::Rsa { bits: 2048 },
+        ),
+        (
+            SignatureAlgorithm::RsaPss,
+            MechanismType::SHA224_RSA_PKCS_PSS,
+            MechanismType::RSA_PKCS_PSS,
+            KeyKind::Rsa { bits: 2048 },
+        ),
+        (
+            SignatureAlgorithm::Ecdsa,
+            MechanismType::ECDSA_SHA224,
+            MechanismType::ECDSA,
+            KeyKind::Ec(NamedCurve::P256),
+        ),
+    ] {
+        let mut caps = rsa(&[combined, raw]);
+        caps.key = kind;
+        caps.mechanisms
+            .iter_mut()
+            .for_each(|m| m.minimum_bits = 256);
+        let mut req = SignRequest {
+            algorithm,
+            digest: DigestAlgorithm::Sha224,
+            input: SignInput::Message(b"abc"),
+            pss: (algorithm == SignatureAlgorithm::RsaPss).then_some(PssParameters {
+                mgf_digest: DigestAlgorithm::Sha224,
+                salt_len: 28,
+            }),
+        };
+        let mut policy = SigningPolicy::default();
+        assert!(caps.plan(&req, &policy).is_err());
+        policy.digests.push(DigestAlgorithm::Sha224);
+        assert_eq!(caps.plan(&req, &policy).unwrap().mechanism(), combined);
+        caps.allowed_mechanisms = Some(vec![raw]);
+        assert!(caps.plan(&req, &policy).is_err());
+        policy.hashing = HashingPolicy::AllowSoftware;
+        assert_eq!(
+            caps.plan(&req, &policy).unwrap().hash_location(),
+            HashLocation::Software
+        );
+        for length in [0, 27, 29, 32] {
+            let digest = vec![0; length];
+            let req = SignRequest {
+                input: SignInput::Digest(&digest),
+                ..req
+            };
+            assert!(matches!(
+                caps.plan(&req, &policy),
+                Err(Error::InvalidParameters("digest length"))
+            ));
+        }
+        req.input = SignInput::Digest(&[0; 28]);
+        assert_eq!(
+            caps.plan(&req, &policy).unwrap().hash_location(),
+            HashLocation::Caller
+        );
+        caps.can_sign = false;
+        assert!(caps.plan(&req, &policy).is_err());
+        caps.can_sign = true;
+        if algorithm == SignatureAlgorithm::RsaPss {
+            req.pss.as_mut().unwrap().salt_len = 226;
+            assert!(caps.plan(&req, &policy).is_ok());
+            req.pss.as_mut().unwrap().salt_len = 227;
+            assert!(caps.plan(&req, &policy).is_err());
+            req.pss = None;
+            assert!(caps.plan(&req, &policy).is_err());
+            req.digest = DigestAlgorithm::Sha256;
+            req.input = SignInput::Digest(&[0; 32]);
+            req.pss = Some(PssParameters {
+                mgf_digest: DigestAlgorithm::Sha224,
+                salt_len: 20,
+            });
+            policy.digests.retain(|d| *d != DigestAlgorithm::Sha224);
+            assert!(caps.plan(&req, &policy).is_err());
+            policy.digests.push(DigestAlgorithm::Sha224);
+            assert!(caps.plan(&req, &policy).is_ok());
+        }
+    }
+}
+
+#[test]
+fn sha224_signatures_do_not_expand_cipher_or_kdf_profiles() {
+    assert!(
+        RsaOaepParameters::new(DigestAlgorithm::Sha224)
+            .validate()
+            .is_err()
+    );
+    let mut oaep = RsaOaepParameters::new(DigestAlgorithm::Sha256);
+    oaep.mgf_digest = DigestAlgorithm::Sha224;
+    assert!(oaep.validate().is_err());
+    let hkdf = HkdfRequest {
+        digest: DigestAlgorithm::Sha224,
+        salt: &[],
+        info: &[],
+        output: HkdfOutput::DerivationSecret { length: 28 },
+        id: b"id",
+        label: b"label",
+    };
+    for mode in [
+        HkdfMode::ExtractAndExpand,
+        HkdfMode::ExtractOnly,
+        HkdfMode::ExpandOnly,
+    ] {
+        assert!(hkdf.validate_for_mode(mode).is_err());
+    }
+    let kbkdf = KbkdfRequest {
+        digest: DigestAlgorithm::Sha224,
+        kdf_label: &[],
+        context: &[],
+        output: KbkdfOutput::DerivationSecret { length: 28 },
+        id: b"id",
+        label: b"label",
+    };
+    for mode in [KbkdfMode::Counter, KbkdfMode::Feedback] {
+        assert!(kbkdf.validate_with_mode(mode, &[]).is_err());
+    }
+    assert!(
+        !KbkdfCapabilities {
+            input_length: 32,
+            sha256: true,
+            sha384: true,
+            sha512: true
+        }
+        .supports(DigestAlgorithm::Sha224)
+    );
+    for kdf in [
+        EcdhKdf::X963(DigestAlgorithm::Sha224),
+        EcdhKdf::Sp80056a(DigestAlgorithm::Sha224),
+    ] {
+        let mut point = [0; 65];
+        point[0] = 4;
+        let request = EcdhKeyRequest {
+            curve: NamedCurve::P256,
+            peer: &point,
+            kdf,
+            shared_info: &[],
+            output: EcdhOutput::DerivationSecret { length: 28 },
+            id: b"id",
+            label: b"label",
+        };
+        assert!(request.validate().is_err());
+    }
+}
