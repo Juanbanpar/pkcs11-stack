@@ -39,6 +39,8 @@ pub use mac::{MacGeneration, MacVerification};
 mod hybrid;
 mod key_operations;
 mod ml_dsa;
+mod ml_dsa_stream;
+pub use ml_dsa_stream::{MlDsaParameters, MlDsaSigningOperation};
 mod ml_kem;
 pub use encryption::{RsaCipherOperation, RsaOaepCapabilities, RsaOaepParameters};
 pub use hkdf::{HkdfCapabilities, HkdfMode, HkdfOutput, HkdfRequest};

@@ -2,8 +2,8 @@
 //! ML-DSA runtime execution against the required disposable PQC provider.
 use pkcs11_runtime::{
     Attribute, AttributeInfo, AttributeType, Authentication, Error, MechanismType, MlDsaHedging,
-    MlDsaParameterSet, MlDsaRequest, MlDsaSigningPolicy, Module, Pin, PrivateKeyRef, PublicKeyRef,
-    SessionMode,
+    MlDsaParameterSet, MlDsaParameters, MlDsaRequest, MlDsaSigningPolicy, Module, Pin,
+    PrivateKeyRef, PublicKeyRef, SessionMode,
 };
 use secrecy::SecretString;
 
@@ -153,6 +153,40 @@ fn ml_dsa_runtime_permissions_context_and_authentication() {
                 .sign_ml_dsa(&private, &request, &policy, context_pin())
                 .unwrap();
             assert_eq!(signature.len(), parameter.signature_length());
+            let streaming = session.ml_dsa_streaming_capabilities(&private).unwrap();
+            assert!(streaming.can_sign);
+            assert_eq!(streaming.always_authenticate, always_authenticate);
+            for hedging in [
+                MlDsaHedging::Required,
+                MlDsaHedging::Preferred,
+                MlDsaHedging::Deterministic,
+            ] {
+                let parameters = MlDsaParameters {
+                    parameter_set: parameter,
+                    context,
+                    hedging,
+                };
+                let mut operation = session
+                    .start_ml_dsa_signing(&private, parameters, &policy, context_pin())
+                    .unwrap();
+                operation.update(&[]).unwrap();
+                for chunk in request.message.chunks(3) {
+                    operation.update(chunk).unwrap();
+                }
+                let streamed = operation.finish().unwrap();
+                session.verify_ml_dsa(&public, &request, &streamed).unwrap();
+                if hedging == MlDsaHedging::Deterministic {
+                    let direct = session
+                        .sign_ml_dsa(
+                            &private,
+                            &parameters.request(request.message),
+                            &policy,
+                            context_pin(),
+                        )
+                        .unwrap();
+                    assert_eq!(streamed, direct);
+                }
+            }
             session
                 .verify_ml_dsa(&public, &request, &signature)
                 .unwrap();

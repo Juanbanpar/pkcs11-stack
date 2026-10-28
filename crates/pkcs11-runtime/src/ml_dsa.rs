@@ -128,7 +128,7 @@ impl MlDsaRequest<'_> {
     /// };
     /// let _mechanism = Mechanism::HashMlDsa(parameters);
     /// ```
-    fn mechanism(&self) -> Mechanism<'_> {
+    pub(crate) fn mechanism(&self) -> Mechanism<'_> {
         Mechanism::MlDsa(SignAdditionalContext::new(
             self.hedging.mechanism(),
             if self.context.is_empty() {
@@ -275,7 +275,7 @@ fn mechanism_support(
     )
 }
 
-fn capabilities(object: &Object<'_, '_>) -> Result<MlDsaCapabilities, Error> {
+pub(crate) fn capabilities(object: &Object<'_, '_>) -> Result<MlDsaCapabilities, Error> {
     let parameter_set = parameter_set(object, ObjectClass::PRIVATE_KEY)?;
     Ok(MlDsaCapabilities {
         parameter_set,
@@ -441,20 +441,23 @@ impl<'m> Session<'m> {
         let mechanism = request.mechanism();
         let raw = object.session.raw()?;
         object.session.healthy.set(false);
-        let signature = if capabilities.always_authenticate {
+        let mut signature = vec![0; request.parameter_set.signature_length()];
+        let written = if capabilities.always_authenticate {
             raw.sign_init(&mechanism, object.handle)
                 .map_err(|e| backend("ML-DSA sign init", e))?;
             raw.login(UserType::ContextSpecific, pin)
                 .map_err(|e| backend("ML-DSA context login", e))?;
             raw.sign_update(request.message)
                 .map_err(|e| backend("ML-DSA sign update", e))?;
-            raw.sign_final()
+            raw.sign_final_into(&mut signature)
                 .map_err(|e| backend("ML-DSA sign final", e))?
         } else {
-            raw.sign(&mechanism, object.handle, request.message)
+            raw.sign_init(&mechanism, object.handle)
+                .map_err(|e| backend("ML-DSA sign init", e))?;
+            raw.sign_initialized_into(request.message, &mut signature)
                 .map_err(|e| backend("ML-DSA sign", e))?
         };
-        if signature.len() != request.parameter_set.signature_length() {
+        if written != signature.len() {
             return Err(Error::InvalidSignature);
         }
         object.session.healthy.set(true);
