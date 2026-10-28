@@ -97,7 +97,7 @@ The 51 functions used by current workflows are:
 | Single/multipart public-data hashing | `C_DigestInit`, `C_Digest`, `C_DigestUpdate`, `C_DigestFinal` | Runtime `digest.rs`, client reader; native failure fixtures and OpenSSL comparisons. |
 | Single-part signatures/MACs | `C_SignInit`, `C_Sign`, `C_VerifyInit`, `C_Verify` | RSA/ECDSA, EdDSA, ML-DSA, HMAC and CMAC modules; permission, mismatch, context-login and output-bound tests. |
 | Selected generation, derivation and key transfer | `C_GenerateKey`, `C_GenerateKeyPair`, `C_DeriveKey`, `C_WrapKey`, `C_UnwrapKey` | Generation, ECDH/HKDF/SP800-108 and AES-KW/KWP modules; templates, duplicate IDs, RO rejection and provider comparisons. |
-| Multipart MACs and context-authenticated ML-DSA completion | `C_SignUpdate`, `C_SignFinal`, `C_VerifyUpdate`, `C_VerifyFinal` | Runtime/client exclusive full/general HMAC and AES-CMAC guards; zeroizing 64 KiB client readers. Independent 2.40/3.0/3.1/3.2 fixtures cover parameters, missing multipart pointers, independent permissions, fixed output, failures, explicit cancellation and abandoned sessions. SoftHSM/Kryoptic tags agree with OpenSSL across chunk boundaries and empty input; Kryoptic requires all ten HMAC hashes, general profiles, large readers and confirmed cancellation followed by new MACs. Existing ML-DSA always-authenticate signatures also use update/final. General signature streaming remains O1. |
+| Multipart signatures and MACs | `C_SignUpdate`, `C_SignFinal`, `C_VerifyUpdate`, `C_VerifyFinal` | Runtime/client exclusive full/general HMAC and AES-CMAC guards, plus RSA PKCS#1/PSS and named-curve ECDSA guards; zeroizing 64 KiB client readers. Independent 2.40/3.0/3.1/3.2 fixtures cover parameters, missing multipart pointers, independent permissions, fixed output, failures, explicit cancellation and abandoned sessions. SoftHSM/Kryoptic tags agree with OpenSSL across chunk boundaries and empty input; Kryoptic requires all ten HMAC hashes, general profiles, large readers and confirmed cancellation followed by new MACs. Existing ML-DSA always-authenticate signatures also use update/final. Classical signing follows token/software hashing policy with bounded output and context login after init; OpenSSL and client certificate checks cover all eight digests and empty/chunked/large input. Kryoptic ECDSA confirms cancellation and same-pool-session reuse. Pure EdDSA/ML-DSA streaming remains O1. |
 | O3 Implemented: explicit cancellation | `C_SessionCancel` | Runtime/client explicit flags and consuming digest guards. Independent 2.40/3.0/3.1/3.2 fixtures check exact/combined/empty flags, table/pointer gates, unsupported stubs, partial cancellation failure, pending/error results, no legacy fallback, discarded failures and confirmed pool reuse. Kryoptic proves active digest cancellation followed by a new digest; legacy providers require closure. |
 | Provider random generation | `C_GenerateRandom` | Runtime `session.rs`, client `random.rs`; length, permission and unavailable-provider tests. |
 | ML-KEM | `C_EncapsulateKey`, `C_DecapsulateKey` | Runtime/client ML-KEM, CLI/desktop exchange; required Kryoptic lane. |
@@ -112,7 +112,7 @@ minimum usable provider interface.
 
 | ID / status | First table | Functions | Acceptance criteria or scope gate |
 | --- | --- | --- | --- |
-| O1 Partial: streaming signatures/MACs | 2.40 | Covered above | Native full/general HMAC and AES-CMAC streaming is implemented in runtime/client; existing CLI/desktop MAC workflows remain single-part. Remaining: signature guards/readers with explicit hashing policy and context login after init, bounded output, independent provider agreement across chunk boundaries/empty input, read/update/final/drop failures and reusable completed mismatches. Preserve existing single-part APIs. |
+| O1 Partial: streaming signatures/MACs | 2.40 | Covered above | Runtime/client implement native full/general HMAC and AES-CMAC plus RSA PKCS#1/PSS and named-curve ECDSA streaming. Classical guards/readers preserve hashing policy, context login, bounded output and completed-mismatch reuse, with read/update/final/drop failure tests. Remaining: pure EdDSA/ML-DSA streaming and CLI/desktop file workflows. Preserve existing single-part APIs. |
 | O2 Planned: streaming encryption | 2.40 | `C_EncryptUpdate`, `C_EncryptFinal`, `C_DecryptUpdate`, `C_DecryptFinal` | Start with a real supported multipart mechanism. Define bounded output and authenticated-decryption commit behavior before exposing file streaming. Test split tags, empty chunks, final authentication failure, zeroization and unchanged destination on failed verification; no unauthenticated plaintext release. |
 | O4 Planned: named-user login | 3.0 | `C_LoginUser` | Explicit username/role/PIN input, redacted diagnostics, protected-path and token-wide authentication rules. Test wrong username/PIN, SO/RO conflicts and unavailable tables/pointers; no fallback to anonymous `C_Login` or second authentication attempt. |
 | O6 Deferred: signature-first verification | 3.2 | `C_VerifySignatureInit`, `C_VerifySignature`, `C_VerifySignatureUpdate`, `C_VerifySignatureFinal` | Add with an algorithm/workflow needing the signature before message input. Verify exact argument order and lifetime, streaming mismatches and cancellation against independent 3.2 headers and an implementing provider; do not alias the older verification API. |
@@ -163,12 +163,24 @@ requires all SHA-3 signature profiles across runtime/client/CLI/desktop. The
 packaged lane retains its existing provider subset; header and offline OpenSSL
 fixture tests cover every SHA-3 digest independently of provider availability.
 
+Signature streaming fixtures compile against all four supported header versions.
+They check context-login order, native PSS parameters, DigestInfo/digest bytes,
+missing raw/multipart pointers, hashing-policy selection before init, output bounds,
+protected paths, failed/abandoned operations and explicit cancellation. The upstream
+lane requires combined ECDSA multipart success; packaged 2.7.0 rc1 advertises combined
+ECDSA but rejects updates. That rejection must discard its session, while explicitly
+selected software hashing remains tested. A client binding test deliberately replaces
+the rsa key; streaming tests use the untouched wrong-key fixture and its own matching
+certificate. The Kryoptic build's ecc_min feature supplies ECDSA for cancellation and
+pool-reuse proof; RSA cancellation is checked by independent native fixtures.
+
 C1–C3 are implemented. C4/C5 require choosing an explicit profile and provider;
 L1 requires a concrete legacy interoperability requirement. Keep additions in
 signed atomic runtime/client and frontend commits with native/provider evidence.
 O3 is implemented for the currently supported synchronous operation classes.
-O1 MAC streaming follows the exclusive digest guard and cancellation tests.
-Signature streaming and O2 remain planned;
+O1 MAC and classical signature streaming follow the exclusive digest guard and
+cancellation tests. Pure EdDSA/ML-DSA streams, frontend file workflows and O2 remain
+planned;
 keep unconfirmed operations discarded on legacy providers. GMAC, additional
 SP800-108 modes/PRFs, PBKDF2, HashML-DSA/SLH-DSA and TLS extensions remain separate
 backlog items in the coverage table. Provider gaps do not justify implicit software

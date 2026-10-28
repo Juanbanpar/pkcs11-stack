@@ -9,6 +9,9 @@ pub enum Error {
     /// Reading input failed after a native MAC operation was initialized.
     #[error("MAC input could not be read")]
     MacInput,
+    /// Reading input failed after a signature operation was initialized.
+    #[error("signature input could not be read")]
+    SignatureInput,
     /// Reading input failed after a token digest operation was initialized.
     #[error("digest input could not be read")]
     DigestInput,
@@ -77,6 +80,7 @@ impl Error {
         match self {
             Self::DigestInput
             | Self::MacInput
+            | Self::SignatureInput
             | Self::UnsupportedExport
             | Self::InvalidRandomLength => ErrorKind::Input,
             Self::MissingAttributeStatus | Self::ProviderInUse => ErrorKind::Runtime,

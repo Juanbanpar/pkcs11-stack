@@ -53,6 +53,27 @@ Callers using `Pin::Value` also depend on `secrecy` 0.10. `Pin::ProtectedPath` i
 available when supported by the token. Always-authenticate keys need a separate
 `Some(Pin::Value(&pin))` or protected-path input to each binding/signing call.
 
+## Streaming RSA and ECDSA
+
+[`ManagementSession::start_signing`] and [`ManagementSession::start_verification`]
+return exclusive message-operation guards. [`ManagementSession::sign_reader`] and
+[`ManagementSession::verify_token_reader`] use zeroizing 64 KiB input buffers.
+[`SignatureParameters`] describes the algorithm, digest and explicit PSS parameters;
+[`SigningPolicy`] selects token or incremental software hashing before initialization.
+Streaming accepts messages only; existing single-part APIs also accept caller digests.
+
+Callers enforce their input budget and close sessions before publishing output when
+cleanup errors must be checked. Incomplete streams, read failures and native errors
+discard sessions. Completed verification mismatches permit reuse; consuming guard
+cancellation permits reuse only after confirmed native termination. Signing output
+is limited to 1024 bytes (RSA through 8192 bits, or P-256/P-384/P-521 r || s).
+These management APIs do not perform certificate binding or establish trust.
+
+Streaming capability queries are advisory. A combined mechanism and its entry points
+do not guarantee provider multipart support. Packaged SoftHSM 2.7.0 rc1 rejects
+combined ECDSA updates; choose software hashing explicitly or use a provider with
+multipart support. No failed native operation triggers a software retry.
+
 ## ML-DSA
 
 The client exposes pure ML-DSA-44/65/87 with a separate `MlDsaRequest` and explicit

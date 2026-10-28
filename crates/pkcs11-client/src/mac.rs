@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
+use crate::input::read_chunks;
 use crate::{AesCmacProfile, Error, HmacAlgorithm, HmacTagProfile, ManagementSession, ObjectRef};
-use secrecy::{ExposeSecret, ExposeSecretMut, SecretBox};
 use std::io::Read;
 
 /// Exclusively borrowed native MAC generator. Drop discards incomplete sessions.
@@ -39,23 +39,6 @@ impl MacVerification<'_> {
     /// Explicitly cancel once. Only confirmed native termination restores reuse.
     pub fn cancel(self) -> Result<(), Error> {
         Ok(self.0.cancel()?)
-    }
-}
-// Keep input and I/O diagnostics out of errors. Incomplete guards are discarded
-// by the caller on any read/update failure; Interrupted does not end the operation.
-fn read_chunks(
-    reader: &mut impl Read,
-    mut update: impl FnMut(&[u8]) -> Result<(), Error>,
-) -> Result<(), Error> {
-    let mut buffer = SecretBox::new(Box::new(vec![0; 64 * 1024]));
-    loop {
-        let length = match reader.read(buffer.expose_secret_mut()) {
-            Ok(0) => return Ok(()),
-            Ok(length) => length,
-            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
-            Err(_) => return Err(Error::MacInput),
-        };
-        update(&buffer.expose_secret()[..length])?;
     }
 }
 impl ManagementSession<'_> {
@@ -127,7 +110,7 @@ impl ManagementSession<'_> {
         reader: &mut impl Read,
     ) -> Result<Vec<u8>, Error> {
         let mut operation = self.start_hmac(key, algorithm, profile)?;
-        read_chunks(reader, |bytes| operation.update(bytes))?;
+        read_chunks(reader, |bytes| operation.update(bytes), Error::MacInput)?;
         operation.finish()
     }
     /// Verify a reader natively with the agreed HMAC profile, using a zeroizing
@@ -142,7 +125,7 @@ impl ManagementSession<'_> {
         tag: &[u8],
     ) -> Result<(), Error> {
         let mut operation = self.start_hmac_verification(key, algorithm, profile)?;
-        read_chunks(reader, |bytes| operation.update(bytes))?;
+        read_chunks(reader, |bytes| operation.update(bytes), Error::MacInput)?;
         operation.finish(tag)
     }
     /// Generate a native AES-CMAC using a zeroizing 64 KiB reader buffer. Empty
@@ -155,7 +138,7 @@ impl ManagementSession<'_> {
         reader: &mut impl Read,
     ) -> Result<Vec<u8>, Error> {
         let mut operation = self.start_aes_cmac(key, profile)?;
-        read_chunks(reader, |bytes| operation.update(bytes))?;
+        read_chunks(reader, |bytes| operation.update(bytes), Error::MacInput)?;
         operation.finish()
     }
     /// Verify a reader natively with the agreed AES-CMAC profile, using a zeroizing
@@ -169,7 +152,7 @@ impl ManagementSession<'_> {
         tag: &[u8],
     ) -> Result<(), Error> {
         let mut operation = self.start_aes_cmac_verification(key, profile)?;
-        read_chunks(reader, |bytes| operation.update(bytes))?;
+        read_chunks(reader, |bytes| operation.update(bytes), Error::MacInput)?;
         operation.finish(tag)
     }
 }

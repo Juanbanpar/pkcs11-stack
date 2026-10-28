@@ -1,28 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use crate::*;
 
-/// Owned parameters for a typed signing or verification request.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct SignatureParameters {
-    /// Signature family.
-    pub algorithm: SignatureAlgorithm,
-    /// SHA-2 or SHA-3 message digest.
-    pub digest: DigestAlgorithm,
-    /// Explicit PSS parameters; absent for other families.
-    pub pss: Option<PssParameters>,
-}
-impl SignatureParameters {
-    /// Borrow input without retaining its bytes.
-    pub fn request(self, input: SignInput<'_>) -> SignRequest<'_> {
-        SignRequest {
-            algorithm: self.algorithm,
-            digest: self.digest,
-            pss: self.pss,
-            input,
-        }
-    }
-}
-
 /// One advisory message-signing or native-verification choice under a policy.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SigningChoice {

@@ -66,8 +66,11 @@ mod public_import;
 mod public_metadata;
 pub use public_import::{ClassicalPublicKey, ClassicalPublicKeyPurpose, PublicKeyImportRequest};
 pub use public_metadata::{PUBLIC_METADATA_FIELDS, PUBLIC_METADATA_MAX_ATTRIBUTE};
+mod input;
 mod random;
 mod signature_options;
+mod signature_stream;
+pub use signature_stream::{SigningOperation, VerificationOperation};
 
 pub use certificate::{Certificate, CertificateDocument};
 pub use client::{Client, Identity};
@@ -79,13 +82,14 @@ pub use management::{
 pub use object_locator::object_locator;
 pub use pkcs11_locator::Pkcs11Uri;
 pub use pkcs11_runtime::{
-    Attribute, AttributeInfo, AttributeType, AttributeValues, Authentication, CertificateRef,
-    DigestAlgorithm, Function, HashLocation, HashingPolicy, InterfaceInfo, InterfaceSelection,
-    InterfaceVersion, KeyCapabilities, KeyKind, KeyType, LibraryInfo, MechanismInfo, MechanismType,
-    Module, ModuleOptions, NamedCurve, ObjectClass, ObjectRef, Pin, PrivateKeyRef, PssParameters,
-    PublicKeyMetadata, PublicKeyRef, SessionMode, SessionPool, SessionState, SignInput, SignPlan,
-    SignRequest, SignatureAlgorithm, SigningMechanism, SigningPolicy, SlotInfo, TokenInfo,
+    Attribute, AttributeInfo, AttributeType, AttributeValues, Authentication,
+    CLASSICAL_SIGNATURE_MAXIMUM_LENGTH, CertificateRef, DigestAlgorithm, Function, HashLocation,
+    HashingPolicy, InterfaceInfo, InterfaceSelection, InterfaceVersion, KeyCapabilities, KeyKind,
+    KeyType, LibraryInfo, MechanismInfo, MechanismType, Module, ModuleOptions, NamedCurve,
+    ObjectClass, ObjectRef, Pin, PrivateKeyRef, PssParameters, PublicKeyMetadata, PublicKeyRef,
+    SessionMode, SessionPool, SessionState, SignInput, SignPlan, SignRequest, SignatureAlgorithm,
+    SignatureParameters, SigningMechanism, SigningPolicy, SlotInfo, TokenInfo,
     VerificationCapabilities, VerifyRequest,
 };
 pub use random::{RandomBytes, RandomRequest};
-pub use signature_options::{SignatureParameters, SigningChoice, SigningOptions};
+pub use signature_options::{SigningChoice, SigningOptions};

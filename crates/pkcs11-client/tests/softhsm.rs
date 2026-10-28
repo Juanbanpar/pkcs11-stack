@@ -731,3 +731,216 @@ fn checked_client_shutdown_closes_idle_and_discarded_sessions_without_logout() {
     anchor.close().unwrap();
     provider.finalize().unwrap();
 }
+
+#[test]
+#[ignore = "requires the isolated SoftHSM runner"]
+fn streaming_signature_readers_policy_context_and_large_messages() {
+    use std::io::{self, Read};
+    struct Input<'a> {
+        bytes: &'a [u8],
+        maximum_buffer: usize,
+        interrupted: bool,
+    }
+    impl Read for Input<'_> {
+        fn read(&mut self, out: &mut [u8]) -> io::Result<usize> {
+            self.maximum_buffer = self.maximum_buffer.max(out.len());
+            if !self.interrupted {
+                self.interrupted = true;
+                return Err(io::ErrorKind::Interrupted.into());
+            }
+            let length = self.bytes.len().min(out.len()).min(31);
+            out[..length].copy_from_slice(&self.bytes[..length]);
+            self.bytes = &self.bytes[length..];
+            Ok(length)
+        }
+    }
+    assert_eq!(std::env::var("PKCS11_TEST_ISOLATED").as_deref(), Ok("1"));
+    let provider = Provider::load(std::env::var_os("PKCS11_TEST_MODULE").unwrap()).unwrap();
+    let pin = SecretString::from("12345678");
+    let token = "pkcs11:token=client-test".parse().unwrap();
+    let mut session = provider
+        .management(&token, SessionMode::ReadOnly, auth(&pin))
+        .unwrap();
+    let required_sha3 = std::env::var("PKCS11_TEST_REQUIRE_SHA3_SIGNATURES").as_deref() == Ok("1");
+    let required_ec = std::env::var("PKCS11_TEST_REQUIRE_EC_MULTIPART").as_deref() == Ok("1");
+    let message = vec![0xA5; 4097];
+    // The binding test replaces the rsa key while retaining its certificate.
+    // The separate wrong-key fixture retains its matching certificate.
+    for (label, algorithm) in [
+        ("wrong", SignatureAlgorithm::RsaPkcs1),
+        ("wrong", SignatureAlgorithm::RsaPss),
+        ("p256", SignatureAlgorithm::Ecdsa),
+        ("p384", SignatureAlgorithm::Ecdsa),
+        ("p521", SignatureAlgorithm::Ecdsa),
+        ("always", SignatureAlgorithm::RsaPkcs1),
+    ] {
+        let key = PrivateKeyRef::new(uri(label, "private")).unwrap();
+        let public = PublicKeyRef::new(uri(label, "public")).unwrap();
+        let certificate = Certificate::from_der(
+            session
+                .export_public(&object_reference(uri(label, "cert")).unwrap())
+                .unwrap(),
+        )
+        .unwrap();
+        for hashing in [
+            HashingPolicy::TokenOnly,
+            HashingPolicy::AllowSoftware,
+            HashingPolicy::SoftwareOnly,
+        ] {
+            for digest in [
+                DigestAlgorithm::Sha224,
+                DigestAlgorithm::Sha256,
+                DigestAlgorithm::Sha384,
+                DigestAlgorithm::Sha512,
+                DigestAlgorithm::Sha3_224,
+                DigestAlgorithm::Sha3_256,
+                DigestAlgorithm::Sha3_384,
+                DigestAlgorithm::Sha3_512,
+            ] {
+                if !required_sha3
+                    && matches!(
+                        digest,
+                        DigestAlgorithm::Sha3_224
+                            | DigestAlgorithm::Sha3_256
+                            | DigestAlgorithm::Sha3_384
+                            | DigestAlgorithm::Sha3_512
+                    )
+                {
+                    continue;
+                }
+                let mut policy = SigningPolicy {
+                    hashing,
+                    ..Default::default()
+                };
+                if !policy.digests.contains(&digest) {
+                    policy.digests.push(digest);
+                }
+                let parameters = SignatureParameters {
+                    algorithm,
+                    digest,
+                    pss: (algorithm == SignatureAlgorithm::RsaPss).then_some(PssParameters {
+                        mgf_digest: digest,
+                        salt_len: digest.output_len(),
+                    }),
+                };
+                let options = session.streaming_signing_options(&key, &policy).unwrap();
+                if !options
+                    .choices
+                    .iter()
+                    .any(|choice| choice.parameters == parameters)
+                {
+                    assert!(
+                        !required_ec
+                            && algorithm == SignatureAlgorithm::Ecdsa
+                            && hashing == HashingPolicy::TokenOnly,
+                        "required streaming profile {label} {digest:?} {hashing:?}"
+                    );
+                    continue;
+                }
+                if !required_ec
+                    && algorithm == SignatureAlgorithm::Ecdsa
+                    && options.choices.iter().any(|choice| {
+                        choice.parameters == parameters && choice.hashing == HashLocation::Token
+                    })
+                {
+                    // Runtime provider tests require the packaged single-part-only
+                    // ECDSA rejection; the upstream lane requires multipart success.
+                    continue;
+                }
+                assert_eq!(options.always_authenticate, label == "always");
+                assert!(
+                    session
+                        .streaming_verification_options(&public, &policy)
+                        .unwrap()
+                        .iter()
+                        .any(|choice| choice.parameters == parameters)
+                );
+                for message in [&[][..], &message[..]] {
+                    let mut reader = Input {
+                        bytes: message,
+                        maximum_buffer: 0,
+                        interrupted: false,
+                    };
+                    let context_pin = (label == "always").then_some(Pin::Value(&pin));
+                    let signature = session
+                        .sign_reader(&key, parameters, &policy, context_pin, &mut reader)
+                        .unwrap();
+                    assert_eq!(reader.maximum_buffer, 64 * 1024);
+                    assert!(reader.bytes.is_empty());
+                    certificate
+                        .verify_signature(
+                            &parameters.request(SignInput::Message(message)),
+                            &signature,
+                        )
+                        .unwrap_or_else(|error| panic!("label={label}, parameters={parameters:?}, hashing={hashing:?}, length={}: {error:?}", message.len()));
+                    let mut reader = Input {
+                        bytes: message,
+                        maximum_buffer: 0,
+                        interrupted: false,
+                    };
+                    session
+                        .verify_token_reader(&public, parameters, &policy, &mut reader, &signature)
+                        .unwrap();
+                    assert_eq!(reader.maximum_buffer, 64 * 1024);
+                    assert!(reader.bytes.is_empty());
+                    let mut altered = signature.clone();
+                    altered[0] ^= 1;
+                    let mut reader = Input {
+                        bytes: message,
+                        maximum_buffer: 0,
+                        interrupted: false,
+                    };
+                    assert!(matches!(
+                        session.verify_token_reader(
+                            &public,
+                            parameters,
+                            &policy,
+                            &mut reader,
+                            &altered
+                        ),
+                        Err(Error::SignatureMismatch)
+                    ));
+                    session.state().unwrap();
+                }
+                if label == "wrong"
+                    && algorithm == SignatureAlgorithm::RsaPkcs1
+                    && digest == DigestAlgorithm::Sha256
+                {
+                    let length = 17 * 1024 * 1024 + 3;
+                    let mut expected = Sha256::new();
+                    for _ in 0..272 {
+                        expected.update([0xA5; 65536]);
+                    }
+                    expected.update([0xA5; 3]);
+                    let expected = expected.finalize();
+                    let signature = session
+                        .sign_reader(
+                            &key,
+                            parameters,
+                            &policy,
+                            None,
+                            &mut std::io::repeat(0xA5).take(length),
+                        )
+                        .unwrap();
+                    certificate
+                        .verify_signature(
+                            &parameters.request(SignInput::Digest(&expected)),
+                            &signature,
+                        )
+                        .unwrap();
+                    session
+                        .verify_token_reader(
+                            &public,
+                            parameters,
+                            &policy,
+                            &mut std::io::repeat(0xA5).take(length),
+                            &signature,
+                        )
+                        .unwrap();
+                }
+            }
+        }
+    }
+    session.close().unwrap();
+    provider.finalize().unwrap();
+}

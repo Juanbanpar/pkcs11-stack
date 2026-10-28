@@ -82,6 +82,13 @@ and its key schedule run in the application's crypto provider; signing keys stay
 on the token. TLS use requires verification support from that provider. See the
 [signing and TLS examples](docs/examples.md) for runnable programs.
 
+Runtime and client support streaming RSA PKCS#1 v1.5, RSA-PSS and ECDSA signing
+and native verification. Hashing follows the explicit policy: token multipart
+mechanisms or incremental software hashing with raw completion. Client readers
+use zeroizing 64 KiB buffers; signature output is limited to 1024 bytes. Context
+authentication occurs after initialization. Incomplete or failed streams discard
+sessions; completed verification mismatches permit reuse.
+
 Standalone SHA-2 and SHA-3 token hashing supports single-part and streaming
 operations. The CLI and desktop stream files in bounded chunks; failed or
 unfinished digest operations discard their sessions.
