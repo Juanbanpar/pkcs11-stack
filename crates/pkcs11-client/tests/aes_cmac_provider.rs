@@ -110,6 +110,18 @@ fn client_cmac_generation_verification_policy_and_reusable_mismatches() {
                     } else {
                         ro.mac_aes_cmac(&key, message).unwrap().to_vec()
                     };
+                    assert_eq!(
+                        ro.aes_cmac_reader(&key, profile, &mut std::io::Cursor::new(message))
+                            .unwrap(),
+                        tag
+                    );
+                    ro.verify_aes_cmac_reader(
+                        &key,
+                        profile,
+                        &mut std::io::Cursor::new(message),
+                        &tag,
+                    )
+                    .unwrap();
                     ro.verify_aes_cmac_with_profile(&key, message, &tag, profile)
                         .unwrap();
                     let mut changed = tag.clone();
@@ -117,6 +129,16 @@ fn client_cmac_generation_verification_policy_and_reusable_mismatches() {
                     for tag in [&[][..], changed.as_slice(), &[0; 17][..]] {
                         assert!(matches!(
                             ro.verify_aes_cmac_with_profile(&key, message, tag, profile),
+                            Err(Error::MacMismatch)
+                        ));
+                        ro.state().unwrap();
+                        assert!(matches!(
+                            ro.verify_aes_cmac_reader(
+                                &key,
+                                profile,
+                                &mut std::io::Cursor::new(message),
+                                tag
+                            ),
                             Err(Error::MacMismatch)
                         ));
                         ro.state().unwrap();

@@ -42,6 +42,8 @@ mod hkdf;
 mod kbkdf;
 pub use pkcs11_runtime::{KbkdfCapabilities, KbkdfMode, KbkdfOptions, KbkdfOutput, KbkdfRequest};
 mod hmac;
+mod mac;
+pub use mac::{MacGeneration, MacVerification};
 pub use pkcs11_runtime::{
     HMAC_MAXIMUM_MESSAGE, HmacAlgorithm, HmacCapabilities, HmacKeyRequest, HmacOptions,
     HmacTagProfile,

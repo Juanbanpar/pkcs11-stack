@@ -102,6 +102,11 @@ nonce and optional AAD file. Plaintext is limited to 16 MiB.
 Full/general AES-CMAC and SHA-2/SHA-3 HMAC generation and native verification use
 dedicated sensitive, nonextractable authentication keys through the libraries,
 CLI and desktop. HMAC keys use the generic-secret generator available in 2.40.
+Runtime and client also support native multipart MAC guards with explicit
+cancellation and client readers using zeroizing 64 KiB buffers. Streaming callers
+enforce their input budget; existing single-part MAC workflows retain the 16 MiB
+limit. Incomplete or failed streams discard their sessions; completed verification
+mismatches permit reuse.
 SP 800-108 counter and feedback modes derive AES or generic derivation keys with
 HMAC-SHA-256/384/512 through the libraries, CLI and desktop, using explicit protocol
 label/context.

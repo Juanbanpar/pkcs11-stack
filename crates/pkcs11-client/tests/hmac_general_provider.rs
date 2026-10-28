@@ -40,6 +40,20 @@ fn general_hmac_client_native_tags_and_reusable_mismatches() {
                 .mac_hmac_with_profile(&key, algorithm, b"client general", profile)
                 .unwrap();
             assert_eq!(tag.len(), profile.tag_length(algorithm));
+            assert_eq!(
+                session
+                    .hmac_reader(&key, algorithm, profile, &mut &b"client general"[..])
+                    .unwrap(),
+                tag
+            );
+            session
+                .verify_hmac_reader(&key, algorithm, profile, &mut &b"client general"[..], &tag)
+                .unwrap();
+            assert!(matches!(
+                session.verify_hmac_reader(&key, algorithm, profile, &mut &b"changed"[..], &tag),
+                Err(Error::MacMismatch)
+            ));
+            session.state().unwrap();
             session
                 .verify_hmac_with_profile(&key, algorithm, b"client general", &tag, profile)
                 .unwrap();
@@ -48,6 +62,59 @@ fn general_hmac_client_native_tags_and_reusable_mismatches() {
                 Err(Error::MacMismatch)
             ));
             session.state().unwrap();
+        }
+        if index == 0 {
+            use std::{
+                io::{Read, copy},
+                process::{Command, Stdio},
+            };
+            let length = 17 * 1024 * 1024 + 3;
+            let mut child = Command::new(std::env::var_os("PKCS11_TEST_KDF_OPENSSL").unwrap())
+                .args([
+                    "dgst",
+                    "-sha256",
+                    "-mac",
+                    "HMAC",
+                    "-macopt",
+                    &format!("hexkey:{}", "0b".repeat(32)),
+                    "-binary",
+                ])
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap();
+            copy(
+                &mut std::io::repeat(0xA5).take(length),
+                &mut child.stdin.take().unwrap(),
+            )
+            .unwrap();
+            let expected = child.wait_with_output().unwrap();
+            assert!(expected.status.success());
+            for profile in [
+                HmacTagProfile::Full,
+                HmacTagProfile::General { tag_length: 16 },
+            ] {
+                let tag = session
+                    .hmac_reader(
+                        &key,
+                        algorithm,
+                        profile,
+                        &mut std::io::repeat(0xA5).take(length),
+                    )
+                    .unwrap();
+                assert_eq!(tag, expected.stdout[..profile.tag_length(algorithm)]);
+                session
+                    .verify_hmac_reader(
+                        &key,
+                        algorithm,
+                        profile,
+                        &mut std::io::repeat(0xA5).take(length),
+                        &tag,
+                    )
+                    .unwrap();
+                session.state().unwrap();
+            }
         }
     }
     session.close().unwrap();

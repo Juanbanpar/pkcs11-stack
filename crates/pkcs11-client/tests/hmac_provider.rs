@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! Typed HMAC generation, verification and permission boundaries.
 use pkcs11_client::{
-    Authentication, Error, ErrorKind, HmacAlgorithm, HmacKeyRequest, MacOperation, ObjectRef, Pin,
-    Provider, SessionMode,
+    Authentication, Error, ErrorKind, HmacAlgorithm, HmacKeyRequest, HmacTagProfile, MacOperation,
+    ObjectRef, Pin, Provider, SessionMode,
 };
 use secrecy::SecretString;
 #[test]
@@ -60,12 +60,41 @@ fn hmac_client_selected_algorithm_permissions_export_and_reuse() {
         }
         for message in [&[][..], b"client HMAC context"] {
             let tag = ro.mac_hmac(&key, algorithm, message).unwrap();
+            assert_eq!(
+                ro.hmac_reader(
+                    &key,
+                    algorithm,
+                    HmacTagProfile::Full,
+                    &mut std::io::Cursor::new(message)
+                )
+                .unwrap(),
+                tag
+            );
+            ro.verify_hmac_reader(
+                &key,
+                algorithm,
+                HmacTagProfile::Full,
+                &mut std::io::Cursor::new(message),
+                &tag,
+            )
+            .unwrap();
             ro.verify_hmac(&key, algorithm, message, &tag).unwrap();
             let mut changed = tag.clone();
             changed[0] ^= 1;
             for supplied in [&[][..], changed.as_slice(), &tag[..tag.len() - 1]] {
                 assert!(matches!(
                     ro.verify_hmac(&key, algorithm, message, supplied),
+                    Err(Error::MacMismatch)
+                ));
+                ro.state().unwrap();
+                assert!(matches!(
+                    ro.verify_hmac_reader(
+                        &key,
+                        algorithm,
+                        HmacTagProfile::Full,
+                        &mut std::io::Cursor::new(message),
+                        supplied
+                    ),
                     Err(Error::MacMismatch)
                 ));
                 ro.state().unwrap();
