@@ -190,9 +190,13 @@ fn verifies_independent_fixtures_without_loading_a_module() {
             "rsa-pss" => ("rsa-pss", "rsa"),
             _ => ("ecdsa", kind),
         };
-        for digest in ["sha224", "sha256", "sha384", "sha512"] {
+        for digest in [
+            "sha224", "sha256", "sha384", "sha512", "sha3-224", "sha3-256", "sha3-384", "sha3-512",
+        ] {
             let fixtures = if digest == "sha224" {
                 fixtures.join("sha224")
+            } else if digest.starts_with("sha3-") {
+                fixtures.join("sha3")
             } else {
                 fixtures.clone()
             };

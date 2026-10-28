@@ -20,6 +20,10 @@ pub(crate) enum Output {
 pub(crate) fn digest(value: &str) -> DigestAlgorithm {
     match value {
         "sha224" => DigestAlgorithm::Sha224,
+        "sha3-224" => DigestAlgorithm::Sha3_224,
+        "sha3-256" => DigestAlgorithm::Sha3_256,
+        "sha3-384" => DigestAlgorithm::Sha3_384,
+        "sha3-512" => DigestAlgorithm::Sha3_512,
         "sha256" => DigestAlgorithm::Sha256,
         "sha384" => DigestAlgorithm::Sha384,
         _ => DigestAlgorithm::Sha512,
@@ -34,11 +38,13 @@ fn policy(m: &ArgMatches) -> SigningPolicy {
         },
         ..SigningPolicy::default()
     };
-    if ["digest", "mgf-digest"]
-        .iter()
-        .any(|key| get(m, key) == Some("sha224"))
-    {
-        policy.digests.push(DigestAlgorithm::Sha224);
+    for key in ["digest", "mgf-digest"] {
+        if let Some(value) = get(m, key) {
+            let selected = digest(value);
+            if !policy.digests.contains(&selected) {
+                policy.digests.push(selected);
+            }
+        }
     }
     policy
 }

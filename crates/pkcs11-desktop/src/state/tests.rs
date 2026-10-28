@@ -3426,37 +3426,48 @@ fn hmac_general_profiles_validate_lengths_hash_changes_and_scoped_edits() {
 }
 
 #[test]
-fn sha224_signature_choice_is_typed_and_rejected_after_policy_refresh() {
+fn additional_signature_choices_are_typed_and_rejected_after_policy_refresh() {
     use crate::backend::{CryptoMode, SignatureOption, SignatureProfile};
     use pkcs11_client::{DigestAlgorithm, PssParameters, SignatureAlgorithm, SignatureParameters};
-    let (mut state, old, scope) = crypto_state(CryptoMode::Sign);
-    let command = state.crypto_policy(old, true).unwrap();
-    let id = command.id();
-    let sha224 = crypto::SignatureChoice(SignatureOption {
-        parameters: SignatureProfile::Classical(SignatureParameters {
-            algorithm: SignatureAlgorithm::RsaPss,
-            digest: DigestAlgorithm::Sha224,
-            pss: Some(PssParameters {
-                mgf_digest: DigestAlgorithm::Sha224,
-                salt_len: 28,
+    for (digest, label) in [
+        (DigestAlgorithm::Sha224, "SHA-224"),
+        (DigestAlgorithm::Sha3_224, "SHA3-224"),
+        (DigestAlgorithm::Sha3_256, "SHA3-256"),
+        (DigestAlgorithm::Sha3_384, "SHA3-384"),
+        (DigestAlgorithm::Sha3_512, "SHA3-512"),
+    ] {
+        let (mut state, old, scope) = crypto_state(CryptoMode::Sign);
+        let command = state.crypto_policy(old, true).unwrap();
+        let id = command.id();
+        let choice = crypto::SignatureChoice(SignatureOption {
+            parameters: SignatureProfile::Classical(SignatureParameters {
+                algorithm: SignatureAlgorithm::RsaPss,
+                digest,
+                pss: Some(PssParameters {
+                    mgf_digest: digest,
+                    salt_len: digest.output_len(),
+                }),
             }),
-        }),
-        plan: None,
-    });
-    assert_eq!(sha224.to_string(), "RSA PSS / SHA-224 / salt 28 bytes");
-    state.event(complete(
-        id,
-        BackendResult::CryptoOptions {
-            scope,
-            options: vec![sha224.0],
-            context: false,
-        },
-    ));
-    state.crypto_choice(old, sha224);
-    assert_eq!(state.crypto_form.as_ref().unwrap().id, id);
-    state.crypto_choice(id, sha224);
-    assert_eq!(state.crypto_form.as_ref().unwrap().choice, Some(sha224));
-    state.crypto_policy(id, false).unwrap();
-    state.crypto_choice(id, sha224);
-    assert!(state.crypto_form.as_ref().unwrap().choice.is_none());
+            plan: None,
+        });
+        assert_eq!(
+            choice.to_string(),
+            format!("RSA PSS / {label} / salt {} bytes", digest.output_len())
+        );
+        state.event(complete(
+            id,
+            BackendResult::CryptoOptions {
+                scope,
+                options: vec![choice.0],
+                context: false,
+            },
+        ));
+        state.crypto_choice(old, choice);
+        assert_eq!(state.crypto_form.as_ref().unwrap().id, id);
+        state.crypto_choice(id, choice);
+        assert_eq!(state.crypto_form.as_ref().unwrap().choice, Some(choice));
+        state.crypto_policy(id, false).unwrap();
+        state.crypto_choice(id, choice);
+        assert!(state.crypto_form.as_ref().unwrap().choice.is_none());
+    }
 }

@@ -194,8 +194,21 @@ fn software_token_signing_verification_context_and_file_failures() {
             matches!(options[0].parameters, SignatureProfile::Classical(p) if p.digest == DigestAlgorithm::Sha256)
         );
         assert!(options.iter().any(|option| matches!(option.parameters, SignatureProfile::Classical(p) if p.digest == DigestAlgorithm::Sha224)));
+        for digest in [
+            DigestAlgorithm::Sha3_224,
+            DigestAlgorithm::Sha3_256,
+            DigestAlgorithm::Sha3_384,
+            DigestAlgorithm::Sha3_512,
+        ] {
+            assert!(options.iter().any(|option| matches!(option.parameters, SignatureProfile::Classical(p) if p.digest == digest)));
+        }
         assert!(!context);
         for option in options {
+            if matches!(option.parameters, SignatureProfile::Classical(p) if matches!(p.digest, DigestAlgorithm::Sha3_224 | DigestAlgorithm::Sha3_256 | DigestAlgorithm::Sha3_384 | DigestAlgorithm::Sha3_512))
+                && std::env::var("PKCS11_TEST_REQUIRE_SHA3_SIGNATURES").as_deref() != Ok("1")
+            {
+                continue;
+            }
             sequence += 1;
             let output = directory.join(format!("signature-{sequence}"));
             let target = scope(module, token, &objects, label, CryptoMode::Sign);

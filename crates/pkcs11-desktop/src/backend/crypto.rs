@@ -68,8 +68,14 @@ fn policy(software: bool) -> SigningPolicy {
         },
         ..SigningPolicy::default()
     };
-    // Offer SHA-224 explicitly after the existing digest choices.
+    // Offer additional digests after the existing choices.
     policy.digests.push(pkcs11_client::DigestAlgorithm::Sha224);
+    policy.digests.extend([
+        pkcs11_client::DigestAlgorithm::Sha3_224,
+        pkcs11_client::DigestAlgorithm::Sha3_256,
+        pkcs11_client::DigestAlgorithm::Sha3_384,
+        pkcs11_client::DigestAlgorithm::Sha3_512,
+    ]);
     policy
 }
 fn read_bounded(path: &Path, maximum: u64) -> Result<Vec<u8>, BackendError> {
