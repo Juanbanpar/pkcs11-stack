@@ -220,3 +220,245 @@ fn file_encryption_authentication_and_output_contracts() {
         assert!(out.is_empty());
     }
 }
+
+#[test]
+#[ignore = "requires tools/test-softhsm.sh disposable store"]
+fn multipart_files_stdin_interoperability_and_failures() {
+    use std::{io::Write, process::Stdio};
+    assert_eq!(std::env::var("PKCS11_TEST_ISOLATED").as_deref(), Ok("1"));
+    let root = PathBuf::from(std::env::var_os("PKCS11_CLIENT_TEST_DIR").unwrap())
+        .join("cli-gcm-multipart");
+    std::fs::create_dir(&root).unwrap();
+    let pin = root.join("user.pin").to_str().unwrap().to_owned();
+    std::fs::write(&pin, b"12345678\n").unwrap();
+    let f = Fixture {
+        module: std::env::var("PKCS11_TEST_MODULE").unwrap(),
+        root,
+        pin,
+        token: "pkcs11:token=client-test".into(),
+    };
+    let aad = f.path("aad");
+    std::fs::write(&aad, b"multipart protocol context").unwrap();
+    let large: Vec<u8> = (0..1_000_003).map(|index| (index % 251) as u8).collect();
+    let stdin = |args: &[&str], bytes: &[u8]| {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_pkcs11ctl"))
+            .args(["--module", &f.module, "--format", "json"])
+            .args(args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        if let Err(error) = child.stdin.take().unwrap().write_all(bytes) {
+            assert_eq!(error.kind(), std::io::ErrorKind::BrokenPipe);
+        }
+        child.wait_with_output().unwrap()
+    };
+    for (index, kind) in ["aes128", "aes192", "aes256"].into_iter().enumerate() {
+        let label = format!("cli-multipart-gcm-{index}");
+        let id = format!("bd{index:02x}");
+        f.ok(&[
+            "generate",
+            "--token",
+            &f.token,
+            "--kind",
+            kind,
+            "--purpose",
+            "encryption",
+            "--id",
+            &id,
+            "--label",
+            &label,
+            "--pin-file",
+            &f.pin,
+            "--confirm",
+        ]);
+        let object = format!("{};object={label};type=secret-key", f.token);
+        for direction in ["encrypt", "decrypt"] {
+            let caps: Value = serde_json::from_slice(&f.ok(&[
+                "aes-gcm-capabilities",
+                "--object",
+                &object,
+                "--operation",
+                direction,
+                "--multipart",
+                "--pin-file",
+                &f.pin,
+            ]))
+            .unwrap();
+            assert_eq!(caps["result"]["multipart"], true);
+            assert_eq!(caps["result"]["key_bits"], 128 + index * 64);
+        }
+        for (case, message) in [&[][..], b"CLI multipart plaintext canary", &large]
+            .into_iter()
+            .enumerate()
+        {
+            let input = f.path(&format!("input-{index}-{case}"));
+            std::fs::write(&input, message).unwrap();
+            for multipart_encrypt in [false, true] {
+                let nonce = format!(
+                    "{:024x}",
+                    0x440000 + index * 64 + case * 8 + usize::from(multipart_encrypt)
+                );
+                let cipher = f.path(&format!("cipher-{index}-{case}-{multipart_encrypt}"));
+                let output = f.path(&format!("output-{index}-{case}-{multipart_encrypt}"));
+                let mut encrypt = vec![
+                    "encrypt-aes-gcm",
+                    "--object",
+                    &object,
+                    "--nonce",
+                    &nonce,
+                    "--aad-file",
+                    &aad,
+                    "--input",
+                    &input,
+                    "--output",
+                    &cipher,
+                    "--pin-file",
+                    &f.pin,
+                ];
+                if multipart_encrypt {
+                    encrypt.push("--multipart");
+                }
+                f.ok(&encrypt);
+                assert_eq!(std::fs::read(&cipher).unwrap().len(), message.len() + 16);
+                let mut decrypt = vec![
+                    "decrypt-aes-gcm",
+                    "--object",
+                    &object,
+                    "--nonce",
+                    &nonce,
+                    "--aad-file",
+                    &aad,
+                    "--input",
+                    &cipher,
+                    "--output",
+                    &output,
+                    "--pin-file",
+                    &f.pin,
+                ];
+                if !multipart_encrypt {
+                    decrypt.push("--multipart");
+                }
+                f.ok(&decrypt);
+                assert_eq!(std::fs::read(&output).unwrap(), message);
+                let mut corrupted = std::fs::read(&cipher).unwrap();
+                *corrupted.last_mut().unwrap() ^= 1;
+                let failed = f.path(&format!("failed-{index}-{case}-{multipart_encrypt}"));
+                let out = stdin(
+                    &[
+                        "decrypt-aes-gcm",
+                        "--multipart",
+                        "--object",
+                        &object,
+                        "--nonce",
+                        &nonce,
+                        "--aad-file",
+                        &aad,
+                        "--input",
+                        "-",
+                        "--output",
+                        &failed,
+                        "--pin-file",
+                        &f.pin,
+                    ],
+                    &corrupted,
+                );
+                assert_eq!(out.status.code(), Some(5));
+                assert!(out.stdout.is_empty());
+                assert!(!std::path::Path::new(&failed).exists());
+                assert!(!String::from_utf8_lossy(&out.stderr).contains("canary"));
+                let out = stdin(
+                    &[
+                        "decrypt-aes-gcm",
+                        "--multipart",
+                        "--object",
+                        &object,
+                        "--nonce",
+                        &nonce,
+                        "--aad-file",
+                        &aad,
+                        "--input",
+                        "-",
+                        "--output",
+                        "-",
+                        "--pin-file",
+                        &f.pin,
+                    ],
+                    &corrupted,
+                );
+                assert_eq!(out.status.code(), Some(5));
+                assert!(out.stdout.is_empty());
+            }
+            let nonce = format!("{:024x}", 0x550000 + index * 16 + case);
+            let out = stdin(
+                &[
+                    "encrypt-aes-gcm",
+                    "--multipart",
+                    "--object",
+                    &object,
+                    "--nonce",
+                    &nonce,
+                    "--aad-file",
+                    &aad,
+                    "--input",
+                    "-",
+                    "--output",
+                    "-",
+                    "--pin-file",
+                    &f.pin,
+                ],
+                message,
+            );
+            assert!(out.status.success());
+            assert!(out.stderr.is_empty());
+            assert_eq!(out.stdout.len(), message.len() + 16);
+            let out = stdin(
+                &[
+                    "decrypt-aes-gcm",
+                    "--multipart",
+                    "--object",
+                    &object,
+                    "--nonce",
+                    &nonce,
+                    "--aad-file",
+                    &aad,
+                    "--input",
+                    "-",
+                    "--output",
+                    "-",
+                    "--pin-file",
+                    &f.pin,
+                ],
+                &out.stdout,
+            );
+            assert!(out.status.success());
+            assert!(out.stderr.is_empty());
+            assert_eq!(out.stdout, message);
+        }
+        if index == 0 {
+            let data = vec![0; 16 * 1024 * 1024 + 1];
+            let failed = f.path("over-limit");
+            let out = stdin(
+                &[
+                    "encrypt-aes-gcm",
+                    "--multipart",
+                    "--object",
+                    &object,
+                    "--nonce",
+                    "66112233445566778899aabb",
+                    "--input",
+                    "-",
+                    "--output",
+                    &failed,
+                    "--pin-file",
+                    &f.pin,
+                ],
+                &data,
+            );
+            assert_eq!(out.status.code(), Some(2));
+            assert!(out.stdout.is_empty());
+            assert!(!std::path::Path::new(&failed).exists());
+        }
+    }
+}

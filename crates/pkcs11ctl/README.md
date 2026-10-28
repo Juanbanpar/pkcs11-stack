@@ -44,7 +44,7 @@ for current discovery and explicit initialization.
 | `sign --key URI [--certificate URI] ...` | Generic signing, or binding followed by verified signing |
 | `verify --certificate-file PATH ...` or `verify --certificate URI ...` | Software verification against a certificate public key |
 | `random --token URI --length N --output PATH` | Token-generated random bytes |
-| `aes-gcm-capabilities --object URI --operation encrypt\|decrypt` | Current AES key permissions and provider support |
+| `aes-gcm-capabilities --object URI --operation encrypt\|decrypt [--multipart]` | Current AES key permissions and support for the requested execution mode |
 | `encrypt-aes-gcm`, `decrypt-aes-gcm` | Bounded authenticated encryption/decryption; explicit nonce and optional AAD file |
 | `key-wrap-capabilities --object URI --operation wrap\|unwrap` | Advisory AES-KW/KWP choices for a secret key |
 | `wrap-aes-key --object URI --target URI --algorithm kw\|kwp --output PATH` | Wrap one extractable AES key |
@@ -519,13 +519,30 @@ header. Keep nonce and AAD for decryption. Plaintext is limited to 16 MiB; AAD t
 Generated encryption keys and HKDF AES outputs work; wrapping-only keys do not.
 Use `aes-gcm-capabilities` for advisory size/permission checks without encryption.
 
+Add `--multipart` to either command to read input through the client's zeroizing
+64 KiB buffer and use native update/final calls. Files are opened and regular-file
+lengths checked before loading the provider; input is consumed after initialization.
+Stdin uses the same reader and is checked against the limit as it is read. The
+16 MiB plaintext and 1 MiB AAD limits remain. Returned plaintext stays in zeroizing
+quarantine until final authentication; binary results are emitted only after
+checked session closure and module finalization. No plaintext staging file is used.
+
+Single-part execution remains the default. Add `--multipart` to
+`aes-gcm-capabilities` to check multipart entry points independently; the JSON
+result's `multipart` field identifies the requested mode. Missing support or a
+native error does not trigger a single-part or software retry. Read failures use
+exit code 6 with redacted I/O diagnostics; authentication/provider/cleanup failures
+use exit code 5. Input-limit violations use exit code 2. A cleanup failure takes
+precedence over an earlier input or I/O error.
+
 Callers ensure nonce uniqueness per key across applications, restarts and copies
 of key material. No nonce is generated or tracked; an encryption error does not
 authorize reusing it. There is no retry or software fallback. Authenticated
 decryption and checked session/module closure precede plaintext output. Output
 files are created with mode 0600 on Unix and never overwritten; incomplete files
-are removed on failure. Input/plaintext buffers zeroize on drop. cryptoki cannot
-guarantee wiping its temporary buffers after a failed provider call.
+are removed on failure. Input/plaintext buffers zeroize on drop. Multipart plaintext
+output storage is zeroized on native failure; provider-internal memory remains
+under provider control.
 
 ## Testing
 

@@ -343,6 +343,7 @@ pub(crate) fn command() -> Command {
         auth(object(Command::new(name).about(help)
         .arg(required("nonce", "Exactly 24 hex digits; encryption requires a unique nonce per key, also after errors"))
         .arg(value("aad-file", "Additional authenticated data file, at most 1 MiB; omitted means empty; no stdin"))
+        .arg(flag("multipart", "Use native multipart AES-GCM with a zeroizing input buffer; the 16 MiB plaintext limit remains"))
         .arg(required("input", "Input file; - reads stdin; ciphertext includes the full 16-byte tag"))
         .arg(required("output", "New output file, or - for binary stdout; nonce/AAD are not included"))))
     };
@@ -485,15 +486,16 @@ pub(crate) fn command() -> Command {
         ))),
         gcm(
             "encrypt-aes-gcm",
-            "Encrypt at most 16 MiB once; output is ciphertext followed by a full tag",
+            "Encrypt at most 16 MiB; output is ciphertext followed by a full tag",
         ),
         gcm(
             "decrypt-aes-gcm",
-            "Authenticate/decrypt AES-GCM once; no output before authentication and checked closure",
+            "Authenticate/decrypt AES-GCM; no output before authentication and checked closure",
         ),
         auth(object(
             Command::new("aes-gcm-capabilities")
                 .about("Inspect current AES-GCM key permissions and provider support")
+                .arg(flag("multipart", "Check native multipart entry points instead of single-part support"))
                 .arg(
                     required("operation", "Requested direction")
                         .value_parser(["encrypt", "decrypt"]),

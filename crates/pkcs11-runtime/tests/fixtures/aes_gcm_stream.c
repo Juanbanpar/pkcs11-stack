@@ -116,6 +116,14 @@ static CK_RV gcm_final(CK_SESSION_HANDLE s, CK_BYTE_PTR out, CK_ULONG_PTR writte
     *written=gcm_fault == 22 ? (expected ? expected-1 : 1) : expected;
     active=0; return CKR_OK;
 }
+static CK_RV gcm_close(CK_SESSION_HANDLE s) {
+    CK_RV rv=close_session(s);
+    return gcm_fault == 39 ? CKR_DEVICE_ERROR : rv;
+}
+static CK_RV gcm_finalize(CK_VOID_PTR reserved) {
+    CK_RV rv=finalize(reserved);
+    return gcm_fault == 40 ? CKR_DEVICE_ERROR : rv;
+}
 static CK_RV gcm_legacy(CK_SESSION_HANDLE s) { (void)s; cancellations+=255; return CKR_GENERAL_ERROR; }
 #if API_MAJOR >= 3
 static CK_RV gcm_cancel(CK_SESSION_HANDLE s, CK_FLAGS flags) {
@@ -138,6 +146,7 @@ CK_RV C_GetInterface(CK_UTF8CHAR_PTR name, CK_VERSION_PTR version, CK_INTERFACE_
 }
 #endif
 CK_RV C_GetFunctionList(CK_FUNCTION_LIST_PTR_PTR out) {
+    functions.C_CloseSession=gcm_close; functions.C_Finalize=gcm_finalize;
     functions.C_GetSessionInfo=gcm_info; functions.C_GetAttributeValue=gcm_attributes; functions.C_GetMechanismInfo=gcm_mechanism_info;
     functions.C_EncryptInit=gcm_fault == 10 ? NULL : gcm_encrypt_init;
     functions.C_EncryptUpdate=gcm_fault == 11 ? NULL : gcm_update;

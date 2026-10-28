@@ -542,8 +542,9 @@ buffer, including earlier unauthenticated chunks. Read errors, input overruns,
 native failures and abandoned guards discard the initialized session. Explicit
 cancellation permits reuse only after native confirmation. `CipherInput` reports
 read failure without including I/O diagnostics. Check session closure before
-writing returned results to a destination. CLI/desktop file workflows retain
-their existing single-part implementation.
+writing returned results to a destination. CLI AES-GCM commands support explicit
+`--multipart` file/stdin input with output held through checked closure/finalization;
+single-part execution remains the default. Desktop file workflows remain single-part.
 
 Callers manage nonce uniqueness per key across writers, restarts and copies of key
 material. No nonce generation/tracking, retry, software fallback or file format

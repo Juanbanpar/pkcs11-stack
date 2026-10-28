@@ -3,7 +3,8 @@ use crate::{operations::Output, support::*};
 use clap::ArgMatches;
 use pkcs11_client::{
     AES_GCM_MAXIMUM_AAD, AES_GCM_MAXIMUM_PLAINTEXT, AES_GCM_TAG_LENGTH, AesGcmDecryptRequest,
-    AesGcmEncryptRequest, AesGcmOperation, ManagementSession, Plaintext, object_reference,
+    AesGcmEncryptRequest, AesGcmOperation, AesGcmStreamParameters, ManagementSession, Plaintext,
+    object_reference,
 };
 use secrecy::{ExposeSecret, ExposeSecretMut, SecretBox};
 use serde_json::json;
@@ -18,7 +19,11 @@ pub(crate) fn selected(name: &str) -> bool {
 pub(crate) struct Inputs {
     nonce: [u8; 12],
     aad: Vec<u8>,
-    input: Plaintext,
+    input: Input,
+}
+enum Input {
+    Buffered(Plaintext),
+    Multipart(Option<File>),
 }
 fn secret_input(path: &str, maximum: usize) -> Result<Plaintext> {
     let mut reader: Box<dyn Read> = if path == "-" {
@@ -66,32 +71,46 @@ impl Inputs {
             Some(path) => bounded_input(path, AES_GCM_MAXIMUM_AAD)?,
             None => Vec::new(),
         };
-        let input = secret_input(
-            need(m, "input")?,
-            AES_GCM_MAXIMUM_PLAINTEXT
-                + if name == "decrypt-aes-gcm" {
-                    AES_GCM_TAG_LENGTH
-                } else {
-                    0
-                },
-        )?;
-        if name == "decrypt-aes-gcm" {
-            AesGcmDecryptRequest {
-                nonce: &nonce,
-                aad: &aad,
-                ciphertext: input.expose_secret(),
+        let decrypt = name == "decrypt-aes-gcm";
+        let maximum = AES_GCM_MAXIMUM_PLAINTEXT + if decrypt { AES_GCM_TAG_LENGTH } else { 0 };
+        let path = need(m, "input")?;
+        let input = if flag(m, "multipart") {
+            let file = if path == "-" {
+                None
+            } else {
+                Some(File::open(path)?)
+            };
+            if let Some(file) = &file {
+                let metadata = file.metadata()?;
+                if metadata.is_file()
+                    && (metadata.len() > maximum as u64
+                        || (decrypt && metadata.len() < AES_GCM_TAG_LENGTH as u64))
+                {
+                    return Err(usage("AES GCM input length is outside the allowed range"));
+                }
             }
-            .validate()
-            .map_err(pkcs11_client::Error::from)?;
+            Input::Multipart(file)
         } else {
-            AesGcmEncryptRequest {
-                nonce: &nonce,
-                aad: &aad,
-                plaintext: input.expose_secret(),
+            let input = secret_input(path, maximum)?;
+            if decrypt {
+                AesGcmDecryptRequest {
+                    nonce: &nonce,
+                    aad: &aad,
+                    ciphertext: input.expose_secret(),
+                }
+                .validate()
+                .map_err(pkcs11_client::Error::from)?;
+            } else {
+                AesGcmEncryptRequest {
+                    nonce: &nonce,
+                    aad: &aad,
+                    plaintext: input.expose_secret(),
+                }
+                .validate()
+                .map_err(pkcs11_client::Error::from)?;
             }
-            .validate()
-            .map_err(pkcs11_client::Error::from)?;
-        }
+            Input::Buffered(input)
+        };
         Ok(Some(Self { nonce, aad, input }))
     }
 }
@@ -108,29 +127,59 @@ pub(crate) fn operation(
         } else {
             AesGcmOperation::Decrypt
         };
-        let caps = session.aes_gcm_capabilities(&key, operation)?;
+        let multipart = flag(m, "multipart");
+        let caps = if multipart {
+            session.aes_gcm_streaming_capabilities(&key, operation)?
+        } else {
+            session.aes_gcm_capabilities(&key, operation)?
+        };
         return Ok(Output::Structured(
-            json!({"advisory":true,"key_bits":caps.key_size.length()*8,"nonce_length":12,"tag_length":16,"maximum_plaintext":AES_GCM_MAXIMUM_PLAINTEXT,"maximum_aad":AES_GCM_MAXIMUM_AAD}),
+            json!({"advisory":true,"multipart":multipart,"key_bits":caps.key_size.length()*8,"nonce_length":12,"tag_length":16,"maximum_plaintext":AES_GCM_MAXIMUM_PLAINTEXT,"maximum_aad":AES_GCM_MAXIMUM_AAD}),
         ));
     }
     let inputs = inputs.ok_or_else(|| usage("missing AES GCM input"))?;
-    if name == "encrypt-aes-gcm" {
-        Ok(Output::Binary(session.encrypt_aes_gcm(
-            &key,
-            &AesGcmEncryptRequest {
+    match &inputs.input {
+        Input::Multipart(file) => {
+            let mut reader: Box<dyn Read + '_> = match file {
+                Some(file) => Box::new(file),
+                None => Box::new(std::io::stdin().lock()),
+            };
+            let parameters = AesGcmStreamParameters {
                 nonce: &inputs.nonce,
                 aad: &inputs.aad,
-                plaintext: inputs.input.expose_secret(),
-            },
-        )?))
-    } else {
-        Ok(Output::SecretBinary(session.decrypt_aes_gcm(
+                maximum_plaintext: AES_GCM_MAXIMUM_PLAINTEXT,
+            };
+            if name == "encrypt-aes-gcm" {
+                Ok(Output::Binary(session.encrypt_aes_gcm_reader(
+                    &key,
+                    parameters,
+                    &mut reader,
+                )?))
+            } else {
+                Ok(Output::SecretBinary(session.decrypt_aes_gcm_reader(
+                    &key,
+                    parameters,
+                    &mut reader,
+                )?))
+            }
+        }
+        Input::Buffered(input) if name == "encrypt-aes-gcm" => {
+            Ok(Output::Binary(session.encrypt_aes_gcm(
+                &key,
+                &AesGcmEncryptRequest {
+                    nonce: &inputs.nonce,
+                    aad: &inputs.aad,
+                    plaintext: input.expose_secret(),
+                },
+            )?))
+        }
+        Input::Buffered(input) => Ok(Output::SecretBinary(session.decrypt_aes_gcm(
             &key,
             &AesGcmDecryptRequest {
                 nonce: &inputs.nonce,
                 aad: &inputs.aad,
-                ciphertext: inputs.input.expose_secret(),
+                ciphertext: input.expose_secret(),
             },
-        )?))
+        )?)),
     }
 }

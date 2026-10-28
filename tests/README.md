@@ -103,7 +103,7 @@ The 59 functions used by current workflows are:
 | ML-KEM | `C_EncapsulateKey`, `C_DecapsulateKey` | Runtime/client ML-KEM, CLI/desktop exchange; required Kryoptic lane. |
 | O5 Implemented: session validation diagnostics | `C_GetSessionValidationFlags` | Runtime/client same-session last-operation query; CLI fresh-session diagnostic. `session_validation.c` checks all selected interface versions, missing pointer, unsupported stub, zero, opaque bits, independent session state and fatal provider errors. No certification/trust inference. |
 | O6 Implemented: ML-DSA signature-first verification | `C_VerifySignatureInit`, `C_VerifySignature`, `C_VerifySignatureUpdate`, `C_VerifySignatureFinal` | Runtime/client explicit single-part and exclusive streaming workflows, with zeroizing 64 KiB readers. Independent 3.2 headers check argument order, context/signature lifetimes, exact selected-table/pointer gates, independent public-key permissions, empty input, completed mismatches and init/update/final/read/drop failures. Explicit cancellation uses the standard NULL-mechanism init and tests no generic/legacy fallback. Required Kryoptic tests cover all ML-DSA parameter sets, contexts, hedge modes, independent RustCrypto/OpenSSL verification, large readers and cancellation followed by reuse of the same pooled session. |
-| O2 Partial: bounded multipart AES-GCM | `C_EncryptUpdate`, `C_EncryptFinal`, `C_DecryptUpdate`, `C_DecryptFinal` | Runtime/client exclusive guards and zeroizing 64 KiB readers with explicit plaintext budgets through 16 MiB. Independent 2.40/3.0/3.1/3.2 headers check GCM parameters, direction-specific permissions/pointers, output bounds, split tags, budget errors, pending/error results, failed/abandoned sessions and explicit cancellation. Native update plaintext stays in zeroizing quarantine until final authentication; later failures wipe it. SoftHSM NIST vectors cover all AES key sizes and chunk boundaries; client readers cover empty and 1,000,003-byte input. Kryoptic requires cancellation followed by new operations and reuse of the same pooled session. |
+| O2 Partial: bounded multipart AES-GCM | `C_EncryptUpdate`, `C_EncryptFinal`, `C_DecryptUpdate`, `C_DecryptFinal` | Runtime/client exclusive guards and zeroizing 64 KiB readers with explicit plaintext budgets through 16 MiB. Independent 2.40/3.0/3.1/3.2 headers check GCM parameters, direction-specific permissions/pointers, output bounds, split tags, budget errors, pending/error results, failed/abandoned sessions and explicit cancellation. Native update plaintext stays in zeroizing quarantine until final authentication; later failures wipe it. SoftHSM NIST vectors cover all AES key sizes and chunk boundaries; client readers cover empty and 1,000,003-byte input. CLI `--multipart` file/stdin workflows preserve single-part defaults and gate output on authentication, checked closure and finalization; injected native cleanup failures release no output. Kryoptic requires cancellation followed by new operations and reuse of the same pooled session. |
 
 The remaining 45 functions are classified below. **Planned** means a concrete
 extension to an existing workflow; **deferred** needs the stated use case or
@@ -115,7 +115,7 @@ minimum usable provider interface.
 | ID / status | First table | Functions | Acceptance criteria or scope gate |
 | --- | --- | --- | --- |
 | O1 Partial: streaming signatures/MACs | 2.40 | Covered above | Runtime/client implement native full/general HMAC and AES-CMAC, RSA PKCS#1/PSS and named-curve ECDSA streaming, plus pure ML-DSA signing streams. Classical guards/readers preserve hashing policy, context login, bounded output and completed-mismatch reuse, with read/update/final/drop failure tests. Remaining: pure EdDSA multipart support with an implementing provider and CLI/desktop file workflows. ML-DSA streaming verification is implemented in O6; the older verification API is single-part for that mechanism. Preserve existing single-part APIs. |
-| O2 Partial: streaming encryption | 2.40 | Covered above | Bounded AES-GCM guards/readers are implemented, with authenticated plaintext release only after finalization, zeroizing quarantine, explicit input budgets and native/provider failures covered. Remaining: frontend multipart file workflows with checked closure and destination commit semantics; a larger-file profile needs a bounded plaintext staging design. Existing file workflows remain single-part. |
+| O2 Partial: streaming encryption | 2.40 | Covered above | Bounded AES-GCM guards/readers are implemented, with authenticated plaintext release only after finalization, zeroizing quarantine, explicit input budgets and native/provider failures covered. CLI file/stdin workflows implement explicit multipart selection and checked output commit; native fixtures inject session-close/finalization failures. Remaining: desktop multipart file integration and a bounded staging design for a larger-file profile. Single-part execution remains the CLI default. |
 | O4 Planned: named-user login | 3.0 | `C_LoginUser` | Explicit username/role/PIN input, redacted diagnostics, protected-path and token-wide authentication rules. Test wrong username/PIN, SO/RO conflicts and unavailable tables/pointers; no fallback to anonymous `C_Login` or second authentication attempt. |
 | O7 Deferred: message-based AEAD | 3.0 | `C_MessageEncryptInit`, `C_EncryptMessage`, `C_EncryptMessageBegin`, `C_EncryptMessageNext`, `C_MessageEncryptFinal`, `C_MessageDecryptInit`, `C_DecryptMessage`, `C_DecryptMessageBegin`, `C_DecryptMessageNext`, `C_MessageDecryptFinal` | Agree on an explicit message/nonce/AAD contract and find a provider supporting it. Test multiple messages per initialization, distinct nonces, tag/output bounds, finalization, failure cleanup and authenticated output release. Existing single-part GCM remains independently supported. |
 | O8 Deferred: message-based signatures/MACs | 3.0 | `C_MessageSignInit`, `C_SignMessage`, `C_SignMessageBegin`, `C_SignMessageNext`, `C_MessageSignFinal`, `C_MessageVerifyInit`, `C_VerifyMessage`, `C_VerifyMessageBegin`, `C_VerifyMessageNext`, `C_MessageVerifyFinal` | Require a concrete batched-message use case and provider. Test per-message parameters/authentication, exact tag/signature lengths, mismatches, process finalization and stale-session rejection. |
@@ -191,7 +191,8 @@ reuse after cancellation.
 The pinned SoftHSM source supports ML-DSA signing updates but explicitly disables
 EdDSA multipart operations. EdDSA streams remain provider-gated; frontend file
 workflows remain planned. O2 implements bounded AES-GCM multipart workflows and
-client readers; larger-file staging and frontend multipart integration remain open.
+client readers. CLI `--multipart` supports files/stdin with checked output commit;
+larger-file staging and desktop multipart integration remain open.
 Keep unconfirmed operations discarded on legacy providers. GMAC, additional
 SP800-108 modes/PRFs, PBKDF2, HashML-DSA/SLH-DSA and TLS extensions remain separate
 backlog items in the coverage table. Provider gaps do not justify implicit software
@@ -403,8 +404,13 @@ and releases plaintext only after authentication. Independent-header fixtures
 cover both output behaviors, malformed lengths, short buffers, early/final native
 failures, discarded operations, split tags and unavailable multipart pointers.
 Runtime unit tests inspect scratch storage to verify immediate wiping after an
-update error, including plaintext from earlier successful updates. These tests do
-not constitute algorithm validation.
+update error, including plaintext from earlier successful updates. CLI fixtures
+also check explicit multipart selection with missing single-part pointers, legacy
+and 3.2 interfaces, stdin, regular-file bounds, input aliases, reserved-file cleanup,
+read errors, and withholding output on authentication/session-close/finalization
+failure. SoftHSM tests require all AES key sizes, empty and 1,000,003-byte messages,
+single-part/multipart interoperability, stdin/stdout, tampering and stdin overrun.
+These tests do not constitute algorithm validation.
 
 ## Dependency advisories
 
