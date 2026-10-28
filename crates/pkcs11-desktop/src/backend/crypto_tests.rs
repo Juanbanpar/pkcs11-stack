@@ -247,6 +247,10 @@ fn software_token_signing_verification_context_and_file_failures() {
             };
             let digest = match parameters.digest {
                 DigestAlgorithm::Sha224 => "sha224",
+                DigestAlgorithm::Sha3_224 => "sha3-224",
+                DigestAlgorithm::Sha3_256 => "sha3-256",
+                DigestAlgorithm::Sha3_384 => "sha3-384",
+                DigestAlgorithm::Sha3_512 => "sha3-512",
                 DigestAlgorithm::Sha256 => "sha256",
                 DigestAlgorithm::Sha384 => "sha384",
                 DigestAlgorithm::Sha512 => "sha512",

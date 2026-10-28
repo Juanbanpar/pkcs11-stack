@@ -21,6 +21,10 @@ impl std::fmt::Display for OaepMgfChoice {
         f.write_str(match self.0 {
             None => "MGF1: match OAEP digest",
             Some(DigestAlgorithm::Sha224) => "MGF1: SHA-224",
+            Some(DigestAlgorithm::Sha3_224) => "MGF1: SHA3-224",
+            Some(DigestAlgorithm::Sha3_256) => "MGF1: SHA3-256",
+            Some(DigestAlgorithm::Sha3_384) => "MGF1: SHA3-384",
+            Some(DigestAlgorithm::Sha3_512) => "MGF1: SHA3-512",
             Some(DigestAlgorithm::Sha256) => "MGF1: SHA-256",
             Some(DigestAlgorithm::Sha384) => "MGF1: SHA-384",
             Some(DigestAlgorithm::Sha512) => "MGF1: SHA-512",
@@ -37,6 +41,10 @@ impl std::fmt::Display for CipherChoice {
         };
         f.write_str(match choice.digest {
             DigestAlgorithm::Sha224 => "RSA-OAEP / SHA-224",
+            DigestAlgorithm::Sha3_224 => "RSA-OAEP / SHA3-224",
+            DigestAlgorithm::Sha3_256 => "RSA-OAEP / SHA3-256",
+            DigestAlgorithm::Sha3_384 => "RSA-OAEP / SHA3-384",
+            DigestAlgorithm::Sha3_512 => "RSA-OAEP / SHA3-512",
             DigestAlgorithm::Sha256 => "RSA-OAEP / SHA-256",
             DigestAlgorithm::Sha384 => "RSA-OAEP / SHA-384",
             DigestAlgorithm::Sha512 => "RSA-OAEP / SHA-512",

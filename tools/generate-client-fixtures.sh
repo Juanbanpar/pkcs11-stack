@@ -11,6 +11,10 @@ if [[ "${1:-}" == sha224 ]]; then
     out="$out/sha224"
     digests=(sha224)
     keys=(rsa p256 p384 p521)
+elif [[ "${1:-}" == sha3 ]]; then
+    out="$out/sha3"
+    digests=(sha3-224 sha3-256 sha3-384 sha3-512)
+    keys=(rsa p256 p384 p521)
 elif [[ $# != 0 ]]; then
     exit 2
 fi

@@ -285,6 +285,10 @@ fn binding_request(
             DigestAlgorithm::Sha384,
             DigestAlgorithm::Sha512,
             DigestAlgorithm::Sha224,
+            DigestAlgorithm::Sha3_224,
+            DigestAlgorithm::Sha3_256,
+            DigestAlgorithm::Sha3_384,
+            DigestAlgorithm::Sha3_512,
         ] {
             let request = SignRequest {
                 algorithm,
@@ -345,6 +349,18 @@ mod tests {
             binding_request(&capabilities, &policy).unwrap().digest,
             DigestAlgorithm::Sha224
         );
+        for digest in [
+            DigestAlgorithm::Sha3_224,
+            DigestAlgorithm::Sha3_256,
+            DigestAlgorithm::Sha3_384,
+            DigestAlgorithm::Sha3_512,
+        ] {
+            policy.digests = vec![digest];
+            assert_eq!(
+                binding_request(&capabilities, &policy).unwrap().digest,
+                digest
+            );
+        }
         capabilities.always_authenticate = true;
         let request = binding_request(&capabilities, &policy).unwrap();
         assert!(

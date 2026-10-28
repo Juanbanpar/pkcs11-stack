@@ -7,7 +7,7 @@ use crate::{
 };
 use cryptoki::mechanism::{
     Mechanism,
-    rsa::{PkcsMgfType, PkcsOaepParams, PkcsOaepSource},
+    rsa::{PkcsOaepParams, PkcsOaepSource},
 };
 use cryptoki::{context::Function, session::UserType};
 use secrecy::{ExposeSecret, SecretBox};
@@ -50,7 +50,13 @@ impl RsaOaepParameters<'_> {
     }
     /// Validate SHA-256/384/512 digest choices and application bounds without I/O.
     pub fn validate(&self) -> Result<(), Error> {
-        if self.digest == DigestAlgorithm::Sha224 || self.mgf_digest == DigestAlgorithm::Sha224 {
+        if !matches!(
+            self.digest,
+            DigestAlgorithm::Sha256 | DigestAlgorithm::Sha384 | DigestAlgorithm::Sha512
+        ) || !matches!(
+            self.mgf_digest,
+            DigestAlgorithm::Sha256 | DigestAlgorithm::Sha384 | DigestAlgorithm::Sha512
+        ) {
             return Err(Error::InvalidParameters("OAEP digest"));
         }
         if self.label.len() > 4096 {
@@ -79,18 +85,8 @@ impl RsaOaepCapabilities {
     }
 }
 fn mechanism<'a>(parameters: &RsaOaepParameters<'a>) -> Mechanism<'a> {
-    let hash = match parameters.digest {
-        DigestAlgorithm::Sha224 => MechanismType::SHA224,
-        DigestAlgorithm::Sha256 => MechanismType::SHA256,
-        DigestAlgorithm::Sha384 => MechanismType::SHA384,
-        DigestAlgorithm::Sha512 => MechanismType::SHA512,
-    };
-    let mgf = match parameters.mgf_digest {
-        DigestAlgorithm::Sha224 => PkcsMgfType::MGF1_SHA224,
-        DigestAlgorithm::Sha256 => PkcsMgfType::MGF1_SHA256,
-        DigestAlgorithm::Sha384 => PkcsMgfType::MGF1_SHA384,
-        DigestAlgorithm::Sha512 => PkcsMgfType::MGF1_SHA512,
-    };
+    let hash = parameters.digest.mechanism();
+    let mgf = parameters.mgf_digest.mgf();
     let source = if parameters.label.is_empty() {
         PkcsOaepSource::empty()
     } else {

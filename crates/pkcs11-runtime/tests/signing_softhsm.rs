@@ -10,6 +10,7 @@ use pkcs11_locator::Pkcs11Uri;
 use pkcs11_runtime::*;
 use secrecy::SecretString;
 use sha2::{Digest, Sha224, Sha256, Sha384, Sha512};
+use sha3::{Sha3_224, Sha3_256, Sha3_384, Sha3_512};
 use std::{
     num::NonZeroUsize,
     path::Path,
@@ -225,6 +226,10 @@ fn verify(root: &Path, key: &[u8], request: &SignRequest<'_>, message: &[u8], si
     std::fs::write(dir.join("message"), message).unwrap();
     let digest = match request.digest {
         DigestAlgorithm::Sha224 => "-sha224",
+        DigestAlgorithm::Sha3_224 => "-sha3-224",
+        DigestAlgorithm::Sha3_256 => "-sha3-256",
+        DigestAlgorithm::Sha3_384 => "-sha3-384",
+        DigestAlgorithm::Sha3_512 => "-sha3-512",
         DigestAlgorithm::Sha256 => "-sha256",
         DigestAlgorithm::Sha384 => "-sha384",
         DigestAlgorithm::Sha512 => "-sha512",
@@ -243,6 +248,10 @@ fn verify(root: &Path, key: &[u8], request: &SignRequest<'_>, message: &[u8], si
     if let Some(pss) = request.pss {
         let mgf = match pss.mgf_digest {
             DigestAlgorithm::Sha224 => "sha224",
+            DigestAlgorithm::Sha3_224 => "sha3-224",
+            DigestAlgorithm::Sha3_256 => "sha3-256",
+            DigestAlgorithm::Sha3_384 => "sha3-384",
+            DigestAlgorithm::Sha3_512 => "sha3-512",
             DigestAlgorithm::Sha256 => "sha256",
             DigestAlgorithm::Sha384 => "sha384",
             DigestAlgorithm::Sha512 => "sha512",
@@ -489,13 +498,31 @@ fn pooled_signing_and_recovery() {
         .try_acquire(Authentication::User(Pin::Value(&user)))
         .unwrap();
     for digest in [
+        DigestAlgorithm::Sha3_224,
+        DigestAlgorithm::Sha3_256,
+        DigestAlgorithm::Sha3_384,
+        DigestAlgorithm::Sha3_512,
         DigestAlgorithm::Sha224,
         DigestAlgorithm::Sha256,
         DigestAlgorithm::Sha384,
         DigestAlgorithm::Sha512,
     ] {
+        if matches!(
+            digest,
+            DigestAlgorithm::Sha3_224
+                | DigestAlgorithm::Sha3_256
+                | DigestAlgorithm::Sha3_384
+                | DigestAlgorithm::Sha3_512
+        ) && std::env::var("PKCS11_TEST_REQUIRE_SHA3_SIGNATURES").as_deref() != Ok("1")
+        {
+            continue;
+        }
         let hashed = match digest {
             DigestAlgorithm::Sha224 => Sha224::digest(b"signing fixture").to_vec(),
+            DigestAlgorithm::Sha3_224 => Sha3_224::digest(b"signing fixture").to_vec(),
+            DigestAlgorithm::Sha3_256 => Sha3_256::digest(b"signing fixture").to_vec(),
+            DigestAlgorithm::Sha3_384 => Sha3_384::digest(b"signing fixture").to_vec(),
+            DigestAlgorithm::Sha3_512 => Sha3_512::digest(b"signing fixture").to_vec(),
             DigestAlgorithm::Sha256 => Sha256::digest(b"signing fixture").to_vec(),
             DigestAlgorithm::Sha384 => Sha384::digest(b"signing fixture").to_vec(),
             DigestAlgorithm::Sha512 => Sha512::digest(b"signing fixture").to_vec(),
@@ -520,6 +547,10 @@ fn pooled_signing_and_recovery() {
             for (input, hashing) in [
                 (
                     SignInput::Message(b"signing fixture"),
+                    HashingPolicy::TokenOnly,
+                ),
+                (
+                    SignInput::Message(b"signing fixture"),
                     HashingPolicy::AllowSoftware,
                 ),
                 (
@@ -528,6 +559,12 @@ fn pooled_signing_and_recovery() {
                 ),
                 (SignInput::Digest(&hashed), HashingPolicy::TokenOnly),
             ] {
+                if hashing == HashingPolicy::TokenOnly
+                    && matches!(input, SignInput::Message(_))
+                    && std::env::var("PKCS11_TEST_REQUIRE_SHA3_SIGNATURES").as_deref() != Ok("1")
+                {
+                    continue;
+                }
                 let req = SignRequest {
                     algorithm,
                     digest,
@@ -542,6 +579,9 @@ fn pooled_signing_and_recovery() {
                     ..Default::default()
                 };
                 policy.digests.push(DigestAlgorithm::Sha224);
+                if !policy.digests.contains(&digest) {
+                    policy.digests.push(digest);
+                }
                 let signature = lease.session().sign(&key, &req, &policy, None).unwrap();
                 verify(root, public, &req, b"signing fixture", &signature);
                 verify_native(lease.session(), &key, &req, &policy, &signature);
@@ -752,6 +792,10 @@ fn pooled_signing_and_recovery() {
         verify(root, &ec_auth, &ec_request, b"signing fixture", &signature);
         let hashed = match digest {
             DigestAlgorithm::Sha224 => Sha224::digest(b"signing fixture").to_vec(),
+            DigestAlgorithm::Sha3_224 => Sha3_224::digest(b"signing fixture").to_vec(),
+            DigestAlgorithm::Sha3_256 => Sha3_256::digest(b"signing fixture").to_vec(),
+            DigestAlgorithm::Sha3_384 => Sha3_384::digest(b"signing fixture").to_vec(),
+            DigestAlgorithm::Sha3_512 => Sha3_512::digest(b"signing fixture").to_vec(),
             DigestAlgorithm::Sha256 => Sha256::digest(b"signing fixture").to_vec(),
             DigestAlgorithm::Sha384 => Sha384::digest(b"signing fixture").to_vec(),
             DigestAlgorithm::Sha512 => Sha512::digest(b"signing fixture").to_vec(),

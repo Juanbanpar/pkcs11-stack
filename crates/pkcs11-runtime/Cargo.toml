@@ -13,6 +13,7 @@ pkcs11-locator.workspace = true
 cryptoki.workspace = true
 secrecy.workspace = true
 sha2.workspace = true
+sha3.workspace = true
 thiserror.workspace = true
 
 [lints]

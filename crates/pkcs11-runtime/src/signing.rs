@@ -13,6 +13,7 @@ use cryptoki::{
 };
 use pkcs11_locator::Pkcs11Uri;
 use sha2::{Digest, Sha224, Sha256, Sha384, Sha512};
+use sha3::{Sha3_224, Sha3_256, Sha3_384, Sha3_512};
 use std::borrow::Cow;
 
 macro_rules! reference {
@@ -51,11 +52,19 @@ reference!(
     "Persistent certificate selector; association with a key is an application decision."
 );
 
-/// Supported SHA-2 digests.
+/// Supported SHA-2 and SHA-3 signature digests.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DigestAlgorithm {
     /// SHA-224; signatures require explicit inclusion in the signing policy.
     Sha224,
+    /// SHA3-224; requires explicit inclusion in the signing policy.
+    Sha3_224,
+    /// SHA3-256; requires explicit inclusion in the signing policy.
+    Sha3_256,
+    /// SHA3-384; requires explicit inclusion in the signing policy.
+    Sha3_384,
+    /// SHA3-512; requires explicit inclusion in the signing policy.
+    Sha3_512,
     /// SHA-256.
     Sha256,
     /// SHA-384.
@@ -68,22 +77,34 @@ impl DigestAlgorithm {
     pub fn output_len(self) -> usize {
         match self {
             Self::Sha224 => 28,
+            Self::Sha3_224 => 28,
+            Self::Sha3_256 => 32,
+            Self::Sha3_384 => 48,
+            Self::Sha3_512 => 64,
             Self::Sha256 => 32,
             Self::Sha384 => 48,
             Self::Sha512 => 64,
         }
     }
-    fn mechanism(self) -> MechanismType {
+    pub(crate) fn mechanism(self) -> MechanismType {
         match self {
             Self::Sha224 => MechanismType::SHA224,
+            Self::Sha3_224 => MechanismType::SHA3_224,
+            Self::Sha3_256 => MechanismType::SHA3_256,
+            Self::Sha3_384 => MechanismType::SHA3_384,
+            Self::Sha3_512 => MechanismType::SHA3_512,
             Self::Sha256 => MechanismType::SHA256,
             Self::Sha384 => MechanismType::SHA384,
             Self::Sha512 => MechanismType::SHA512,
         }
     }
-    fn mgf(self) -> PkcsMgfType {
+    pub(crate) fn mgf(self) -> PkcsMgfType {
         match self {
             Self::Sha224 => PkcsMgfType::MGF1_SHA224,
+            Self::Sha3_224 => PkcsMgfType::MGF1_SHA3_224,
+            Self::Sha3_256 => PkcsMgfType::MGF1_SHA3_256,
+            Self::Sha3_384 => PkcsMgfType::MGF1_SHA3_384,
+            Self::Sha3_512 => PkcsMgfType::MGF1_SHA3_512,
             Self::Sha256 => PkcsMgfType::MGF1_SHA256,
             Self::Sha384 => PkcsMgfType::MGF1_SHA384,
             Self::Sha512 => PkcsMgfType::MGF1_SHA512,
@@ -92,6 +113,10 @@ impl DigestAlgorithm {
     fn hash(self, data: &[u8]) -> Vec<u8> {
         match self {
             Self::Sha224 => Sha224::digest(data).to_vec(),
+            Self::Sha3_224 => Sha3_224::digest(data).to_vec(),
+            Self::Sha3_256 => Sha3_256::digest(data).to_vec(),
+            Self::Sha3_384 => Sha3_384::digest(data).to_vec(),
+            Self::Sha3_512 => Sha3_512::digest(data).to_vec(),
             Self::Sha256 => Sha256::digest(data).to_vec(),
             Self::Sha384 => Sha384::digest(data).to_vec(),
             Self::Sha512 => Sha512::digest(data).to_vec(),
@@ -101,7 +126,7 @@ impl DigestAlgorithm {
 /// Generic signature family, independent of protocols.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SignatureAlgorithm {
-    /// RSASSA-PKCS1-v1_5, with a SHA-2 DigestInfo.
+    /// RSASSA-PKCS1-v1_5, with a SHA-2 or SHA-3 DigestInfo.
     RsaPkcs1,
     /// RSASSA-PSS, requiring explicit MGF1 digest and salt length.
     RsaPss,
@@ -166,7 +191,7 @@ pub struct SigningPolicy {
     /// Allowed named EC curves.
     pub curves: Vec<NamedCurve>,
     /// Allowed message and MGF1 digests. Defaults to SHA-256/384/512;
-    /// add SHA-224 explicitly when required for interoperability.
+    /// add SHA-224 or SHA-3 explicitly when required for interoperability.
     pub digests: Vec<DigestAlgorithm>,
 }
 impl Default for SigningPolicy {
@@ -390,6 +415,10 @@ pub(crate) fn mechanism(
             if combined {
                 match request.digest {
                     Sha224 => Mechanism::Sha224RsaPkcs,
+                    Sha3_224 => Mechanism::Sha3_224RsaPkcs,
+                    Sha3_256 => Mechanism::Sha3_256RsaPkcs,
+                    Sha3_384 => Mechanism::Sha3_384RsaPkcs,
+                    Sha3_512 => Mechanism::Sha3_512RsaPkcs,
                     Sha256 => Mechanism::Sha256RsaPkcs,
                     Sha384 => Mechanism::Sha384RsaPkcs,
                     Sha512 => Mechanism::Sha512RsaPkcs,
@@ -402,6 +431,10 @@ pub(crate) fn mechanism(
             if combined {
                 match request.digest {
                     Sha224 => Mechanism::EcdsaSha224,
+                    Sha3_224 => Mechanism::EcdsaSha3_224,
+                    Sha3_256 => Mechanism::EcdsaSha3_256,
+                    Sha3_384 => Mechanism::EcdsaSha3_384,
+                    Sha3_512 => Mechanism::EcdsaSha3_512,
                     Sha256 => Mechanism::EcdsaSha256,
                     Sha384 => Mechanism::EcdsaSha384,
                     Sha512 => Mechanism::EcdsaSha512,
@@ -425,6 +458,10 @@ pub(crate) fn mechanism(
             if combined {
                 match request.digest {
                     Sha224 => Mechanism::Sha224RsaPkcsPss(params),
+                    Sha3_224 => Mechanism::Sha3_224RsaPkcsPss(params),
+                    Sha3_256 => Mechanism::Sha3_256RsaPkcsPss(params),
+                    Sha3_384 => Mechanism::Sha3_384RsaPkcsPss(params),
+                    Sha3_512 => Mechanism::Sha3_512RsaPkcsPss(params),
                     Sha256 => Mechanism::Sha256RsaPkcsPss(params),
                     Sha384 => Mechanism::Sha384RsaPkcsPss(params),
                     Sha512 => Mechanism::Sha512RsaPkcsPss(params),
@@ -436,9 +473,13 @@ pub(crate) fn mechanism(
     })
 }
 fn digest_info(digest: DigestAlgorithm, data: &[u8]) -> Vec<u8> {
-    // DER DigestInfo for the fixed SHA-2 OIDs, with explicit NULL parameters.
+    // DER DigestInfo for the fixed SHA-2/SHA-3 OIDs, with explicit NULL parameters.
     let (len, oid) = match digest {
         DigestAlgorithm::Sha224 => (0x2d, 4),
+        DigestAlgorithm::Sha3_224 => (0x2d, 7),
+        DigestAlgorithm::Sha3_256 => (0x31, 8),
+        DigestAlgorithm::Sha3_384 => (0x41, 9),
+        DigestAlgorithm::Sha3_512 => (0x51, 10),
         DigestAlgorithm::Sha256 => (0x31, 1),
         DigestAlgorithm::Sha384 => (0x41, 2),
         DigestAlgorithm::Sha512 => (0x51, 3),
@@ -569,6 +610,18 @@ fn capabilities(object: &Object<'_, '_>) -> Result<KeyCapabilities, Error> {
 }
 pub(crate) fn supported_mechanism(m: MechanismType) -> bool {
     [
+        MechanismType::SHA3_224_RSA_PKCS,
+        MechanismType::SHA3_224_RSA_PKCS_PSS,
+        MechanismType::ECDSA_SHA3_224,
+        MechanismType::SHA3_256_RSA_PKCS,
+        MechanismType::SHA3_256_RSA_PKCS_PSS,
+        MechanismType::ECDSA_SHA3_256,
+        MechanismType::SHA3_384_RSA_PKCS,
+        MechanismType::SHA3_384_RSA_PKCS_PSS,
+        MechanismType::ECDSA_SHA3_384,
+        MechanismType::SHA3_512_RSA_PKCS,
+        MechanismType::SHA3_512_RSA_PKCS_PSS,
+        MechanismType::ECDSA_SHA3_512,
         MechanismType::RSA_PKCS,
         MechanismType::RSA_PKCS_PSS,
         MechanismType::ECDSA,

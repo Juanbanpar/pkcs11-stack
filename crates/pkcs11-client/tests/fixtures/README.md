@@ -29,3 +29,8 @@ The `sha224/` fixtures cover SHA-224 with RSA PKCS#1 v1.5, RSA-PSS and
 P-256/P-384/P-521. Regenerate with `tools/generate-client-fixtures.sh sha224`;
 this keeps existing fixtures intact. The same signature formats and 20-byte PSS
 salt apply. Generated with OpenSSL 3.5.9.
+
+The `sha3/` fixtures cover SHA3-224/256/384/512 with RSA PKCS#1 v1.5,
+RSA-PSS and all three supported EC curves. Regenerate with
+`tools/generate-client-fixtures.sh sha3`. They use the same message and signature
+formats, with a 20-byte PSS salt and matching MGF1. Generated with OpenSSL 3.5.9.

@@ -4,6 +4,7 @@ use pkcs11_client::*;
 use pkcs11_runtime::Error as RuntimeError;
 use secrecy::SecretString;
 use sha2::{Digest, Sha224, Sha256, Sha384, Sha512};
+use sha3::{Sha3_224, Sha3_256, Sha3_384, Sha3_512};
 use std::{num::NonZeroUsize, path::PathBuf, process::Command};
 
 fn uri(label: &str, class: &str) -> Pkcs11Uri {
@@ -25,6 +26,10 @@ fn connect(module: &Module, hashing: HashingPolicy) -> Client<'_> {
                 DigestAlgorithm::Sha384,
                 DigestAlgorithm::Sha512,
                 DigestAlgorithm::Sha224,
+                DigestAlgorithm::Sha3_224,
+                DigestAlgorithm::Sha3_256,
+                DigestAlgorithm::Sha3_384,
+                DigestAlgorithm::Sha3_512,
             ],
             hashing,
             ..SigningPolicy::default()
@@ -184,13 +189,31 @@ fn application_workflows() {
             &[SignatureAlgorithm::Ecdsa]
         };
         for digest in [
+            DigestAlgorithm::Sha3_224,
+            DigestAlgorithm::Sha3_256,
+            DigestAlgorithm::Sha3_384,
+            DigestAlgorithm::Sha3_512,
             DigestAlgorithm::Sha224,
             DigestAlgorithm::Sha256,
             DigestAlgorithm::Sha384,
             DigestAlgorithm::Sha512,
         ] {
+            if matches!(
+                digest,
+                DigestAlgorithm::Sha3_224
+                    | DigestAlgorithm::Sha3_256
+                    | DigestAlgorithm::Sha3_384
+                    | DigestAlgorithm::Sha3_512
+            ) && std::env::var("PKCS11_TEST_REQUIRE_SHA3_SIGNATURES").as_deref() != Ok("1")
+            {
+                continue;
+            }
             let hash = match digest {
                 DigestAlgorithm::Sha224 => Sha224::digest(message).to_vec(),
+                DigestAlgorithm::Sha3_224 => Sha3_224::digest(message).to_vec(),
+                DigestAlgorithm::Sha3_256 => Sha3_256::digest(message).to_vec(),
+                DigestAlgorithm::Sha3_384 => Sha3_384::digest(message).to_vec(),
+                DigestAlgorithm::Sha3_512 => Sha3_512::digest(message).to_vec(),
                 DigestAlgorithm::Sha256 => Sha256::digest(message).to_vec(),
                 DigestAlgorithm::Sha384 => Sha384::digest(message).to_vec(),
                 DigestAlgorithm::Sha512 => Sha512::digest(message).to_vec(),

@@ -6,7 +6,7 @@ use crate::*;
 pub struct SignatureParameters {
     /// Signature family.
     pub algorithm: SignatureAlgorithm,
-    /// SHA-2 message digest.
+    /// SHA-2 or SHA-3 message digest.
     pub digest: DigestAlgorithm,
     /// Explicit PSS parameters; absent for other families.
     pub pss: Option<PssParameters>,
@@ -39,7 +39,7 @@ pub struct SigningChoice {
 pub struct SigningOptions {
     /// Whether this key requires a context PIN or protected authentication path.
     pub always_authenticate: bool,
-    /// SHA-2 choices; PSS uses matching MGF1 digest and digest-length salt.
+    /// SHA-2/SHA-3 choices; PSS uses matching MGF1 digest and digest-length salt.
     pub choices: Vec<SigningChoice>,
 }
 pub(crate) fn candidates(key: KeyKind) -> Vec<SignatureParameters> {
@@ -55,6 +55,10 @@ pub(crate) fn candidates(key: KeyKind) -> Vec<SignatureParameters> {
                 DigestAlgorithm::Sha384,
                 DigestAlgorithm::Sha512,
                 DigestAlgorithm::Sha224,
+                DigestAlgorithm::Sha3_224,
+                DigestAlgorithm::Sha3_256,
+                DigestAlgorithm::Sha3_384,
+                DigestAlgorithm::Sha3_512,
             ]
             .into_iter()
             .map(move |digest| SignatureParameters {
@@ -148,6 +152,19 @@ mod tests {
             choices.choices[0].parameters.digest,
             DigestAlgorithm::Sha224
         );
+        for (digest, mechanism) in [
+            (DigestAlgorithm::Sha3_224, MechanismType::SHA3_224_RSA_PKCS),
+            (DigestAlgorithm::Sha3_256, MechanismType::SHA3_256_RSA_PKCS),
+            (DigestAlgorithm::Sha3_384, MechanismType::SHA3_384_RSA_PKCS),
+            (DigestAlgorithm::Sha3_512, MechanismType::SHA3_512_RSA_PKCS),
+        ] {
+            caps.mechanisms[0].mechanism = mechanism;
+            assert!(options(&caps, &policy).choices.is_empty());
+            policy.digests.push(digest);
+            let choices = options(&caps, &policy);
+            assert_eq!(choices.choices.len(), 1);
+            assert_eq!(choices.choices[0].parameters.digest, digest);
+        }
         caps.can_sign = false;
         assert!(options(&caps, &policy).choices.is_empty());
     }

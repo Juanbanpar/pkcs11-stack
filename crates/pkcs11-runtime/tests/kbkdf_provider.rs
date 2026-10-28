@@ -70,6 +70,10 @@ fn expected(
         "-kdfopt",
         match digest {
             DigestAlgorithm::Sha224 => "digest:SHA224",
+            DigestAlgorithm::Sha3_224 => "digest:SHA3-224",
+            DigestAlgorithm::Sha3_256 => "digest:SHA3-256",
+            DigestAlgorithm::Sha3_384 => "digest:SHA3-384",
+            DigestAlgorithm::Sha3_512 => "digest:SHA3-512",
             DigestAlgorithm::Sha256 => "digest:SHA256",
             DigestAlgorithm::Sha384 => "digest:SHA384",
             DigestAlgorithm::Sha512 => "digest:SHA512",

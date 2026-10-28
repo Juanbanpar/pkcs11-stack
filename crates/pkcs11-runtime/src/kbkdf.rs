@@ -123,7 +123,10 @@ impl KbkdfRequest<'_> {
     /// Validate identity, input and output bounds without I/O. Callers establish
     /// an unambiguous protocol encoding for label/context and authenticate peers.
     pub fn validate(&self) -> Result<(), Error> {
-        if self.digest == DigestAlgorithm::Sha224 {
+        if !matches!(
+            self.digest,
+            DigestAlgorithm::Sha256 | DigestAlgorithm::Sha384 | DigestAlgorithm::Sha512
+        ) {
             return Err(Error::InvalidParameters("SP800-108 digest"));
         }
         validate_secret_identity(self.id, self.label)?;
@@ -161,7 +164,11 @@ impl KbkdfCapabilities {
     /// Whether the selected hash was permitted when inspected; execution rechecks.
     pub fn supports(self, digest: DigestAlgorithm) -> bool {
         match digest {
-            DigestAlgorithm::Sha224 => false,
+            DigestAlgorithm::Sha224
+            | DigestAlgorithm::Sha3_224
+            | DigestAlgorithm::Sha3_256
+            | DigestAlgorithm::Sha3_384
+            | DigestAlgorithm::Sha3_512 => false,
             DigestAlgorithm::Sha256 => self.sha256,
             DigestAlgorithm::Sha384 => self.sha384,
             DigestAlgorithm::Sha512 => self.sha512,
@@ -323,6 +330,10 @@ impl Session<'_> {
         fields.push(PrfDataParam::new(PrfDataParamType::DkmLength(&length)));
         let prf = match request.digest {
             DigestAlgorithm::Sha224 => MechanismType::SHA224_HMAC,
+            DigestAlgorithm::Sha3_224 => MechanismType::SHA3_224_HMAC,
+            DigestAlgorithm::Sha3_256 => MechanismType::SHA3_256_HMAC,
+            DigestAlgorithm::Sha3_384 => MechanismType::SHA3_384_HMAC,
+            DigestAlgorithm::Sha3_512 => MechanismType::SHA3_512_HMAC,
             DigestAlgorithm::Sha256 => MechanismType::SHA256_HMAC,
             DigestAlgorithm::Sha384 => MechanismType::SHA384_HMAC,
             DigestAlgorithm::Sha512 => MechanismType::SHA512_HMAC,

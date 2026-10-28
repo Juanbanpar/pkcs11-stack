@@ -22,6 +22,10 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
     if let Some(KeyProfile::Hkdf(profile)) = form.profile {
         let digest = match profile.digest {
             pkcs11_client::DigestAlgorithm::Sha224 => "SHA-224",
+            pkcs11_client::DigestAlgorithm::Sha3_224 => "SHA3-224",
+            pkcs11_client::DigestAlgorithm::Sha3_256 => "SHA3-256",
+            pkcs11_client::DigestAlgorithm::Sha3_384 => "SHA3-384",
+            pkcs11_client::DigestAlgorithm::Sha3_512 => "SHA3-512",
             pkcs11_client::DigestAlgorithm::Sha256 => "SHA-256",
             pkcs11_client::DigestAlgorithm::Sha384 => "SHA-384",
             pkcs11_client::DigestAlgorithm::Sha512 => "SHA-512",

@@ -277,6 +277,55 @@ impl MechanismType {
         val: CKM_SHA512_RSA_PKCS,
     };
 
+    /// SHA3-224 RSA PKCS#1 v1.5 signature mechanism.
+    pub const SHA3_224_RSA_PKCS: MechanismType = MechanismType {
+        val: CKM_SHA3_224_RSA_PKCS,
+    };
+    /// SHA3-224 RSA-PSS signature mechanism.
+    pub const SHA3_224_RSA_PKCS_PSS: MechanismType = MechanismType {
+        val: CKM_SHA3_224_RSA_PKCS_PSS,
+    };
+    /// SHA3-224 ECDSA signature mechanism.
+    pub const ECDSA_SHA3_224: MechanismType = MechanismType {
+        val: CKM_ECDSA_SHA3_224,
+    };
+    /// SHA3-256 RSA PKCS#1 v1.5 signature mechanism.
+    pub const SHA3_256_RSA_PKCS: MechanismType = MechanismType {
+        val: CKM_SHA3_256_RSA_PKCS,
+    };
+    /// SHA3-256 RSA-PSS signature mechanism.
+    pub const SHA3_256_RSA_PKCS_PSS: MechanismType = MechanismType {
+        val: CKM_SHA3_256_RSA_PKCS_PSS,
+    };
+    /// SHA3-256 ECDSA signature mechanism.
+    pub const ECDSA_SHA3_256: MechanismType = MechanismType {
+        val: CKM_ECDSA_SHA3_256,
+    };
+    /// SHA3-384 RSA PKCS#1 v1.5 signature mechanism.
+    pub const SHA3_384_RSA_PKCS: MechanismType = MechanismType {
+        val: CKM_SHA3_384_RSA_PKCS,
+    };
+    /// SHA3-384 RSA-PSS signature mechanism.
+    pub const SHA3_384_RSA_PKCS_PSS: MechanismType = MechanismType {
+        val: CKM_SHA3_384_RSA_PKCS_PSS,
+    };
+    /// SHA3-384 ECDSA signature mechanism.
+    pub const ECDSA_SHA3_384: MechanismType = MechanismType {
+        val: CKM_ECDSA_SHA3_384,
+    };
+    /// SHA3-512 RSA PKCS#1 v1.5 signature mechanism.
+    pub const SHA3_512_RSA_PKCS: MechanismType = MechanismType {
+        val: CKM_SHA3_512_RSA_PKCS,
+    };
+    /// SHA3-512 RSA-PSS signature mechanism.
+    pub const SHA3_512_RSA_PKCS_PSS: MechanismType = MechanismType {
+        val: CKM_SHA3_512_RSA_PKCS_PSS,
+    };
+    /// SHA3-512 ECDSA signature mechanism.
+    pub const ECDSA_SHA3_512: MechanismType = MechanismType {
+        val: CKM_ECDSA_SHA3_512,
+    };
+
     // SHAn-RSA-PKCS-PSS
     /// SHA1-RSA-PKCS-PSS mechanism
     pub const SHA1_RSA_PKCS_PSS: MechanismType = MechanismType {
@@ -602,6 +651,18 @@ impl MechanismType {
     pub(crate) fn stringify(mech: CK_MECHANISM_TYPE) -> String {
         match mech {
             CKM_RSA_PKCS_KEY_PAIR_GEN => String::from(stringify!(CKM_RSA_PKCS_KEY_PAIR_GEN)),
+            CKM_SHA3_224_RSA_PKCS => String::from(stringify!(CKM_SHA3_224_RSA_PKCS)),
+            CKM_SHA3_224_RSA_PKCS_PSS => String::from(stringify!(CKM_SHA3_224_RSA_PKCS_PSS)),
+            CKM_ECDSA_SHA3_224 => String::from(stringify!(CKM_ECDSA_SHA3_224)),
+            CKM_SHA3_256_RSA_PKCS => String::from(stringify!(CKM_SHA3_256_RSA_PKCS)),
+            CKM_SHA3_256_RSA_PKCS_PSS => String::from(stringify!(CKM_SHA3_256_RSA_PKCS_PSS)),
+            CKM_ECDSA_SHA3_256 => String::from(stringify!(CKM_ECDSA_SHA3_256)),
+            CKM_SHA3_384_RSA_PKCS => String::from(stringify!(CKM_SHA3_384_RSA_PKCS)),
+            CKM_SHA3_384_RSA_PKCS_PSS => String::from(stringify!(CKM_SHA3_384_RSA_PKCS_PSS)),
+            CKM_ECDSA_SHA3_384 => String::from(stringify!(CKM_ECDSA_SHA3_384)),
+            CKM_SHA3_512_RSA_PKCS => String::from(stringify!(CKM_SHA3_512_RSA_PKCS)),
+            CKM_SHA3_512_RSA_PKCS_PSS => String::from(stringify!(CKM_SHA3_512_RSA_PKCS_PSS)),
+            CKM_ECDSA_SHA3_512 => String::from(stringify!(CKM_ECDSA_SHA3_512)),
             CKM_RSA_PKCS => String::from(stringify!(CKM_RSA_PKCS)),
             CKM_RSA_9796 => String::from(stringify!(CKM_RSA_9796)),
             CKM_RSA_X_509 => String::from(stringify!(CKM_RSA_X_509)),
@@ -1049,6 +1110,18 @@ impl TryFrom<CK_MECHANISM_TYPE> for MechanismType {
             CKM_AES_CMAC_GENERAL => Ok(MechanismType::AES_CMAC_GENERAL),
             CKM_AES_CFB128 => Ok(MechanismType::AES_CFB128),
             CKM_RSA_PKCS_KEY_PAIR_GEN => Ok(MechanismType::RSA_PKCS_KEY_PAIR_GEN),
+            CKM_SHA3_224_RSA_PKCS => Ok(MechanismType::SHA3_224_RSA_PKCS),
+            CKM_SHA3_224_RSA_PKCS_PSS => Ok(MechanismType::SHA3_224_RSA_PKCS_PSS),
+            CKM_ECDSA_SHA3_224 => Ok(MechanismType::ECDSA_SHA3_224),
+            CKM_SHA3_256_RSA_PKCS => Ok(MechanismType::SHA3_256_RSA_PKCS),
+            CKM_SHA3_256_RSA_PKCS_PSS => Ok(MechanismType::SHA3_256_RSA_PKCS_PSS),
+            CKM_ECDSA_SHA3_256 => Ok(MechanismType::ECDSA_SHA3_256),
+            CKM_SHA3_384_RSA_PKCS => Ok(MechanismType::SHA3_384_RSA_PKCS),
+            CKM_SHA3_384_RSA_PKCS_PSS => Ok(MechanismType::SHA3_384_RSA_PKCS_PSS),
+            CKM_ECDSA_SHA3_384 => Ok(MechanismType::ECDSA_SHA3_384),
+            CKM_SHA3_512_RSA_PKCS => Ok(MechanismType::SHA3_512_RSA_PKCS),
+            CKM_SHA3_512_RSA_PKCS_PSS => Ok(MechanismType::SHA3_512_RSA_PKCS_PSS),
+            CKM_ECDSA_SHA3_512 => Ok(MechanismType::ECDSA_SHA3_512),
             CKM_RSA_PKCS => Ok(MechanismType::RSA_PKCS),
             CKM_RSA_PKCS_PSS => Ok(MechanismType::RSA_PKCS_PSS),
             CKM_SHA1_RSA_PKCS_PSS => Ok(MechanismType::SHA1_RSA_PKCS_PSS),
@@ -1348,6 +1421,31 @@ pub enum Mechanism<'a> {
     /// SHA256-RSA-PKCS-PSS mechanism
     Sha512RsaPkcsPss(rsa::PkcsPssParams),
 
+    /// SHA3-224 signature mechanism.
+    Sha3_224RsaPkcs,
+    /// SHA3-224 signature mechanism with explicit PSS parameters.
+    Sha3_224RsaPkcsPss(rsa::PkcsPssParams),
+    /// SHA3-224 signature mechanism.
+    EcdsaSha3_224,
+    /// SHA3-256 signature mechanism.
+    Sha3_256RsaPkcs,
+    /// SHA3-256 signature mechanism with explicit PSS parameters.
+    Sha3_256RsaPkcsPss(rsa::PkcsPssParams),
+    /// SHA3-256 signature mechanism.
+    EcdsaSha3_256,
+    /// SHA3-384 signature mechanism.
+    Sha3_384RsaPkcs,
+    /// SHA3-384 signature mechanism with explicit PSS parameters.
+    Sha3_384RsaPkcsPss(rsa::PkcsPssParams),
+    /// SHA3-384 signature mechanism.
+    EcdsaSha3_384,
+    /// SHA3-512 signature mechanism.
+    Sha3_512RsaPkcs,
+    /// SHA3-512 signature mechanism with explicit PSS parameters.
+    Sha3_512RsaPkcsPss(rsa::PkcsPssParams),
+    /// SHA3-512 signature mechanism.
+    EcdsaSha3_512,
+
     // SHAn-HMAC
     /// SHA1-HMAC mechanism
     Sha1Hmac,
@@ -1563,6 +1661,19 @@ impl Mechanism<'_> {
             Mechanism::Sha384RsaPkcs => MechanismType::SHA384_RSA_PKCS,
             Mechanism::Sha512RsaPkcs => MechanismType::SHA512_RSA_PKCS,
 
+            Mechanism::Sha3_224RsaPkcs => MechanismType::SHA3_224_RSA_PKCS,
+            Mechanism::Sha3_224RsaPkcsPss(_) => MechanismType::SHA3_224_RSA_PKCS_PSS,
+            Mechanism::EcdsaSha3_224 => MechanismType::ECDSA_SHA3_224,
+            Mechanism::Sha3_256RsaPkcs => MechanismType::SHA3_256_RSA_PKCS,
+            Mechanism::Sha3_256RsaPkcsPss(_) => MechanismType::SHA3_256_RSA_PKCS_PSS,
+            Mechanism::EcdsaSha3_256 => MechanismType::ECDSA_SHA3_256,
+            Mechanism::Sha3_384RsaPkcs => MechanismType::SHA3_384_RSA_PKCS,
+            Mechanism::Sha3_384RsaPkcsPss(_) => MechanismType::SHA3_384_RSA_PKCS_PSS,
+            Mechanism::EcdsaSha3_384 => MechanismType::ECDSA_SHA3_384,
+            Mechanism::Sha3_512RsaPkcs => MechanismType::SHA3_512_RSA_PKCS,
+            Mechanism::Sha3_512RsaPkcsPss(_) => MechanismType::SHA3_512_RSA_PKCS_PSS,
+            Mechanism::EcdsaSha3_512 => MechanismType::ECDSA_SHA3_512,
+
             Mechanism::Sha1RsaPkcsPss(_) => MechanismType::SHA1_RSA_PKCS_PSS,
             Mechanism::Sha224RsaPkcsPss(_) => MechanismType::SHA224_RSA_PKCS_PSS,
             Mechanism::Sha256RsaPkcsPss(_) => MechanismType::SHA256_RSA_PKCS_PSS,
@@ -1667,6 +1778,10 @@ impl From<&Mechanism<'_>> for CK_MECHANISM {
             Mechanism::AesGcm(params) => make_mechanism(mechanism, params),
             Mechanism::AesGcmMessage(params) => make_mechanism(mechanism, params),
             Mechanism::RsaPkcsPss(params)
+            | Mechanism::Sha3_224RsaPkcsPss(params)
+            | Mechanism::Sha3_256RsaPkcsPss(params)
+            | Mechanism::Sha3_384RsaPkcsPss(params)
+            | Mechanism::Sha3_512RsaPkcsPss(params)
             | Mechanism::Sha1RsaPkcsPss(params)
             | Mechanism::Sha224RsaPkcsPss(params)
             | Mechanism::Sha256RsaPkcsPss(params)
@@ -1780,6 +1895,14 @@ impl From<&Mechanism<'_>> for CK_MECHANISM {
             | Mechanism::EcdsaSha512
             | Mechanism::Sha1RsaPkcs
             | Mechanism::Sha224RsaPkcs
+            | Mechanism::Sha3_224RsaPkcs
+            | Mechanism::EcdsaSha3_224
+            | Mechanism::Sha3_256RsaPkcs
+            | Mechanism::EcdsaSha3_256
+            | Mechanism::Sha3_384RsaPkcs
+            | Mechanism::EcdsaSha3_384
+            | Mechanism::Sha3_512RsaPkcs
+            | Mechanism::EcdsaSha3_512
             | Mechanism::Sha256RsaPkcs
             | Mechanism::Sha384RsaPkcs
             | Mechanism::Sha512RsaPkcs

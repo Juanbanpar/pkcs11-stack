@@ -1,16 +1,19 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Native encodings and authentication, checked against independent 2.40 headers.
+//! Signature encodings and authentication against independent OASIS headers.
 #![cfg(unix)]
 use pkcs11_runtime::*;
 use secrecy::SecretString;
 use sha2::{Digest, Sha224};
+use sha3::{Sha3_224, Sha3_256, Sha3_384, Sha3_512};
 use std::{path::PathBuf, process::Command};
 
 struct Fixture(PathBuf);
 impl Fixture {
-    fn new(fault: u8) -> Self {
-        let dir =
-            std::env::temp_dir().join(format!("pkcs11-sha224-{}-{fault}", std::process::id()));
+    fn new(source: &str, headers: &str, bits: usize, fault: u8) -> Self {
+        let dir = std::env::temp_dir().join(format!(
+            "pkcs11-signature-{}-{source}-{bits}-{fault}",
+            std::process::id()
+        ));
         std::fs::create_dir(&dir).unwrap();
         let fixture = Self(dir);
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
@@ -28,9 +31,10 @@ impl Fixture {
                 },
             ])
             .arg(format!("-DFAULT={fault}"))
+            .arg(format!("-DHASH_BITS={bits}"))
             .arg("-I")
-            .arg(root.join("headers/2.40"))
-            .arg(root.join("sha224.c"))
+            .arg(root.join("headers").join(headers))
+            .arg(root.join(source))
             .arg("-o")
             .arg(fixture.0.join("module.so"))
             .output()
@@ -48,10 +52,15 @@ impl Drop for Fixture {
         std::fs::remove_dir_all(&self.0).unwrap();
     }
 }
-#[test]
-fn sha224_native_parameters_inputs_permissions_and_context_authentication() {
-    for fault in 0..=5 {
-        let fixture = Fixture::new(fault);
+fn native_parameters_inputs_permissions_and_context_authentication(
+    source: &str,
+    headers: &str,
+    digest: DigestAlgorithm,
+    mgf: DigestAlgorithm,
+    hash: &[u8],
+) {
+    for fault in 0..=6 {
+        let fixture = Fixture::new(source, headers, digest.output_len() * 8, fault);
         let module = Module::load(fixture.0.join("module.so")).unwrap();
         let token = module
             .resolve_token_uri(&"pkcs11:token=cmac".parse().unwrap())
@@ -63,8 +72,7 @@ fn sha224_native_parameters_inputs_permissions_and_context_authentication() {
             PublicKeyRef::new("pkcs11:token=cmac;id=%01;type=public".parse().unwrap()).unwrap();
         let pin = SecretString::from("1234");
         let mut policy = SigningPolicy::default();
-        policy.digests.push(DigestAlgorithm::Sha224);
-        let hash = Sha224::digest(b"abc");
+        policy.digests.extend([digest, mgf]);
         let algorithms: &[SignatureAlgorithm] = if fault == 3 {
             &[SignatureAlgorithm::Ecdsa]
         } else {
@@ -72,28 +80,35 @@ fn sha224_native_parameters_inputs_permissions_and_context_authentication() {
         };
         for &algorithm in algorithms {
             for hashing in [HashingPolicy::TokenOnly, HashingPolicy::SoftwareOnly] {
-                policy.hashing = hashing;
-                for input in [SignInput::Message(b"abc"), SignInput::Digest(&hash)] {
+                policy.hashing = if fault == 5 {
+                    HashingPolicy::AllowSoftware
+                } else {
+                    hashing
+                };
+                for input in [SignInput::Message(b"abc"), SignInput::Digest(hash)] {
                     let request = SignRequest {
                         algorithm,
-                        digest: DigestAlgorithm::Sha224,
+                        digest,
                         input,
                         pss: (algorithm == SignatureAlgorithm::RsaPss).then_some(PssParameters {
-                            mgf_digest: DigestAlgorithm::Sha384,
+                            mgf_digest: mgf,
                             salt_len: 20,
                         }),
                     };
-                    if fault == 2 {
-                        session
-                            .verify(
-                                &public,
-                                &VerifyRequest {
-                                    parameters: request,
-                                    signature: &[0xab; 256],
-                                },
-                                &policy,
-                            )
-                            .unwrap();
+                    if fault == 2 || fault == 6 {
+                        let result = session.verify(
+                            &public,
+                            &VerifyRequest {
+                                parameters: request,
+                                signature: &[0xab; 256],
+                            },
+                            &policy,
+                        );
+                        if fault == 6 {
+                            assert!(matches!(result, Err(Error::UnsupportedVerification(_))));
+                        } else {
+                            result.unwrap();
+                        }
                         continue;
                     }
                     assert!(
@@ -139,8 +154,8 @@ fn sha224_native_parameters_inputs_permissions_and_context_authentication() {
             let wrong_pin = SecretString::from("wrong");
             let request = SignRequest {
                 algorithm: algorithms[0],
-                digest: DigestAlgorithm::Sha224,
-                input: SignInput::Digest(&hash),
+                digest,
+                input: SignInput::Digest(hash),
                 pss: None,
             };
             assert!(matches!(
@@ -152,5 +167,45 @@ fn sha224_native_parameters_inputs_permissions_and_context_authentication() {
         session.close().unwrap();
         drop(token);
         module.finalize().unwrap();
+    }
+}
+
+#[test]
+fn sha224_native_encodings() {
+    native_parameters_inputs_permissions_and_context_authentication(
+        "sha224.c",
+        "2.40",
+        DigestAlgorithm::Sha224,
+        DigestAlgorithm::Sha384,
+        &Sha224::digest(b"abc"),
+    );
+}
+#[test]
+fn sha3_native_encodings() {
+    for (digest, mgf, hash) in [
+        (
+            DigestAlgorithm::Sha3_224,
+            DigestAlgorithm::Sha3_256,
+            Sha3_224::digest(b"abc").to_vec(),
+        ),
+        (
+            DigestAlgorithm::Sha3_256,
+            DigestAlgorithm::Sha3_384,
+            Sha3_256::digest(b"abc").to_vec(),
+        ),
+        (
+            DigestAlgorithm::Sha3_384,
+            DigestAlgorithm::Sha3_512,
+            Sha3_384::digest(b"abc").to_vec(),
+        ),
+        (
+            DigestAlgorithm::Sha3_512,
+            DigestAlgorithm::Sha3_224,
+            Sha3_512::digest(b"abc").to_vec(),
+        ),
+    ] {
+        native_parameters_inputs_permissions_and_context_authentication(
+            "sha3.c", "3.0", digest, mgf, &hash,
+        );
     }
 }

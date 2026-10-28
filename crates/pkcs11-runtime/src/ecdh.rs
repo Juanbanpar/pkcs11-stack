@@ -25,8 +25,8 @@ pub enum EcdhKdf {
     Sp80056a(DigestAlgorithm),
 }
 impl EcdhKdf {
-    fn parameters(self, info: &[u8]) -> EcKdf<'_> {
-        match self {
+    fn parameters(self, info: &[u8]) -> Result<EcKdf<'_>, Error> {
+        Ok(match self {
             Self::Null => EcKdf::null(),
             Self::X963(DigestAlgorithm::Sha224) => EcKdf::sha224(info),
             Self::X963(DigestAlgorithm::Sha256) => EcKdf::sha256(info),
@@ -36,7 +36,8 @@ impl EcdhKdf {
             Self::Sp80056a(DigestAlgorithm::Sha256) => EcKdf::sha256_sp800(info),
             Self::Sp80056a(DigestAlgorithm::Sha384) => EcKdf::sha384_sp800(info),
             Self::Sp80056a(DigestAlgorithm::Sha512) => EcKdf::sha512_sp800(info),
-        }
+            _ => return Err(Error::InvalidParameters("ECDH digest")),
+        })
     }
 }
 /// Type, length and permissions of an ECDH output key.
@@ -99,10 +100,8 @@ impl EcdhKeyRequest<'_> {
     /// Validate shape, identity and size bounds without provider calls. Point
     /// membership must be checked by the caller; pkcs11-client validates SPKI input.
     pub fn validate(&self) -> Result<(), Error> {
-        if matches!(
-            self.kdf,
-            EcdhKdf::X963(DigestAlgorithm::Sha224) | EcdhKdf::Sp80056a(DigestAlgorithm::Sha224)
-        ) {
+        if matches!(self.kdf, EcdhKdf::X963(digest) | EcdhKdf::Sp80056a(digest) if !matches!(digest, DigestAlgorithm::Sha256 | DigestAlgorithm::Sha384 | DigestAlgorithm::Sha512))
+        {
             return Err(Error::InvalidParameters("ECDH digest"));
         }
         validate_secret_identity(self.id, self.label)?;
@@ -159,7 +158,7 @@ impl Session<'_> {
             return Err(Error::UnsupportedKeyOperation);
         }
         let mechanism = Mechanism::Ecdh1Derive(Ecdh1DeriveParams::new(
-            request.kdf.parameters(request.shared_info),
+            request.kdf.parameters(request.shared_info)?,
             request.peer,
         ));
         object.session.write_operation("derive ECDH key", |raw| {

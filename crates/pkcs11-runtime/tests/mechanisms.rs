@@ -139,3 +139,71 @@ fn opaque_metadata_ids_survive_construction_and_numeric_display() {
         "CKC_X_509"
     );
 }
+
+#[test]
+fn sha3_signatures_and_mgfs_have_distinct_standard_identifiers() {
+    use cryptoki::mechanism::rsa::PkcsMgfType;
+    for (kind, raw, name) in [
+        (
+            MechanismType::SHA3_224_RSA_PKCS,
+            0x66,
+            "CKM_SHA3_224_RSA_PKCS",
+        ),
+        (
+            MechanismType::SHA3_256_RSA_PKCS,
+            0x60,
+            "CKM_SHA3_256_RSA_PKCS",
+        ),
+        (
+            MechanismType::SHA3_384_RSA_PKCS,
+            0x61,
+            "CKM_SHA3_384_RSA_PKCS",
+        ),
+        (
+            MechanismType::SHA3_512_RSA_PKCS,
+            0x62,
+            "CKM_SHA3_512_RSA_PKCS",
+        ),
+        (
+            MechanismType::SHA3_224_RSA_PKCS_PSS,
+            0x67,
+            "CKM_SHA3_224_RSA_PKCS_PSS",
+        ),
+        (
+            MechanismType::SHA3_256_RSA_PKCS_PSS,
+            0x63,
+            "CKM_SHA3_256_RSA_PKCS_PSS",
+        ),
+        (
+            MechanismType::SHA3_384_RSA_PKCS_PSS,
+            0x64,
+            "CKM_SHA3_384_RSA_PKCS_PSS",
+        ),
+        (
+            MechanismType::SHA3_512_RSA_PKCS_PSS,
+            0x65,
+            "CKM_SHA3_512_RSA_PKCS_PSS",
+        ),
+        (MechanismType::ECDSA_SHA3_224, 0x1047, "CKM_ECDSA_SHA3_224"),
+        (MechanismType::ECDSA_SHA3_256, 0x1048, "CKM_ECDSA_SHA3_256"),
+        (MechanismType::ECDSA_SHA3_384, 0x1049, "CKM_ECDSA_SHA3_384"),
+        (MechanismType::ECDSA_SHA3_512, 0x104a, "CKM_ECDSA_SHA3_512"),
+    ] {
+        assert_eq!(*kind, raw);
+        assert_eq!(MechanismType::try_from(raw).unwrap(), kind);
+        assert_eq!(kind.to_string(), name);
+    }
+    for (mgf, raw) in [
+        (PkcsMgfType::MGF1_SHA3_224, 6),
+        (PkcsMgfType::MGF1_SHA3_256, 7),
+        (PkcsMgfType::MGF1_SHA3_384, 8),
+        (PkcsMgfType::MGF1_SHA3_512, 9),
+    ] {
+        assert_eq!(*mgf, raw);
+        assert_eq!(PkcsMgfType::try_from(raw).unwrap(), mgf);
+        assert_ne!(mgf, PkcsMgfType::MGF1_SHA224);
+        assert_ne!(mgf, PkcsMgfType::MGF1_SHA256);
+        assert_ne!(mgf, PkcsMgfType::MGF1_SHA384);
+        assert_ne!(mgf, PkcsMgfType::MGF1_SHA512);
+    }
+}

@@ -1,15 +1,25 @@
 /* SPDX-License-Identifier: MIT OR Apache-2.0 */
-/* Parameter/encoding fixture against OASIS 2.40; signatures are synthetic. */
+/* Shared parameter/encoding fixture; defaults use OASIS 2.40 SHA-224.
+ * Signature bytes are synthetic, not cryptographic test vectors. */
 #define C_GetFunctionList base_function_list
 #include "cmac.c"
 #undef C_GetFunctionList
+#ifndef SIGN_HASH
+#define SIGN_HASH CKM_SHA224
+#define SIGN_RSA CKM_SHA224_RSA_PKCS
+#define SIGN_PSS CKM_SHA224_RSA_PKCS_PSS
+#define SIGN_ECDSA CKM_ECDSA_SHA224
+#define SIGN_MGF CKG_MGF1_SHA384
+#define SIGN_OID 4
+#define SIGN_DIGEST {0x23,0x09,0x7d,0x22,0x34,0x05,0xd8,0x22,0x86,0x42,0xa4,0x77,0xbd,0xa2,0x55,0xb3,0x2a,0xad,0xbc,0xe4,0xbd,0xa0,0xb3,0xf7,0xe3,0x6c,0x9d,0xa7}
+#endif
 static CK_MECHANISM_TYPE selected;
 static CK_ULONG signature_length;
 static int authenticated;
 static CK_RV signature_mechanisms(CK_SLOT_ID s, CK_MECHANISM_TYPE_PTR out, CK_ULONG_PTR count) {
     (void)s;
     const CK_MECHANISM_TYPE values[] = {CKM_RSA_PKCS, CKM_RSA_PKCS_PSS, CKM_ECDSA,
-        CKM_SHA224_RSA_PKCS, CKM_SHA224_RSA_PKCS_PSS, CKM_ECDSA_SHA224};
+        SIGN_RSA, SIGN_PSS, SIGN_ECDSA};
     if (out) memcpy(out, values, sizeof(values));
     *count = sizeof(values)/sizeof(values[0]); return CKR_OK;
 }
@@ -25,13 +35,13 @@ static CK_RV signature_attributes(CK_SESSION_HANDLE s, CK_OBJECT_HANDLE h, CK_AT
         CK_BYTE modulus[256] = {0x80};
         const void *data = &value;
         switch (a->type) {
-            case CKA_CLASS: value = FAULT == 2 ? CKO_PUBLIC_KEY : CKO_PRIVATE_KEY; break;
+            case CKA_CLASS: value = (FAULT == 2 || FAULT == 6) ? CKO_PUBLIC_KEY : CKO_PRIVATE_KEY; break;
             case CKA_KEY_TYPE: value = FAULT == 3 ? CKK_EC : CKK_RSA; break;
             case CKA_MODULUS: data = modulus; length = sizeof(modulus); break;
             case CKA_MODULUS_BITS: value = 2048; break;
             case CKA_EC_PARAMS: data = params; length = sizeof(params); break;
             case CKA_ALWAYS_AUTHENTICATE: value = CK_TRUE; length = sizeof(CK_BBOOL); break;
-            case CKA_SIGN: case CKA_VERIFY: value = FAULT != 4; length = sizeof(CK_BBOOL); break;
+            case CKA_SIGN: case CKA_VERIFY: value = FAULT != 4 && FAULT != 6; length = sizeof(CK_BBOOL); break;
             case CKA_ALLOWED_MECHANISMS: a->ulValueLen = 0; continue;
             default: {
                 CK_RV rv = attributes(s,h,a,1);
@@ -51,14 +61,14 @@ static CK_RV signature_attributes(CK_SESSION_HANDLE s, CK_OBJECT_HANDLE h, CK_AT
 }
 static CK_RV signature_init(CK_SESSION_HANDLE s, CK_MECHANISM_PTR m, CK_OBJECT_HANDLE h) {
     (void)s; (void)h;
-    if (FAULT == 5) return CKR_DEVICE_ERROR;
     selected = m->mechanism;
-    if (selected == CKM_RSA_PKCS_PSS || selected == CKM_SHA224_RSA_PKCS_PSS) {
+    if (FAULT == 5 && (selected == SIGN_RSA || selected == SIGN_PSS || selected == SIGN_ECDSA)) return CKR_DEVICE_ERROR;
+    if (selected == CKM_RSA_PKCS_PSS || selected == SIGN_PSS) {
         if (!m->pParameter || m->ulParameterLen != sizeof(CK_RSA_PKCS_PSS_PARAMS)) return CKR_MECHANISM_PARAM_INVALID;
         CK_RSA_PKCS_PSS_PARAMS *p = m->pParameter;
-        if (p->hashAlg != CKM_SHA224 || p->mgf != CKG_MGF1_SHA384 || p->sLen != 20) return CKR_MECHANISM_PARAM_INVALID;
+        if (p->hashAlg != SIGN_HASH || p->mgf != SIGN_MGF || p->sLen != 20) return CKR_MECHANISM_PARAM_INVALID;
     } else if (m->pParameter || m->ulParameterLen) return CKR_MECHANISM_PARAM_INVALID;
-    signature_length = (selected == CKM_ECDSA || selected == CKM_ECDSA_SHA224) ? 64 : 256;
+    signature_length = (selected == CKM_ECDSA || selected == SIGN_ECDSA) ? 64 : 256;
     active = 1; authenticated = FAULT == 2; return CKR_OK;
 }
 static CK_RV signature_login(CK_SESSION_HANDLE s, CK_USER_TYPE role, CK_UTF8CHAR_PTR pin, CK_ULONG length) {
@@ -69,8 +79,8 @@ static CK_RV signature_login(CK_SESSION_HANDLE s, CK_USER_TYPE role, CK_UTF8CHAR
 }
 static CK_RV signature_sign(CK_SESSION_HANDLE s, CK_BYTE_PTR data, CK_ULONG length, CK_BYTE_PTR out, CK_ULONG_PTR written) {
     (void)s;
-    const CK_BYTE digest[] = {0x23,0x09,0x7d,0x22,0x34,0x05,0xd8,0x22,0x86,0x42,0xa4,0x77,0xbd,0xa2,0x55,0xb3,0x2a,0xad,0xbc,0xe4,0xbd,0xa0,0xb3,0xf7,0xe3,0x6c,0x9d,0xa7};
-    const CK_BYTE prefix[] = {0x30,0x2d,0x30,0x0d,0x06,0x09,0x60,0x86,0x48,0x01,0x65,0x03,0x04,0x02,0x04,0x05,0x00,0x04,0x1c};
+    const CK_BYTE digest[] = SIGN_DIGEST;
+    const CK_BYTE prefix[] = {0x30,0x11+sizeof(digest),0x30,0x0d,0x06,0x09,0x60,0x86,0x48,0x01,0x65,0x03,0x04,0x02,SIGN_OID,0x05,0x00,0x04,sizeof(digest)};
     if (!active || !authenticated) return CKR_USER_NOT_LOGGED_IN;
     if (selected == CKM_RSA_PKCS) {
         if (length != sizeof(prefix)+sizeof(digest) || memcmp(data,prefix,sizeof(prefix)) || memcmp(data+sizeof(prefix),digest,sizeof(digest))) return CKR_DATA_INVALID;

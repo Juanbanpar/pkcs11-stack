@@ -253,6 +253,10 @@ fn software_token_oaep_interoperability_permissions_and_file_failures() {
     for choice in choices {
         let digest = match choice.digest {
             DigestAlgorithm::Sha224 => "sha224",
+            DigestAlgorithm::Sha3_224 => "sha3-224",
+            DigestAlgorithm::Sha3_256 => "sha3-256",
+            DigestAlgorithm::Sha3_384 => "sha3-384",
+            DigestAlgorithm::Sha3_512 => "sha3-512",
             DigestAlgorithm::Sha256 => "sha256",
             DigestAlgorithm::Sha384 => "sha384",
             DigestAlgorithm::Sha512 => "sha512",

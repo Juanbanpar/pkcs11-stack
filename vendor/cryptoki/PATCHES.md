@@ -64,6 +64,9 @@ Local changes:
   the native call so failed plaintext buffers zeroize as well as successful ones.
 - `src/mechanism/mod.rs`: add combined SHA-224 RSA-PSS with native PSS
   parameters and named reverse conversions for SHA-224 signature/hash IDs.
+- `src/mechanism/mod.rs`, `src/mechanism/rsa.rs`: add the twelve SHA-3 RSA/ECDSA
+  signature mechanisms and four distinct SHA-3 MGF1 IDs, with named display,
+  reverse conversion and native PSS parameter serialization.
 - `rustfmt.toml`: retain upstream's 2021 formatting independently of the workspace.
 
 The workspace uses this path dependency, including from the separate fuzz

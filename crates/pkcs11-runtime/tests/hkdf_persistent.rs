@@ -112,6 +112,10 @@ fn public_expected_stage(
     };
     let hash = match digest {
         DigestAlgorithm::Sha224 => "SHA224",
+        DigestAlgorithm::Sha3_224 => "SHA3-224",
+        DigestAlgorithm::Sha3_256 => "SHA3-256",
+        DigestAlgorithm::Sha3_384 => "SHA3-384",
+        DigestAlgorithm::Sha3_512 => "SHA3-512",
         DigestAlgorithm::Sha256 => "SHA256",
         DigestAlgorithm::Sha384 => "SHA384",
         DigestAlgorithm::Sha512 => "SHA512",

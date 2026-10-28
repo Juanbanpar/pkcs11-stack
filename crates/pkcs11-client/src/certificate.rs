@@ -5,6 +5,7 @@ use crate::{
 use p256::ecdsa::signature::hazmat::PrehashVerifier;
 use rsa::{BigUint, Pkcs1v15Sign, Pss, RsaPublicKey, traits::PublicKeyParts};
 use sha2::{Digest, Sha224, Sha256, Sha384, Sha512};
+use sha3::{Sha3_224, Sha3_256, Sha3_384, Sha3_512};
 use x509_cert::der::{
     Decode, Encode,
     asn1::{Null, ObjectIdentifier},
@@ -203,7 +204,7 @@ impl Certificate {
         }
         Ok(())
     }
-    /// Common SHA-2 verification choices for this certificate's public key.
+    /// Common SHA-2/SHA-3 verification choices for this certificate's public key.
     /// PSS uses matching MGF1 digest and digest-length salt; no trust is asserted.
     pub fn verification_options(&self) -> Vec<crate::SignatureParameters> {
         crate::signature_options::candidates(self.key_kind())
@@ -226,6 +227,10 @@ impl Certificate {
         let hash = match request.input {
             SignInput::Message(bytes) => match request.digest {
                 DigestAlgorithm::Sha224 => Sha224::digest(bytes).to_vec(),
+                DigestAlgorithm::Sha3_224 => Sha3_224::digest(bytes).to_vec(),
+                DigestAlgorithm::Sha3_256 => Sha3_256::digest(bytes).to_vec(),
+                DigestAlgorithm::Sha3_384 => Sha3_384::digest(bytes).to_vec(),
+                DigestAlgorithm::Sha3_512 => Sha3_512::digest(bytes).to_vec(),
                 DigestAlgorithm::Sha256 => Sha256::digest(bytes).to_vec(),
                 DigestAlgorithm::Sha384 => Sha384::digest(bytes).to_vec(),
                 DigestAlgorithm::Sha512 => Sha512::digest(bytes).to_vec(),
@@ -238,6 +243,10 @@ impl Certificate {
                 if let Some(pss) = request.pss {
                     let scheme = match request.digest {
                         DigestAlgorithm::Sha224 => Pss::new_with_salt::<Sha224>(pss.salt_len),
+                        DigestAlgorithm::Sha3_224 => Pss::new_with_salt::<Sha3_224>(pss.salt_len),
+                        DigestAlgorithm::Sha3_256 => Pss::new_with_salt::<Sha3_256>(pss.salt_len),
+                        DigestAlgorithm::Sha3_384 => Pss::new_with_salt::<Sha3_384>(pss.salt_len),
+                        DigestAlgorithm::Sha3_512 => Pss::new_with_salt::<Sha3_512>(pss.salt_len),
                         DigestAlgorithm::Sha256 => Pss::new_with_salt::<Sha256>(pss.salt_len),
                         DigestAlgorithm::Sha384 => Pss::new_with_salt::<Sha384>(pss.salt_len),
                         DigestAlgorithm::Sha512 => Pss::new_with_salt::<Sha512>(pss.salt_len),
@@ -246,6 +255,10 @@ impl Certificate {
                 } else {
                     let scheme = match request.digest {
                         DigestAlgorithm::Sha224 => Pkcs1v15Sign::new::<Sha224>(),
+                        DigestAlgorithm::Sha3_224 => Pkcs1v15Sign::new::<Sha3_224>(),
+                        DigestAlgorithm::Sha3_256 => Pkcs1v15Sign::new::<Sha3_256>(),
+                        DigestAlgorithm::Sha3_384 => Pkcs1v15Sign::new::<Sha3_384>(),
+                        DigestAlgorithm::Sha3_512 => Pkcs1v15Sign::new::<Sha3_512>(),
                         DigestAlgorithm::Sha256 => Pkcs1v15Sign::new::<Sha256>(),
                         DigestAlgorithm::Sha384 => Pkcs1v15Sign::new::<Sha384>(),
                         DigestAlgorithm::Sha512 => Pkcs1v15Sign::new::<Sha512>(),
@@ -303,20 +316,31 @@ mod tests {
         for key in ["rsa", "p256", "p384", "p521"] {
             for (name, digest) in [
                 ("sha224", DigestAlgorithm::Sha224),
+                ("sha3-224", DigestAlgorithm::Sha3_224),
+                ("sha3-256", DigestAlgorithm::Sha3_256),
+                ("sha3-384", DigestAlgorithm::Sha3_384),
+                ("sha3-512", DigestAlgorithm::Sha3_512),
                 ("sha256", DigestAlgorithm::Sha256),
                 ("sha384", DigestAlgorithm::Sha384),
                 ("sha512", DigestAlgorithm::Sha512),
             ] {
-                let prefix = if digest == DigestAlgorithm::Sha224 {
-                    "sha224/"
-                } else {
-                    ""
+                let prefix = match digest {
+                    DigestAlgorithm::Sha224 => "sha224/",
+                    DigestAlgorithm::Sha3_224
+                    | DigestAlgorithm::Sha3_256
+                    | DigestAlgorithm::Sha3_384
+                    | DigestAlgorithm::Sha3_512 => "sha3/",
+                    _ => "",
                 };
                 let certificate =
                     Certificate::from_der(fixture(&format!("{prefix}{key}.der"))).unwrap();
                 assert!(!certificate.spki_der().is_empty());
                 let hash = match digest {
                     DigestAlgorithm::Sha224 => Sha224::digest(MESSAGE).to_vec(),
+                    DigestAlgorithm::Sha3_224 => Sha3_224::digest(MESSAGE).to_vec(),
+                    DigestAlgorithm::Sha3_256 => Sha3_256::digest(MESSAGE).to_vec(),
+                    DigestAlgorithm::Sha3_384 => Sha3_384::digest(MESSAGE).to_vec(),
+                    DigestAlgorithm::Sha3_512 => Sha3_512::digest(MESSAGE).to_vec(),
                     DigestAlgorithm::Sha256 => Sha256::digest(MESSAGE).to_vec(),
                     DigestAlgorithm::Sha384 => Sha384::digest(MESSAGE).to_vec(),
                     DigestAlgorithm::Sha512 => Sha512::digest(MESSAGE).to_vec(),
@@ -350,6 +374,22 @@ mod tests {
                     };
                     certificate.verify(&request, &signature).unwrap();
                     certificate.verify_signature(&request, &signature).unwrap();
+                    let sha2 = match digest {
+                        DigestAlgorithm::Sha3_224 => Some(DigestAlgorithm::Sha224),
+                        DigestAlgorithm::Sha3_256 => Some(DigestAlgorithm::Sha256),
+                        DigestAlgorithm::Sha3_384 => Some(DigestAlgorithm::Sha384),
+                        DigestAlgorithm::Sha3_512 => Some(DigestAlgorithm::Sha512),
+                        _ => None,
+                    };
+                    if let Some(sha2) = sha2 {
+                        let changed = SignRequest {
+                            digest: sha2,
+                            input: SignInput::Message(MESSAGE),
+                            ..request
+                        };
+                        assert!(certificate.verify_signature(&changed, &signature).is_err());
+                    }
+
                     assert!(
                         certificate
                             .verification_options()
@@ -385,6 +425,29 @@ mod tests {
                         let signature = fixture(&format!("{prefix}rsa-pss-{name}.sig"));
                         certificate.verify(&request, &signature).unwrap();
                         certificate.verify_signature(&request, &signature).unwrap();
+                        if let Some(sha2) = sha2 {
+                            let changed = SignRequest {
+                                digest: sha2,
+                                input: SignInput::Message(MESSAGE),
+                                pss: Some(PssParameters {
+                                    mgf_digest: sha2,
+                                    salt_len: 20,
+                                }),
+                                ..request
+                            };
+                            assert!(certificate.verify_signature(&changed, &signature).is_err());
+                            let mixed = SignRequest {
+                                pss: Some(PssParameters {
+                                    mgf_digest: sha2,
+                                    salt_len: 20,
+                                }),
+                                ..request
+                            };
+                            assert!(matches!(
+                                certificate.verify_signature(&mixed, &signature),
+                                Err(Error::UnsupportedVerification)
+                            ));
+                        }
                         let bad_salt = SignRequest {
                             pss: Some(PssParameters {
                                 mgf_digest: digest,

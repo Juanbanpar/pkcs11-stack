@@ -15,6 +15,10 @@ impl std::fmt::Display for KbkdfDigest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self.0 {
             DigestAlgorithm::Sha224 => "HMAC-SHA-224",
+            DigestAlgorithm::Sha3_224 => "HMAC-SHA3-224",
+            DigestAlgorithm::Sha3_256 => "HMAC-SHA3-256",
+            DigestAlgorithm::Sha3_384 => "HMAC-SHA3-384",
+            DigestAlgorithm::Sha3_512 => "HMAC-SHA3-512",
             DigestAlgorithm::Sha256 => "HMAC-SHA-256",
             DigestAlgorithm::Sha384 => "HMAC-SHA-384",
             DigestAlgorithm::Sha512 => "HMAC-SHA-512",

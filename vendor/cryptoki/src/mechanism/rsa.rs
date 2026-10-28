@@ -27,6 +27,22 @@ impl PkcsMgfType {
     pub const MGF1_SHA224: PkcsMgfType = PkcsMgfType {
         val: CKG_MGF1_SHA224,
     };
+    /// MGF1 SHA3-224.
+    pub const MGF1_SHA3_224: PkcsMgfType = PkcsMgfType {
+        val: CKG_MGF1_SHA3_224,
+    };
+    /// MGF1 SHA3-256.
+    pub const MGF1_SHA3_256: PkcsMgfType = PkcsMgfType {
+        val: CKG_MGF1_SHA3_256,
+    };
+    /// MGF1 SHA3-384.
+    pub const MGF1_SHA3_384: PkcsMgfType = PkcsMgfType {
+        val: CKG_MGF1_SHA3_384,
+    };
+    /// MGF1 SHA3-512.
+    pub const MGF1_SHA3_512: PkcsMgfType = PkcsMgfType {
+        val: CKG_MGF1_SHA3_512,
+    };
     /// MGF1 SHA-256
     pub const MGF1_SHA256: PkcsMgfType = PkcsMgfType {
         val: CKG_MGF1_SHA256,
@@ -62,6 +78,10 @@ impl TryFrom<CK_RSA_PKCS_MGF_TYPE> for PkcsMgfType {
         match mgf_type {
             CKG_MGF1_SHA1 => Ok(PkcsMgfType::MGF1_SHA1),
             CKG_MGF1_SHA224 => Ok(PkcsMgfType::MGF1_SHA224),
+            CKG_MGF1_SHA3_224 => Ok(PkcsMgfType::MGF1_SHA3_224),
+            CKG_MGF1_SHA3_256 => Ok(PkcsMgfType::MGF1_SHA3_256),
+            CKG_MGF1_SHA3_384 => Ok(PkcsMgfType::MGF1_SHA3_384),
+            CKG_MGF1_SHA3_512 => Ok(PkcsMgfType::MGF1_SHA3_512),
             CKG_MGF1_SHA256 => Ok(PkcsMgfType::MGF1_SHA256),
             CKG_MGF1_SHA384 => Ok(PkcsMgfType::MGF1_SHA384),
             CKG_MGF1_SHA512 => Ok(PkcsMgfType::MGF1_SHA512),
