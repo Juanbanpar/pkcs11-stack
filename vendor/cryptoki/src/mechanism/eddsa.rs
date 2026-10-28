@@ -1,7 +1,7 @@
 //! EdDSA mechanism types
 
 use cryptoki_sys::*;
-use std::{convert::TryInto, ffi::c_void, marker::PhantomData, ptr::null_mut};
+use std::{convert::TryInto, marker::PhantomData, ptr::null_mut};
 
 /// EdDSA signature schemes.
 ///
@@ -44,47 +44,6 @@ pub enum EddsaSignatureScheme<'a> {
     Ed448ph(&'a [u8]),
 }
 
-impl EddsaSignatureScheme<'_> {
-    /// Convert an `EddsaSignatureScheme` into the corresponding
-    /// parameters.
-    ///
-    /// This function prepares the appropriate parameters for
-    /// the mechanism based on the signature scheme variant.
-    ///
-    /// # Returns
-    ///
-    /// A pointer the mechanism-specific parameters.
-    ///
-    /// For `Pure` and `Ed25519`, this returns `null_mut()` as no
-    /// additional parameters are required. For other schemes, a
-    /// pointer to the an `CK_EDDSA_PARAMS` structure is returned.
-    pub fn into_params(&self) -> *mut c_void {
-        match self {
-            EddsaSignatureScheme::Pure | EddsaSignatureScheme::Ed25519 => null_mut(),
-            EddsaSignatureScheme::Ed448(context) | EddsaSignatureScheme::Ed25519ctx(context) => {
-                &CK_EDDSA_PARAMS {
-                    phFlag: false.into(),
-                    pContextData: context.as_ptr() as *mut _,
-                    ulContextDataLen: context
-                        .len()
-                        .try_into()
-                        .expect("usize can not fit in CK_ULONG"),
-                } as *const CK_EDDSA_PARAMS as *mut _
-            }
-            EddsaSignatureScheme::Ed448ph(context) | EddsaSignatureScheme::Ed25519ph(context) => {
-                &CK_EDDSA_PARAMS {
-                    phFlag: true.into(),
-                    pContextData: context.as_ptr() as *mut _,
-                    ulContextDataLen: context
-                        .len()
-                        .try_into()
-                        .expect("usize can not fit in CK_ULONG"),
-                } as *const CK_EDDSA_PARAMS as *mut _
-            }
-        }
-    }
-}
-
 /// EdDSA parameters.
 ///
 /// The EdDSA mechanism, denoted CKM_EDDSA, is a mechanism for
@@ -115,7 +74,7 @@ pub struct EddsaParams<'a> {
     _marker: PhantomData<&'a [u8]>,
 }
 
-impl EddsaParams<'_> {
+impl<'a> EddsaParams<'a> {
     /// Construct EdDSA parameters.
     ///
     /// # Arguments
@@ -125,7 +84,7 @@ impl EddsaParams<'_> {
     /// # Returns
     ///
     /// A new EddsaParams struct.
-    pub fn new(scheme: EddsaSignatureScheme) -> Self {
+    pub fn new(scheme: EddsaSignatureScheme<'a>) -> Self {
         let params =
             match scheme {
                 EddsaSignatureScheme::Pure | EddsaSignatureScheme::Ed25519 => None,
@@ -133,7 +92,11 @@ impl EddsaParams<'_> {
                 | EddsaSignatureScheme::Ed448(context) => Some({
                     CK_EDDSA_PARAMS {
                         phFlag: false.into(),
-                        pContextData: context.as_ptr() as *mut _,
+                        pContextData: if context.is_empty() {
+                            null_mut()
+                        } else {
+                            context.as_ptr() as *mut _
+                        },
                         ulContextDataLen: context
                             .len()
                             .try_into()
@@ -144,7 +107,11 @@ impl EddsaParams<'_> {
                 | EddsaSignatureScheme::Ed448ph(context) => Some({
                     CK_EDDSA_PARAMS {
                         phFlag: true.into(),
-                        pContextData: context.as_ptr() as *mut _,
+                        pContextData: if context.is_empty() {
+                            null_mut()
+                        } else {
+                            context.as_ptr() as *mut _
+                        },
                         ulContextDataLen: context
                             .len()
                             .try_into()

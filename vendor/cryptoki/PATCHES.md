@@ -9,6 +9,11 @@ Published crate SHA-256:
 
 Local changes:
 
+- `src/mechanism/eddsa.rs`: bind borrowed contexts to the parameter lifetime,
+  use NULL for an empty context, and remove the unused helper that returned a
+  pointer to a temporary native parameter structure. Runtime fixtures check both
+  pure EdDSA parameter forms against independent OASIS 3.0 headers.
+
 - `src/session/object_management.rs`: add per-attribute bounded reads, and reject
   returned lengths exceeding allocated buffers before decoding, including when a
   provider incorrectly returns success. Existing reads use the same length checks.
