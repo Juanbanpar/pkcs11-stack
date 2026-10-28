@@ -48,3 +48,49 @@ fn opaque_metadata_survives_desktop_browsing_and_details() {
         registry.close().unwrap();
     }
 }
+
+#[test]
+fn profile_and_validation_metadata_remain_readable_without_object_uris() {
+    for fault in 0..=4 {
+        let fixture = MetadataModule::from_source("public_metadata.c", fault);
+        let mut registry = Registry::default();
+        let module = registry.load(fixture.path()).unwrap();
+        let token = registry.modules[0].entry.tokens[0].id;
+        let objects = registry.objects(module, token).unwrap();
+        let validation = &objects[6];
+        assert_eq!(validation.class_name(), "Validation");
+        assert!(validation.uri.is_none());
+        let field = validation
+            .fields
+            .iter()
+            .find(|f| f.name == "Validation vendor URI")
+            .unwrap();
+        assert_eq!(
+            field.status,
+            match fault {
+                2 => "sensitive",
+                3 => "unsupported",
+                4 => "unavailable",
+                _ => "available",
+            }
+        );
+        if fault == 0 {
+            assert_eq!(
+                field.value.as_deref(),
+                Some("https://validation.invalid/untrusted")
+            );
+        }
+        if fault == 1 {
+            assert_eq!(field.value.as_deref(), Some(""));
+        }
+        assert_eq!(objects[7].class_name(), "Profile");
+        assert!(
+            objects[7].fields.iter().any(|f| f.name == "Profile ID"
+                && f.value.as_ref().is_some_and(|v| v.contains("7fff0001")))
+        );
+        let details = registry.inspect(module, token, objects[2].id).unwrap();
+        assert!(details.fields.iter().any(|f| f.name == "Public key info"));
+        assert!(details.fields.iter().any(|f| f.name == "Unique ID (hex)"));
+        registry.close().unwrap();
+    }
+}

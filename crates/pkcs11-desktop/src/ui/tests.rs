@@ -866,6 +866,78 @@ fn identity_read_failures_remain_distinguishable_in_the_inspector() {
 }
 
 #[test]
+fn profile_and_validation_snapshots_render_without_actionable_locators() {
+    use crate::backend::{CryptoMode, MetadataField};
+    use pkcs11_client::ObjectClass;
+    for (class, name) in [
+        (ObjectClass::PROFILE, "Profile ID"),
+        (ObjectClass::VALIDATION, "Validation flag"),
+    ] {
+        let mut state = populated_state();
+        state.token_page = TokenPage::Objects;
+        let selected = state.objects[0].id;
+        state.objects[0].class = Some(class);
+        state.objects[0].label = if class == ObjectClass::PROFILE {
+            "Token profile"
+        } else {
+            "Provider validation"
+        }
+        .into();
+        state.objects[0].uri = None;
+        state.objects[0].fields = vec![
+            MetadataField {
+                name,
+                status: "available",
+                value: Some("0x80000001".into()),
+            },
+            MetadataField {
+                name: "Unique ID (hex)",
+                status: "sensitive",
+                value: None,
+            },
+            MetadataField {
+                name: "Validation certificate URI",
+                status: "unsupported",
+                value: None,
+            },
+        ];
+        assert!(state.select_object(selected).is_none());
+        assert!(state.current_operation.is_none());
+        assert!(!state.can_export());
+        assert!(!state.can_open_crypto(CryptoMode::Sign));
+        assert!(!state.can_open_crypto(CryptoMode::Verify));
+        let mut ui = iced_test::simulator(crate::views::object::detail(&state));
+        assert!(ui.find("Public metadata").is_ok());
+        assert!(
+            ui.find("Read-only metadata. Refresh Objects to read it again.")
+                .is_ok()
+        );
+        assert!(ui.find("Delete object…").is_err());
+        assert!(ui.find(name).is_ok());
+        assert!(ui.find("0x80000001").is_ok());
+        assert!(ui.find("sensitive").is_ok());
+        if class == ObjectClass::VALIDATION {
+            assert!(ui.find("Provider-reported validation metadata. This does not establish certification or trust.").is_ok());
+        }
+        for (width, height) in [(900, 600), (1440, 900)] {
+            for dark in [false, true] {
+                render_screen(
+                    &state,
+                    if class == ObjectClass::PROFILE {
+                        "profile-metadata"
+                    } else {
+                        "validation-metadata"
+                    },
+                    width,
+                    height,
+                    dark,
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn text_attributes_are_displayed_verbatim() {
     let mut state = populated_state();
     state.object_details = Some(crate::backend::ObjectDetails {

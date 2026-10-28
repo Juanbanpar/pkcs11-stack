@@ -46,6 +46,13 @@ pub fn detail(state: &UiState) -> Element<'_, Message> {
     .spacing(12);
     if object.ambiguous {
         content = content.push(components::notice("Ambiguous identity", "Several objects share this locator. Actions and detail reads require an unambiguous object."));
+    } else if matches!(
+        object.class,
+        Some(ObjectClass::PROFILE | ObjectClass::VALIDATION)
+    ) {
+        content = content.push(muted(
+            "Read-only metadata. Refresh Objects to read it again.",
+        ));
     } else if object.uri.is_none() {
         content = content.push(components::notice(
             "Unsupported identity",
@@ -293,14 +300,25 @@ pub fn detail(state: &UiState) -> Element<'_, Message> {
                 ),
             );
     }
-    let identity_issues = object
-        .fields
-        .iter()
-        .filter(|field| object.uri.is_none() || field.value.is_none());
+    let identity_issues = object.fields.iter().filter(|field| {
+        object.uri.is_none()
+            || (field.value.is_none() && ["Class", "Label", "ID (hex)"].contains(&field.name))
+    });
     if identity_issues.clone().next().is_some() {
         content = content
-            .push(text("Identity attributes").size(15).font(EMPHASIS))
+            .push(
+                text(if object.uri.is_none() {
+                    "Public metadata"
+                } else {
+                    "Identity attributes"
+                })
+                .size(15)
+                .font(EMPHASIS),
+            )
             .push(metadata(identity_issues));
+    }
+    if object.class == Some(ObjectClass::VALIDATION) {
+        content = content.push(muted("Provider-reported validation metadata. This does not establish certification or trust."));
     }
     content = content.push(actions);
     if let Some(uri) = &object.uri {
@@ -324,6 +342,12 @@ pub fn detail(state: &UiState) -> Element<'_, Message> {
                             .then_some(Message::SelectObject(object.id)),
                     ),
             );
+    }
+    if matches!(
+        object.class,
+        Some(ObjectClass::PROFILE | ObjectClass::VALIDATION)
+    ) {
+        return content.into();
     }
     let mut management = column![text("Object management").size(15).font(EMPHASIS)].spacing(8);
     if matches!(

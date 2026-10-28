@@ -36,6 +36,8 @@ impl ObjectEntry {
             Some(ObjectClass::PUBLIC_KEY) => "Public key".into(),
             Some(ObjectClass::PRIVATE_KEY) => "Private key".into(),
             Some(ObjectClass::SECRET_KEY) => "Secret key".into(),
+            Some(ObjectClass::PROFILE) => "Profile".into(),
+            Some(ObjectClass::VALIDATION) => "Validation".into(),
             Some(class) => class.to_string(),
             None => "Unknown class".into(),
         }
@@ -105,6 +107,24 @@ fn public_value(value: &Attribute) -> Option<String> {
         Attribute::Class(class) => class.to_string(),
         Attribute::KeyType(kind) => kind.to_string(),
         Attribute::CertificateType(kind) => kind.to_string(),
+        Attribute::ProfileId(kind) => kind.to_string(),
+        Attribute::ValidationType(kind) => kind.to_string(),
+        Attribute::ValidationAuthorityType(kind) => kind.to_string(),
+        Attribute::ValidationVersion(version) => version.to_string(),
+        Attribute::ObjectValidationFlags(bits) | Attribute::ValidationFlag(bits) => {
+            format!("0x{:x}", **bits)
+        }
+        Attribute::ValidationLevel(level) => level.to_string(),
+        Attribute::UniqueId(bytes) => hex(bytes),
+        Attribute::PublicKeyInfo(bytes) => format!("SPKI DER ({} bytes)", bytes.len()),
+        Attribute::ValidationModuleId(bytes)
+        | Attribute::ValidationCountry(bytes)
+        | Attribute::ValidationCertificateIdentifier(bytes)
+        | Attribute::ValidationCertificateUri(bytes)
+        | Attribute::ValidationVendorUri(bytes)
+        | Attribute::ValidationProfile(bytes) => std::str::from_utf8(bytes)
+            .map(str::to_owned)
+            .unwrap_or_else(|_| format!("hex: {}", hex(bytes))),
         Attribute::ModulusBits(bits) | Attribute::ValueLen(bits) => bits.to_string(),
         Attribute::Label(bytes) | Attribute::Application(bytes) => std::str::from_utf8(bytes)
             .map(str::to_owned)
@@ -149,6 +169,34 @@ const SUMMARY: [(AttributeType, &str); 3] = [
     (AttributeType::Label, "Label"),
     (AttributeType::Id, "ID (hex)"),
 ];
+fn metadata_name(kind: AttributeType) -> &'static str {
+    use AttributeType as A;
+    match kind {
+        A::Class => "Class",
+        A::Label => "Label",
+        A::Id => "ID (hex)",
+        A::Token => "Persistent",
+        A::Private => "Private",
+        A::UniqueId => "Unique ID (hex)",
+        A::KeyType => "Key type",
+        A::CertificateType => "Certificate type",
+        A::PublicKeyInfo => "Public key info",
+        A::ObjectValidationFlags => "Object validation flags",
+        A::ProfileId => "Profile ID",
+        A::ValidationType => "Validation type",
+        A::ValidationVersion => "Validation version",
+        A::ValidationLevel => "Validation level",
+        A::ValidationModuleId => "Validation module ID",
+        A::ValidationFlag => "Validation flag",
+        A::ValidationAuthorityType => "Validation authority",
+        A::ValidationCountry => "Validation country",
+        A::ValidationCertificateIdentifier => "Validation certificate ID",
+        A::ValidationCertificateUri => "Validation certificate URI",
+        A::ValidationVendorUri => "Validation vendor URI",
+        A::ValidationProfile => "Validation profile",
+        _ => "Unsupported public metadata",
+    }
+}
 fn detail_attributes(class: Option<ObjectClass>) -> Vec<(AttributeType, &'static str)> {
     use AttributeType as A;
     let mut types = vec![(A::Token, "Persistent"), (A::Private, "Private")];
@@ -250,7 +298,7 @@ impl Registry {
             self.modules[index].read_mode(token)?,
             |session| {
                 session
-                    .objects(&SUMMARY.map(|(kind, _)| kind))
+                    .public_object_metadata()
                     .map_err(|e| BackendError::from(&e))
             },
         )?;
@@ -278,8 +326,7 @@ impl Registry {
                 ambiguous: false,
                 fields: reads
                     .iter()
-                    .zip(SUMMARY)
-                    .map(|(read, (_, name))| field(read, name))
+                    .map(|read| field(read, metadata_name(read.kind)))
                     .collect(),
             });
         }
@@ -346,13 +393,28 @@ impl Registry {
                         &attributes.iter().map(|(kind, _)| *kind).collect::<Vec<_>>(),
                     )
                     .map_err(|e| BackendError::from(&e))?;
+                let public = session
+                    .public_metadata(&reference)
+                    .map_err(|e| BackendError::from(&e))?;
+                let mut fields: Vec<_> = reads
+                    .iter()
+                    .zip(&attributes)
+                    .map(|(read, (_, name))| field(read, name))
+                    .collect();
+                fields.extend(
+                    public
+                        .iter()
+                        .filter(|read| {
+                            !attributes
+                                .iter()
+                                .chain(SUMMARY.iter())
+                                .any(|(kind, _)| *kind == read.kind)
+                        })
+                        .map(|read| field(read, metadata_name(read.kind))),
+                );
                 Ok(ObjectDetails {
                     key_type: key_type(&reads),
-                    fields: reads
-                        .iter()
-                        .zip(attributes)
-                        .map(|(read, (_, name))| field(read, name))
-                        .collect(),
+                    fields,
                 })
             },
         )
