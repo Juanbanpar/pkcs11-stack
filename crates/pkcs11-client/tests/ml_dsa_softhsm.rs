@@ -2,8 +2,8 @@
 //! Typed ML-DSA client workflows and OpenSSL interoperability.
 use pkcs11_client::{
     Authentication, Error, ErrorKind, MlDsaCertificate, MlDsaHedging, MlDsaParameterSet,
-    MlDsaRequest, MlDsaSigningPolicy, MlDsaVerifyingKey, Pin, PrivateKeyRef, Provider,
-    PublicKeyRef, SessionMode, SigningPolicy,
+    MlDsaParameters, MlDsaRequest, MlDsaSigningPolicy, MlDsaVerifyingKey, Pin, PrivateKeyRef,
+    Provider, PublicKeyRef, SessionMode, SigningPolicy,
 };
 use secrecy::SecretString;
 use std::{num::NonZeroUsize, path::PathBuf, process::Command};
@@ -323,6 +323,146 @@ fn client_ml_dsa_signing_binding_and_public_export() {
         client
             .verify_ml_dsa(&public, &request, &signature, auth())
             .unwrap();
+        // Streaming uses the same key/context and is independently verified by
+        // RustCrypto and OpenSSL; token verification remains explicitly single-part.
+        // The client's open pool already holds token-wide USER authentication.
+        let mut streaming = provider
+            .management(&token, SessionMode::ReadOnly, Authentication::None)
+            .unwrap();
+        assert_eq!(
+            streaming.state().unwrap(),
+            pkcs11_client::SessionState::RoUser
+        );
+        assert!(
+            streaming
+                .ml_dsa_streaming_capabilities(&key)
+                .unwrap()
+                .can_sign
+        );
+        for hedging in [
+            MlDsaHedging::Required,
+            MlDsaHedging::Preferred,
+            MlDsaHedging::Deterministic,
+        ] {
+            for context in [b"".as_slice(), &[0xA5; 255]] {
+                for message in [&[][..], request.message] {
+                    let parameters = MlDsaParameters {
+                        parameter_set: parameter,
+                        context,
+                        hedging,
+                    };
+                    let streamed = streaming
+                        .sign_ml_dsa_reader(
+                            &key,
+                            parameters,
+                            &policy,
+                            context_pin(),
+                            &mut std::io::Cursor::new(message),
+                        )
+                        .unwrap();
+                    let expected = parameters.request(message);
+                    verifier.verify_signature(&expected, &streamed).unwrap();
+                    streaming
+                        .verify_ml_dsa(&public, &expected, &streamed)
+                        .unwrap();
+                    if hedging == MlDsaHedging::Deterministic {
+                        assert_eq!(
+                            streamed,
+                            streaming
+                                .sign_ml_dsa(&key, &expected, &policy, context_pin())
+                                .unwrap()
+                        );
+                    }
+                }
+            }
+        }
+        let parameters = MlDsaParameters {
+            parameter_set: parameter,
+            context: request.context,
+            hedging: MlDsaHedging::Required,
+        };
+        let streamed = streaming
+            .sign_ml_dsa_reader(
+                &key,
+                parameters,
+                &policy,
+                context_pin(),
+                &mut std::io::Cursor::new(request.message),
+            )
+            .unwrap();
+        let stream_input = root.join(format!("mldsa-stream-{index}.message"));
+        let stream_sig = root.join(format!("mldsa-stream-{index}.sig"));
+        std::fs::write(&stream_input, request.message).unwrap();
+        std::fs::write(&stream_sig, &streamed).unwrap();
+        openssl(&[
+            "pkeyutl",
+            "-verify",
+            "-pubin",
+            "-inkey",
+            der_path.to_str().unwrap(),
+            "-keyform",
+            "DER",
+            "-in",
+            stream_input.to_str().unwrap(),
+            "-sigfile",
+            stream_sig.to_str().unwrap(),
+            "-pkeyopt",
+            "context-string:client-context",
+        ]);
+        if index == 0 {
+            use std::io::{Read, copy};
+            struct Chunks<R> {
+                reader: R,
+                maximum_buffer: usize,
+                interrupted: bool,
+            }
+            impl<R: Read> Read for Chunks<R> {
+                fn read(&mut self, output: &mut [u8]) -> std::io::Result<usize> {
+                    self.maximum_buffer = self.maximum_buffer.max(output.len());
+                    if !self.interrupted {
+                        self.interrupted = true;
+                        return Err(std::io::ErrorKind::Interrupted.into());
+                    }
+                    let length = output.len().min(3071);
+                    self.reader.read(&mut output[..length])
+                }
+            }
+            // SoftHSM formats the entire accumulated message on every update,
+            // even with log.level=ERROR. Keep this provider check practical;
+            // the fixture separately checks bounded reader buffers and failures.
+            let length = 256 * 1024 + 3;
+            copy(
+                &mut std::io::repeat(0xA5).take(length),
+                &mut std::fs::File::create(&stream_input).unwrap(),
+            )
+            .unwrap();
+            let mut reader = Chunks {
+                reader: std::fs::File::open(&stream_input).unwrap(),
+                maximum_buffer: 0,
+                interrupted: false,
+            };
+            let signature = streaming
+                .sign_ml_dsa_reader(&key, parameters, &policy, context_pin(), &mut reader)
+                .unwrap();
+            assert_eq!(reader.maximum_buffer, 64 * 1024);
+            std::fs::write(&stream_sig, &signature).unwrap();
+            openssl(&[
+                "pkeyutl",
+                "-verify",
+                "-pubin",
+                "-inkey",
+                der_path.to_str().unwrap(),
+                "-keyform",
+                "DER",
+                "-in",
+                stream_input.to_str().unwrap(),
+                "-sigfile",
+                stream_sig.to_str().unwrap(),
+                "-pkeyopt",
+                "context-string:client-context",
+            ]);
+        }
+        streaming.close().unwrap();
         let input = root.join(format!("mldsa-{index}.message"));
         let sig_path = root.join(format!("mldsa-{index}.sig"));
         std::fs::write(&input, request.message).unwrap();

@@ -59,7 +59,10 @@ module, verify against a token certificate, and save token-generated random byte
 
 Runtime and client support pure ML-DSA-44/65/87 key generation, signing, token
 verification and public-key SPKI export. Requests use explicit parameter sets,
-contexts and hedging choices. The client also verifies signatures in software
+contexts and hedging choices. Runtime/client also expose pure ML-DSA signing
+streams with a zeroizing 64 KiB client reader, explicit context/hedging policy and
+fixed signature output. Streaming verification requires the 3.2 signature-first
+API and remains planned. The client also verifies signatures in software
 and binds token private keys to ML-DSA certificates, checking each subsequent
 bound signature. The CLI exposes these workflows, including offline certificate
 verification and context authentication.

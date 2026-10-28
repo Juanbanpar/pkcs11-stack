@@ -50,6 +50,9 @@ pub use pkcs11_runtime::{
 };
 mod management;
 mod ml_dsa;
+mod ml_dsa_stream;
+pub use ml_dsa_stream::MlDsaSigningOperation;
+pub use pkcs11_runtime::MlDsaParameters;
 mod ml_dsa_certificate;
 mod ml_kem;
 pub use ml_dsa_certificate::{MlDsaCertificate, MlDsaIdentity, MlDsaVerifyingKey};

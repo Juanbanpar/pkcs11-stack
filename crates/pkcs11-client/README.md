@@ -82,6 +82,22 @@ these calls. Requests select the expected parameter set, original message, conte
 (0 through 255 bytes), and required/preferred/deterministic hedging. Required hedging
 fails if the token cannot supply randomness; there is no software fallback.
 
+`ManagementSession::start_ml_dsa_signing` returns an exclusive signing guard;
+`sign_ml_dsa_reader` reads original messages through a zeroizing 64 KiB buffer.
+`MlDsaParameters` separates the parameter set, context and hedging requirement
+from streamed message input. Context/PIN borrows end after initialization; input
+has no total limit, so callers enforce their budget. Incomplete streams and
+read/native failures discard sessions. Explicit cancellation permits reuse only
+after confirmed native termination. Check session closure before publishing output.
+The management reader does not perform certificate binding.
+
+Both single-part and streaming ML-DSA signing allocate exactly the selected
+signature length, without native size queries or retries. ML-DSA verification
+through `C_Verify` is single-part under PKCS#11 3.2 section 6.67.5; streaming
+verification needs the signature-first API and remains planned. Pure EdDSA
+multipart support also remains gated on an implementing provider; the pinned
+SoftHSM build supports its single-part profile.
+
 Use `Provider::ml_dsa_generation_options` for advisory generation choices and
 `ManagementSession::generate_ml_dsa_key_pair` to create persistent nonextractable
 keys in an RW session. Both pooled clients and management sessions expose

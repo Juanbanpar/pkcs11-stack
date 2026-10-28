@@ -97,7 +97,7 @@ The 51 functions used by current workflows are:
 | Single/multipart public-data hashing | `C_DigestInit`, `C_Digest`, `C_DigestUpdate`, `C_DigestFinal` | Runtime `digest.rs`, client reader; native failure fixtures and OpenSSL comparisons. |
 | Single-part signatures/MACs | `C_SignInit`, `C_Sign`, `C_VerifyInit`, `C_Verify` | RSA/ECDSA, EdDSA, ML-DSA, HMAC and CMAC modules; permission, mismatch, context-login and output-bound tests. |
 | Selected generation, derivation and key transfer | `C_GenerateKey`, `C_GenerateKeyPair`, `C_DeriveKey`, `C_WrapKey`, `C_UnwrapKey` | Generation, ECDH/HKDF/SP800-108 and AES-KW/KWP modules; templates, duplicate IDs, RO rejection and provider comparisons. |
-| Multipart signatures and MACs | `C_SignUpdate`, `C_SignFinal`, `C_VerifyUpdate`, `C_VerifyFinal` | Runtime/client exclusive full/general HMAC and AES-CMAC guards, plus RSA PKCS#1/PSS and named-curve ECDSA guards; zeroizing 64 KiB client readers. Independent 2.40/3.0/3.1/3.2 fixtures cover parameters, missing multipart pointers, independent permissions, fixed output, failures, explicit cancellation and abandoned sessions. SoftHSM/Kryoptic tags agree with OpenSSL across chunk boundaries and empty input; Kryoptic requires all ten HMAC hashes, general profiles, large readers and confirmed cancellation followed by new MACs. Existing ML-DSA always-authenticate signatures also use update/final. Classical signing follows token/software hashing policy with bounded output and context login after init; OpenSSL and client certificate checks cover all eight digests and empty/chunked/large input. Kryoptic ECDSA confirms cancellation and same-pool-session reuse. Pure EdDSA/ML-DSA streaming remains O1. |
+| Multipart signatures and MACs | `C_SignUpdate`, `C_SignFinal`, `C_VerifyUpdate`, `C_VerifyFinal` | Runtime/client exclusive full/general HMAC and AES-CMAC guards, plus RSA PKCS#1/PSS and named-curve ECDSA guards; zeroizing 64 KiB client readers. Independent 2.40/3.0/3.1/3.2 fixtures cover parameters, missing multipart pointers, independent permissions, fixed output, failures, explicit cancellation and abandoned sessions. SoftHSM/Kryoptic tags agree with OpenSSL across chunk boundaries and empty input; Kryoptic requires all ten HMAC hashes, general profiles, large readers and confirmed cancellation followed by new MACs. Pure ML-DSA signing now exposes exclusive guards and client readers; all three parameter sets, hedge modes and empty/255-byte contexts are checked against single-part token verification and RustCrypto. OpenSSL independently verifies streamed signatures for all three sets and a 256 KiB chunked reader. All ML-DSA signing output is caller-bounded. Classical signing follows token/software hashing policy with bounded output and context login after init; OpenSSL and client certificate checks cover all eight digests and empty/chunked/large input. Kryoptic ECDSA confirms cancellation and same-pool-session reuse. EdDSA streaming remains provider-gated; ML-DSA streaming verification belongs to O6. |
 | O3 Implemented: explicit cancellation | `C_SessionCancel` | Runtime/client explicit flags and consuming digest guards. Independent 2.40/3.0/3.1/3.2 fixtures check exact/combined/empty flags, table/pointer gates, unsupported stubs, partial cancellation failure, pending/error results, no legacy fallback, discarded failures and confirmed pool reuse. Kryoptic proves active digest cancellation followed by a new digest; legacy providers require closure. |
 | Provider random generation | `C_GenerateRandom` | Runtime `session.rs`, client `random.rs`; length, permission and unavailable-provider tests. |
 | ML-KEM | `C_EncapsulateKey`, `C_DecapsulateKey` | Runtime/client ML-KEM, CLI/desktop exchange; required Kryoptic lane. |
@@ -112,10 +112,10 @@ minimum usable provider interface.
 
 | ID / status | First table | Functions | Acceptance criteria or scope gate |
 | --- | --- | --- | --- |
-| O1 Partial: streaming signatures/MACs | 2.40 | Covered above | Runtime/client implement native full/general HMAC and AES-CMAC plus RSA PKCS#1/PSS and named-curve ECDSA streaming. Classical guards/readers preserve hashing policy, context login, bounded output and completed-mismatch reuse, with read/update/final/drop failure tests. Remaining: pure EdDSA/ML-DSA streaming and CLI/desktop file workflows. Preserve existing single-part APIs. |
+| O1 Partial: streaming signatures/MACs | 2.40 | Covered above | Runtime/client implement native full/general HMAC and AES-CMAC, RSA PKCS#1/PSS and named-curve ECDSA streaming, plus pure ML-DSA signing streams. Classical guards/readers preserve hashing policy, context login, bounded output and completed-mismatch reuse, with read/update/final/drop failure tests. Remaining: pure EdDSA multipart support with an implementing provider and CLI/desktop file workflows. ML-DSA streaming verification is O6; the older verification API is single-part for that mechanism. Preserve existing single-part APIs. |
 | O2 Planned: streaming encryption | 2.40 | `C_EncryptUpdate`, `C_EncryptFinal`, `C_DecryptUpdate`, `C_DecryptFinal` | Start with a real supported multipart mechanism. Define bounded output and authenticated-decryption commit behavior before exposing file streaming. Test split tags, empty chunks, final authentication failure, zeroization and unchanged destination on failed verification; no unauthenticated plaintext release. |
 | O4 Planned: named-user login | 3.0 | `C_LoginUser` | Explicit username/role/PIN input, redacted diagnostics, protected-path and token-wide authentication rules. Test wrong username/PIN, SO/RO conflicts and unavailable tables/pointers; no fallback to anonymous `C_Login` or second authentication attempt. |
-| O6 Deferred: signature-first verification | 3.2 | `C_VerifySignatureInit`, `C_VerifySignature`, `C_VerifySignatureUpdate`, `C_VerifySignatureFinal` | Add with an algorithm/workflow needing the signature before message input. Verify exact argument order and lifetime, streaming mismatches and cancellation against independent 3.2 headers and an implementing provider; do not alias the older verification API. |
+| O6 Planned: ML-DSA signature-first verification | 3.2 | `C_VerifySignatureInit`, `C_VerifySignature`, `C_VerifySignatureUpdate`, `C_VerifySignatureFinal` | PKCS#11 3.2 section 6.67.5 restricts ML-DSA C_Verify to single-part operations. Add explicit signature-before-message verification; check signature/context lengths, argument order/lifetimes, streaming mismatches, cancellation and exact 3.2 table/pointer gates against independent headers and an implementing ML-DSA provider. The pinned SoftHSM lacks these functions; Kryoptic needs its ML-DSA feature enabled. Do not alias C_VerifyUpdate/C_VerifyFinal. |
 | O7 Deferred: message-based AEAD | 3.0 | `C_MessageEncryptInit`, `C_EncryptMessage`, `C_EncryptMessageBegin`, `C_EncryptMessageNext`, `C_MessageEncryptFinal`, `C_MessageDecryptInit`, `C_DecryptMessage`, `C_DecryptMessageBegin`, `C_DecryptMessageNext`, `C_MessageDecryptFinal` | Agree on an explicit message/nonce/AAD contract and find a provider supporting it. Test multiple messages per initialization, distinct nonces, tag/output bounds, finalization, failure cleanup and authenticated output release. Existing single-part GCM remains independently supported. |
 | O8 Deferred: message-based signatures/MACs | 3.0 | `C_MessageSignInit`, `C_SignMessage`, `C_SignMessageBegin`, `C_SignMessageNext`, `C_MessageSignFinal`, `C_MessageVerifyInit`, `C_VerifyMessage`, `C_VerifyMessageBegin`, `C_VerifyMessageNext`, `C_MessageVerifyFinal` | Require a concrete batched-message use case and provider. Test per-message parameters/authentication, exact tag/signature lengths, mismatches, process finalization and stale-session rejection. |
 | O9 Deferred: authenticated key transfer | 3.2 | `C_WrapKeyAuthenticated`, `C_UnwrapKeyAuthenticated` | Define the supported AEAD wrapping profile and nonce/AAD transport. Native/provider tests must cover integrity failure, trust and wrapping templates, duplicate output IDs, output permissions and cleanup. Do not introduce private-key import implicitly. |
@@ -179,9 +179,13 @@ L1 requires a concrete legacy interoperability requirement. Keep additions in
 signed atomic runtime/client and frontend commits with native/provider evidence.
 O3 is implemented for the currently supported synchronous operation classes.
 O1 MAC and classical signature streaming follow the exclusive digest guard and
-cancellation tests. Pure EdDSA/ML-DSA streams, frontend file workflows and O2 remain
-planned;
-keep unconfirmed operations discarded on legacy providers. GMAC, additional
+cancellation tests. Pure ML-DSA signing streams are implemented with independent
+3.2 parameter-layout and failure fixtures, legacy/current table selection, and
+compile-fail context/ownership checks. ML-DSA streaming verification requires O6.
+The pinned SoftHSM source supports ML-DSA signing updates but explicitly disables
+EdDSA multipart operations. EdDSA streams remain provider-gated; frontend file
+workflows and O2 remain planned. Keep unconfirmed operations discarded on legacy
+providers. GMAC, additional
 SP800-108 modes/PRFs, PBKDF2, HashML-DSA/SLH-DSA and TLS extensions remain separate
 backlog items in the coverage table. Provider gaps do not justify implicit software
 fallback or weakening existing metadata/permission checks.
@@ -276,7 +280,12 @@ signature in software, rejects wrong certificates, and detects replacement keys
 even when the selector and parameter set are unchanged. Software verification
 also covers empty messages and 255-byte binary contexts. Exported SPKI keys and
 token signatures are verified through the pinned OpenSSL command-line tool,
-including always-authenticate keys. CLI tests generate all three parameter sets,
+including always-authenticate keys. Signing-stream checks also cover all hedging
+modes, deterministic equivalence, empty/255-byte contexts, and a 256 KiB reader
+with short/Interrupted reads. The provider stress input stays bounded because
+SoftHSM formats its accumulated ML-DSA message on every update, even with debug
+logging disabled. This does not establish provider memory or throughput bounds.
+CLI tests generate all three parameter sets,
 export SPKI, bind certificates, sign with context authentication and verify using
 both certificate files and token certificates. They check deterministic signing,
 empty messages, binary contexts, mismatches and output preservation/cleanup.
