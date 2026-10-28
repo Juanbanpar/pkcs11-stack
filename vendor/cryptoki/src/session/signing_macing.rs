@@ -109,6 +109,26 @@ impl Session {
         Ok(())
     }
 
+    /// Complete multipart signing into caller-bounded storage, without a size
+    /// query, allocation or retry. A short buffer leaves the operation active;
+    /// the caller must explicitly cancel or discard the session.
+    pub fn sign_final_into(&self, output: &mut [u8]) -> Result<usize> {
+        let mut written = output.len().try_into()?;
+        unsafe {
+            Rv::from(get_pkcs11!(self.client(), C_SignFinal)(
+                self.handle(),
+                output.as_mut_ptr(),
+                &mut written,
+            ))
+            .into_result(Function::SignFinal)?;
+        }
+        let written = written.try_into()?;
+        if written > output.len() {
+            return Err(crate::error::Error::InvalidValue);
+        }
+        Ok(written)
+    }
+
     /// Finalizes ongoing multi-part signing operation,
     /// returning the signature
     pub fn sign_final(&self) -> Result<Vec<u8>> {

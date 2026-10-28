@@ -96,10 +96,28 @@ impl AesCmacOptions {
 /// Native MAC direction, with independently checked permissions and entry points.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MacOperation {
-    /// Requires CKA_SIGN and native SignInit/Sign.
+    /// Requires CKA_SIGN and native signing functions.
     Generate,
-    /// Requires CKA_VERIFY and native VerifyInit/Verify.
+    /// Requires CKA_VERIFY and native verification functions.
     Verify,
+}
+impl MacOperation {
+    pub(crate) fn functions(self, multipart: bool) -> &'static [Function] {
+        match (self, multipart) {
+            (Self::Generate, false) => &[Function::SignInit, Function::Sign],
+            (Self::Verify, false) => &[Function::VerifyInit, Function::Verify],
+            (Self::Generate, true) => &[
+                Function::SignInit,
+                Function::SignUpdate,
+                Function::SignFinal,
+            ],
+            (Self::Verify, true) => &[
+                Function::VerifyInit,
+                Function::VerifyUpdate,
+                Function::VerifyFinal,
+            ],
+        }
+    }
 }
 /// Advisory full-tag AES-CMAC profile, rediscovered before execution.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -111,6 +129,14 @@ fn capabilities(
     object: &crate::Object<'_, '_>,
     operation: MacOperation,
     profile: AesCmacProfile,
+) -> Result<AesCmacCapabilities, Error> {
+    check_capabilities(object, operation, profile, false)
+}
+fn check_capabilities(
+    object: &crate::Object<'_, '_>,
+    operation: MacOperation,
+    profile: AesCmacProfile,
+    multipart: bool,
 ) -> Result<AesCmacCapabilities, Error> {
     for (kind, expected) in [
         (
@@ -143,14 +169,11 @@ fn capabilities(
         return Err(Error::UnsupportedMac);
     }
     let token = object.session.token();
-    let functions = match operation {
-        MacOperation::Generate => [Function::SignInit, Function::Sign],
-        MacOperation::Verify => [Function::VerifyInit, Function::Verify],
-    };
     let raw = token.module.raw()?;
-    if functions
-        .into_iter()
-        .any(|function| !raw.is_fn_supported(function))
+    if operation
+        .functions(multipart)
+        .iter()
+        .any(|&f| !raw.is_fn_supported(f))
     {
         return Err(Error::UnsupportedMac);
     }
@@ -175,6 +198,33 @@ fn validate_message(length: usize) -> Result<(), Error> {
     Ok(())
 }
 impl Session<'_> {
+    /// Begin native multipart AES-CMAC generation with an explicit full/general
+    /// profile. Requires init/update/final functions and signing permission. Input
+    /// is not retained or limited to the single-part 16 MiB bound; callers enforce
+    /// their budget. RO sessions are allowed. Abandonment discards the session.
+    pub fn start_aes_cmac(
+        &mut self,
+        key: &ObjectRef,
+        profile: AesCmacProfile,
+    ) -> Result<crate::MacGeneration<'_>, Error> {
+        profile.validate()?;
+        let object = self.resolve(key)?;
+        check_capabilities(&object, MacOperation::Generate, profile, true)?;
+        crate::MacGeneration::start(&object, &profile.parameters(), profile.tag_length())
+    }
+    /// Begin native multipart AES-CMAC verification with independent CKA_VERIFY
+    /// permission and init/update/final checks. The same input and lifecycle bounds
+    /// as start_aes_cmac apply; no host tag generation or fallback occurs.
+    pub fn start_aes_cmac_verification(
+        &mut self,
+        key: &ObjectRef,
+        profile: AesCmacProfile,
+    ) -> Result<crate::MacVerification<'_>, Error> {
+        profile.validate()?;
+        let object = self.resolve(key)?;
+        check_capabilities(&object, MacOperation::Verify, profile, true)?;
+        crate::MacVerification::start(&object, &profile.parameters(), profile.tag_length())
+    }
     /// Inspect a unique sensitive, nonextractable AES key without reading its value
     /// or performing crypto. Size, permission, allow-list, flags and pointers are checked.
     pub fn aes_cmac_capabilities(

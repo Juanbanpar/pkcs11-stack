@@ -277,6 +277,15 @@ fn profile(
     operation: MacOperation,
     general: bool,
 ) -> Result<usize, Error> {
+    check_profile(object, algorithm, operation, general, false)
+}
+fn check_profile(
+    object: &Object<'_, '_>,
+    algorithm: HmacAlgorithm,
+    operation: MacOperation,
+    general: bool,
+    multipart: bool,
+) -> Result<usize, Error> {
     for (kind, expected) in [
         (
             AttributeType::Class,
@@ -310,11 +319,10 @@ fn profile(
     }
     let token = object.session.token();
     let raw = token.module.raw()?;
-    let functions = match operation {
-        MacOperation::Generate => [Function::SignInit, Function::Sign],
-        MacOperation::Verify => [Function::VerifyInit, Function::Verify],
-    };
-    if functions.into_iter().any(|f| !raw.is_fn_supported(f))
+    if operation
+        .functions(multipart)
+        .iter()
+        .any(|&f| !raw.is_fn_supported(f))
         || !token.mechanisms()?.contains(&mechanism)
     {
         return Err(Error::UnsupportedMac);
@@ -421,6 +429,56 @@ impl Token<'_> {
     }
 }
 impl Session<'_> {
+    /// Begin native multipart HMAC generation with an explicit full/general
+    /// profile and the existing half-hash minimum tag policy. Requires signing
+    /// permission and init/update/final functions, without single-part requirements.
+    /// RO sessions are allowed. Streaming retains no input and has no total message
+    /// limit; callers enforce their budget. Abandonment discards the session.
+    pub fn start_hmac(
+        &mut self,
+        key: &ObjectRef,
+        algorithm: HmacAlgorithm,
+        profile: HmacTagProfile,
+    ) -> Result<crate::MacGeneration<'_>, Error> {
+        profile.validate(algorithm)?;
+        let object = self.resolve(key)?;
+        check_profile(
+            &object,
+            algorithm,
+            MacOperation::Generate,
+            matches!(profile, HmacTagProfile::General { .. }),
+            true,
+        )?;
+        crate::MacGeneration::start(
+            &object,
+            &profile.parameters(algorithm),
+            profile.tag_length(algorithm),
+        )
+    }
+    /// Begin native multipart HMAC verification with independent CKA_VERIFY
+    /// permission and init/update/final checks. The same input and lifecycle bounds
+    /// as start_hmac apply; no host tag generation or fallback occurs.
+    pub fn start_hmac_verification(
+        &mut self,
+        key: &ObjectRef,
+        algorithm: HmacAlgorithm,
+        profile: HmacTagProfile,
+    ) -> Result<crate::MacVerification<'_>, Error> {
+        profile.validate(algorithm)?;
+        let object = self.resolve(key)?;
+        check_profile(
+            &object,
+            algorithm,
+            MacOperation::Verify,
+            matches!(profile, HmacTagProfile::General { .. }),
+            true,
+        )?;
+        crate::MacVerification::start(
+            &object,
+            &profile.parameters(algorithm),
+            profile.tag_length(algorithm),
+        )
+    }
     /// Inspect native HMAC profiles for a unique sensitive, nonextractable key.
     /// Generic or matching hash-specific HMAC keys, 16..=4096 bytes, are accepted.
     /// Missing metadata/provider errors propagate; unsupported profiles are omitted.

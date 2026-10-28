@@ -9,6 +9,11 @@ Published crate SHA-256:
 
 Local changes:
 
+- `src/session/signing_macing.rs`: complete multipart signing into caller-bounded
+  storage, without output-size queries, allocation or retries; reject returned
+  lengths exceeding that storage. Multipart MAC fixtures exercise this path
+  against independent 2.40/3.0/3.1/3.2 headers.
+
 - `src/session/cancellation.rs`: add typed cancellation flags for object search,
   encrypt/decrypt, digest, sign/MAC and verify operations through C_SessionCancel.
   `src/error/rv.rs`, `rv_error.rs`: preserve named cancellation-failed and pending

@@ -126,6 +126,19 @@ fn aes_cmac_independent_tags_permissions_generation_and_reuse() {
             assert!(expected.status.success());
             let tag = session.mac_aes_cmac(&key, &message).unwrap();
             assert_eq!(tag.as_slice(), expected.stdout);
+            let mut stream = session.start_aes_cmac(&key, AesCmacProfile::Full).unwrap();
+            stream.update(&[]).unwrap();
+            for chunk in message.chunks(15) {
+                stream.update(chunk).unwrap();
+            }
+            assert_eq!(stream.finish().unwrap(), expected.stdout);
+            let mut stream = session
+                .start_aes_cmac_verification(&key, AesCmacProfile::Full)
+                .unwrap();
+            for chunk in message.chunks(17) {
+                stream.update(chunk).unwrap();
+            }
+            stream.finish(&tag).unwrap();
             // Disposable vectors exercise all lengths; protocols fix one length per key.
             let options = session
                 .aes_cmac_options(&key, MacOperation::Generate)
@@ -138,6 +151,16 @@ fn aes_cmac_independent_tags_permissions_generation_and_reuse() {
                     .mac_aes_cmac_with_profile(&key, &message, profile)
                     .unwrap();
                 assert_eq!(tag, expected.stdout[..tag_length]);
+                let mut stream = session.start_aes_cmac(&key, profile).unwrap();
+                for chunk in message.chunks(15) {
+                    stream.update(chunk).unwrap();
+                }
+                assert_eq!(stream.finish().unwrap(), expected.stdout[..tag_length]);
+                let mut stream = session.start_aes_cmac_verification(&key, profile).unwrap();
+                for chunk in message.chunks(17) {
+                    stream.update(chunk).unwrap();
+                }
+                stream.finish(&tag).unwrap();
                 session
                     .verify_aes_cmac_with_profile(&key, &message, &tag, profile)
                     .unwrap();
@@ -154,6 +177,12 @@ fn aes_cmac_independent_tags_permissions_generation_and_reuse() {
                         Err(Error::MacMismatch)
                     ));
                     session.info().unwrap();
+                    let mut stream = session.start_aes_cmac_verification(&key, profile).unwrap();
+                    for chunk in message.chunks(15) {
+                        stream.update(chunk).unwrap();
+                    }
+                    assert!(matches!(stream.finish(tag), Err(Error::MacMismatch)));
+                    session.info().unwrap();
                 }
                 session
                     .verify_aes_cmac_with_profile(&key, &message, &tag, profile)
@@ -167,6 +196,20 @@ fn aes_cmac_independent_tags_permissions_generation_and_reuse() {
                 Err(Error::MacMismatch)
             ));
             session.info().unwrap();
+        }
+        if kdf_lane() {
+            let mut stream = session.start_aes_cmac(&key, AesCmacProfile::Full).unwrap();
+            stream.update(b"abandoned generation").unwrap();
+            stream.cancel().unwrap();
+            let mut stream = session
+                .start_aes_cmac_verification(&key, AesCmacProfile::Full)
+                .unwrap();
+            stream.update(b"abandoned verification").unwrap();
+            stream.cancel().unwrap();
+            let tag = session.mac_aes_cmac(&key, b"after cancellation").unwrap();
+            session
+                .verify_aes_cmac(&key, b"after cancellation", &tag)
+                .unwrap();
         }
         session.close().unwrap();
         for (index, bad) in [

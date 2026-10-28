@@ -135,6 +135,21 @@ fn hmac_openssl_key_types_lengths_permissions_and_generated_keys() {
                     assert!(expected.status.success());
                     let tag = ro.mac_hmac(&key, algorithm, &message).unwrap();
                     assert_eq!(tag, expected.stdout);
+                    let mut stream = ro
+                        .start_hmac(&key, algorithm, HmacTagProfile::Full)
+                        .unwrap();
+                    stream.update(&[]).unwrap();
+                    for chunk in message.chunks(31) {
+                        stream.update(chunk).unwrap();
+                    }
+                    assert_eq!(stream.finish().unwrap(), expected.stdout);
+                    let mut stream = ro
+                        .start_hmac_verification(&key, algorithm, HmacTagProfile::Full)
+                        .unwrap();
+                    for chunk in message.chunks(17) {
+                        stream.update(chunk).unwrap();
+                    }
+                    stream.finish(&tag).unwrap();
                     ro.verify_hmac(&key, algorithm, &message, &tag).unwrap();
                     let options = ro.hmac_options(&key, MacOperation::Generate).unwrap();
                     let general = options.general.is_some_and(|caps| caps.supports(algorithm));
@@ -154,6 +169,18 @@ fn hmac_openssl_key_types_lengths_permissions_and_generated_keys() {
                             .mac_hmac_with_profile(&key, algorithm, &message, tag_profile)
                             .unwrap();
                         assert_eq!(tag, expected);
+                        let mut stream = ro.start_hmac(&key, algorithm, tag_profile).unwrap();
+                        for chunk in message.chunks(31) {
+                            stream.update(chunk).unwrap();
+                        }
+                        assert_eq!(stream.finish().unwrap(), expected);
+                        let mut stream = ro
+                            .start_hmac_verification(&key, algorithm, tag_profile)
+                            .unwrap();
+                        for chunk in message.chunks(17) {
+                            stream.update(chunk).unwrap();
+                        }
+                        stream.finish(&tag).unwrap();
                         ro.verify_hmac_with_profile(&key, algorithm, &message, &tag, tag_profile)
                             .unwrap();
                         let mut wrong = tag.clone();
@@ -170,6 +197,14 @@ fn hmac_openssl_key_types_lengths_permissions_and_generated_keys() {
                                 Err(Error::MacMismatch)
                             ));
                             ro.info().unwrap();
+                            let mut stream = ro
+                                .start_hmac_verification(&key, algorithm, tag_profile)
+                                .unwrap();
+                            for chunk in message.chunks(31) {
+                                stream.update(chunk).unwrap();
+                            }
+                            assert!(matches!(stream.finish(supplied), Err(Error::MacMismatch)));
+                            ro.info().unwrap();
                         }
                     }
                     let mut wrong = tag.clone();
@@ -182,6 +217,21 @@ fn hmac_openssl_key_types_lengths_permissions_and_generated_keys() {
                         ro.info().unwrap();
                     }
                     ro.verify_hmac(&key, algorithm, &message, &tag).unwrap();
+                }
+                if kdf {
+                    let mut stream = ro
+                        .start_hmac(&key, algorithm, HmacTagProfile::Full)
+                        .unwrap();
+                    stream.update(b"abandoned generation").unwrap();
+                    stream.cancel().unwrap();
+                    let mut stream = ro
+                        .start_hmac_verification(&key, algorithm, HmacTagProfile::Full)
+                        .unwrap();
+                    stream.update(b"abandoned verification").unwrap();
+                    stream.cancel().unwrap();
+                    let tag = ro.mac_hmac(&key, algorithm, b"after cancellation").unwrap();
+                    ro.verify_hmac(&key, algorithm, b"after cancellation", &tag)
+                        .unwrap();
                 }
                 ro.close().unwrap();
             }

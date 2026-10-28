@@ -35,6 +35,7 @@ pub use hmac::{
     HMAC_MAXIMUM_MESSAGE, HmacAlgorithm, HmacCapabilities, HmacKeyRequest, HmacOptions,
     HmacTagProfile,
 };
+pub use mac::{MacGeneration, MacVerification};
 mod hybrid;
 mod key_operations;
 mod ml_dsa;
