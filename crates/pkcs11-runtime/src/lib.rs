@@ -39,6 +39,8 @@ pub use mac::{MacGeneration, MacVerification};
 mod hybrid;
 mod key_operations;
 mod ml_dsa;
+mod ml_dsa_verify;
+pub use ml_dsa_verify::{MlDsaVerificationCapabilities, MlDsaVerificationOperation};
 mod ml_dsa_stream;
 pub use ml_dsa_stream::{MlDsaParameters, MlDsaSigningOperation};
 mod ml_kem;

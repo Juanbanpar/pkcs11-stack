@@ -9,6 +9,11 @@ Published crate SHA-256:
 
 Local changes:
 
+- `src/session/signing_macing.rs`: expose explicit signature-first cancellation
+  through `C_VerifySignatureInit` with a NULL mechanism, key and signature.
+  Runtime fixtures check exact arguments and operation termination against the
+  independent 3.2 headers; no session-wide or legacy cancellation is attempted.
+
 - `src/mechanism/dsa.rs`: tie pure/prehash additional-context parameter lifetimes
   to their borrowed slices and normalize empty contexts to NULL. Runtime
   compile-fail doctests reject dangling contexts for both wrappers.

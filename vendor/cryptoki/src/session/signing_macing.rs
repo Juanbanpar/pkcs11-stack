@@ -256,6 +256,24 @@ impl Session {
         Ok(())
     }
 
+    /// Cancel the signature-first verification operation explicitly.
+    ///
+    /// PKCS#11 3.2 specifies a NULL mechanism for this purpose. No new
+    /// verification is initialized and no signature or key is supplied.
+    pub fn cancel_signature_verification(&self) -> Result<()> {
+        unsafe {
+            Rv::from(get_pkcs11!(self.client(), C_VerifySignatureInit)(
+                self.handle(),
+                std::ptr::null_mut(),
+                0,
+                std::ptr::null_mut(),
+                0,
+            ))
+            .into_result(Function::VerifySignatureInit)?;
+        }
+        Ok(())
+    }
+
     /// Verify Signature in single-part operation
     pub fn verify_signature(&self, data: &[u8]) -> Result<()> {
         unsafe {

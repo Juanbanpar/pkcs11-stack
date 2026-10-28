@@ -291,6 +291,21 @@ pub(crate) fn capabilities(object: &Object<'_, '_>) -> Result<MlDsaCapabilities,
     })
 }
 
+pub(crate) fn verification_key(
+    object: &Object<'_, '_>,
+) -> Result<(MlDsaParameterSet, bool), Error> {
+    let parameter = parameter_set(object, ObjectClass::PUBLIC_KEY)?;
+    let permitted = permission(object, AttributeType::Verify)?
+        && allowed(object)?
+        && mechanism_support(
+            object.session.token(),
+            parameter,
+            MechanismType::ML_DSA,
+            |info| info.verify(),
+        )?;
+    Ok((parameter, permitted))
+}
+
 impl Token<'_> {
     /// Advertised key-generation choices; vendor templates can still be rejected.
     pub fn ml_dsa_generation_options(&self) -> Result<Vec<MlDsaParameterSet>, Error> {
@@ -490,17 +505,8 @@ impl<'m> Session<'m> {
             return Err(Error::SignatureMismatch);
         }
         let object = self.resolve(key.as_object_ref())?;
-        let parameter = parameter_set(&object, ObjectClass::PUBLIC_KEY)?;
-        if parameter != request.parameter_set
-            || !permission(&object, AttributeType::Verify)?
-            || !allowed(&object)?
-            || !mechanism_support(
-                object.session.token(),
-                parameter,
-                MechanismType::ML_DSA,
-                |info| info.verify(),
-            )?
-        {
+        let (parameter, permitted) = verification_key(&object)?;
+        if parameter != request.parameter_set || !permitted {
             return Err(Error::UnsupportedSigning(
                 "ML-DSA verification permissions or parameter set",
             ));

@@ -25,7 +25,7 @@ cd "$scratch/kryoptic"
 cargo generate-lockfile
 KRYOPTIC_OPENSSL_SOURCES="$scratch/openssl" \
     cargo build --release --locked -p kryoptic --no-default-features --target-dir "$scratch/target" \
-    --features kryoptic-lib/aes,kryoptic-lib/mlkem,kryoptic-lib/hkdf,kryoptic-lib/sqlitedb,kryoptic-lib/ecc_min,kryoptic-lib/simplekdf,kryoptic-lib/sp800_108,ossl/ossl-sys
+    --features kryoptic-lib/aes,kryoptic-lib/mlkem,kryoptic-lib/mldsa,kryoptic-lib/hkdf,kryoptic-lib/sqlitedb,kryoptic-lib/ecc_min,kryoptic-lib/simplekdf,kryoptic-lib/sp800_108,ossl/ossl-sys
 install -m 755 "$scratch/target/release/libkryoptic_pkcs11.so" "$prefix/libkryoptic_pkcs11.so"
 install -m 644 LICENSE.txt "$prefix/LICENSE-kryoptic"
 install -m 644 "$scratch/openssl/LICENSE.txt" "$prefix/LICENSE-openssl"
