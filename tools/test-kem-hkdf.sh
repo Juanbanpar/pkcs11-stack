@@ -24,6 +24,7 @@ export PKCS11_TEST_KDF_OPENSSL=${PKCS11_TEST_KDF_OPENSSL:-openssl}
 command -v "$PKCS11_TEST_KDF_OPENSSL" >/dev/null
 cargo test -p pkcs11-runtime --test hkdf_persistent --locked -- --ignored --test-threads=1
 cargo test -p pkcs11-runtime --test ml_dsa_verify_provider --locked -- --ignored --test-threads=1
+cargo test -p pkcs11-client --test ml_dsa_verify_provider --locked -- --ignored --test-threads=1
 cargo test -p pkcs11-runtime --test aes_cmac_provider --locked -- --ignored --test-threads=1
 cargo test -p pkcs11-client --test aes_cmac_provider --locked -- --ignored --test-threads=1
 cargo test -p pkcs11ctl --test aes_cmac --locked -- --ignored --test-threads=1

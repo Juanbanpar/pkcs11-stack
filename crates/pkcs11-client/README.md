@@ -94,9 +94,24 @@ The management reader does not perform certificate binding.
 Both single-part and streaming ML-DSA signing allocate exactly the selected
 signature length, without native size queries or retries. ML-DSA verification
 through `C_Verify` is single-part under PKCS#11 3.2 section 6.67.5; streaming
-verification needs the signature-first API and remains planned. Pure EdDSA
-multipart support also remains gated on an implementing provider; the pinned
-SoftHSM build supports its single-part profile.
+verification uses `start_ml_dsa_verification` or `verify_ml_dsa_reader`, with the
+signature supplied before message input. `verify_ml_dsa_signature_first` provides
+the corresponding single-part workflow. `ml_dsa_verification_capabilities` checks
+public-key permissions and the selected 3.2 init/completion pointers independently
+for each mode. The existing `verify_ml_dsa` remains available on older providers;
+these explicit signature-first APIs never fall back to it.
+
+Signature/context borrows end after initialization. Reader input uses a zeroizing
+64 KiB buffer with caller-controlled total budgets. Only native success, completed
+mismatches, or confirmed cancellation permit reuse; read/update/drop failures
+require closure. Cancellation uses the operation-specific
+`C_VerifySignatureInit(NULL)` defined by section 5.15.7. The pinned Kryoptic build
+implements signature-first verification; its generic `C_SessionCancel` does not
+clear that separate operation slot. The pinned SoftHSM lacks signature-first calls.
+These management workflows do not establish certificate trust or key association.
+
+Pure EdDSA multipart support also remains gated on an implementing provider;
+the pinned SoftHSM build supports its single-part profile.
 
 Use `Provider::ml_dsa_generation_options` for advisory generation choices and
 `ManagementSession::generate_ml_dsa_key_pair` to create persistent nonextractable
