@@ -633,6 +633,18 @@ fn management_operation(
         return key_establishment::operation(session, name, m, inputs);
     }
     let value = match name {
+        "session-validation" => {
+            let flags = session.session_validation_flags()?;
+            json!({"status":if flags.is_some() {"available"} else {"unavailable"}, "flags":flags.map(|v|format!("0x{v:x}")), "type":"CKS_LAST_VALIDATION_OK", "fresh_session":true, "provider_reported":true, "trust_validated":false})
+        }
+        "public-metadata" => {
+            let token = session.token_uri()?;
+            let mut objects = Vec::new();
+            for reads in session.public_object_metadata()? {
+                objects.push(inspect::public_metadata(&reads, &token)?);
+            }
+            json!(objects)
+        }
         "digest-algorithms" => {
             json!({"advisory":true, "mode":"multipart", "algorithms": session.digest_algorithms(pkcs11_client::DigestMode::Multipart)?.into_iter().map(|a| a.to_string()).collect::<Vec<_>>()})
         }

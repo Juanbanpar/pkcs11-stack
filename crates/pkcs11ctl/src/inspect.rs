@@ -61,6 +61,28 @@ fn attr_value(attribute: &Attribute) -> Value {
     match attribute {
         Attribute::Class(v) => json!(class_name(*v)),
         Attribute::KeyType(v) => json!(format!("{v:?}")),
+        Attribute::CertificateType(v) => json!(v.to_string()),
+        Attribute::ProfileId(v) => {
+            json!({"id":format!("0x{:x}", v.as_ref()), "name":v.to_string()})
+        }
+        Attribute::ValidationType(v) => json!({"id":format!("0x{:x}", **v), "name":v.to_string()}),
+        Attribute::ValidationAuthorityType(v) => {
+            json!({"id":format!("0x{:x}", **v), "name":v.to_string()})
+        }
+        Attribute::ValidationVersion(v) => json!(v.to_string()),
+        Attribute::ObjectValidationFlags(v) | Attribute::ValidationFlag(v) => {
+            json!(format!("0x{:x}", **v))
+        }
+        Attribute::ValidationLevel(v) => json!(v.to_string()),
+        Attribute::UniqueId(v)
+        | Attribute::ValidationModuleId(v)
+        | Attribute::ValidationCountry(v)
+        | Attribute::ValidationCertificateIdentifier(v)
+        | Attribute::ValidationCertificateUri(v)
+        | Attribute::ValidationVendorUri(v)
+        | Attribute::ValidationProfile(v) => {
+            json!({"hex":hex(v), "text":std::str::from_utf8(v).ok()})
+        }
         Attribute::Label(v) => json!({"hex":hex(v),"text":std::str::from_utf8(v).ok()}),
         Attribute::Id(v)
         | Attribute::ObjectId(v)
@@ -71,8 +93,10 @@ fn attr_value(attribute: &Attribute) -> Value {
         | Attribute::Modulus(v)
         | Attribute::PublicExponent(v)
         | Attribute::EcParams(v)
+        | Attribute::PublicKeyInfo(v)
         | Attribute::EcPoint(v) => json!({"hex":hex(v)}),
-        Attribute::Private(v)
+        Attribute::Token(v)
+        | Attribute::Private(v)
         | Attribute::Sign(v)
         | Attribute::Verify(v)
         | Attribute::Encrypt(v)
@@ -108,4 +132,20 @@ pub(crate) fn object_summary(object: &[AttributeRead], token: &Pkcs11Uri) -> Res
     let attrs = attributes(object, &["class", "label", "id"])?;
     let uri = pkcs11_client::object_locator(token, object)?.map(|uri| uri.to_string());
     Ok(json!({"uri":uri,"attributes":attrs}))
+}
+
+pub(crate) fn public_metadata(reads: &[AttributeRead], token: &Pkcs11Uri) -> Result<Value> {
+    let names = reads
+        .iter()
+        .map(|read| {
+            pkcs11_client::PUBLIC_METADATA_FIELDS
+                .iter()
+                .find(|(kind, _)| *kind == read.kind)
+                .map(|(_, name)| *name)
+                .ok_or_else(|| usage("unknown public metadata field"))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let attrs = attributes(reads, &names)?;
+    let uri = pkcs11_client::object_locator(token, reads)?.map(|uri| uri.to_string());
+    Ok(json!({"uri":uri, "attributes":attrs, "provider_reported":true, "trust_validated":false}))
 }

@@ -343,6 +343,8 @@ pub(crate) fn command() -> Command {
         auth(token(
             Command::new("objects").about("List persistent objects, without secret values"),
         )),
+        auth(token(Command::new("public-metadata").about("Read bounded public metadata, including profile and validation objects; no trust validation"))),
+        token(Command::new("session-validation").about("Query provider-reported validation flags in a fresh session; not a report on previous commands")),
         auth(object(inspect)),
         auth(object(export)),
         auth(object(key_family(

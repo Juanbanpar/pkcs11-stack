@@ -128,6 +128,8 @@ fn help_and_version_need_no_module() {
         "slots",
         "tokens",
         "objects",
+        "public-metadata",
+        "session-validation",
         "mechanisms",
         "inspect",
         "export",

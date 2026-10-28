@@ -33,6 +33,8 @@ for current discovery and explicit initialization.
 | `mechanisms --token URI` | Advertised flags and provider key-size bounds |
 | `generation-options --token URI` | Advisory signing, ECDH, AES and PQC generation choices; no login |
 | `objects --token URI` | Persistent object summaries; no secret values |
+| `public-metadata --token URI` | Bounded public metadata, including profile/validation objects |
+| `session-validation --token URI` | Provider-reported validation flags in a fresh session |
 | `inspect --object URI` | Unique object's attributes, defaulting to class/label/ID |
 | `export --object URI --output PATH` | Raw certificate/data CKA_VALUE or public-key SPKI DER |
 | `certificate --object URI` | Supported certificate key summary and SPKI through client |
@@ -63,6 +65,21 @@ available. Duplicate locators can still be ambiguous when passed to `inspect`.
 Unknown object classes remain in `objects` with a numeric class and a null URI.
 `inspect --attributes key-type` preserves unknown numeric key types. This metadata
 does not enable unsupported key export or cryptographic operations.
+
+`public-metadata` includes unique IDs, SPKI DER, profile IDs, validation metadata
+and object validation flags when applicable. Each attribute is limited to 65,536
+bytes. Empty values remain available; unavailable, sensitive and unsupported values
+retain their status. Metadata URI values are returned as text/hex without fetching
+them. Unknown numeric IDs and flag bits survive. Profile/validation objects have
+null object URIs; CKA_UNIQUE_ID does not replace the CKA_ID selector. Nonempty SPKI
+must parse as DER, but inspection does not enable unsupported key algorithms or
+establish trust.
+
+`session-validation` distinguishes unavailable queries from reported zero flags.
+Its session is newly opened: the result does not describe previous CLI commands.
+Applications needing flags for a cryptographic operation must use the client's
+same-session query immediately after that operation and before closure. Validation
+metadata and flags are provider reports, not independent certification or trust.
 
 `inspect --attributes` accepts a comma-separated list: `class`, `label`, `id`,
 `object-id`, `private`, `sign`, `verify`, `encrypt`, `decrypt`, `wrap`, `unwrap`,
