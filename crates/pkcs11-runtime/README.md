@@ -789,3 +789,24 @@ buffer without a length query. Errors after initialization discard the session;
 verification mismatches remain reusable. `eddsa_public_key` reads only public,
 non-private CKA_EC_POINT values with the exact DER OCTET STRING encoding. The
 client adds canonical point validation and RFC 8410 SPKI encoding.
+
+## Explicit session cancellation
+
+`Session::cancel_operations(CancelFlags)` calls `C_SessionCancel` once on a
+healthy, exclusively owned session. Flags cover object search, encryption,
+decryption, digest, signing/MAC generation and verification; combine them with
+`|`. Empty flags leave native state unchanged, and inactive classes are ignored.
+Unknown flags are rejected before provider access. Support depends on the
+selected 3.x function table and pointer, not the reported library version.
+
+`DigestOperation::cancel` consumes an active digest guard and requests only
+`CKF_DIGEST`. A successful native result restores session reuse. Missing support,
+unsupported stubs, partial cancellation failures, pending results and other errors
+leave the session unusable until closure. Cancellation never repairs an earlier
+native update/final failure. Only the requested classes are confirmed terminated;
+success does not assert that other operation classes are idle.
+
+Drop and reader failures retain close/discard behavior, including on providers
+with cancellation support. There is no implicit cancellation, retry, logout,
+global session teardown or use of legacy `C_CancelFunction`/`C_GetFunctionStatus`.
+Cancellation follows [PKCS #11 3.2 section 5.6.5](https://docs.oasis-open.org/pkcs11/pkcs11-spec/v3.2/pkcs11-spec-v3.2.html).

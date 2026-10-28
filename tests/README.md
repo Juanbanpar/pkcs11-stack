@@ -52,6 +52,7 @@ or formal conformance. Coverage is recorded per capability below.
 | Fixed-output SHA-2/SHA-3 token digests | Implemented | Runtime single-part/multipart, client reader, CLI and desktop file hashing. OpenSSL comparisons cover ten hashes; native fixtures exercise flags, missing pointers, bounded output and failure/discard paths. Reader tests cover interruption, bounds and read failure. |
 | Optional public metadata and validation diagnostics | Implemented | Runtime/client bounded public inspection, CLI public-metadata and desktop profiles/validation snapshots; same-session flag API and explicit fresh-session CLI diagnostic. Unknown IDs/bits are preserved, and reported validation state is not a trust decision. |
 | Opaque numeric object metadata | Implemented | Runtime/client preserve unknown object/key/certificate/profile/validation IDs; CLI/desktop retain mixed listings and show numeric class/key types. Independent 3.2-header fixtures on a legacy table cover native-width maxima, malformed lengths and provider errors; typed operation/export/import restrictions remain. |
+| Explicit session cancellation | Implemented | Runtime/client `cancel_operations` and consuming digest guards. Only CKR_OK restores reuse; failed updates cannot be repaired, and drop does not cancel implicitly. Kryoptic/provider and independent header fixtures cover the lifecycle. |
 | Remaining operation expansion, metadata compatibility and explicit legacy policy | Pending | The function inventory and remaining M3/L1 tasks below define scope, dependencies and acceptance tests. |
 | Encryption-purpose RSA generation | Implemented | Runtime/client/CLI/desktop; key permissions, size/identity bounds, duplicate IDs, RO rejection, export policy and OAEP use of generated keys. |
 | Explicit SHA-2 OAEP/MGF1 digests and binary labels | Implemented | Runtime/client/CLI/desktop; all nine digest combinations interoperate with OpenSSL through 2.40. Tests cover empty/binary/bounded labels, plaintext limits, mismatches, context authentication and output preservation. |
@@ -84,7 +85,7 @@ with [the 3.2 specification, section 5](https://docs.oasis-open.org/pkcs11/pkcs1
 not promise a generic wrapper, every mechanism, or provider conformance. Pointer
 presence and numeric mechanism recognition alone do not count as implementation.
 
-The 46 functions used by current workflows are:
+The 49 functions used by current workflows are:
 
 | Workflow | Functions | Implementation / evidence |
 | --- | --- | --- |
@@ -94,13 +95,15 @@ The 46 functions used by current workflows are:
 | Object discovery, explicit reads and mutations | `C_CreateObject`, `C_DestroyObject`, `C_GetAttributeValue`, `C_SetAttributeValue`, `C_FindObjectsInit`, `C_FindObjects`, `C_FindObjectsFinal` | Runtime `session.rs`, `administration.rs`; client import/inspection and frontend stale-selection tests. |
 | Single-part encryption/decryption | `C_EncryptInit`, `C_Encrypt`, `C_DecryptInit`, `C_Decrypt` | OAEP and AES-GCM modules; OpenSSL comparisons, context login and failed-plaintext zeroization. |
 | Single/multipart public-data hashing | `C_DigestInit`, `C_Digest`, `C_DigestUpdate`, `C_DigestFinal` | Runtime `digest.rs`, client reader; native failure fixtures and OpenSSL comparisons. |
-| Single-part signatures/MACs | `C_SignInit`, `C_Sign`, `C_VerifyInit`, `C_Verify` | RSA/ECDSA, ML-DSA, HMAC and CMAC modules; permission, mismatch, context-login and output-bound tests. |
+| Single-part signatures/MACs | `C_SignInit`, `C_Sign`, `C_VerifyInit`, `C_Verify` | RSA/ECDSA, EdDSA, ML-DSA, HMAC and CMAC modules; permission, mismatch, context-login and output-bound tests. |
 | Selected generation, derivation and key transfer | `C_GenerateKey`, `C_GenerateKeyPair`, `C_DeriveKey`, `C_WrapKey`, `C_UnwrapKey` | Generation, ECDH/HKDF/SP800-108 and AES-KW/KWP modules; templates, duplicate IDs, RO rejection and provider comparisons. |
+| Context-authenticated ML-DSA completion | `C_SignUpdate`, `C_SignFinal` | Existing ML-DSA always-authenticate signatures complete through update/final after context login. General caller-controlled signature/MAC streaming remains O1. |
+| O3 Implemented: explicit cancellation | `C_SessionCancel` | Runtime/client explicit flags and consuming digest guards. Independent 2.40/3.0/3.1/3.2 fixtures check exact/combined/empty flags, table/pointer gates, unsupported stubs, partial cancellation failure, pending/error results, no legacy fallback, discarded failures and confirmed pool reuse. Kryoptic proves active digest cancellation followed by a new digest; legacy providers require closure. |
 | Provider random generation | `C_GenerateRandom` | Runtime `session.rs`, client `random.rs`; length, permission and unavailable-provider tests. |
 | ML-KEM | `C_EncapsulateKey`, `C_DecapsulateKey` | Runtime/client ML-KEM, CLI/desktop exchange; required Kryoptic lane. |
 | O5 Implemented: session validation diagnostics | `C_GetSessionValidationFlags` | Runtime/client same-session last-operation query; CLI fresh-session diagnostic. `session_validation.c` checks all selected interface versions, missing pointer, unsupported stub, zero, opaque bits, independent session state and fatal provider errors. No certification/trust inference. |
 
-The remaining 58 functions are classified below. **Planned** means a concrete
+The remaining 55 functions are classified below. **Planned** means a concrete
 extension to an existing workflow; **deferred** needs the stated use case or
 provider/design gate; **excluded** conflicts with the current application boundary.
 These are application scope decisions, not statements that OASIS forbids a function.
@@ -109,9 +112,8 @@ minimum usable provider interface.
 
 | ID / status | First table | Functions | Acceptance criteria or scope gate |
 | --- | --- | --- | --- |
-| O1 Planned: streaming signatures/MACs | 2.40 | `C_SignUpdate`, `C_SignFinal`, `C_VerifyUpdate`, `C_VerifyFinal` | Exclusive borrowed operation guard; context login after init; bounded readers/output; independent provider agreement across chunk boundaries and empty input. Inject read/update/final/drop failures; discard incomplete sessions and retain reusable completed mismatches. Preserve existing single-part APIs. |
+| O1 Planned: streaming signatures/MACs | 2.40 | `C_VerifyUpdate`, `C_VerifyFinal` | Extend existing signing update/final calls with an exclusive borrowed operation guard; context login after init; bounded readers/output; independent provider agreement across chunk boundaries and empty input. Inject read/update/final/drop failures; discard incomplete sessions and retain reusable completed mismatches. Preserve existing single-part APIs. |
 | O2 Planned: streaming encryption | 2.40 | `C_EncryptUpdate`, `C_EncryptFinal`, `C_DecryptUpdate`, `C_DecryptFinal` | Start with a real supported multipart mechanism. Define bounded output and authenticated-decryption commit behavior before exposing file streaming. Test split tags, empty chunks, final authentication failure, zeroization and unchanged destination on failed verification; no unauthenticated plaintext release. |
-| O3 Planned: explicit cancellation | 3.0 | `C_SessionCancel` | Exact native flags and pointer/version checks; fixture-test successful cancel, unsupported stub and failure. Only a confirmed termination may permit reuse. Legacy interfaces keep the existing close/discard behavior; no retry or substitution with legacy cancellation. |
 | O4 Planned: named-user login | 3.0 | `C_LoginUser` | Explicit username/role/PIN input, redacted diagnostics, protected-path and token-wide authentication rules. Test wrong username/PIN, SO/RO conflicts and unavailable tables/pointers; no fallback to anonymous `C_Login` or second authentication attempt. |
 | O6 Deferred: signature-first verification | 3.2 | `C_VerifySignatureInit`, `C_VerifySignature`, `C_VerifySignatureUpdate`, `C_VerifySignatureFinal` | Add with an algorithm/workflow needing the signature before message input. Verify exact argument order and lifetime, streaming mismatches and cancellation against independent 3.2 headers and an implementing provider; do not alias the older verification API. |
 | O7 Deferred: message-based AEAD | 3.0 | `C_MessageEncryptInit`, `C_EncryptMessage`, `C_EncryptMessageBegin`, `C_EncryptMessageNext`, `C_MessageEncryptFinal`, `C_MessageDecryptInit`, `C_DecryptMessage`, `C_DecryptMessageBegin`, `C_DecryptMessageNext`, `C_MessageDecryptFinal` | Agree on an explicit message/nonce/AAD contract and find a provider supporting it. Test multiple messages per initialization, distinct nonces, tag/output bounds, finalization, failure cleanup and authenticated output release. Existing single-part GCM remains independently supported. |
@@ -164,7 +166,8 @@ fixture tests cover every SHA-3 digest independently of provider availability.
 C1–C3 are implemented. C4/C5 require choosing an explicit profile and provider;
 L1 requires a concrete legacy interoperability requirement. Keep additions in
 signed atomic runtime/client and frontend commits with native/provider evidence.
-Streaming O1/O2 follows an operation-lifetime design and O3 cancellation tests;
+O3 is implemented for the currently supported synchronous operation classes.
+Streaming O1/O2 follows the existing exclusive digest guard and cancellation tests;
 keep unconfirmed operations discarded on legacy providers. GMAC, additional
 SP800-108 modes/PRFs, PBKDF2, HashML-DSA/SLH-DSA and TLS extensions remain separate
 backlog items in the coverage table. Provider gaps do not justify implicit software

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! Token hashes compared with independent OpenSSL output.
 use pkcs11_runtime::{
-    Authentication, DigestMode, Error, HashAlgorithm, Module, SessionMode, SessionPool,
+    Authentication, CancelFlags, DigestMode, Error, HashAlgorithm, Module, SessionMode, SessionPool,
 };
 use std::{
     io::Write,
@@ -83,6 +83,22 @@ fn fixed_hashes_singlepart_multipart_and_discarded_pool_sessions() {
             assert_eq!(operation.finish().unwrap(), expected, "{algorithm}");
             session.info().unwrap();
         }
+    }
+    let mut operation = session.start_digest(HashAlgorithm::Sha256).unwrap();
+    operation.update(b"cancel this digest").unwrap();
+    let cancelled = operation.cancel();
+    if kdf {
+        cancelled.unwrap();
+        session.info().unwrap();
+        assert_eq!(
+            session.digest(HashAlgorithm::Sha256, b"abc").unwrap(),
+            openssl(HashAlgorithm::Sha256, b"abc")
+        );
+        session.cancel_operations(CancelFlags::empty()).unwrap();
+    } else if cancelled.is_err() {
+        assert!(matches!(session.info(), Err(Error::Closed)));
+        session.close().unwrap();
+        session = token.open_session(SessionMode::ReadOnly).unwrap();
     }
     drop(session.start_digest(HashAlgorithm::Sha256).unwrap());
     assert!(matches!(session.info(), Err(Error::Closed)));

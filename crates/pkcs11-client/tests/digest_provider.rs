@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! Reader bounds, interrupted input and discard behavior on disposable providers.
-use pkcs11_client::{Authentication, DigestMode, Error, HashAlgorithm, Provider, SessionMode};
+use pkcs11_client::{
+    Authentication, CancelFlags, DigestMode, Error, HashAlgorithm, Provider, SessionMode,
+};
 use sha2::{Digest, Sha256};
 use std::io::{self, Read};
 
@@ -72,6 +74,23 @@ fn reader_chunks_interrupted_reads_and_failed_input_discard() {
     );
     assert_eq!(reader.maximum_buffer, 64 * 1024);
     session.state().unwrap();
+    let mut operation = session.start_digest(HashAlgorithm::Sha256).unwrap();
+    operation.update(b"cancel this digest").unwrap();
+    let cancelled = operation.cancel();
+    if kdf {
+        cancelled.unwrap();
+        session.state().unwrap();
+        session.cancel_operations(CancelFlags::empty()).unwrap();
+        let mut next = session.start_digest(HashAlgorithm::Sha256).unwrap();
+        next.update(b"abc").unwrap();
+        assert_eq!(next.finish().unwrap(), Sha256::digest(b"abc").to_vec());
+    } else if cancelled.is_err() {
+        assert!(session.state().is_err());
+        session.close().unwrap();
+        session = provider
+            .management(&uri, SessionMode::ReadOnly, Authentication::None)
+            .unwrap();
+    }
     let error = session
         .digest_reader(HashAlgorithm::Sha256, &mut FailedInput)
         .unwrap_err();

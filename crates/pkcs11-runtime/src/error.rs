@@ -5,6 +5,9 @@ use std::fmt;
 #[derive(thiserror::Error)]
 #[non_exhaustive]
 pub enum Error {
+    /// The selected interface or native pointer cannot explicitly cancel operations.
+    #[error("session cancellation unavailable; close the session")]
+    CancellationUnavailable,
     /// A supplied authentication tag does not verify; no provider failure is implied.
     #[error("MAC verification failed")]
     MacMismatch,

@@ -83,7 +83,8 @@ impl Error {
                 | Runtime::InvalidObjectReference
                 | Runtime::InvalidTokenReference
                 | Runtime::Locator(_) => ErrorKind::Input,
-                Runtime::UnsupportedDigest
+                Runtime::CancellationUnavailable
+                | Runtime::UnsupportedDigest
                 | Runtime::UnsupportedSigning(_)
                 | Runtime::UnsupportedVerification(_)
                 | Runtime::MissingMetadata(_)

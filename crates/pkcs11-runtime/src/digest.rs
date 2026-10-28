@@ -130,13 +130,15 @@ impl Token<'_> {
 }
 /// Exclusive multipart digest. Input chunks are never retained. Dropping an
 /// unfinished operation or any native error leaves its session unusable; closing
-/// the session discards the native operation. Only successful finish restores reuse.
+/// the session discards the native operation. Successful finish or an explicit,
+/// confirmed cancellation restores reuse.
 /// No operation-state export, implicit cancellation, retry or fallback occurs.
 pub struct DigestOperation<'a> {
     raw: &'a cryptoki::session::Session,
     healthy: &'a Cell<bool>,
     algorithm: HashAlgorithm,
     active: bool,
+    cancellation_supported: bool,
 }
 impl std::fmt::Debug for DigestOperation<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -163,6 +165,23 @@ impl DigestOperation<'_> {
             self.active = false;
             return Err(backend("update digest", error));
         }
+        Ok(())
+    }
+    /// Consume this active guard and cancel only its digest operation once.
+    /// Only confirmed native termination restores reuse. Unsupported interfaces,
+    /// stubs and other failures leave the session unusable. A failed update cannot
+    /// be repaired by cancellation. Drop never cancels implicitly.
+    pub fn cancel(mut self) -> Result<(), Error> {
+        if !self.active {
+            return Err(Error::Closed);
+        }
+        crate::cancellation::cancel(
+            self.raw,
+            self.cancellation_supported,
+            crate::CancelFlags::DIGEST,
+        )?;
+        self.active = false;
+        self.healthy.set(true);
         Ok(())
     }
     /// Complete once, returning exactly the selected hash length and restoring
@@ -216,6 +235,10 @@ impl Session<'_> {
             healthy: &self.healthy,
             algorithm,
             active: true,
+            cancellation_supported: self
+                .token()
+                .module
+                .supports_function(Function::SessionCancel),
         })
     }
 }

@@ -3,6 +3,8 @@
 #![doc = include_str!("../README.md")]
 
 mod administration;
+mod cancellation;
+pub use cryptoki::session::CancelFlags;
 mod aes_cmac;
 pub use aes_cmac::{
     AES_CMAC_MAXIMUM_MESSAGE, AES_CMAC_TAG_LENGTH, AesCmacCapabilities, AesCmacOptions,

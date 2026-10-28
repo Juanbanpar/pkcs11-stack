@@ -963,3 +963,23 @@ exported by these APIs.
 `sign_eddsa_identity` checks every signature against that retained certificate,
 including after a key is replaced under the same selector. Verification failures
 discard the lease. Parsing and binding do not establish certificate trust.
+
+## Explicit digest cancellation
+
+`ManagementSession::start_digest` returns an exclusively borrowed
+`DigestOperation` with `update`, `finish` and consuming `cancel` methods. Use it
+when the application controls chunking and may explicitly abandon input. No
+chunks or credentials are retained by the guard. Only confirmed native
+cancellation restores reuse; failed updates and unsuccessful cancellation require
+closing the session. Drop never calls cancellation implicitly.
+
+`ManagementSession::cancel_operations` exposes the runtime's typed `CancelFlags`
+for currently supported synchronous operation classes. It checks the selected
+function table and never falls back to legacy cancellation or global teardown.
+`Provider::supports_function(Function::SessionCancel)` reports pointer presence;
+a provider may still reject the actual call. A 2.40 selection cannot cancel,
+even when the module reports a newer library/table version.
+
+The existing `digest_reader` contract is unchanged: interrupted reads continue,
+while read/native failures discard the operation and session. No reader failure
+causes an automatic cancellation or second attempt.
