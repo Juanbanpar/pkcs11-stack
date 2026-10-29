@@ -142,7 +142,8 @@ the runtime. Errors retain operation and upstream return-value context without
 formatting upstream input buffers in Debug.
 
 `Object::read_attributes_bounded` applies a caller-supplied byte limit to each
-attribute before allocation. Returned lengths must fit the allocated buffers;
+attribute before allocation. Returned pointers and types must remain unchanged,
+and lengths must fit the allocated buffers;
 length growth is not retried. Malformed scalars, oversized values and provider
 failures invalidate the session. Validation versions require exactly two bytes.
 `resolve_bounded` also limits identity attribute reads before matching an object;

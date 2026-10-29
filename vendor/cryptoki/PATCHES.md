@@ -9,6 +9,11 @@ Published crate SHA-256:
 
 Local changes:
 
+- `src/session/object_management.rs`: reject rewritten attribute types or value
+  pointers after metadata queries and both value-read passes, including unavailable
+  entries. Decoding uses only the original application-owned buffers and types.
+  Independent native fixtures cover fixed and variable attributes and NULL changes.
+
 - `src/session/template_metadata.rs`: inspect wrap/unwrap/derive template
   structure using initialized, aligned `CK_ATTRIBUTE` arrays, fixed depth/entry/
   allocation bounds and unchanged pointer/type/length checks. Leaf values are

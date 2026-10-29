@@ -467,6 +467,9 @@ impl Session {
                 }
                 rv => rv.into_result(Function::GetAttributeValue)?,
             }
+            if template[0].type_ != (*attrib).into() || !template[0].pValue.is_null() {
+                return Err(Error::InvalidValue);
+            }
         }
         Ok(results)
     }
@@ -596,6 +599,9 @@ impl Session {
         let mut pass2_indices: Vec<usize> = Vec::new();
 
         for (i, attr) in template1.iter().enumerate() {
+            if attr.type_ != attributes[i].into() || attr.pValue != as_cptr!(buffers[i]) {
+                return Err(Error::InvalidValue);
+            }
             if attr.ulValueLen == CK_UNAVAILABLE_INFORMATION {
                 // Skip unavailable attributes
                 continue;
@@ -659,6 +665,11 @@ impl Session {
 
                 // Add indices satisfied by pass2 into pass1_indices
                 for (i, &idx) in pass2_indices.iter().enumerate() {
+                    if template2[i].type_ != attributes[idx].into()
+                        || template2[i].pValue != as_cptr!(buffers[idx])
+                    {
+                        return Err(Error::InvalidValue);
+                    }
                     if template2[i].ulValueLen != CK_UNAVAILABLE_INFORMATION {
                         let length: usize = template2[i].ulValueLen.try_into()?;
                         if length > buffers[idx].len() || length > maximum {
