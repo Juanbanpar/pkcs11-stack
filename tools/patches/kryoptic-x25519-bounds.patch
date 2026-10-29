@@ -1,0 +1,19 @@
+--- a/src/ec/mod.rs
++++ b/src/ec/mod.rs
+@@ -55,3 +55,3 @@
+ pub const BITS_ED448: usize = 456;
+-pub const BITS_X25519: usize = 256;
++pub const BITS_X25519: usize = 255;
+ pub const BITS_X448: usize = 448;
+--- a/src/ec/ecdh.rs
++++ b/src/ec/ecdh.rs
+@@ -19,3 +19,8 @@
+         info: CK_MECHANISM_INFO {
+-            ulMinKeySize: CK_ULONG::try_from(MIN_EC_SIZE_BITS).unwrap(),
++            ulMinKeySize: CK_ULONG::try_from(if cfg!(feature = "ec_montgomery") {
++                BITS_X25519
++            } else {
++                MIN_EC_SIZE_BITS
++            })
++            .unwrap(),
+             ulMaxKeySize: CK_ULONG::try_from(MAX_EC_SIZE_BITS).unwrap(),

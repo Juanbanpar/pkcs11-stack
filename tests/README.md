@@ -53,7 +53,7 @@ or formal conformance. Coverage is recorded per capability below.
 | Optional public metadata and validation diagnostics | Implemented | Runtime/client bounded public inspection, CLI public-metadata and desktop profiles/validation snapshots; same-session flag API and explicit fresh-session CLI diagnostic. Unknown IDs/bits are preserved, and reported validation state is not a trust decision. |
 | Opaque numeric object metadata | Implemented | Runtime/client preserve unknown object/key/certificate/profile/validation IDs; CLI/desktop retain mixed listings and show numeric class/key types. Independent 3.2-header fixtures on a legacy table cover native-width maxima, malformed lengths and provider errors; typed operation/export/import restrictions remain. |
 | Explicit session cancellation | Implemented | Runtime/client `cancel_operations` and consuming digest guards. Only CKR_OK restores reuse; failed updates cannot be repaired, and drop does not cancel implicitly. Kryoptic/provider and independent header fixtures cover the lifecycle. |
-| Remaining operation expansion, metadata compatibility and explicit legacy policy | Pending | The function inventory and remaining M3/L1 tasks below define scope, dependencies and acceptance tests. |
+| Remaining operation expansion and explicit legacy policy | Pending | The function inventory and L1 task below define scope, dependencies and acceptance tests. |
 | Encryption-purpose RSA generation | Implemented | Runtime/client/CLI/desktop; key permissions, size/identity bounds, duplicate IDs, RO rejection, export policy and OAEP use of generated keys. |
 | Explicit SHA-2 OAEP/MGF1 digests and binary labels | Implemented | Runtime/client/CLI/desktop; all nine digest combinations interoperate with OpenSSL through 2.40. Tests cover empty/binary/bounded labels, plaintext limits, mismatches, context authentication and output preservation. |
 | Validated RSA/EC public-key import | Implemented | Client validation and runtime component templates; CLI/desktop explicit purpose. Tests cover all three curves, RSA verification/encryption, malformed/restricted inputs, permissions, duplicate IDs, RO rejection, normalization and unchanged same-ID private keys through the 2.40 interface. |
@@ -176,7 +176,7 @@ presentation is separate from missing binding support.
 | C1 Implemented | SHA-224 RSA PKCS#1 v1.5, RSA-PSS and ECDSA signing/verification, defined in the 2.40 headers. | `sha224.c` checks exact 28-byte digest/DigestInfo, combined IDs, native PSS layout with independent MGF/salt, raw/prehashed/combined paths, context login order, permission rejection, malformed output and provider failure. OpenSSL fixtures cover RSA/PSS and P-256/P-384/P-521; SoftHSM covers runtime/client/CLI/desktop signing and verification. Explicit policy enables SHA-224; existing default digests, binding preference and TLS schemes remain unchanged. OAEP/HKDF/ECDH/SP800-108 reject SHA-224 in this profile. |
 | C2 Implemented | SHA3-224/256/384/512 RSA PKCS#1 v1.5, RSA-PSS and ECDSA signing/verification (3.0 mechanisms). | `signature_encodings.rs` shares authentication, permissions, output and provider-failure checks across SHA-224 and SHA-3. `sha3.c` uses independent corrected 3.0 headers and fixed abc vectors; exact digest/DigestInfo, combined IDs, native PSS layout and four distinct MGF IDs are checked through a legacy table. OpenSSL fixtures cover RSA/PSS and P-256/P-384/P-521; SoftHSM checks combined token, software-hashed and caller-prehashed signing/native verification. Software verification rejects equal-length SHA-2 message profiles for SHA-3 signatures. Client binding/options and CLI/desktop choices require explicit policy/selection, retain defaults, and recheck live capabilities. OAEP/HKDF/ECDH/SP800-108 reject SHA-3 in existing profiles; TLS schemes are unchanged. |
 | C3 Implemented | Pure Ed25519 and Ed448 with generation, public metadata/import/export, signatures, certificate binding and frontend choices (3.0 mechanisms). | RFC 8032 empty-message vectors and independent OpenSSL certificates/signatures; strict RFC 8410 SPKI parsing and canonical public-point/signature checks. Independent 3.0-header fixtures check RFC 8410 OID versus RFC 8032 curve-name parameter forms, field-bit bounds, permissions, missing pointers, bounded output, authentication order and session failure behavior. SoftHSM exercises both curves, empty messages, public import/export, mismatches, always-authenticate, certificate binding and replacement-key rejection. CLI/desktop expose separate pure-message choices and reject classical hashing/context parameters. |
-| C4 Deferred | EdDSA context/prehash variants; Montgomery X25519/X448 agreement; further ECDH KDFs and digest profiles. | Explicit per-variant parameter and input contracts, independent vectors and an implementing provider. Never emulate prehash EdDSA by signing a digest with the pure mechanism. Agreement needs public-input/noncontributory-key handling, protected outputs and HKDF interoperability without secret extraction. |
+| C4 Partial | Existing RFC 8410 X25519 public export and CKD_NULL agreement through runtime/client/CLI. Generation/public import, curveName parameters, X448, EdDSA context/prehash and additional ECDH KDF/digest profiles remain deferred. | Independent 3.0/3.1/3.2 headers check raw little-endian public input, OID parameters, exact native fields, 255-bit bounds, permissions, protected full-width output, duplicate IDs, RO mode and failed-session handling. RFC 7748 vectors, small-order inputs and encoding aliases check public validation. Strict SPKI rejects NULL parameters, wrong OIDs, unused bits and trailing input. CLI withholds output through native/cleanup failures. Required Kryoptic tests compare both parties and a high-bit peer alias through HKDF-SHA256 and AES-GCM with RFC/OpenSSL references, without secret extraction. Never emulate prehash EdDSA by signing a digest with the pure mechanism. |
 | C5 Deferred | Other standard digests/MACs such as BLAKE2b or parameterized SHA-512/t, additional AEAD such as AES-CCM/ChaCha20-Poly1305, and additional RSA/EC key-transfer constructions. | Choose a concrete profile and provider before expanding the app. Specify output/nonce/AAD/key permissions and independent vectors. Token digest discovery alone does not prove a combined signature, KDF or TLS profile exists. |
 | L1 Planned policy review | Explicit legacy opt-in and an enumerated interoperability requirement for each legacy algorithm. Existing defaults remain restricted. | Default-deny tests across libraries/frontends, explicit requested operation/profile, no downgrade after provider rejection, and independent verification for every enabled legacy profile. Presence in an older standard is not itself a reason to enable an algorithm. |
 
@@ -207,7 +207,8 @@ the rsa key; streaming tests use the untouched wrong-key fixture and its own mat
 certificate. The Kryoptic build's ecc_min feature supplies ECDSA for cancellation and
 pool-reuse proof; RSA cancellation is checked by independent native fixtures.
 
-C1–C3 are implemented. C4/C5 require choosing an explicit profile and provider;
+C1–C3 and the initial existing-key X25519 profile are implemented. The remaining
+C4 variants and C5 require an explicit profile and provider;
 L1 requires a concrete legacy interoperability requirement. Keep additions in
 signed atomic runtime/client and frontend commits with native/provider evidence.
 O3 is implemented for the currently supported synchronous operation classes.
@@ -363,6 +364,15 @@ Building requires stable Rust, Git, Clang/libclang headers, a C/C++ toolchain,
 Make, Perl, pkg-config and SQLite development files. The module statically links
 the pinned OpenSSL 3.5.9. Kryoptic's source revision is pinned; its upstream Cargo
 dependencies are resolved at build time because upstream does not supply a lockfile.
+The build enables Montgomery keys and applies
+`tools/patches/kryoptic-x25519-bounds.patch` to the pinned source. PKCS #11
+sections 6.3.11/6.3.17 use field-bit mechanism bounds; X25519 has 255 field bits.
+The original provider used
+256 storage bits and its ECDH minimum excluded X25519. The patch corrects those
+advertised bounds without changing key encoding or cryptographic operations.
+The installed prefix retains the patch. Application checks still require 255-bit
+support; uncorrected bounds remain unsupported. Generation/public import are not
+exposed by the app's initial existing-key profile.
 `PKCS11_TEST_KDF_OPENSSL` selects the independent OpenSSL HKDF/KBKDF reference command.
 
 The runner creates a temporary Kryoptic SQLite store and removes it on exit.
