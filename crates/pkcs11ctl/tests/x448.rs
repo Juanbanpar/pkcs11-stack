@@ -225,3 +225,167 @@ fn explicit_sha512_profiles_preserve_checked_output_and_reject_invalid_combinati
         assert!(output.stdout.is_empty());
     }
 }
+
+#[test]
+fn native_generation_and_import_withhold_results_through_cleanup_failures() {
+    let mut public = [0; 56];
+    public[0] = 5;
+    for generate in [true, false] {
+        for fault in 0..=15 {
+            let fixture = MetadataModule::from_source("x448_management.c", fault);
+            let input = fixture.path().parent().unwrap().join("public.der");
+            std::fs::write(&input, vectors::spki(&public)).unwrap();
+            let mut cmd = Command::new(env!("CARGO_BIN_EXE_pkcs11ctl"));
+            cmd.arg("--module").arg(fixture.path()).args([
+                "--format",
+                "json",
+                if generate { "generate" } else { "import" },
+                "--token",
+                "pkcs11:token=cmac",
+                "--kind",
+                "x448",
+                "--id",
+                "02",
+                "--label",
+                "X448",
+                "--confirm",
+            ]);
+            if !generate {
+                cmd.arg("--input").arg(&input);
+            }
+            let output = cmd.output().unwrap();
+            let fail = if generate {
+                [1, 2, 3, 4, 5, 6, 9, 10, 11, 12, 13, 14, 15].contains(&fault)
+            } else {
+                [7, 8, 9, 12, 13, 14].contains(&fault)
+            };
+            assert_eq!(
+                !output.status.success(),
+                fail,
+                "{generate}/{fault}: {output:?}"
+            );
+            if fail {
+                assert!(output.stdout.is_empty());
+            } else {
+                let result: Value = serde_json::from_slice(&output.stdout).unwrap();
+                assert_eq!(result["result"]["key"]["type"], "x448");
+                assert_eq!(result["result"]["key"]["bits"], 448);
+                if generate {
+                    assert_eq!(result["result"]["extractable"], false);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn x448_management_rejects_invalid_options_and_input_before_loading_module() {
+    use std::io::Write;
+    let oversized_id = "ab".repeat(129);
+    let oversized_label = "x".repeat(129);
+    for (id, label) in [
+        ("", "X448"),
+        (oversized_id.as_str(), "X448"),
+        ("02", ""),
+        ("02", oversized_label.as_str()),
+    ] {
+        for generate in [true, false] {
+            let mut command = Command::new(env!("CARGO_BIN_EXE_pkcs11ctl"));
+            command.args([
+                "--module",
+                "/missing-x448-module.so",
+                if generate { "generate" } else { "import" },
+                "--token",
+                "pkcs11:token=test",
+                "--kind",
+                "x448",
+                "--id",
+                id,
+                "--label",
+                label,
+                "--confirm",
+            ]);
+            if !generate {
+                command.args(["--input", "-"]);
+            }
+            let mut child = command
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap();
+            if !generate {
+                let mut public = [0; 56];
+                public[0] = 5;
+                child
+                    .stdin
+                    .take()
+                    .unwrap()
+                    .write_all(&vectors::spki(&public))
+                    .unwrap();
+            }
+            let output = child.wait_with_output().unwrap();
+            assert_eq!(output.status.code(), Some(2), "{output:?}");
+            assert!(output.stdout.is_empty());
+        }
+    }
+    for extra in [
+        vec!["--always-authenticate"],
+        vec!["--purpose", "signing"],
+        vec!["--bits", "256"],
+        vec!["--general-tag"],
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_pkcs11ctl"))
+            .args([
+                "--module",
+                "/missing-x448-module.so",
+                "generate",
+                "--token",
+                "pkcs11:token=test",
+                "--kind",
+                "x448",
+                "--id",
+                "02",
+                "--label",
+                "X448",
+                "--confirm",
+            ])
+            .args(extra)
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(2), "{output:?}");
+        assert!(output.stdout.is_empty());
+    }
+    for (bytes, code) in [
+        (vectors::spki(&[0; 56]), 4),
+        (vec![0; 129], 2),
+        (vectors::hex("3044300706032b656f0500033900"), 4),
+    ] {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_pkcs11ctl"))
+            .args([
+                "--module",
+                "/missing-x448-module.so",
+                "import",
+                "--token",
+                "pkcs11:token=test",
+                "--kind",
+                "x448",
+                "--id",
+                "02",
+                "--label",
+                "X448",
+                "--confirm",
+                "--input",
+                "-",
+            ])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child.stdin.take().unwrap().write_all(&bytes).unwrap();
+        let output = child.wait_with_output().unwrap();
+        assert_eq!(output.status.code(), Some(code), "{output:?}");
+        assert!(output.stdout.is_empty());
+    }
+}

@@ -110,6 +110,7 @@ pub(crate) struct Inputs {
     pub public_key: Option<pkcs11_client::ClassicalPublicKey>,
     pub eddsa_key: Option<pkcs11_client::EdDsaVerifyingKey>,
     pub x25519_key: Option<pkcs11_client::X25519Peer>,
+    pub x448_key: Option<pkcs11_client::X448Peer>,
     pub oaep_label: Vec<u8>,
     pub verification_certificate: Option<VerificationCertificate>,
     pub domain_context: Vec<u8>,
@@ -332,6 +333,16 @@ impl Inputs {
         } else {
             None
         };
+        let x448_key = if name == "import" && get(m, "kind") == Some("x448") {
+            let id = unhex(need(m, "id")?)?;
+            let label = need(m, "label")?.as_bytes();
+            if id.is_empty() || id.len() > 128 || label.is_empty() || label.len() > 128 {
+                return Err(usage("X448 ID and label must each contain 1..=128 bytes"));
+            }
+            Some(pkcs11_client::X448Peer::from_spki_der(&bytes)?)
+        } else {
+            None
+        };
         if let Some(id) = get(m, "id") {
             unhex(id)?;
         }
@@ -415,6 +426,7 @@ impl Inputs {
             public_key,
             eddsa_key,
             x25519_key,
+            x448_key,
             oaep_label,
             verification_certificate,
             domain_context,
@@ -937,6 +949,19 @@ fn management_operation(
                 )?;
                 return Ok(Output::Structured(
                     json!({"imported":true,"key":{"type":"x25519","bits":255},"id_hex":hex(&id)}),
+                ));
+            }
+            if need(m, "kind")? == "x448" {
+                session.import_x448_public_key(
+                    inputs
+                        .x448_key
+                        .as_ref()
+                        .ok_or_else(|| usage("missing X448 public key"))?,
+                    &id,
+                    need(m, "label")?.as_bytes(),
+                )?;
+                return Ok(Output::Structured(
+                    json!({"imported":true,"key":{"type":"x448","bits":448},"id_hex":hex(&id)}),
                 ));
             }
             if need(m, "kind")? == "eddsa" {

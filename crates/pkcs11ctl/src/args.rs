@@ -298,6 +298,7 @@ pub(crate) fn command() -> Command {
             "hmac-sha3-384",
             "hmac-sha3-512",
             "x25519",
+            "x448",
             "p256",
             "p384",
             "p521",
@@ -337,6 +338,7 @@ pub(crate) fn command() -> Command {
             "public-key",
             "eddsa",
             "x25519",
+            "x448",
         ]))
         .arg(required("input", "Input file; - reads stdin"))
         .arg(

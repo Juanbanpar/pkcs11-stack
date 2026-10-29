@@ -23,10 +23,11 @@ fn x448_cli_matches_independent_reference_ciphertexts() {
             .arg(&module)
             .args(["--format", "json"])
             .args(args)
-            .arg("--pin-file")
-            .arg(&pin)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        if args[0] != "generation-options" {
+            command.arg("--pin-file").arg(&pin);
+        }
         if input.is_some() {
             command.stdin(Stdio::piped());
         }
@@ -165,5 +166,108 @@ fn x448_cli_matches_independent_reference_ciphertexts() {
     assert_eq!(
         cipher,
         std::fs::read(root.join("x448-hkdf-cipher")).unwrap()
+    );
+    let options: serde_json::Value = serde_json::from_slice(&run(
+        &["generation-options", "--token", "pkcs11:token=kdf-test"],
+        None,
+    ))
+    .unwrap();
+    assert_eq!(options["result"]["x448"], true);
+    let generated: serde_json::Value = serde_json::from_slice(&run(
+        &[
+            "generate",
+            "--token",
+            "pkcs11:token=kdf-test",
+            "--kind",
+            "x448",
+            "--id",
+            "d948b0",
+            "--label",
+            "CLI generated X448",
+            "--confirm",
+        ],
+        None,
+    ))
+    .unwrap();
+    assert_eq!(generated["result"]["key"]["purpose"], "derivation");
+    assert_eq!(generated["result"]["extractable"], false);
+    let public = run(
+        &[
+            "export",
+            "--object",
+            "pkcs11:token=kdf-test;id=%D9%48%B0;type=public",
+            "--key-family",
+            "x448",
+            "--output",
+            "-",
+        ],
+        None,
+    );
+    pkcs11_client::X448Peer::from_spki_der(&public).unwrap();
+    let input = root.join("cli-generated-x448.der");
+    std::fs::write(&input, &public).unwrap();
+    let import = [
+        "import",
+        "--token",
+        "pkcs11:token=kdf-test",
+        "--kind",
+        "x448",
+        "--id",
+        "d948b1",
+        "--label",
+        "CLI imported X448",
+        "--input",
+        input.to_str().unwrap(),
+        "--confirm",
+    ];
+    let mut stdin_import = import;
+    stdin_import[10] = "-";
+    let imported: serde_json::Value =
+        serde_json::from_slice(&run(&stdin_import, Some(&public))).unwrap();
+    assert_eq!(imported["result"]["key"]["type"], "x448");
+    assert_eq!(
+        run(
+            &[
+                "export",
+                "--object",
+                "pkcs11:token=kdf-test;id=%D9%48%B1;type=public",
+                "--key-family",
+                "x448",
+                "--output",
+                "-",
+            ],
+            None
+        ),
+        public
+    );
+    let duplicate = Command::new(env!("CARGO_BIN_EXE_pkcs11ctl"))
+        .arg("--module")
+        .arg(&module)
+        .args(["--format", "json"])
+        .args(import)
+        .arg("--pin-file")
+        .arg(&pin)
+        .output()
+        .unwrap();
+    assert!(!duplicate.status.success());
+    assert!(duplicate.stdout.is_empty());
+    run(
+        &[
+            "derive-x448",
+            "--kdf",
+            "null",
+            "--kind",
+            "raw-secret",
+            "--object",
+            "pkcs11:token=kdf-test;id=%D9%48%B0;type=private",
+            "--input",
+            root.join("x448-peer.der").to_str().unwrap(),
+            "--id",
+            "d948b2",
+            "--label",
+            "CLI generated agreement",
+            "--confirm",
+        ],
+        None,
     );
 }

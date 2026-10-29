@@ -4,7 +4,7 @@ use clap::ArgMatches;
 use pkcs11_client::{
     AesKeyPurpose, AesKeyRequest, AesKeySize, EcdhKeyPairRequest, HmacAlgorithm, HmacKeyRequest,
     KeyKind, ManagementSession, NamedCurve, Provider, RsaEncryptionKeyPairRequest,
-    X25519KeyPairRequest,
+    X448KeyPairRequest, X25519KeyPairRequest,
 };
 use serde_json::{Value, json};
 
@@ -69,7 +69,7 @@ pub(crate) fn validate(m: &ArgMatches) -> Result<()> {
     let id = unhex(need(m, "id")?)?;
     let label = need(m, "label")?.as_bytes();
     let non_signing = hmac(kind).is_some()
-        || kind == "x25519"
+        || matches!(kind, "x25519" | "x448")
         || curve(kind).is_some()
         || aes(kind).is_some()
         || key_establishment::parameter(Some(kind)).is_some();
@@ -89,7 +89,11 @@ pub(crate) fn validate(m: &ArgMatches) -> Result<()> {
     {
         return Err(usage("EdDSA ID and label must each contain 1..=128 bytes"));
     }
-    if kind == "x25519" {
+    if kind == "x448" {
+        X448KeyPairRequest { id: &id, label }
+            .validate()
+            .map_err(|_| usage("X448 ID and label must each contain 1..=128 bytes"))?;
+    } else if kind == "x25519" {
         X25519KeyPairRequest { id: &id, label }
             .validate()
             .map_err(|_| usage("X25519 ID and label must each contain 1..=128 bytes"))?;
@@ -143,7 +147,10 @@ pub(crate) fn generate(session: &mut ManagementSession<'_>, m: &ArgMatches) -> R
     let kind = need(m, "kind")?;
     let id = unhex(need(m, "id")?)?;
     let label = need(m, "label")?.as_bytes();
-    let key = if kind == "x25519" {
+    let key = if kind == "x448" {
+        session.generate_x448_key_pair(&X448KeyPairRequest { id: &id, label })?;
+        json!({"type":"x448","bits":448,"purpose":"derivation"})
+    } else if kind == "x25519" {
         session.generate_x25519_key_pair(&X25519KeyPairRequest { id: &id, label })?;
         json!({"type":"x25519","bits":255,"purpose":"derivation"})
     } else if let Some(algorithm) = hmac(kind) {
@@ -216,6 +223,7 @@ pub(crate) fn options(provider: &Provider, m: &ArgMatches) -> Result<Value> {
         "signing":options.signing.into_iter().map(inspect::key_kind).collect::<Vec<_>>(),
         "rsa_encryption":options.rsa_encryption,
         "x25519":options.x25519,
+        "x448":options.x448,
         "ecdh":options.ecdh.into_iter().map(|curve| match curve {
             NamedCurve::P256=>"ecdh-p256", NamedCurve::P384=>"ecdh-p384", NamedCurve::P521=>"ecdh-p521"
         }).collect::<Vec<_>>(),

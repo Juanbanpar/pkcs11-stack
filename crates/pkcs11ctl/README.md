@@ -530,10 +530,21 @@ permission and no shared info. SHA-512 KDFs accept a public `--shared-info-file`
 64-byte derivation-only `secret`. All outputs remain private, sensitive and
 nonextractable. Raw 56-byte output cannot feed this app's hash-length PKCS #11
 HKDF profile. Select SHA-512 and `secret` explicitly before `derive-hkdf --digest
-sha512`; no automatic truncation or KDF substitution occurs. X448 generation,
-public import, curveName parameters and desktop workflows remain deferred.
+sha512`; no automatic truncation or KDF substitution occurs.
+`generate --kind x448` creates a protected derivation-only pair; `generation-options`
+reports advisory support. `import --kind x448` accepts strict public SPKI DER from
+a file or stdin (at most 128 bytes) and disables public operation permissions.
+Both require nonempty IDs/labels of at most 128 bytes and explicit confirmation.
+Generation rejects existing public/private IDs; import rejects public IDs and does
+not establish trust or associate a private key. Signing, RSA-size, AES-purpose and
+context-authentication options do not apply to X448 generation. curveName
+parameters and desktop workflows remain deferred.
 
 ```sh
+pkcs11ctl --module "$MODULE" generate --token "$TOKEN_URI" --kind x448 \
+  --id 0601 --label x448-pair --pin-file user.pin --confirm
+pkcs11ctl --module "$MODULE" import --token "$TOKEN_URI" --kind x448 \
+  --input peer-x448.der --id 0602 --label x448-peer --pin-file user.pin --confirm
 pkcs11ctl --module "$MODULE" derive-x448 --object "$PRIVATE_KEY_URI" \
   --input peer-x448.der --kdf nist-sha512 --kind secret \
   --shared-info-file context.bin --id 0600 --label x448-material \
