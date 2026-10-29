@@ -44,6 +44,7 @@ pub struct MlDsaSigningOperation<'a> {
     healthy: &'a Cell<bool>,
     parameter_set: MlDsaParameterSet,
     active: bool,
+    updated: bool,
     cancellation_supported: bool,
 }
 impl std::fmt::Debug for MlDsaSigningOperation<'_> {
@@ -76,14 +77,19 @@ impl MlDsaSigningOperation<'_> {
             self.active = false;
             return Err(backend("update ML-DSA signature", error));
         }
+        self.updated = true;
         Ok(())
     }
     /// Complete once into exactly 2420, 3309 or 4627 bytes, without output-size
     /// queries, retries or software fallback. Native failure and malformed output
-    /// discard the session. Check closure before publishing the signature.
+    /// discard the session. An untouched stream sends an empty update before
+    /// finalization. Check closure before publishing the signature.
     pub fn finish(mut self) -> Result<Vec<u8>, Error> {
         if !self.active {
             return Err(Error::Closed);
+        }
+        if !self.updated {
+            self.update(&[])?;
         }
         let mut signature = vec![0; self.parameter_set.signature_length()];
         let written = self
@@ -176,6 +182,7 @@ impl Session<'_> {
             healthy: &object.session.healthy,
             parameter_set: caps.parameter_set,
             active: true,
+            updated: false,
             cancellation_supported: object
                 .session
                 .token()

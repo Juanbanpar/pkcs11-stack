@@ -273,3 +273,34 @@ fn explicit_cancellation_restores_only_confirmed_native_termination() {
         module.finalize().unwrap();
     }
 }
+
+#[test]
+fn untouched_stream_establishes_empty_multipart_input_before_finalization() {
+    for fault in [0, 13] {
+        let fixture = MlDsaStreamModule::new(3, 2, fault, 0, 1, 0, 0);
+        let module = Module::load(fixture.path()).unwrap();
+        let token = module
+            .resolve_token_uri(&"pkcs11:token=cmac".parse().unwrap())
+            .unwrap();
+        let mut session = token.open_session(SessionMode::ReadOnly).unwrap();
+        let watcher = token.open_session(SessionMode::ReadOnly).unwrap();
+        let operation = session
+            .start_ml_dsa_signing(&key(), parameters(0), &MlDsaSigningPolicy::default(), None)
+            .unwrap();
+        let result = operation.finish();
+        if fault == 0 {
+            assert_eq!(result.unwrap(), vec![0xAB; 2420]);
+            session.info().unwrap();
+        } else {
+            assert!(result.is_err());
+            assert!(session.info().is_err());
+        }
+        let calls = watcher.info().unwrap().device_error();
+        assert_eq!(calls >> 8 & 0xFF, 1);
+        assert_eq!(calls >> 4 & 0xF, u64::from(fault == 0));
+        session.close().unwrap();
+        watcher.close().unwrap();
+        drop(token);
+        module.finalize().unwrap();
+    }
+}
