@@ -5,8 +5,8 @@
 mod vectors;
 use pkcs11_client::{
     AesGcmEncryptRequest, AesKeySize, Authentication, DigestAlgorithm, HkdfOutput, HkdfRequest,
-    ObjectRef, Pin, Provider, SecretKeyIdentity, SessionMode, X448Kdf, X448Output, X448Peer,
-    X448Request, object_reference,
+    ObjectRef, Pin, Provider, SecretKeyIdentity, SessionMode, X448Kdf, X448KeyPairRequest,
+    X448Output, X448Peer, X448Request, object_reference,
 };
 use secrecy::SecretString;
 fn reference(id: u8, kind: &str) -> ObjectRef {
@@ -26,6 +26,12 @@ fn x448_client_export_raw_and_hashed_agreement_match_reference_ciphertexts() {
     );
     let root = std::path::PathBuf::from(std::env::var_os("PKCS11_TEST_KDF_DIR").unwrap());
     let provider = Provider::load(std::env::var_os("PKCS11_TEST_KDF_MODULE").unwrap()).unwrap();
+    assert!(
+        provider
+            .generation_capabilities(&"pkcs11:token=kdf-test".parse().unwrap())
+            .unwrap()
+            .x448
+    );
     let pin = SecretString::from("12345678");
     let mut session = provider
         .management(
@@ -129,6 +135,66 @@ fn x448_client_export_raw_and_hashed_agreement_match_reference_ciphertexts() {
             .unwrap(),
         std::fs::read(root.join("x448-hkdf-cipher")).unwrap()
     );
+    let pair = X448KeyPairRequest {
+        id: &[0xd9, 0x48, 0xa0],
+        label: b"client generated X448",
+    };
+    session.generate_x448_key_pair(&pair).unwrap();
+    assert!(session.generate_x448_key_pair(&pair).is_err());
+    let generated = session
+        .export_x448_public_key(&reference(0xa0, "public"))
+        .unwrap();
+    let generated_peer = X448Peer::from_spki_der(&generated).unwrap();
+    session
+        .import_x448_public_key(
+            &generated_peer,
+            &[0xd9, 0x48, 0xa1],
+            b"client imported X448",
+        )
+        .unwrap();
+    assert!(
+        session
+            .import_x448_public_key(&generated_peer, &[0xd9, 0x48, 0xa1], b"duplicate")
+            .is_err()
+    );
+    assert_eq!(
+        session
+            .export_x448_public_key(&reference(0xa1, "public"))
+            .unwrap(),
+        generated
+    );
+    let mut ciphers = Vec::new();
+    for (base, peer, id) in [(0xa0, &peer, 0xa2), (2, &generated_peer, 0xa3)] {
+        session
+            .derive_x448(
+                &reference(base, "private"),
+                &X448Request {
+                    peer,
+                    kdf: X448Kdf::Sp80056aSha512,
+                    shared_info: &generated,
+                    output: X448Output::Aes(AesKeySize::Bits256),
+                    identity: SecretKeyIdentity {
+                        id: &[0xd9, 0x48, id],
+                        label: b"client generated agreement",
+                    },
+                },
+            )
+            .unwrap();
+        ciphers.push(
+            session
+                .encrypt_aes_gcm(
+                    &reference(id, "secret-key"),
+                    &AesGcmEncryptRequest {
+                        nonce: &[6; 12],
+                        aad: b"client X448",
+                        plaintext: b"generated agreement",
+                    },
+                )
+                .unwrap(),
+        );
+    }
+    assert_eq!(ciphers[0], ciphers[1]);
+    session.state().unwrap();
     session.close().unwrap();
     provider.finalize().unwrap();
 }

@@ -684,8 +684,14 @@ The null KDF permits only the full 56-byte raw secret and empty context. Explici
 X9.63 or NIST SHA-512 permits AES encryption keys or a 64-byte generic derivation
 secret suitable for HKDF-SHA512. All outputs stay private, sensitive and
 nonextractable on the token. Authenticate peer ownership and check session closure;
-provider failures are not retried. X448 generation/public import and curveName
-parameters remain deferred.
+provider failures are not retried. `generate_x448_key_pair` accepts a bounded
+`X448KeyPairRequest`; `generation_capabilities().x448` reports advisory native
+support. Generated private keys are sensitive, nonextractable and restricted to
+ECDH derivation. `import_x448_public_key` accepts a checked `X448Peer`, ID and
+label and disables public operation permissions. Generation rejects existing
+public/private IDs; import rejects public IDs. Both require RW mode and checked
+closure, without retry/rollback or trust/private-key association on import.
+curveName parameters remain deferred.
 
 `derive_ecdh` accepts an `EcdhRequest` with the same validated peer, an explicit
 `EcdhKdf`, public shared info and `EcdhOutput`. ANSI X9.63 and NIST SP 800-56A

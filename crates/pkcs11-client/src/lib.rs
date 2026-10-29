@@ -21,7 +21,7 @@ mod certificate;
 mod digest;
 mod eddsa;
 mod x448;
-pub use pkcs11_runtime::{X448Kdf, X448Output, X448PublicKey};
+pub use pkcs11_runtime::{X448Kdf, X448KeyPairRequest, X448Output, X448PublicKey};
 pub use x448::{X448Peer, X448Request};
 mod x25519;
 pub use pkcs11_runtime::{X25519KeyPairRequest, X25519PublicKey};

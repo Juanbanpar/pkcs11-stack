@@ -92,6 +92,31 @@ fn encode(key: &X448PublicKey) -> Result<Vec<u8>, Error> {
     .map_err(|_| Error::InvalidPublicKey)
 }
 impl ManagementSession<'_> {
+    /// Generate a persistent RFC 8410 pair with a sensitive, nonextractable,
+    /// derivation-only private key. Requires RW mode, bounded identity and no
+    /// existing public/private ID. No retry/rollback; check session closure.
+    pub fn generate_x448_key_pair(
+        &mut self,
+        request: &crate::X448KeyPairRequest<'_>,
+    ) -> Result<(), Error> {
+        self.session.generate_x448_key_pair(request)?;
+        Ok(())
+    }
+    /// Import strict RFC 8410 public input as a public, untrusted X448 object
+    /// with operation permissions disabled. Requires RW mode, bounded identity
+    /// and no existing public ID. Does not authenticate ownership or associate a
+    /// private key. No retry/rollback; concurrent writers can race. Check closure.
+    pub fn import_x448_public_key(
+        &mut self,
+        key: &X448Peer,
+        id: &[u8],
+        label: &[u8],
+    ) -> Result<(), Error> {
+        self.session
+            .import_x448_public_key(key.public_key(), id, label)?;
+        Ok(())
+    }
+
     /// Export one existing RFC 8410 X448 public key as SPKI DER, using bounded
     /// metadata/identity reads. No private or secret values are requested.
     pub fn export_x448_public_key(&mut self, key: &ObjectRef) -> Result<Vec<u8>, Error> {
