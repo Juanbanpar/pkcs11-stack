@@ -211,8 +211,8 @@ authentication still follows initialization for each signature.
 `verify-token --multipart` uses the corresponding streaming token verification
 path and hashing policy. `verify --multipart` incrementally hashes in software
 and verifies against the selected token certificate or `--certificate-file`.
-These modes accept original RSA/ECDSA messages only; caller digests, EdDSA and
-ML-DSA are rejected before provider loading. File/stdin limits are checked during
+These modes also accept original ML-DSA messages as described below; caller
+digests and EdDSA are rejected before provider loading. File/stdin limits are checked during
 reading as well as regular-file preflight. Read errors return 6, oversized input
 returns 2, and native failures are never retried through another hashing path.
 Signatures and verification success follow checked session/client closure and
@@ -245,12 +245,31 @@ pkcs11ctl verify --certificate-file certificate.der \
   --signature signature.bin
 ```
 
-`sign`, `plan` and `verify` accept `--algorithm ml-dsa-44|ml-dsa-65|ml-dsa-87`.
+`sign`, `plan`, `verify` and `verify-token` accept `--algorithm ml-dsa-44|ml-dsa-65|ml-dsa-87`.
 These are pure ML-DSA requests: digest input, `--digest`, PSS parameters and
 `--hashing` are rejected. Messages are limited to 64 MiB; empty messages are valid.
 `--context-file PATH` supplies up to 255 binary context bytes, defaulting to empty.
 It requires a file path, while `--input -` can read the message from stdin.
 Verification must use the same context as signing.
+
+Add `--multipart` to `sign`, `verify` or `verify-token` for original-message
+file/stdin streaming through zeroizing 64 KiB reader buffers. The 64 MiB limit
+applies during reading, including growing files and stdin. `sign --certificate`
+retains its binding probe and checks each streamed signature before release,
+reading the input once. `verify` checks a token certificate or certificate file in
+software using the pure ML-DSA internal message calculation; no HashML-DSA or
+caller-digest mode is introduced.
+
+`verify-token --multipart` supplies the signature before input through
+`C_VerifySignatureInit`, `C_VerifySignatureUpdate` and `C_VerifySignatureFinal`.
+It requires a selected 3.2 interface and
+an implementing provider; it never falls back to the older verification API.
+Without `--multipart`, token verification uses the existing single-part `C_Verify`
+profile. The pinned SoftHSM accepts streaming signing but its signature-first
+stubs reject verification with `CKR_FUNCTION_NOT_SUPPORTED` (exit 5); Kryoptic
+implements that verification path. Empty signing streams send a zero-length
+update before finalization. Existing context authentication, exact signature
+lengths, no-clobber output and checked cleanup rules apply to both modes.
 
 `sign` and `plan` accept `--hedging required|preferred|deterministic`, defaulting
 to `required`. Required hedging demands fresh token randomness; preferred permits

@@ -2,8 +2,9 @@
 //! ML-DSA CLI workflows against the runner's disposable PQC provider.
 use serde_json::Value;
 use std::{
+    io::Write,
     path::PathBuf,
-    process::{Command, Output},
+    process::{Command, Output, Stdio},
 };
 
 struct Fixture {
@@ -20,6 +21,18 @@ impl Fixture {
             .args(args)
             .output()
             .unwrap()
+    }
+    fn run_input(&self, args: &[&str], bytes: &[u8]) -> Output {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_pkcs11ctl"))
+            .args(["--module", &self.module, "--format", "json"])
+            .args(args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child.stdin.take().unwrap().write_all(bytes).unwrap();
+        child.wait_with_output().unwrap()
     }
     fn ok(&self, args: &[&str]) -> Value {
         let out = self.run(args);
@@ -54,8 +67,9 @@ fn openssl(args: &[&str]) {
         .unwrap();
     assert!(
         out.status.success(),
-        "OpenSSL command failed: {}",
-        out.status
+        "OpenSSL command failed: {}: {}",
+        out.status,
+        String::from_utf8_lossy(&out.stderr)
     );
 }
 
@@ -283,6 +297,125 @@ fn ml_dsa_cli_generation_signing_binding_and_verification() {
             f.fail(&sign, 6);
             assert_eq!(std::fs::metadata(&sig).unwrap().len(), size);
         }
+        let verifier =
+            pkcs11_client::MlDsaCertificate::from_der(std::fs::read(&certificate).unwrap())
+                .unwrap();
+        for (hedging, hedge) in [
+            ("required", pkcs11_client::MlDsaHedging::Required),
+            ("preferred", pkcs11_client::MlDsaHedging::Preferred),
+            ("deterministic", pkcs11_client::MlDsaHedging::Deterministic),
+        ] {
+            for domain in [vec![], b"cli-context".to_vec(), vec![0xA5; 255]] {
+                std::fs::write(&context, &domain).unwrap();
+                for length in [0, 256 * 1024] {
+                    let bytes = vec![0x42; length];
+                    std::fs::write(&input, &bytes).unwrap();
+                    let sig = f.path(&format!(
+                        "stream-{index}-{hedging}-{}-{length}.sig",
+                        domain.len()
+                    ));
+                    let mut sign = vec![
+                        "sign",
+                        "--key",
+                        &key,
+                        "--algorithm",
+                        algorithm,
+                        "--hedging",
+                        hedging,
+                        "--context-file",
+                        &context,
+                        "--input",
+                        "-",
+                        "--output",
+                        &sig,
+                        "--pin-file",
+                        &pin,
+                        "--multipart",
+                    ];
+                    if index == 1 {
+                        sign.extend(["--context-pin-file", &pin]);
+                    }
+                    if hedging == "required" {
+                        sign.extend(["--certificate", &cert]);
+                    }
+                    let out = f.run_input(&sign, &bytes);
+                    assert!(
+                        out.status.success(),
+                        "{}",
+                        String::from_utf8_lossy(&out.stderr)
+                    );
+                    let signature = std::fs::read(&sig).unwrap();
+                    let parameters = pkcs11_client::MlDsaParameters {
+                        parameter_set: verifier.parameter_set(),
+                        context: &domain,
+                        hedging: hedge,
+                    };
+                    verifier
+                        .verify_reader(parameters, &mut &bytes[..], &signature)
+                        .unwrap();
+                    // pkeyutl rejects zero-byte oneshot buffers; token and
+                    // RustCrypto verification above cover empty messages.
+                    if domain == b"cli-context" && length > 0 {
+                        openssl(&[
+                            "pkeyutl",
+                            "-verify",
+                            "-pubin",
+                            "-inkey",
+                            &spki,
+                            "-keyform",
+                            "DER",
+                            "-in",
+                            &input,
+                            "-sigfile",
+                            &sig,
+                            "-pkeyopt",
+                            "context-string:cli-context",
+                        ]);
+                    }
+                    let verify = [
+                        "verify-token",
+                        "--key",
+                        &public,
+                        "--algorithm",
+                        algorithm,
+                        "--context-file",
+                        &context,
+                        "--input",
+                        &input,
+                        "--signature",
+                        &sig,
+                        "--pin-file",
+                        &pin,
+                    ];
+                    assert_eq!(f.ok(&verify)["verified"], true);
+                    let mut unsupported = verify.to_vec();
+                    unsupported.push("--multipart");
+                    f.fail(&unsupported, 5);
+                    let verify = [
+                        "verify",
+                        "--certificate-file",
+                        &certificate,
+                        "--algorithm",
+                        algorithm,
+                        "--context-file",
+                        &context,
+                        "--input",
+                        "-",
+                        "--signature",
+                        &sig,
+                        "--multipart",
+                    ];
+                    let out = f.run_input(&verify, &bytes);
+                    assert!(
+                        out.status.success(),
+                        "{}",
+                        String::from_utf8_lossy(&out.stderr)
+                    );
+                }
+            }
+        }
+        std::fs::write(&input, b"CLI ML-DSA message\n").unwrap();
+        std::fs::write(&context, b"cli-context").unwrap();
         let failed = f.path(&format!("{index}.failed"));
         if index == 1 {
             f.fail(

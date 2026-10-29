@@ -123,12 +123,14 @@ impl Inputs {
         let ml_dsa = ml_dsa::selected(m);
         let eddsa = eddsa::selected(m);
         if matches!(name, "sign" | "verify" | "verify-token") && flag(m, "multipart") {
-            if ml_dsa || eddsa || get(m, "input-kind") == Some("digest") {
+            if eddsa || get(m, "input-kind") == Some("digest") {
                 return Err(usage(
-                    "multipart signature input requires an original RSA/ECDSA message",
+                    "multipart signature input requires an original RSA/ECDSA/ML-DSA message",
                 ));
             }
-            request(m, &[])?;
+            if !ml_dsa {
+                request(m, &[])?;
+            }
         }
         if eddsa {
             eddsa::validate_options(m)?;
@@ -430,10 +432,17 @@ pub(crate) fn verify(
             certificate.verify_signature(&eddsa::request(m, &inputs.bytes)?, &inputs.signature)?;
         }
         VerificationCertificate::MlDsa(certificate) => {
-            certificate.verify_signature(
-                &ml_dsa::request(m, &inputs.bytes, &inputs.domain_context)?,
-                &inputs.signature,
-            )?;
+            if let Some(input) = &inputs.stream_input {
+                let parameters = ml_dsa::parameters(m, &inputs.domain_context)?;
+                input.read(|mut reader| {
+                    certificate.verify_reader(parameters, &mut reader, &inputs.signature)
+                })?;
+            } else {
+                certificate.verify_signature(
+                    &ml_dsa::request(m, &inputs.bytes, &inputs.domain_context)?,
+                    &inputs.signature,
+                )?;
+            }
         }
     }
     Ok(json!({"verified":true,"trust_validated":false}))

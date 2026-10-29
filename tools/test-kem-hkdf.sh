@@ -26,6 +26,7 @@ cargo test -p pkcs11-runtime --test hkdf_persistent --locked -- --ignored --test
 cargo test -p pkcs11-runtime --test aes_gcm_stream_provider --locked -- --ignored --test-threads=1
 cargo test -p pkcs11-runtime --test ml_dsa_verify_provider --locked -- --ignored --test-threads=1
 cargo test -p pkcs11-client --test ml_dsa_verify_provider --locked -- --ignored --test-threads=1
+cargo test -p pkcs11ctl --test ml_dsa_signature_first_provider --locked -- --ignored --test-threads=1
 cargo test -p pkcs11-runtime --test aes_cmac_provider --locked -- --ignored --test-threads=1
 cargo test -p pkcs11-client --test aes_cmac_provider --locked -- --ignored --test-threads=1
 cargo test -p pkcs11ctl --test aes_cmac --locked -- --ignored --test-threads=1

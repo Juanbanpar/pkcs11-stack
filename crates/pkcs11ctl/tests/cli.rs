@@ -714,7 +714,12 @@ fn ml_dsa_offline_verification_checks_all_parameters_and_contexts() {
             if suffix == "context.sig" {
                 args.extend(["--context-file", context.to_str().unwrap()]);
             }
+            let mut streamed = args.clone();
+            streamed.push("--multipart");
             let result = run(&args);
+            let multipart = run(&streamed);
+            assert_eq!(multipart.status.code(), result.status.code());
+            assert_eq!(multipart.stdout, result.stdout);
             assert!(
                 result.status.success(),
                 "{}",
@@ -1610,7 +1615,7 @@ fn multipart_signature_shape_and_budget_fail_before_module_loading() {
     let scratch = Scratch::new();
     let output = scratch.0.join("output");
     let missing = scratch.0.join("missing");
-    for algorithm in ["ed25519", "ml-dsa-44"] {
+    for algorithm in ["ed25519", "ed448"] {
         for command in ["sign", "verify"] {
             let mut args = vec![
                 "--module",

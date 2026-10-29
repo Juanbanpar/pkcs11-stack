@@ -8,6 +8,12 @@ enum { stream_fault = FAULT };
 #undef C_GetFunctionList
 static CK_ULONG inits, logins, updates, finals, cancellations, parts;
 static int authenticated;
+static CK_RV stream_close(CK_SESSION_HANDLE s) {
+    CK_RV rv = close_session(s); return stream_fault == 28 ? CKR_DEVICE_ERROR : rv;
+}
+static CK_RV stream_finalize(CK_VOID_PTR reserved) {
+    CK_RV rv = finalize(reserved); return stream_fault == 29 ? CKR_DEVICE_ERROR : rv;
+}
 static CK_ULONG signature_size(void) { return PARAMETER == 0 ? 2420 : PARAMETER == 1 ? 3309 : 4627; }
 static CK_ULONG public_size(void) { return PARAMETER == 0 ? 1312 : PARAMETER == 1 ? 1952 : 2592; }
 static CK_ULONG parameter(void) { return PARAMETER == 0 ? CKP_ML_DSA_44 : PARAMETER == 1 ? CKP_ML_DSA_65 : CKP_ML_DSA_87; }
@@ -77,13 +83,13 @@ static CK_RV stream_update(CK_SESSION_HANDLE s, CK_BYTE_PTR bytes, CK_ULONG n) {
     if (stream_fault == 14) return CKR_SIGNATURE_INVALID;
     if (stream_fault == 21) return CKR_PENDING;
     if (stream_fault == 22) return CKR_TOKEN_RESOURCE_EXCEEDED;
-    if (n > 3 - parts || memcmp(bytes,"abc"+parts,n)) return CKR_DATA_INVALID;
+    if (stream_fault != 30 && (n > 3 - parts || memcmp(bytes,"abc"+parts,n))) return CKR_DATA_INVALID;
     parts += n; return CKR_OK;
 }
 static CK_RV stream_final(CK_SESSION_HANDLE s, CK_BYTE_PTR out, CK_ULONG_PTR n) {
     (void)s; ++finals;
     if (!active || !authenticated) return CKR_USER_NOT_LOGGED_IN;
-    if (!out || *n != signature_size() || (parts != 0 && parts != 3)) return CKR_ARGUMENTS_BAD;
+    if (!out || *n != signature_size() || (stream_fault != 30 && parts != 0 && parts != 3)) return CKR_ARGUMENTS_BAD;
     if (stream_fault == 15) return CKR_DEVICE_ERROR;
     if (stream_fault == 27) return CKR_PENDING;
     if (stream_fault == 18) { *n = signature_size() + 1; return CKR_BUFFER_TOO_SMALL; }
@@ -115,6 +121,7 @@ CK_RV C_GetInterface(CK_UTF8CHAR_PTR name, CK_VERSION_PTR version, CK_INTERFACE_
 }
 #endif
 CK_RV C_GetFunctionList(CK_FUNCTION_LIST_PTR_PTR out) {
+    functions.C_CloseSession = stream_close; functions.C_Finalize = stream_finalize;
     functions.C_GetSessionInfo = stream_info;
     functions.C_GetMechanismList = stream_mechanisms; functions.C_GetMechanismInfo = stream_mechanism_info;
     functions.C_GetAttributeValue = stream_attributes;

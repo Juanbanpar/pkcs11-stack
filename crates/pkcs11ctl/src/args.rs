@@ -227,7 +227,7 @@ pub(crate) fn command() -> Command {
         .about("Sign once; with a certificate, bind first and verify the output")
         .arg(flag(
             "multipart",
-            "Stream an original RSA/ECDSA message with the selected hashing policy; at most 64 MiB",
+            "Stream an original RSA/ECDSA/ML-DSA message; at most 64 MiB",
         ))
         .arg(value(
             "certificate",
@@ -242,7 +242,7 @@ pub(crate) fn command() -> Command {
         .arg(value("pool-size", "Number of concurrent leases, 1..=64").default_value("2"));
     let verify = Command::new("verify")
         .about("Verify a raw signature using a certificate; no certificate trust validation")
-        .arg(flag("multipart", "Verify an original RSA/ECDSA message using incremental software hashing; at most 64 MiB"))
+        .arg(flag("multipart", "Verify an original RSA/ECDSA/ML-DSA message in software using bounded storage; at most 64 MiB"))
         .arg(
             value("certificate", "Token certificate URI with type=cert")
                 .required_unless_present("certificate-file"),
@@ -425,13 +425,13 @@ pub(crate) fn command() -> Command {
         auth(
             signing(
                 Command::new("verify-token")
-                    .about("Verify a raw RSA/ECDSA/EdDSA signature on the token using a public key")
-                    .arg(flag("multipart", "Stream an original RSA/ECDSA message with the selected hashing policy; at most 64 MiB"))
+                    .about("Verify a raw RSA/ECDSA/EdDSA/ML-DSA signature on the token using a public key")
+                    .arg(flag("multipart", "Stream an original RSA/ECDSA/ML-DSA message; ML-DSA token verification requires a 3.2 interface; at most 64 MiB"))
                     .arg(required("key", "Stable public-key URI with type=public"))
                     .arg(required("signature", "Raw signature file; - reads stdin")),
             )
             .mut_arg("algorithm", |arg| {
-                arg.value_parser(["rsa-pkcs1", "rsa-pss", "ecdsa", "ed25519", "ed448"])
+                arg.value_parser(["rsa-pkcs1", "rsa-pss", "ecdsa", "ed25519", "ed448", "ml-dsa-44", "ml-dsa-65", "ml-dsa-87"])
             }),
         ),
         auth(token(

@@ -64,8 +64,10 @@ streams with a zeroizing 64 KiB client reader, explicit context/hedging policy a
 fixed signature output. Signature-first single-part and streaming verification
 are available when the selected 3.2 provider implements the required calls. The client also verifies signatures in software
 and binds token private keys to ML-DSA certificates, checking each subsequent
-bound signature. The CLI exposes single-part workflows, including offline certificate
-verification and context authentication.
+bound signature. The CLI exposes single-part and explicit `--multipart` file/stdin
+workflows with a 64 MiB input limit, including offline certificate verification,
+bound signing and context authentication. Multipart token verification requires
+the selected 3.2 signature-first API and an implementing provider.
 
 Runtime and client also support ML-KEM-512/768/1024 key generation, encapsulation
 and decapsulation, with RFC 9935 public-key import/export. Raw shared secrets remain sensitive and nonextractable on the

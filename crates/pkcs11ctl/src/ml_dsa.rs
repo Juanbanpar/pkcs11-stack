@@ -49,6 +49,17 @@ pub(crate) fn request<'a>(
     request.validate().map_err(pkcs11_client::Error::from)?;
     Ok(request)
 }
+pub(crate) fn parameters<'a>(
+    m: &ArgMatches,
+    context: &'a [u8],
+) -> Result<pkcs11_client::MlDsaParameters<'a>> {
+    let request = request(m, &[], context)?;
+    Ok(pkcs11_client::MlDsaParameters {
+        parameter_set: request.parameter_set,
+        context,
+        hedging: request.hedging,
+    })
+}
 pub(crate) fn key_info(parameter: MlDsaParameterSet) -> Value {
     let name = match parameter {
         MlDsaParameterSet::MlDsa44 => "ml-dsa-44",
@@ -64,6 +75,32 @@ pub(crate) fn client_operation(
     inputs: &Inputs,
 ) -> Result<Output> {
     let auth = || inputs.credential.auth(false);
+    if name == "verify-token" {
+        let key =
+            pkcs11_client::PublicKeyRef::new(uri(m, "key")?).map_err(pkcs11_client::Error::from)?;
+        if let Some(input) = &inputs.stream_input {
+            let parameters = parameters(m, &inputs.domain_context)?;
+            input.read(|mut reader| {
+                client.verify_ml_dsa_reader(
+                    &key,
+                    parameters,
+                    &inputs.signature,
+                    auth(),
+                    &mut reader,
+                )
+            })?;
+        } else {
+            client.verify_ml_dsa(
+                &key,
+                &request(m, &inputs.bytes, &inputs.domain_context)?,
+                &inputs.signature,
+                auth(),
+            )?;
+        }
+        return Ok(Output::Structured(
+            json!({"verified":true,"verification":"token"}),
+        ));
+    }
     if name == "verify" {
         let certificate = client.ml_dsa_certificate(uri(m, "certificate")?, auth())?;
         return verify(&VerificationCertificate::MlDsa(certificate), m, inputs)
@@ -101,6 +138,46 @@ pub(crate) fn client_operation(
             json!({"bound":true, "key":key_info(identity.certificate().parameter_set()), "trust_validated":false})
         }
         "sign" => {
+            if let Some(input) = &inputs.stream_input {
+                let parameters = parameters(m, &inputs.domain_context)?;
+                let signature = if get(m, "certificate").is_some() {
+                    let certificate = client.ml_dsa_certificate(uri(m, "certificate")?, auth())?;
+                    certificate.validate_signing_request(&parameters.request(&[]))?;
+                    client
+                        .ml_dsa_streaming_capabilities(&key, auth())?
+                        .validate(&parameters.request(&[]), &policy)
+                        .map_err(pkcs11_client::Error::from)?;
+                    let identity = client.bind_ml_dsa_identity(
+                        key,
+                        certificate,
+                        &policy,
+                        auth(),
+                        inputs.context.pin(),
+                    )?;
+                    input.read(|mut reader| {
+                        client.sign_ml_dsa_identity_reader(
+                            &identity,
+                            parameters,
+                            &policy,
+                            auth(),
+                            inputs.context.pin(),
+                            &mut reader,
+                        )
+                    })?
+                } else {
+                    input.read(|mut reader| {
+                        client.sign_ml_dsa_reader(
+                            &key,
+                            parameters,
+                            &policy,
+                            auth(),
+                            inputs.context.pin(),
+                            &mut reader,
+                        )
+                    })?
+                };
+                return Ok(Output::Binary(signature));
+            }
             let request = request(m, &inputs.bytes, &inputs.domain_context)?;
             let signature = if get(m, "certificate").is_some() {
                 let certificate = client.ml_dsa_certificate(uri(m, "certificate")?, auth())?;

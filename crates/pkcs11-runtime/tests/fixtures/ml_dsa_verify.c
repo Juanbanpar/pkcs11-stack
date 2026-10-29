@@ -15,6 +15,12 @@ static CK_RV sf_mechanisms(CK_SLOT_ID s, CK_MECHANISM_TYPE_PTR out, CK_ULONG_PTR
 }
 static CK_ULONG singles;
 static int multipart;
+static CK_RV sf_close(CK_SESSION_HANDLE s) {
+    CK_RV rv = close_session(s); return verify_fault == 35 ? CKR_DEVICE_ERROR : rv;
+}
+static CK_RV sf_finalize(CK_VOID_PTR reserved) {
+    CK_RV rv = finalize(reserved); return verify_fault == 36 ? CKR_DEVICE_ERROR : rv;
+}
 static unsigned char saved_signature[4627];
 static CK_RV sf_info(CK_SESSION_HANDLE s, CK_SESSION_INFO_PTR out) {
     CK_RV rv = session_info(s,out);
@@ -88,7 +94,7 @@ static CK_RV sf_update(CK_SESSION_HANDLE s, CK_BYTE_PTR bytes, CK_ULONG n) {
     if (verify_fault == 22) { ++updates; return CKR_TOKEN_RESOURCE_EXCEEDED; }
     (void)s; ++updates;
     if (!active) return CKR_OPERATION_NOT_INITIALIZED;
-    if (n > 3 - parts || memcmp(bytes,"abc"+parts,n)) return CKR_DATA_INVALID;
+    if (verify_fault != 37 && (n > 3 - parts || memcmp(bytes,"abc"+parts,n))) return CKR_DATA_INVALID;
     multipart = 1; parts += n; return CKR_OK;
 }
 static CK_RV sf_result(void) {
@@ -98,7 +104,7 @@ static CK_RV sf_result(void) {
 }
 static CK_RV sf_final(CK_SESSION_HANDLE s) {
     (void)s; ++finals;
-    if (!active || !multipart || (parts != 0 && parts != 3)) return CKR_OPERATION_NOT_INITIALIZED;
+    if (!active || !multipart || (verify_fault != 37 && parts != 0 && parts != 3)) return CKR_OPERATION_NOT_INITIALIZED;
     if (verify_fault == 34) return CKR_FUNCTION_NOT_SUPPORTED;
     if (verify_fault == 15) return CKR_DEVICE_ERROR;
     if (verify_fault == 26) return CKR_PENDING;
@@ -132,6 +138,7 @@ CK_RV C_GetInterface(CK_UTF8CHAR_PTR name, CK_VERSION_PTR version, CK_INTERFACE_
 }
 #endif
 CK_RV C_GetFunctionList(CK_FUNCTION_LIST_PTR_PTR out) {
+    functions.C_CloseSession = sf_close; functions.C_Finalize = sf_finalize;
     *out = &functions;
     functions.C_GetMechanismList = sf_mechanisms;
     functions.C_VerifyInit = NULL; functions.C_Verify = NULL; functions.C_VerifyUpdate = NULL; functions.C_VerifyFinal = NULL;
