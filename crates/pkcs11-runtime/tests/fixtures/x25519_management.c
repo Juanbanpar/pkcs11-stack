@@ -7,6 +7,13 @@ enum { management_fault = FAULT };
 #include "cmac.c"
 #undef C_GetFunctionList
 
+#ifndef MANAGEMENT_BITS
+#define MANAGEMENT_BITS 255
+#define MANAGEMENT_OID 110
+#define MANAGEMENT_PUBLIC_LENGTH 32
+#define MANAGEMENT_BASE 9
+#define MANAGEMENT_LABEL "X25519"
+#endif
 static CK_ULONG duplicates;
 static CK_RV management_find_init(CK_SESSION_HANDLE s, CK_ATTRIBUTE_PTR attrs, CK_ULONG count) {
     (void)s; duplicates = 0;
@@ -43,8 +50,8 @@ static CK_RV management_mechanism_info(CK_SLOT_ID s, CK_MECHANISM_TYPE mechanism
     if (mechanism != CKM_EC_MONTGOMERY_KEY_PAIR_GEN) return CKR_MECHANISM_INVALID;
     memset(out, 0, sizeof(*out));
     out->flags = management_fault == 3 ? 0 : CKF_GENERATE_KEY_PAIR;
-    out->ulMinKeySize = management_fault == 4 ? 256 : 255;
-    out->ulMaxKeySize = management_fault == 5 ? 254 : 448;
+    out->ulMinKeySize = management_fault == 4 ? MANAGEMENT_BITS + 1 : MANAGEMENT_BITS;
+    out->ulMaxKeySize = management_fault == 5 ? MANAGEMENT_BITS - 1 : 448;
     return CKR_OK;
 }
 static int same(CK_ATTRIBUTE a, const void *value, CK_ULONG length) {
@@ -52,7 +59,7 @@ static int same(CK_ATTRIBUTE a, const void *value, CK_ULONG length) {
 }
 static CK_RV template_check(CK_ATTRIBUTE_PTR attrs, CK_ULONG count, const CK_ATTRIBUTE_TYPE *types, unsigned total, int private_key) {
     unsigned seen = 0;
-    const CK_BYTE oid[] = {6,3,43,101,110}, peer[32] = {9};
+    const CK_BYTE oid[] = {6,3,43,101,MANAGEMENT_OID}, peer[MANAGEMENT_PUBLIC_LENGTH] = {MANAGEMENT_BASE};
     for (CK_ULONG i = 0; i < count; ++i) {
         CK_ATTRIBUTE a = attrs[i]; unsigned index = 0;
         while (index < total && types[index] != a.type) ++index;
@@ -67,7 +74,7 @@ static CK_RV template_check(CK_ATTRIBUTE_PTR attrs, CK_ULONG count, const CK_ATT
             case CKA_EC_PARAMS: if (!same(a, oid, sizeof(oid))) return CKR_TEMPLATE_INCONSISTENT; continue;
             case CKA_EC_POINT: if (!same(a, peer, sizeof(peer))) return CKR_TEMPLATE_INCONSISTENT; continue;
             case CKA_ID: if (!same(a, "\2", 1)) return CKR_TEMPLATE_INCONSISTENT; continue;
-            case CKA_LABEL: if (!same(a, "X25519", 6)) return CKR_TEMPLATE_INCONSISTENT; continue;
+            case CKA_LABEL: if (!same(a, MANAGEMENT_LABEL, sizeof(MANAGEMENT_LABEL)-1)) return CKR_TEMPLATE_INCONSISTENT; continue;
             case CKA_TOKEN: case CKA_SENSITIVE: boolean = CK_TRUE; break;
             case CKA_PRIVATE: boolean = private_key; break;
             case CKA_DERIVE: boolean = private_key; break;

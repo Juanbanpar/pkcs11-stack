@@ -1,15 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-use crate::{
-    Attribute, Error, KeyType, MechanismType, Object, ObjectClass, ObjectRef, Session, SessionMode,
-    Token, key_operations::validate_secret_identity,
-};
-use cryptoki::{
-    context::Function,
-    mechanism::{Mechanism, elliptic_curve::EcKdf},
-};
+use crate::{Error, Object, ObjectRef, Session, Token, key_operations::validate_secret_identity};
+use cryptoki::mechanism::elliptic_curve::EcKdf;
 use curve25519_dalek::montgomery::MontgomeryPoint;
-
-const PARAMETERS: &[u8] = &[6, 3, 43, 101, 110];
 
 /// Persistent RFC 8410 X25519 pair with a protected derivation-only private key.
 pub struct X25519KeyPairRequest<'a> {
@@ -86,17 +78,7 @@ impl Token<'_> {
     /// generation flag and bounds including 255 field bits. Advisory only:
     /// template acceptance and subsequent agreement support are checked on use.
     pub fn x25519_generation_supported(&self) -> Result<bool, Error> {
-        let mechanism = MechanismType::ECC_MONTGOMERY_KEY_PAIR_GEN;
-        if !self
-            .module
-            .raw()?
-            .is_fn_supported(Function::GenerateKeyPair)
-            || !self.mechanisms()?.contains(&mechanism)
-        {
-            return Ok(false);
-        }
-        let info = self.mechanism_info(mechanism)?;
-        Ok(info.generate_key_pair() && (info.min_key_size()..=info.max_key_size()).contains(&255))
+        crate::montgomery::generation_supported(self, crate::montgomery::Curve::X25519)
     }
 }
 
@@ -110,66 +92,12 @@ impl<'m> Session<'m> {
         &mut self,
         request: &X25519KeyPairRequest<'_>,
     ) -> Result<(Object<'_, 'm>, Object<'_, 'm>), Error> {
-        request.validate()?;
-        self.validate()?;
-        if self.mode != SessionMode::ReadWrite {
-            return Err(Error::ReadWriteRequired);
-        }
-        if !self.token().x25519_generation_supported()? {
-            return Err(Error::UnsupportedKeyOperation);
-        }
-        for class in [ObjectClass::PUBLIC_KEY, ObjectClass::PRIVATE_KEY] {
-            if !self
-                .find_objects(&[
-                    Attribute::Token(true),
-                    Attribute::Class(class),
-                    Attribute::Id(request.id.to_vec()),
-                ])?
-                .is_empty()
-            {
-                return Err(Error::InvalidParameters("key pair ID already exists"));
-            }
-        }
-        let public = [
-            Attribute::Token(true),
-            Attribute::Private(false),
-            Attribute::Id(request.id.to_vec()),
-            Attribute::Label(request.label.to_vec()),
-            Attribute::EcParams(PARAMETERS.to_vec()),
-            Attribute::Verify(false),
-            Attribute::VerifyRecover(false),
-            Attribute::Encrypt(false),
-            Attribute::Wrap(false),
-            Attribute::Derive(false),
-        ];
-        let private = [
-            Attribute::Token(true),
-            Attribute::Private(true),
-            Attribute::Id(request.id.to_vec()),
-            Attribute::Label(request.label.to_vec()),
-            Attribute::Sensitive(true),
-            Attribute::Extractable(false),
-            Attribute::Derive(true),
-            Attribute::Sign(false),
-            Attribute::SignRecover(false),
-            Attribute::Decrypt(false),
-            Attribute::Unwrap(false),
-            Attribute::AlwaysAuthenticate(false),
-            Attribute::AllowedMechanisms(vec![MechanismType::ECDH1_DERIVE]),
-        ];
-        let (public, private) = self.write_operation("generate X25519 key pair", |raw| {
-            raw.generate_key_pair(&Mechanism::EccMontgomeryKeyPairGen, &public, &private)
-        })?;
-        Ok((
-            Object {
-                session: self,
-                handle: public,
-            },
-            Object {
-                session: self,
-                handle: private,
-            },
-        ))
+        crate::montgomery::generate(
+            self,
+            crate::montgomery::Curve::X25519,
+            request.id,
+            request.label,
+        )
     }
 
     /// Import checked raw public input as a public, untrusted RFC 8410 X25519
@@ -183,44 +111,13 @@ impl<'m> Session<'m> {
         id: &[u8],
         label: &[u8],
     ) -> Result<Object<'_, 'm>, Error> {
-        validate_secret_identity(id, label)?;
-        self.validate()?;
-        if self.mode != SessionMode::ReadWrite {
-            return Err(Error::ReadWriteRequired);
-        }
-        if !self
-            .token()
-            .module
-            .raw()?
-            .is_fn_supported(Function::CreateObject)
-        {
-            return Err(Error::UnsupportedKeyOperation);
-        }
-        if !self
-            .find_objects(&[
-                Attribute::Token(true),
-                Attribute::Class(ObjectClass::PUBLIC_KEY),
-                Attribute::Id(id.to_vec()),
-            ])?
-            .is_empty()
-        {
-            return Err(Error::InvalidParameters("public key ID already exists"));
-        }
-        self.create_object(&[
-            Attribute::Class(ObjectClass::PUBLIC_KEY),
-            Attribute::KeyType(KeyType::EC_MONTGOMERY),
-            Attribute::Token(true),
-            Attribute::Private(false),
-            Attribute::Id(id.to_vec()),
-            Attribute::Label(label.to_vec()),
-            Attribute::EcParams(PARAMETERS.to_vec()),
-            Attribute::EcPoint(key.as_bytes().to_vec()),
-            Attribute::Verify(false),
-            Attribute::VerifyRecover(false),
-            Attribute::Encrypt(false),
-            Attribute::Wrap(false),
-            Attribute::Derive(false),
-        ])
+        crate::montgomery::import_public(
+            self,
+            crate::montgomery::Curve::X25519,
+            key.as_bytes(),
+            id,
+            label,
+        )
     }
 }
 

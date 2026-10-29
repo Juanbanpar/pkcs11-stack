@@ -1,11 +1,30 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use crate::{
-    AesKeySize, Error, ObjectRef, Session,
+    AesKeySize, Error, Object, ObjectRef, Session, Token,
     key_operations::validate_secret_identity,
     montgomery::{self, Curve},
 };
 use cryptoki::mechanism::elliptic_curve::EcKdf;
 use ed448_goldilocks_plus::MontgomeryPoint;
+
+/// Persistent RFC 8410 X448 pair with a protected derivation-only private key.
+pub struct X448KeyPairRequest<'a> {
+    /// Shared nonempty key ID, at most 128 bytes.
+    pub id: &'a [u8],
+    /// Shared nonempty label, at most 128 bytes.
+    pub label: &'a [u8],
+}
+impl X448KeyPairRequest<'_> {
+    /// Check identity bounds without provider access.
+    pub fn validate(&self) -> Result<(), Error> {
+        validate_secret_identity(self.id, self.label)
+    }
+}
+impl std::fmt::Debug for X448KeyPairRequest<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("X448KeyPairRequest([REDACTED])")
+    }
+}
 
 /// Checked 56-byte RFC 7748 public input. Does not authenticate a peer.
 /// Noncanonical field encodings are accepted and preserved; unlike X25519,
@@ -143,5 +162,42 @@ impl Session<'_> {
                 aes: matches!(request.output, X448Output::Aes(_)),
             },
         )
+    }
+}
+
+impl Token<'_> {
+    /// Advertised Montgomery pair generation with a native entry point, the
+    /// generation flag and bounds including 448 field bits. Advisory only:
+    /// template acceptance and subsequent agreement support are checked on use.
+    pub fn x448_generation_supported(&self) -> Result<bool, Error> {
+        montgomery::generation_supported(self, Curve::X448)
+    }
+}
+
+impl<'m> Session<'m> {
+    /// Generate one persistent RFC 8410 X448 pair in RW mode. The private key
+    /// is sensitive/nonextractable, permits ECDH derivation only and requires no
+    /// per-operation login. Checks both public/private IDs before generation;
+    /// concurrent writers can race. No retry/rollback; failures may leave objects.
+    /// No private values are read. Check session closure before releasing results.
+    pub fn generate_x448_key_pair(
+        &mut self,
+        request: &X448KeyPairRequest<'_>,
+    ) -> Result<(Object<'_, 'm>, Object<'_, 'm>), Error> {
+        montgomery::generate(self, Curve::X448, request.id, request.label)
+    }
+
+    /// Import checked raw public input as a public, untrusted RFC 8410 X448
+    /// object, with all operation permissions disabled. Requires RW mode and
+    /// bounded nonempty identity; rejects existing public IDs. Does not associate
+    /// a private key or authenticate ownership. Concurrent writers can race.
+    /// No retry/rollback; native failures may leave objects. Check session closure.
+    pub fn import_x448_public_key(
+        &mut self,
+        key: &X448PublicKey,
+        id: &[u8],
+        label: &[u8],
+    ) -> Result<Object<'_, 'm>, Error> {
+        montgomery::import_public(self, Curve::X448, key.as_bytes(), id, label)
     }
 }

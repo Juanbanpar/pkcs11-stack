@@ -24,7 +24,7 @@ pub use ecdh::{EcdhKdf, EcdhKeyRequest, EcdhOutput};
 mod eddsa;
 mod montgomery;
 mod x448;
-pub use x448::{X448Derivation, X448Kdf, X448Output, X448PublicKey};
+pub use x448::{X448Derivation, X448Kdf, X448KeyPairRequest, X448Output, X448PublicKey};
 mod x25519;
 pub use eddsa::{EdDsaCapabilities, EdDsaCurve, EdDsaPublicKey, EdDsaRequest};
 pub use x25519::{X25519Derivation, X25519KeyPairRequest, X25519PublicKey};

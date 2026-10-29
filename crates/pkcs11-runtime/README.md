@@ -517,8 +517,18 @@ ANSI X9.63 and NIST SP 800-56A SHA-512 accept up to 4096 bytes of public context
 and produce either AES-128/192/256 encryption keys or a 64-byte derivation secret.
 Raw X448 output cannot feed this app's hash-length PKCS #11 HKDF profile; choose
 the SHA-512/64-byte profile explicitly for later HKDF-SHA512. No truncation,
-KDF substitution or secret extraction occurs. X448 generation/public import,
-curveName parameters and desktop workflows remain deferred.
+KDF substitution or secret extraction occurs.
+`generate_x448_key_pair` accepts `X448KeyPairRequest` and creates a persistent
+RFC 8410 pair using the parameterless Montgomery mechanism with 448-bit bounds.
+Its private key is sensitive, nonextractable and restricted to ECDH derivation;
+per-operation authentication is disabled. `x448_generation_supported` reports
+advisory generation support. `import_x448_public_key` stores checked public input
+with operation permissions disabled. Both mutations require RW mode and nonempty
+IDs/labels of at most 128 bytes. Generation rejects existing public/private IDs;
+import rejects public IDs and does not establish trust or private-key association.
+Concurrent writers can race; no retry/rollback occurs after provider failures.
+Check session closure before releasing results. curveName parameters and desktop
+workflows remain deferred.
 
 `derive_ecdh_key` accepts `EcdhKeyRequest` with explicit `EcdhKdf` and
 `EcdhOutput`. ANSI X9.63 and NIST SP 800-56A KDFs support SHA-256/384/512 and
