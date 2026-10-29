@@ -2619,6 +2619,7 @@ version = "0.1.0"
 dependencies = [
  "cryptoki",
  "curve25519-dalek",
+ "ed448-goldilocks-plus",
  "pkcs11-locator",
  "secrecy",
  "sha2",

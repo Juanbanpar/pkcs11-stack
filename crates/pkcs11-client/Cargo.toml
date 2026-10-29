@@ -19,7 +19,7 @@ p384.workspace = true
 p521.workspace = true
 ml-dsa.workspace = true
 ed25519-dalek.workspace = true
-ed448-goldilocks-plus.workspace = true
+ed448-goldilocks-plus = { workspace = true, features = ["signing", "std", "pkcs8"] }
 sha2.workspace = true
 sha3.workspace = true
 

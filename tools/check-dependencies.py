@@ -28,8 +28,16 @@ for ident in members:
         raise SystemExit(f"Forbidden sibling dependencies for {name}: {siblings - allowed[name]}")
     if "cryptoki" in direct and name != "pkcs11-runtime":
         raise SystemExit(f"Only runtime may directly consume cryptoki: {name}")
-    if {"ml-dsa", "ed25519-dalek", "ed448-goldilocks-plus"} & direct and name != "pkcs11-client":
+    if {"ml-dsa", "ed25519-dalek"} & direct and name != "pkcs11-client":
         raise SystemExit(f"Only client may directly consume ML-DSA/EdDSA software verifiers: {name}")
+    if "ed448-goldilocks-plus" in direct:
+        if name not in {"pkcs11-runtime", "pkcs11-client"}:
+            raise SystemExit(f"Curve448 arithmetic belongs to runtime/client: {name}")
+        if name == "pkcs11-runtime":
+            dependency = next(d for d in packages[ident]["dependencies"]
+                              if d["name"] == "ed448-goldilocks-plus")
+            if dependency["features"] or dependency["uses_default_features"]:
+                raise SystemExit("Runtime Curve448 validation must not select signing features")
     if name == "pkcs11ctl" and "pkcs11-client" not in direct:
         raise SystemExit("CLI must reuse client")
     if name == "pkcs11-desktop" and "pkcs11-client" not in direct:

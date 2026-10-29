@@ -501,8 +501,24 @@ operation permissions disabled and does not establish trust or key association.
 Both mutations require RW mode and nonempty IDs/labels of at most 128 bytes;
 generation rejects existing public/private IDs and import rejects public IDs.
 Concurrent writers can race; no retry or rollback occurs after provider failures.
-Check session closure before releasing results. curveName parameters and X448
-remain outside this profile.
+Check session closure before releasing results. curveName parameters remain
+outside this profile.
+
+For existing RFC 8410 id-X448 keys, `X448PublicKey::from_bytes` checks 56-byte
+public input using Curve448 field normalization and low-order checks from
+`ed448-goldilocks-plus`, without selecting its signing features. Noncanonical
+encodings are preserved and the high bit is not masked. `x448_public_key` checks
+bounded metadata and requires Montgomery keys with OID parameters and raw points.
+`derive_x448_key` shares the protected base-key, permission, native-function and
+session-health checks with X25519, using 448-bit mechanism bounds.
+`X448Derivation` requires explicit `X448Kdf` and `X448Output` selections. The null
+KDF preserves the complete 56-byte derivation-only secret and accepts no context.
+ANSI X9.63 and NIST SP 800-56A SHA-512 accept up to 4096 bytes of public context
+and produce either AES-128/192/256 encryption keys or a 64-byte derivation secret.
+Raw X448 output cannot feed this app's hash-length PKCS #11 HKDF profile; choose
+the SHA-512/64-byte profile explicitly for later HKDF-SHA512. No truncation,
+KDF substitution or secret extraction occurs. X448 generation/public import,
+curveName parameters and desktop workflows remain deferred.
 
 `derive_ecdh_key` accepts `EcdhKeyRequest` with explicit `EcdhKdf` and
 `EcdhOutput`. ANSI X9.63 and NIST SP 800-56A KDFs support SHA-256/384/512 and
