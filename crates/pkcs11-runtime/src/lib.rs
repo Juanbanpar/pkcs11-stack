@@ -82,6 +82,9 @@ pub use cryptoki::{
     context::Info as LibraryInfo,
     mechanism::{MechanismInfo, MechanismType},
     object::{Attribute, AttributeInfo, AttributeType, CertificateType, KeyType, ObjectClass},
-    session::{SessionInfo, SessionState},
+    session::{
+        SessionInfo, SessionState, TEMPLATE_METADATA_MAX_BYTES, TEMPLATE_METADATA_MAX_DEPTH,
+        TEMPLATE_METADATA_MAX_MEMBERS, TemplateAttribute, TemplateMember, TemplateMetadata,
+    },
     slot::{Slot, SlotInfo, TokenInfo},
 };

@@ -9,6 +9,12 @@ Published crate SHA-256:
 
 Local changes:
 
+- `src/session/template_metadata.rs`: inspect wrap/unwrap/derive template
+  structure using initialized, aligned `CK_ATTRIBUTE` arrays, fixed depth/entry/
+  allocation bounds and unchanged pointer/type/length checks. Leaf values are
+  never requested; other array types remain opaque. Independent headers for all
+  four supported versions test layout, flags, bounds and malformed providers.
+
 - `src/session/{encryption,decryption}.rs`: add caller-bounded multipart update
   and final calls without output-size queries, allocation or retries. Validate
   returned lengths before exposing them; runtime owns decryption quarantine and

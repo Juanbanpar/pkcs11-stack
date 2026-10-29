@@ -403,6 +403,19 @@ impl fmt::Debug for Object<'_, '_> {
     }
 }
 impl Object<'_, '_> {
+    /// Inspect bounded wrap/unwrap/derive template structure without reading any
+    /// leaf values. Native failures and changing or malformed layouts invalidate
+    /// the session. See [`crate::TemplateMetadata`] for availability semantics.
+    pub fn template_metadata(
+        &self,
+        kind: crate::TemplateAttribute,
+    ) -> Result<crate::TemplateMetadata, Error> {
+        self.session.validate()?;
+        self.session
+            .raw()?
+            .get_template_metadata(self.handle, kind)
+            .map_err(|error| self.session.failed("template metadata", error))
+    }
     /// Inspect per-attribute availability/size, including Sensitive and TypeInvalid.
     pub fn attribute_info(&self, types: &[AttributeType]) -> Result<Vec<AttributeInfo>, Error> {
         self.session.validate()?;

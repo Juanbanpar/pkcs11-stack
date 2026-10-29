@@ -25,10 +25,15 @@ mod session_info;
 mod session_management;
 mod signing_macing;
 mod slot_token_management;
+mod template_metadata;
 mod validation;
 
 pub use object_management::ObjectHandleIterator;
 pub use session_info::{SessionInfo, SessionState};
+pub use template_metadata::{
+    TemplateAttribute, TemplateMember, TemplateMetadata, TEMPLATE_METADATA_MAX_BYTES,
+    TEMPLATE_METADATA_MAX_DEPTH, TEMPLATE_METADATA_MAX_MEMBERS,
+};
 pub use validation::ValidationFlagsType;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]

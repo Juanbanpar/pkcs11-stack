@@ -148,6 +148,16 @@ failures invalidate the session. Validation versions require exactly two bytes.
 `resolve_bounded` also limits identity attribute reads before matching an object;
 ordinary `resolve` retains its existing allocation behavior.
 
+`Object::template_metadata(TemplateAttribute::Wrap)` reads the structure of a
+wrap, unwrap or derive template. It returns member IDs, byte lengths and nested
+templates without requesting leaf values. Reads allow at most four template
+levels, 128 total entries and 65,536 bytes of native array storage. Changed types,
+lengths or pointers, malformed array sizes and exceeded limits invalidate the
+session. Unknown IDs and non-template arrays remain opaque. Sensitive and invalid
+roots retain their status; unavailable members cannot be assigned either cause
+because the native return code covers the whole request. These metadata reports
+cannot be passed as operation templates; providers enforce those constraints.
+
 `Session::session_validation_flags` queries `CKS_LAST_VALIDATION_OK` through the
 selected 3.2 table. It returns the provider's full numeric flags, including unknown
 bits. `None` means an older table, missing pointer or unsupported native query;
