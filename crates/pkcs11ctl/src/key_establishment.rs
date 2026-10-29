@@ -50,17 +50,25 @@ pub(crate) fn selected(name: &str) -> bool {
             | "derive-hkdf"
             | "derive-hybrid"
             | "derive-ecdh"
+            | "derive-x25519"
     )
 }
 pub(crate) fn mutation(name: &str) -> bool {
     matches!(
         name,
-        "encapsulate" | "decapsulate" | "derive-hkdf" | "derive-hybrid" | "derive-ecdh"
+        "encapsulate"
+            | "decapsulate"
+            | "derive-hkdf"
+            | "derive-hybrid"
+            | "derive-ecdh"
+            | "derive-x25519"
     )
 }
 pub(crate) fn input_limit(name: &str, m: &ArgMatches) -> Result<Option<usize>> {
     Ok(if name == "decapsulate" {
         Some(selected_parameter(m)?.ciphertext_length())
+    } else if name == "derive-x25519" {
+        Some(128)
     } else if name == "derive-ecdh" {
         Some(1024)
     } else if name == "import" && get(m, "kind") == Some("public-key") {
@@ -157,6 +165,7 @@ fn ecdh_request<'a>(
 pub(crate) struct Inputs {
     pub public_key: Option<MlKemPublicKey>,
     ecdh_peer: Option<EcdhPeer>,
+    x25519_peer: Option<pkcs11_client::X25519Peer>,
     salt: Vec<u8>,
     salt_key: Option<pkcs11_client::ObjectRef>,
     info: Vec<u8>,
@@ -173,12 +182,18 @@ impl Inputs {
         {
             return Err(usage("ML-KEM SPKI export requires type=public"));
         }
+        if name == "export"
+            && get(m, "key-family") == Some("x25519")
+            && uri(m, "object")?.path_attribute("type") != Some(b"public")
+        {
+            return Err(usage("X25519 SPKI export requires type=public"));
+        }
         if !selected(name) {
             return Ok(inputs);
         }
         let kind = match name {
             "encapsulate" => "public",
-            "decapsulate" | "derive-ecdh" => "private",
+            "decapsulate" | "derive-ecdh" | "derive-x25519" => "private",
             "kem-capabilities" => {
                 if direction(m) == MlKemOperation::Encapsulate {
                     "public"
@@ -213,6 +228,21 @@ impl Inputs {
             }
             let id = unhex(need(m, "id")?)?;
             ecdh_request(m, &inputs, &id)?.validate()?;
+        }
+        if name == "derive-x25519" {
+            inputs.x25519_peer = Some(pkcs11_client::X25519Peer::from_spki_der(bytes)?);
+            let id = unhex(need(m, "id")?)?;
+            pkcs11_client::X25519Request {
+                peer: inputs
+                    .x25519_peer
+                    .as_ref()
+                    .ok_or_else(|| usage("missing X25519 peer"))?,
+                identity: SecretKeyIdentity {
+                    id: &id,
+                    label: need(m, "label")?.as_bytes(),
+                },
+            }
+            .validate()?;
         }
         if matches!(name, "derive-hkdf" | "derive-hybrid") {
             for (name, target) in [
@@ -263,6 +293,25 @@ pub(crate) fn operation(
 ) -> Result<Output> {
     let reference = object_reference(uri(m, "object")?)?;
     let value = match name {
+        "derive-x25519" => {
+            let id = unhex(need(m, "id")?)?;
+            let peer = inputs
+                .establishment
+                .x25519_peer
+                .as_ref()
+                .ok_or_else(|| usage("missing X25519 peer"))?;
+            session.derive_x25519(
+                &reference,
+                &pkcs11_client::X25519Request {
+                    peer,
+                    identity: SecretKeyIdentity {
+                        id: &id,
+                        label: need(m, "label")?.as_bytes(),
+                    },
+                },
+            )?;
+            json!({"derived":true,"id_hex":hex(&id),"kdf":"null","kind":"raw-secret","length":32,"extractable":false})
+        }
         "derive-ecdh" => {
             let id = unhex(need(m, "id")?)?;
             let request = ecdh_request(m, &inputs.establishment, &id)?;

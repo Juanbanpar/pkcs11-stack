@@ -647,6 +647,27 @@ fn derive(session: &mut ManagementSession<'_>, base: &ObjectRef, peer_der: &[u8]
 }
 ```
 
+For existing RFC 8410 X25519 keys, `export_x25519_public_key` emits SPKI DER.
+`X25519Peer::from_spki_der` requires canonical DER, absent algorithm parameters
+and a 32-byte, contributory public input. It does not authenticate a peer.
+`derive_x25519` creates a protected, nonextractable 32-byte token secret with
+derivation permission only. Apply HKDF-SHA256 separately, binding the authenticated
+protocol context and both public keys. Generation, public import, curveName
+parameters and X448 are outside this profile. Native rejection is not retried.
+
+```no_run
+use pkcs11_client::{ManagementSession, ObjectRef, SecretKeyIdentity, X25519Request, X25519Peer};
+fn x25519(session: &mut ManagementSession<'_>, base: &ObjectRef, peer_der: &[u8])
+    -> Result<(), pkcs11_client::Error>
+{
+    let peer = X25519Peer::from_spki_der(peer_der)?;
+    session.derive_x25519(base, &X25519Request {
+        peer: &peer,
+        identity: SecretKeyIdentity { id: b"x25519-1", label: b"X25519 agreement" },
+    })
+}
+```
+
 `derive_ecdh` accepts an `EcdhRequest` with the same validated peer, an explicit
 `EcdhKdf`, public shared info and `EcdhOutput`. ANSI X9.63 and NIST SP 800-56A
 support SHA-256/384/512. Hashed output can be AES-128/192/256 for encryption and

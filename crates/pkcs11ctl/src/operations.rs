@@ -867,7 +867,9 @@ fn management_operation(
         }
         "export" => {
             let reference = object_reference(uri(m, "object")?)?;
-            let bytes = if get(m, "key-family") == Some("ml-kem") {
+            let bytes = if get(m, "key-family") == Some("x25519") {
+                session.export_x25519_public_key(&reference)?
+            } else if get(m, "key-family") == Some("ml-kem") {
                 let key = pkcs11_client::PublicKeyRef::new(uri(m, "object")?)
                     .map_err(pkcs11_client::Error::from)?;
                 session.export_ml_kem_public_key(&key)?

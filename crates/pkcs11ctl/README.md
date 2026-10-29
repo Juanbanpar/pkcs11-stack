@@ -496,6 +496,22 @@ pkcs11ctl --module "$MODULE" derive-ecdh --object "$PRIVATE_KEY_URI" \
   --pin-file user.pin --confirm
 ```
 
+`export --key-family x25519 --object "$PUBLIC_KEY_URI" --output peer.der`
+exports an existing RFC 8410 X25519 public key. `derive-x25519` accepts a strict
+peer SPKI DER, including stdin, and creates a complete 32-byte token-held secret
+using CKD_NULL. Small-order public inputs are rejected before module loading.
+The private base must be sensitive/nonextractable and permit derivation without
+always-authenticate. The output permits further derivation only. Run
+`derive-hkdf --digest sha256` separately, with public salt and a protocol context
+that binds both authenticated peers. No private or secret values are exported.
+Generation, public import, curveName parameters, X448 and desktop workflows are
+outside this initial X25519 profile.
+
+```sh
+pkcs11ctl --module "$MODULE" derive-x25519 --object "$PRIVATE_KEY_URI" \
+  --input peer.der --id 0502 --label x25519-material --pin-file user.pin --confirm
+```
+
 Raw certificate export and inspection work independently of client key support.
 Arbitrary JSON templates, private/secret-key import/export, wrapping and
 vendor-specific administration are not implemented.
