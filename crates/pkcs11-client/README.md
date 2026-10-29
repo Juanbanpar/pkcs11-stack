@@ -660,8 +660,8 @@ advisory generation support. `import_x25519_public_key` accepts a checked
 disabled; it does not authenticate ownership or associate a private key. Both
 mutations require RW mode and bounded nonempty identity, and reject existing IDs
 (public/private for generation, public for import). Check session closure on every
-result. curveName parameters and X448 remain outside this profile. Native rejection
-is not retried.
+result. curveName parameters remain outside this profile. Native rejection is
+not retried.
 
 ```no_run
 use pkcs11_client::{ManagementSession, ObjectRef, SecretKeyIdentity, X25519Request, X25519Peer};
@@ -675,6 +675,17 @@ fn x25519(session: &mut ManagementSession<'_>, base: &ObjectRef, peer_der: &[u8]
     })
 }
 ```
+
+`X448Peer::from_spki_der` applies the same strict RFC 8410 parsing to id-X448
+public keys, requiring 56 checked public bytes. `export_x448_public_key` reads
+existing OID-profile keys. `derive_x448` accepts `X448Request`, with explicit
+`X448Kdf`, bounded public `shared_info`, `X448Output` and `SecretKeyIdentity`.
+The null KDF permits only the full 56-byte raw secret and empty context. Explicit
+X9.63 or NIST SHA-512 permits AES encryption keys or a 64-byte generic derivation
+secret suitable for HKDF-SHA512. All outputs stay private, sensitive and
+nonextractable on the token. Authenticate peer ownership and check session closure;
+provider failures are not retried. X448 generation/public import and curveName
+parameters remain deferred.
 
 `derive_ecdh` accepts an `EcdhRequest` with the same validated peer, an explicit
 `EcdhKdf`, public shared info and `EcdhOutput`. ANSI X9.63 and NIST SP 800-56A
