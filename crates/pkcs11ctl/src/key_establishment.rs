@@ -51,6 +51,7 @@ pub(crate) fn selected(name: &str) -> bool {
             | "derive-hybrid"
             | "derive-ecdh"
             | "derive-x25519"
+            | "derive-x448"
     )
 }
 pub(crate) fn mutation(name: &str) -> bool {
@@ -62,12 +63,15 @@ pub(crate) fn mutation(name: &str) -> bool {
             | "derive-hybrid"
             | "derive-ecdh"
             | "derive-x25519"
+            | "derive-x448"
     )
 }
 pub(crate) fn input_limit(name: &str, m: &ArgMatches) -> Result<Option<usize>> {
     Ok(if name == "decapsulate" {
         Some(selected_parameter(m)?.ciphertext_length())
-    } else if name == "derive-x25519" || (name == "import" && get(m, "kind") == Some("x25519")) {
+    } else if matches!(name, "derive-x25519" | "derive-x448")
+        || (name == "import" && get(m, "kind") == Some("x25519"))
+    {
         Some(128)
     } else if name == "derive-ecdh" {
         Some(1024)
@@ -166,6 +170,7 @@ pub(crate) struct Inputs {
     pub public_key: Option<MlKemPublicKey>,
     ecdh_peer: Option<EcdhPeer>,
     x25519_peer: Option<pkcs11_client::X25519Peer>,
+    x448_peer: Option<pkcs11_client::X448Peer>,
     salt: Vec<u8>,
     salt_key: Option<pkcs11_client::ObjectRef>,
     info: Vec<u8>,
@@ -183,17 +188,17 @@ impl Inputs {
             return Err(usage("ML-KEM SPKI export requires type=public"));
         }
         if name == "export"
-            && get(m, "key-family") == Some("x25519")
+            && matches!(get(m, "key-family"), Some("x25519" | "x448"))
             && uri(m, "object")?.path_attribute("type") != Some(b"public")
         {
-            return Err(usage("X25519 SPKI export requires type=public"));
+            return Err(usage("Montgomery SPKI export requires type=public"));
         }
         if !selected(name) {
             return Ok(inputs);
         }
         let kind = match name {
             "encapsulate" => "public",
-            "decapsulate" | "derive-ecdh" | "derive-x25519" => "private",
+            "decapsulate" | "derive-ecdh" | "derive-x25519" | "derive-x448" => "private",
             "kem-capabilities" => {
                 if direction(m) == MlKemOperation::Encapsulate {
                     "public"
@@ -228,6 +233,17 @@ impl Inputs {
             }
             let id = unhex(need(m, "id")?)?;
             ecdh_request(m, &inputs, &id)?.validate()?;
+        }
+        if name == "derive-x448" {
+            inputs.x448_peer = Some(pkcs11_client::X448Peer::from_spki_der(bytes)?);
+            if let Some(path) = get(m, "shared-info-file") {
+                if path == "-" {
+                    return Err(usage("shared-info-file requires a file path"));
+                }
+                inputs.info = bounded_input(path, 4096)?;
+            }
+            let id = unhex(need(m, "id")?)?;
+            x448_request(m, &inputs, &id)?.validate()?;
         }
         if name == "derive-x25519" {
             inputs.x25519_peer = Some(pkcs11_client::X25519Peer::from_spki_der(bytes)?);
@@ -293,6 +309,12 @@ pub(crate) fn operation(
 ) -> Result<Output> {
     let reference = object_reference(uri(m, "object")?)?;
     let value = match name {
+        "derive-x448" => {
+            let id = unhex(need(m, "id")?)?;
+            let request = x448_request(m, &inputs.establishment, &id)?;
+            session.derive_x448(&reference, &request)?;
+            json!({"derived":true,"id_hex":hex(&id),"kdf":need(m,"kdf")?,"kind":need(m,"kind")?,"length":request.output.length(),"extractable":false})
+        }
         "derive-x25519" => {
             let id = unhex(need(m, "id")?)?;
             let peer = inputs
@@ -358,4 +380,37 @@ pub(crate) fn operation(
         _ => return Err(usage("unknown key establishment command")),
     };
     Ok(Output::Structured(value))
+}
+
+fn x448_request<'a>(
+    m: &'a ArgMatches,
+    inputs: &'a Inputs,
+    id: &'a [u8],
+) -> Result<pkcs11_client::X448Request<'a>> {
+    use pkcs11_client::{X448Kdf, X448Output};
+    Ok(pkcs11_client::X448Request {
+        peer: inputs
+            .x448_peer
+            .as_ref()
+            .ok_or_else(|| usage("missing X448 peer"))?,
+        kdf: match need(m, "kdf")? {
+            "null" => X448Kdf::Null,
+            "x963-sha512" => X448Kdf::X963Sha512,
+            "nist-sha512" => X448Kdf::Sp80056aSha512,
+            _ => return Err(usage("invalid X448 KDF")),
+        },
+        shared_info: &inputs.info,
+        output: match need(m, "kind")? {
+            "raw-secret" => X448Output::RawSecret,
+            "secret" => X448Output::DerivationSecret,
+            "aes128" => X448Output::Aes(AesKeySize::Bits128),
+            "aes192" => X448Output::Aes(AesKeySize::Bits192),
+            "aes256" => X448Output::Aes(AesKeySize::Bits256),
+            _ => return Err(usage("invalid X448 output")),
+        },
+        identity: SecretKeyIdentity {
+            id,
+            label: need(m, "label")?.as_bytes(),
+        },
+    })
 }

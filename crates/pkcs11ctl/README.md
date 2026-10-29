@@ -510,7 +510,7 @@ accepts strict public SPKI DER (file/stdin, at most 128 bytes) and disables publ
 operation permissions. It does not establish trust or associate a private key.
 Generation/import require explicit ID/label and confirmation. Signing, AES-purpose,
 RSA-size and context-authentication options do not apply to X25519 generation.
-curveName parameters, X448 and desktop workflows remain outside this profile.
+curveName parameters and desktop workflows remain outside this profile.
 
 ```sh
 pkcs11ctl --module "$MODULE" generate --token "$TOKEN_URI" --kind x25519 \
@@ -519,6 +519,25 @@ pkcs11ctl --module "$MODULE" import --token "$TOKEN_URI" --kind x25519 \
   --input peer.der --id 0501 --label x25519-peer --pin-file user.pin --confirm
 pkcs11ctl --module "$MODULE" derive-x25519 --object "$PRIVATE_KEY_URI" \
   --input peer.der --id 0502 --label x25519-material --pin-file user.pin --confirm
+```
+
+For existing RFC 8410 X448 keys, `export --key-family x448` emits SPKI DER.
+`derive-x448` accepts strict peer SPKI DER from a file or stdin, at most 128 bytes.
+It requires explicit `--kdf` (`null`, `x963-sha512` or `nist-sha512`) and `--kind`.
+The null KDF requires `raw-secret`, preserving all 56 bytes with derivation-only
+permission and no shared info. SHA-512 KDFs accept a public `--shared-info-file`
+(up to 4096 bytes, no stdin); their outputs are `aes128`/`aes192`/`aes256` or a
+64-byte derivation-only `secret`. All outputs remain private, sensitive and
+nonextractable. Raw 56-byte output cannot feed this app's hash-length PKCS #11
+HKDF profile. Select SHA-512 and `secret` explicitly before `derive-hkdf --digest
+sha512`; no automatic truncation or KDF substitution occurs. X448 generation,
+public import, curveName parameters and desktop workflows remain deferred.
+
+```sh
+pkcs11ctl --module "$MODULE" derive-x448 --object "$PRIVATE_KEY_URI" \
+  --input peer-x448.der --kdf nist-sha512 --kind secret \
+  --shared-info-file context.bin --id 0600 --label x448-material \
+  --pin-file user.pin --confirm
 ```
 
 Raw certificate export and inspection work independently of client key support.

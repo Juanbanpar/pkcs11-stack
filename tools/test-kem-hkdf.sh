@@ -26,6 +26,9 @@ cargo test -p pkcs11-runtime --test hkdf_persistent --locked -- --ignored --test
 cargo test -p pkcs11-runtime --test x25519_provider --locked -- --ignored --test-threads=1
 cargo test -p pkcs11-client --test x25519_provider --locked -- --ignored --test-threads=1
 cargo test -p pkcs11ctl --test x25519_provider --locked -- --ignored --test-threads=1
+cargo test -p pkcs11-runtime --test x448_provider --locked -- --ignored --test-threads=1
+cargo test -p pkcs11-client --test x448_provider --locked -- --ignored --test-threads=1
+cargo test -p pkcs11ctl --test x448_provider --locked -- --ignored --test-threads=1
 cargo test -p pkcs11-runtime --test aes_gcm_stream_provider --locked -- --ignored --test-threads=1
 cargo test -p pkcs11-runtime --test ml_dsa_verify_provider --locked -- --ignored --test-threads=1
 cargo test -p pkcs11-client --test ml_dsa_verify_provider --locked -- --ignored --test-threads=1

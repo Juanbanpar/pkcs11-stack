@@ -206,7 +206,7 @@ pub(crate) fn command() -> Command {
         .about("Export certificate/data bytes or public-key SPKI DER; no trust validation")
         .arg(
             value("key-family", "Public-key algorithm family")
-                .value_parser(["classical", "ml-dsa", "ml-kem", "eddsa", "x25519"])
+                .value_parser(["classical", "ml-dsa", "ml-kem", "eddsa", "x25519", "x448"])
                 .default_value("classical"),
         )
         .arg(required(
@@ -568,6 +568,12 @@ pub(crate) fn command() -> Command {
         mutation(auth(named(object(Command::new("derive-x25519")
             .about("Derive a protected token-held 32-byte secret from an existing X25519 key")
             .arg(required("input", "Peer X25519 public key (SPKI DER); - reads stdin")))))),
+        mutation(auth(named(object(Command::new("derive-x448")
+            .about("Derive a protected token-held key from an existing X448 private key")
+            .arg(required("input", "Peer X448 public key (SPKI DER); - reads stdin"))
+            .arg(required("kdf", "Explicit X448 KDF").value_parser(["null", "x963-sha512", "nist-sha512"]))
+            .arg(required("kind", "Output purpose; secret is 64 bytes").value_parser(["raw-secret", "secret", "aes128", "aes192", "aes256"]))
+            .arg(value("shared-info-file", "Public context file, at most 4096 bytes; no stdin")))))),
         auth(hkdf_digest(object(
             Command::new("hkdf-capabilities")
                 .about("Inspect a sensitive, nonextractable HKDF base secret"),
