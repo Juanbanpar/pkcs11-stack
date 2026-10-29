@@ -527,8 +527,24 @@ with operation permissions disabled. Both mutations require RW mode and nonempty
 IDs/labels of at most 128 bytes. Generation rejects existing public/private IDs;
 import rejects public IDs and does not establish trust or private-key association.
 Concurrent writers can race; no retry/rollback occurs after provider failures.
-Check session closure before releasing results. curveName parameters and desktop
-workflows remain deferred.
+Check session closure before releasing results. This profile requires OID
+parameters; desktop workflows remain deferred.
+
+`MontgomeryNamedCurve::{Curve25519, Curve448}` explicitly selects the DER
+PrintableString profile required by PKCS #11 sections 6.3.7–6.3.8. These objects
+are distinct from the RFC 8410 OID profiles accepted by the X25519/X448 APIs.
+`MontgomeryNamedPublicKey::from_bytes` validates raw public input, including
+length and noncontributory points. There is no SPKI conversion in this profile.
+
+`generate_named_montgomery_key_pair`, `import_named_montgomery_public_key` and
+`named_montgomery_public_key` retain the existing protected generation/import
+policy and bounded metadata reads. `derive_named_montgomery_secret` requires
+matching curveName parameters and derives a full 32/56-byte sensitive,
+nonextractable generic secret with derivation permission only. Use a protocol KDF
+and authenticate peers separately. The 56-byte curve448 result cannot feed the
+HKDF-SHA512 profile requiring a 64-byte input; SP 800-108 accepts either width.
+Provider rejection is returned without retry, fallback or rollback. These methods
+are available in the runtime; client and CLI exposure remains separate work.
 
 `derive_ecdh_key` accepts `EcdhKeyRequest` with explicit `EcdhKdf` and
 `EcdhOutput`. ANSI X9.63 and NIST SP 800-56A KDFs support SHA-256/384/512 and

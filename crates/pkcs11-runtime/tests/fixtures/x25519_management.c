@@ -14,6 +14,9 @@ enum { management_fault = FAULT };
 #define MANAGEMENT_BASE 9
 #define MANAGEMENT_LABEL "X25519"
 #endif
+#ifndef MANAGEMENT_PARAMS
+#define MANAGEMENT_PARAMS {6,3,43,101,MANAGEMENT_OID}
+#endif
 static CK_ULONG duplicates;
 static CK_RV management_find_init(CK_SESSION_HANDLE s, CK_ATTRIBUTE_PTR attrs, CK_ULONG count) {
     (void)s; duplicates = 0;
@@ -59,7 +62,7 @@ static int same(CK_ATTRIBUTE a, const void *value, CK_ULONG length) {
 }
 static CK_RV template_check(CK_ATTRIBUTE_PTR attrs, CK_ULONG count, const CK_ATTRIBUTE_TYPE *types, unsigned total, int private_key) {
     unsigned seen = 0;
-    const CK_BYTE oid[] = {6,3,43,101,MANAGEMENT_OID}, peer[MANAGEMENT_PUBLIC_LENGTH] = {MANAGEMENT_BASE};
+    const CK_BYTE oid[] = MANAGEMENT_PARAMS, peer[MANAGEMENT_PUBLIC_LENGTH] = {MANAGEMENT_BASE};
     for (CK_ULONG i = 0; i < count; ++i) {
         CK_ATTRIBUTE a = attrs[i]; unsigned index = 0;
         while (index < total && types[index] != a.type) ++index;

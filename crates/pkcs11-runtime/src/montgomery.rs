@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Shared bounded RFC 8410 Montgomery metadata and native agreement checks.
+//! Shared bounded Montgomery metadata and native agreement checks.
 use crate::{
     Attribute, AttributeInfo, AttributeType as A, Error, KeyType, MechanismType, Object,
     ObjectClass, ObjectRef, Session, SessionMode, Token, key_operations::validate_secret_identity,
@@ -16,18 +16,22 @@ const ATTRIBUTE_LIMIT: usize = 4096;
 pub(crate) enum Curve {
     X25519,
     X448,
+    Curve25519,
+    Curve448,
 }
 impl Curve {
     pub(crate) const fn parameters(self) -> &'static [u8] {
         match self {
             Self::X25519 => &[6, 3, 43, 101, 110],
             Self::X448 => &[6, 3, 43, 101, 111],
+            Self::Curve25519 => b"\x13\x0acurve25519",
+            Self::Curve448 => b"\x13\x08curve448",
         }
     }
     fn bits(self) -> usize {
         match self {
-            Self::X25519 => 255,
-            Self::X448 => 448,
+            Self::X25519 | Self::Curve25519 => 255,
+            Self::X448 | Self::Curve448 => 448,
         }
     }
 }

@@ -6,6 +6,13 @@ enum { x_fault = FAULT };
 #define C_GetFunctionList base_function_list
 #include "cmac.c"
 #undef C_GetFunctionList
+#ifndef X_BITS
+#define X_BITS 255
+#define X_LENGTH 32
+#define X_BASE 9
+#define X_PARAMS {6,3,43,101,110}
+#define X_OTHER_PARAMS {0x13,10,'c','u','r','v','e','2','5','5','1','9'}
+#endif
 static CK_OBJECT_HANDLE x_matches[3];
 static CK_ULONG x_count, x_cursor;
 static CK_OBJECT_CLASS x_class(CK_OBJECT_HANDLE h) { return h == 1 ? CKO_PUBLIC_KEY : h == 2 ? CKO_PRIVATE_KEY : CKO_SECRET_KEY; }
@@ -34,7 +41,8 @@ static CK_RV x_attributes(CK_SESSION_HANDLE s, CK_OBJECT_HANDLE h, CK_ATTRIBUTE_
     for (CK_ULONG i = 0; i < count; ++i) {
         CK_ATTRIBUTE_PTR a = &attrs[i];
         CK_ULONG scalar = 0, length = sizeof(scalar);
-        CK_BYTE bytes[40] = {6,3,43,101,110};
+        CK_BYTE bytes[64] = {6,3,43,101,110};
+        const CK_BYTE params[] = X_PARAMS, other[] = X_OTHER_PARAMS;
         const void *data = &scalar;
         if (x_fault == 17) return CKR_DEVICE_ERROR;
         switch (a->type) {
@@ -43,17 +51,17 @@ static CK_RV x_attributes(CK_SESSION_HANDLE s, CK_OBJECT_HANDLE h, CK_ATTRIBUTE_
             case CKA_LABEL: data = bytes; length = 0; break;
             case CKA_ID: bytes[0] = h == 3 ? 2 : 1; data = bytes; length = 1; break;
             case CKA_EC_PARAMS:
-                data = bytes; length = 5;
-                if (x_fault == 3) { data = "\x13\x0a" "curve25519"; length = 12; }
-                if (x_fault == 4) bytes[4] = 111;
-                if (x_fault == 5) length = 4;
+                memcpy(bytes, params, sizeof(params)); data = bytes; length = sizeof(params);
+                if (x_fault == 3) { data = other; length = sizeof(other); }
+                if (x_fault == 4) bytes[length-1] ^= 1;
+                if (x_fault == 5) --length;
                 if (x_fault == 15) { a->ulValueLen = 4097; continue; }
                 if (x_fault == 16 && a->pValue) { a->ulValueLen += 1; return CKR_OK; }
                 break;
             case CKA_EC_POINT:
-                memset(bytes, 0, sizeof(bytes)); bytes[0] = 9; data = bytes; length = 32;
-                if (x_fault == 6) { bytes[0] = 4; bytes[1] = 32; bytes[2] = 9; length = 34; }
-                if (x_fault == 7) length = 31;
+                memset(bytes, 0, sizeof(bytes)); bytes[0] = X_BASE; data = bytes; length = X_LENGTH;
+                if (x_fault == 6) { bytes[0] = 4; bytes[1] = X_LENGTH; bytes[2] = X_BASE; length = X_LENGTH+2; }
+                if (x_fault == 7) length = X_LENGTH-1;
                 if (x_fault == 8) bytes[0] = 0;
                 break;
             case CKA_ALLOWED_MECHANISMS:
@@ -83,14 +91,14 @@ static CK_RV x_mechanism_info(CK_SLOT_ID s, CK_MECHANISM_TYPE mechanism, CK_MECH
     (void)s;
     if (mechanism != CKM_ECDH1_DERIVE) return CKR_MECHANISM_INVALID;
     memset(out, 0, sizeof(*out));
-    out->ulMinKeySize = x_fault == 19 ? 256 : 255; out->ulMaxKeySize = 255;
+    out->ulMinKeySize = x_fault == 19 ? X_BITS+1 : X_BITS; out->ulMaxKeySize = X_BITS;
     out->flags = x_fault == 18 ? 0 : CKF_DERIVE; return CKR_OK;
 }
 static CK_RV x_derive(CK_SESSION_HANDLE s, CK_MECHANISM_PTR m, CK_OBJECT_HANDLE base, CK_ATTRIBUTE_PTR attrs, CK_ULONG count, CK_OBJECT_HANDLE_PTR out) {
     (void)s;
     if (m->mechanism != CKM_ECDH1_DERIVE || !m->pParameter || m->ulParameterLen != sizeof(CK_ECDH1_DERIVE_PARAMS) || base != 2) return CKR_MECHANISM_PARAM_INVALID;
     CK_ECDH1_DERIVE_PARAMS *p = m->pParameter;
-    CK_BYTE peer[32] = {9};
+    CK_BYTE peer[X_LENGTH] = {X_BASE};
     if (p->kdf != CKD_NULL || p->ulSharedDataLen != 0 || p->pSharedData != NULL_PTR || p->ulPublicDataLen != sizeof(peer) || !p->pPublicData || memcmp(p->pPublicData, peer, sizeof(peer))) return CKR_MECHANISM_PARAM_INVALID;
     unsigned seen = 0;
     const CK_ATTRIBUTE_TYPE expected[] = {CKA_CLASS, CKA_KEY_TYPE, CKA_VALUE_LEN, CKA_TOKEN, CKA_PRIVATE, CKA_SENSITIVE, CKA_DERIVE, CKA_EXTRACTABLE, CKA_ENCRYPT, CKA_DECRYPT, CKA_SIGN, CKA_VERIFY, CKA_WRAP, CKA_UNWRAP, CKA_ID, CKA_LABEL};
@@ -103,7 +111,7 @@ static CK_RV x_derive(CK_SESSION_HANDLE s, CK_MECHANISM_PTR m, CK_OBJECT_HANDLE 
         switch (a.type) {
             case CKA_CLASS: if (a.ulValueLen != sizeof(CK_ULONG) || *(CK_ULONG *)a.pValue != CKO_SECRET_KEY) return CKR_TEMPLATE_INCONSISTENT; break;
             case CKA_KEY_TYPE: if (a.ulValueLen != sizeof(CK_ULONG) || *(CK_ULONG *)a.pValue != CKK_GENERIC_SECRET) return CKR_TEMPLATE_INCONSISTENT; break;
-            case CKA_VALUE_LEN: if (a.ulValueLen != sizeof(CK_ULONG) || *(CK_ULONG *)a.pValue != 32) return CKR_TEMPLATE_INCONSISTENT; break;
+            case CKA_VALUE_LEN: if (a.ulValueLen != sizeof(CK_ULONG) || *(CK_ULONG *)a.pValue != X_LENGTH) return CKR_TEMPLATE_INCONSISTENT; break;
             case CKA_TOKEN: case CKA_PRIVATE: case CKA_SENSITIVE: case CKA_DERIVE:
                 if (a.ulValueLen != 1 || *(CK_BBOOL *)a.pValue != CK_TRUE) return CKR_TEMPLATE_INCONSISTENT;
                 break;
