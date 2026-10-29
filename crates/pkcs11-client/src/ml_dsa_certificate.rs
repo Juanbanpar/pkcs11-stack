@@ -1,16 +1,67 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use crate::{
     Authentication, CertificateDocument, CertificateRef, Client, Error, MlDsaHedging,
-    MlDsaParameterSet, MlDsaRequest, MlDsaSigningPolicy, Pin, Pkcs11Uri, PrivateKeyRef,
-    ml_dsa::parameter_set_oid,
+    MlDsaParameterSet, MlDsaParameters, MlDsaRequest, MlDsaSigningPolicy, Pin, Pkcs11Uri,
+    PrivateKeyRef, ml_dsa::parameter_set_oid,
 };
-use ml_dsa::{EncodedVerifyingKey, MlDsa44, MlDsa65, MlDsa87, Signature, VerifyingKey};
+use ml_dsa::{
+    EncodedVerifyingKey, MlDsa44, MlDsa65, MlDsa87, MlDsaParams, Signature, VerifyingKey,
+    signature::digest::Update,
+};
+use std::io::Read;
 use x509_cert::{der::Decode, spki::SubjectPublicKeyInfoOwned};
 
 enum VerificationKey {
     MlDsa44(Box<VerifyingKey<MlDsa44>>),
     MlDsa65(Box<VerifyingKey<MlDsa65>>),
     MlDsa87(Box<VerifyingKey<MlDsa87>>),
+}
+
+fn read_mu<P: MlDsaParams>(
+    key: &VerifyingKey<P>,
+    context: &[u8],
+    reader: &mut impl Read,
+    mut update: impl FnMut(&[u8]) -> Result<(), Error>,
+) -> Result<[u8; 64], Error> {
+    let mut input_error = None;
+    let mu = key
+        .compute_mu(
+            |hash| {
+                crate::input::read_chunks(
+                    reader,
+                    |bytes| {
+                        hash.update(bytes);
+                        update(bytes)
+                    },
+                    Error::SignatureInput,
+                )
+                .map_err(|error| {
+                    input_error = Some(error);
+                    ml_dsa::Error::new()
+                })
+            },
+            context,
+        )
+        .map_err(|_| input_error.unwrap_or(Error::UnsupportedVerification))?;
+    let mut bytes = [0; 64];
+    bytes.copy_from_slice(&mu);
+    Ok(bytes)
+}
+fn verify_mu<P: MlDsaParams>(
+    key: &VerifyingKey<P>,
+    mu: &[u8; 64],
+    signature: &[u8],
+) -> Result<(), Error> {
+    let mu = mu
+        .as_slice()
+        .try_into()
+        .map_err(|_| Error::SignatureMismatch)?;
+    let signature = Signature::<P>::try_from(signature).map_err(|_| Error::SignatureMismatch)?;
+    if key.verify_mu(&mu, &signature) {
+        Ok(())
+    } else {
+        Err(Error::SignatureMismatch)
+    }
 }
 
 /// Software ML-DSA public key. Holds no token handle or private material.
@@ -24,6 +75,46 @@ impl std::fmt::Debug for MlDsaVerifyingKey {
     }
 }
 impl MlDsaVerifyingKey {
+    // RustCrypto supplies the key-dependent pure FIPS 204 domain separation.
+    // This internal value never replaces original-message input at the provider.
+    pub(crate) fn read_mu(
+        &self,
+        parameters: MlDsaParameters<'_>,
+        reader: &mut impl Read,
+        update: impl FnMut(&[u8]) -> Result<(), Error>,
+    ) -> Result<[u8; 64], Error> {
+        self.validate_request(&parameters.request(&[]))?;
+        match &self.0 {
+            VerificationKey::MlDsa44(key) => read_mu(key, parameters.context, reader, update),
+            VerificationKey::MlDsa65(key) => read_mu(key, parameters.context, reader, update),
+            VerificationKey::MlDsa87(key) => read_mu(key, parameters.context, reader, update),
+        }
+    }
+    pub(crate) fn verify_mu(&self, mu: &[u8; 64], signature: &[u8]) -> Result<(), Error> {
+        match &self.0 {
+            VerificationKey::MlDsa44(key) => verify_mu(key, mu, signature),
+            VerificationKey::MlDsa65(key) => verify_mu(key, mu, signature),
+            VerificationKey::MlDsa87(key) => verify_mu(key, mu, signature),
+        }
+    }
+    /// Verify an original pure ML-DSA message with a zeroizing 64 KiB reader
+    /// buffer and the selected context. Does not use HashML-DSA or accept caller
+    /// digests. Parameters/signature length are checked before reading. Empty input
+    /// and Interrupted reads are supported; callers enforce total input budgets.
+    /// Read errors are redacted; malformed/incorrect signatures return SignatureMismatch.
+    pub fn verify_reader(
+        &self,
+        parameters: MlDsaParameters<'_>,
+        reader: &mut impl Read,
+        signature: &[u8],
+    ) -> Result<(), Error> {
+        self.validate_request(&parameters.request(&[]))?;
+        if signature.len() != self.parameter_set().signature_length() {
+            return Err(Error::SignatureMismatch);
+        }
+        let mu = self.read_mu(parameters, reader, |_| Ok(()))?;
+        self.verify_mu(&mu, signature)
+    }
     /// Decode raw public-key bytes of exactly the selected parameter set's length.
     /// Does not prove ownership or establish certificate trust.
     pub fn from_bytes(parameter: MlDsaParameterSet, bytes: &[u8]) -> Result<Self, Error> {
@@ -132,6 +223,17 @@ impl std::fmt::Debug for MlDsaCertificate {
     }
 }
 impl MlDsaCertificate {
+    /// Verify an original pure ML-DSA message through bounded reader storage.
+    /// Uses the same context, input and error contracts as MlDsaVerifyingKey::verify_reader.
+    /// Does not establish certificate trust or private-key association.
+    pub fn verify_reader(
+        &self,
+        parameters: MlDsaParameters<'_>,
+        reader: &mut impl Read,
+        signature: &[u8],
+    ) -> Result<(), Error> {
+        self.key.verify_reader(parameters, reader, signature)
+    }
     /// Parse exactly one DER X.509 certificate with an RFC 9881 ML-DSA public key.
     /// Rejects algorithm parameters, wrong key sizes, trailing bytes and other algorithms.
     pub fn from_der(der: Vec<u8>) -> Result<Self, Error> {

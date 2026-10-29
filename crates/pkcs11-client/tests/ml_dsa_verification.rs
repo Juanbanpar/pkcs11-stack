@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! Provider-free verification against independent OpenSSL fixtures.
 use pkcs11_client::{
-    Error, MlDsaCertificate, MlDsaHedging, MlDsaParameterSet, MlDsaRequest, MlDsaVerifyingKey,
+    Error, MlDsaCertificate, MlDsaHedging, MlDsaParameterSet, MlDsaParameters, MlDsaRequest,
+    MlDsaVerifyingKey,
 };
 use std::path::Path;
 use x509_cert::{
@@ -55,6 +56,13 @@ fn software_verification_checks_message_context_and_signature_encoding() {
             };
             for key in [&verifier, &raw, certificate.verifying_key()] {
                 key.verify_signature(&request, &signature).unwrap();
+                let parameters = MlDsaParameters {
+                    parameter_set: parameter,
+                    context,
+                    hedging: request.hedging,
+                };
+                key.verify_reader(parameters, &mut &message[..], &signature)
+                    .unwrap();
                 for changed in [
                     MlDsaRequest {
                         message: b"changed",
@@ -84,6 +92,17 @@ fn software_verification_checks_message_context_and_signature_encoding() {
                 ));
             }
             certificate.verify_signature(&request, &signature).unwrap();
+            certificate
+                .verify_reader(
+                    MlDsaParameters {
+                        parameter_set: parameter,
+                        context,
+                        hedging: request.hedging,
+                    },
+                    &mut &message[..],
+                    &signature,
+                )
+                .unwrap();
             assert!(matches!(
                 certificate.verify_signature(
                     &MlDsaRequest {
@@ -213,4 +232,95 @@ fn parsing_and_message_verification_do_not_assert_issuer_trust() {
     certificate
         .verify_signature(&request, &fixture("mldsa44.sig"))
         .unwrap();
+}
+
+#[test]
+fn reader_failures_and_parameters_preserve_redaction_and_preflight() {
+    use std::io::{self, Read};
+    struct Input {
+        bytes: Vec<u8>,
+        offset: usize,
+        fail: bool,
+        interrupted: bool,
+    }
+    impl Read for Input {
+        fn read(&mut self, out: &mut [u8]) -> io::Result<usize> {
+            assert_eq!(out.len(), 64 * 1024);
+            if !self.interrupted {
+                self.interrupted = true;
+                return Err(io::ErrorKind::Interrupted.into());
+            }
+            if self.offset == self.bytes.len() {
+                return if self.fail {
+                    Err(io::Error::other("input canary"))
+                } else {
+                    Ok(0)
+                };
+            }
+            out[0] = self.bytes[self.offset];
+            self.offset += 1;
+            Ok(1)
+        }
+    }
+    for (parameter, name) in PARAMETERS {
+        let key = MlDsaVerifyingKey::from_spki_der(&fixture(&format!("{name}.spki.der"))).unwrap();
+        let signature = fixture(&format!("{name}.context.sig"));
+        let parameters = MlDsaParameters {
+            parameter_set: parameter,
+            context: b"fixture-context",
+            hedging: MlDsaHedging::Required,
+        };
+        for fail in [false, true] {
+            let mut input = Input {
+                bytes: fixture("message.txt"),
+                offset: 0,
+                fail,
+                interrupted: false,
+            };
+            let result = key.verify_reader(parameters, &mut input, &signature);
+            if fail {
+                let error = result.unwrap_err();
+                assert!(matches!(error, Error::SignatureInput));
+                assert!(!error.to_string().contains("canary"));
+            } else {
+                result.unwrap();
+            }
+        }
+        let mut input = Input {
+            bytes: fixture("message.txt"),
+            offset: 0,
+            fail: false,
+            interrupted: false,
+        };
+        assert!(matches!(
+            key.verify_reader(
+                MlDsaParameters {
+                    context: &[0; 256],
+                    ..parameters
+                },
+                &mut input,
+                &signature
+            ),
+            Err(Error::Runtime(_))
+        ));
+        assert!(!input.interrupted);
+        assert!(matches!(
+            key.verify_reader(parameters, &mut input, &[]),
+            Err(Error::SignatureMismatch)
+        ));
+        assert!(!input.interrupted);
+        for context in [b"".as_slice(), b"wrong".as_slice()] {
+            assert!(matches!(
+                key.verify_reader(
+                    MlDsaParameters {
+                        context,
+                        ..parameters
+                    },
+                    &mut &fixture("message.txt")[..],
+                    &signature
+                ),
+                Err(Error::SignatureMismatch)
+            ));
+        }
+    }
 }

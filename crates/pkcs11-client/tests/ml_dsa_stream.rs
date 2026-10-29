@@ -233,3 +233,50 @@ fn unwinding_a_reader_discards_the_initialized_session() {
     session.close().unwrap();
     provider.finalize().unwrap();
 }
+
+#[test]
+fn pooled_signing_readers_reuse_completion_and_discard_read_failures() {
+    let module = MlDsaStreamModule::new(3, 2, 0, 0, 1, 0, 0);
+    let provider = Provider::load(module.path()).unwrap();
+    let client = provider
+        .client(
+            &"pkcs11:token=cmac".parse().unwrap(),
+            std::num::NonZeroUsize::new(1).unwrap(),
+            SigningPolicy::default(),
+        )
+        .unwrap();
+    let generation = || {
+        client
+            .pool()
+            .try_acquire(Authentication::None)
+            .unwrap()
+            .generation()
+    };
+    let before = generation();
+    let signature = client
+        .sign_ml_dsa_reader(
+            &key(),
+            parameters(),
+            &MlDsaSigningPolicy::default(),
+            Authentication::None,
+            None,
+            &mut Input::new(false),
+        )
+        .unwrap();
+    assert_eq!(signature, vec![0xAB; 2420]);
+    assert_eq!(generation(), before);
+    assert!(matches!(
+        client.sign_ml_dsa_reader(
+            &key(),
+            parameters(),
+            &MlDsaSigningPolicy::default(),
+            Authentication::None,
+            None,
+            &mut Input::new(true)
+        ),
+        Err(Error::SignatureInput)
+    ));
+    assert_ne!(generation(), before);
+    client.close().unwrap();
+    provider.finalize().unwrap();
+}

@@ -101,6 +101,16 @@ read/native failures discard sessions. Explicit cancellation permits reuse only
 after confirmed native termination. Check session closure before publishing output.
 The management reader does not perform certificate binding.
 
+`Client::sign_ml_dsa_reader` uses an exclusive pool lease for original-message
+streaming. `Client::sign_ml_dsa_identity_reader` verifies the completed signature
+against the retained certificate before release. RustCrypto computes the pure
+FIPS 204 message value incrementally for that check; original chunks still go to
+the provider. Input is read once without seeking, whole-message buffering or an
+external digest at the token. `MlDsaVerifyingKey::verify_reader` and
+`MlDsaCertificate::verify_reader` provide software verification, including offline
+use. Contexts remain binary and limited to 255 bytes. These APIs impose no total
+input limit; callers enforce budgets and check closure.
+
 Both single-part and streaming ML-DSA signing allocate exactly the selected
 signature length, without native size queries or retries. ML-DSA verification
 through `C_Verify` is single-part under PKCS#11 3.2 section 6.67.5; streaming
@@ -117,8 +127,11 @@ mismatches, or confirmed cancellation permit reuse; read/update/drop failures
 require closure. Cancellation uses the operation-specific
 `C_VerifySignatureInit(NULL)` defined by section 5.15.7. The pinned Kryoptic build
 implements signature-first verification; its generic `C_SessionCancel` does not
-clear that separate operation slot. The pinned SoftHSM lacks signature-first calls.
+clear that separate operation slot. The pinned SoftHSM's signature-first entry
+points return `CKR_FUNCTION_NOT_SUPPORTED`; pointer presence is advisory.
 These management workflows do not establish certificate trust or key association.
+`Client::verify_ml_dsa_reader` provides signature-first reader verification through
+an exclusive pool lease with the same selected-table and lifecycle requirements.
 
 Pure EdDSA multipart support also remains gated on an implementing provider;
 the pinned SoftHSM build supports its single-part profile.

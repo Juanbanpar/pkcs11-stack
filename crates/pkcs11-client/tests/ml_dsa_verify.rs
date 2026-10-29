@@ -214,3 +214,57 @@ fn unwind_and_abandonment_discard_initialized_sessions() {
         assert!(session.state().is_err());
     });
 }
+
+#[test]
+fn pooled_signature_first_readers_reuse_mismatches_and_discard_read_errors() {
+    let module = MlDsaVerifyModule::new(3, 2, 0, 0, 1, 0);
+    let provider = Provider::load(module.path()).unwrap();
+    let client = provider
+        .client(
+            &"pkcs11:token=cmac".parse().unwrap(),
+            std::num::NonZeroUsize::new(1).unwrap(),
+            SigningPolicy::default(),
+        )
+        .unwrap();
+    let generation = || {
+        client
+            .pool()
+            .try_acquire(Authentication::None)
+            .unwrap()
+            .generation()
+    };
+    let before = generation();
+    client
+        .verify_ml_dsa_reader(
+            &key(),
+            parameters(),
+            &[0xAB; 2420],
+            Authentication::None,
+            &mut Input::new(false),
+        )
+        .unwrap();
+    assert!(matches!(
+        client.verify_ml_dsa_reader(
+            &key(),
+            parameters(),
+            &[0; 2420],
+            Authentication::None,
+            &mut Input::new(false)
+        ),
+        Err(Error::SignatureMismatch)
+    ));
+    assert_eq!(generation(), before);
+    assert!(matches!(
+        client.verify_ml_dsa_reader(
+            &key(),
+            parameters(),
+            &[0xAB; 2420],
+            Authentication::None,
+            &mut Input::new(true)
+        ),
+        Err(Error::SignatureInput)
+    ));
+    assert_ne!(generation(), before);
+    client.close().unwrap();
+    provider.finalize().unwrap();
+}

@@ -293,6 +293,24 @@ fn client_ml_dsa_signing_binding_and_public_export() {
             .verify_signature(&request, &signature)
             .unwrap();
         verifier.verify_signature(&request, &signature).unwrap();
+        let stream_parameters = MlDsaParameters {
+            parameter_set: parameter,
+            context: request.context,
+            hedging: request.hedging,
+        };
+        let streamed = client
+            .sign_ml_dsa_identity_reader(
+                &identity,
+                stream_parameters,
+                &policy,
+                auth(),
+                context_pin(),
+                &mut &request.message[..],
+            )
+            .unwrap();
+        verifier
+            .verify_reader(stream_parameters, &mut &request.message[..], &streamed)
+            .unwrap();
         for context in [b"".as_slice(), &[0xA5; 255]] {
             let edge = MlDsaRequest {
                 context,
@@ -303,6 +321,24 @@ fn client_ml_dsa_signing_binding_and_public_export() {
                 .sign_ml_dsa_identity(&identity, &edge, &policy, auth(), context_pin())
                 .unwrap();
             verifier.verify_signature(&edge, &signature).unwrap();
+            let parameters = MlDsaParameters {
+                parameter_set: parameter,
+                context,
+                hedging: edge.hedging,
+            };
+            let signature = client
+                .sign_ml_dsa_identity_reader(
+                    &identity,
+                    parameters,
+                    &policy,
+                    auth(),
+                    context_pin(),
+                    &mut &b""[..],
+                )
+                .unwrap();
+            verifier
+                .verify_reader(parameters, &mut &b""[..], &signature)
+                .unwrap();
         }
         client
             .verify_ml_dsa(&public, &request, &signature, auth())
@@ -558,6 +594,21 @@ fn client_ml_dsa_signing_binding_and_public_export() {
             &MlDsaSigningPolicy::default(),
             auth(),
             None
+        ),
+        Err(Error::KeyCertificateMismatch)
+    ));
+    assert!(matches!(
+        client.sign_ml_dsa_identity_reader(
+            &original_identity,
+            MlDsaParameters {
+                parameter_set: stale_request.parameter_set,
+                context: stale_request.context,
+                hedging: stale_request.hedging
+            },
+            &MlDsaSigningPolicy::default(),
+            auth(),
+            None,
+            &mut &stale_request.message[..]
         ),
         Err(Error::KeyCertificateMismatch)
     ));
