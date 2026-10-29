@@ -504,10 +504,19 @@ The private base must be sensitive/nonextractable and permit derivation without
 always-authenticate. The output permits further derivation only. Run
 `derive-hkdf --digest sha256` separately, with public salt and a protocol context
 that binds both authenticated peers. No private or secret values are exported.
-Generation, public import, curveName parameters, X448 and desktop workflows are
-outside this initial X25519 profile.
+`generate --kind x25519` creates a protected derivation-only pair;
+`generation-options` reports advisory X25519 support. `import --kind x25519`
+accepts strict public SPKI DER (file/stdin, at most 128 bytes) and disables public
+operation permissions. It does not establish trust or associate a private key.
+Generation/import require explicit ID/label and confirmation. Signing, AES-purpose,
+RSA-size and context-authentication options do not apply to X25519 generation.
+curveName parameters, X448 and desktop workflows remain outside this profile.
 
 ```sh
+pkcs11ctl --module "$MODULE" generate --token "$TOKEN_URI" --kind x25519 \
+  --id 0500 --label x25519-pair --pin-file user.pin --confirm
+pkcs11ctl --module "$MODULE" import --token "$TOKEN_URI" --kind x25519 \
+  --input peer.der --id 0501 --label x25519-peer --pin-file user.pin --confirm
 pkcs11ctl --module "$MODULE" derive-x25519 --object "$PRIVATE_KEY_URI" \
   --input peer.der --id 0502 --label x25519-material --pin-file user.pin --confirm
 ```

@@ -109,6 +109,7 @@ pub(crate) struct Inputs {
     pub certificate_document: Option<pkcs11_client::CertificateDocument>,
     pub public_key: Option<pkcs11_client::ClassicalPublicKey>,
     pub eddsa_key: Option<pkcs11_client::EdDsaVerifyingKey>,
+    pub x25519_key: Option<pkcs11_client::X25519Peer>,
     pub oaep_label: Vec<u8>,
     pub verification_certificate: Option<VerificationCertificate>,
     pub domain_context: Vec<u8>,
@@ -321,6 +322,16 @@ impl Inputs {
         } else {
             None
         };
+        let x25519_key = if name == "import" && get(m, "kind") == Some("x25519") {
+            let id = unhex(need(m, "id")?)?;
+            let label = need(m, "label")?.as_bytes();
+            if id.is_empty() || id.len() > 128 || label.is_empty() || label.len() > 128 {
+                return Err(usage("X25519 ID and label must each contain 1..=128 bytes"));
+            }
+            Some(pkcs11_client::X25519Peer::from_spki_der(&bytes)?)
+        } else {
+            None
+        };
         if let Some(id) = get(m, "id") {
             unhex(id)?;
         }
@@ -403,6 +414,7 @@ impl Inputs {
             certificate_document,
             public_key,
             eddsa_key,
+            x25519_key,
             oaep_label,
             verification_certificate,
             domain_context,
@@ -912,6 +924,19 @@ fn management_operation(
         "generate" => generation::generate(session, m)?,
         "import" => {
             let id = unhex(need(m, "id")?)?;
+            if need(m, "kind")? == "x25519" {
+                session.import_x25519_public_key(
+                    inputs
+                        .x25519_key
+                        .as_ref()
+                        .ok_or_else(|| usage("missing X25519 public key"))?,
+                    &id,
+                    need(m, "label")?.as_bytes(),
+                )?;
+                return Ok(Output::Structured(
+                    json!({"imported":true,"key":{"type":"x25519","bits":255},"id_hex":hex(&id)}),
+                ));
+            }
             if need(m, "kind")? == "eddsa" {
                 let key = inputs
                     .eddsa_key

@@ -67,7 +67,7 @@ pub(crate) fn mutation(name: &str) -> bool {
 pub(crate) fn input_limit(name: &str, m: &ArgMatches) -> Result<Option<usize>> {
     Ok(if name == "decapsulate" {
         Some(selected_parameter(m)?.ciphertext_length())
-    } else if name == "derive-x25519" {
+    } else if name == "derive-x25519" || (name == "import" && get(m, "kind") == Some("x25519")) {
         Some(128)
     } else if name == "derive-ecdh" {
         Some(1024)
