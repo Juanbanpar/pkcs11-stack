@@ -24,7 +24,13 @@ impl Fixture {
     }
     fn ok(&self, args: &[&str]) -> Vec<u8> {
         let out = self.run(args);
-        assert!(out.status.success(), "CLI status {}", out.status);
+        assert!(
+            out.status.success(),
+            "{}: CLI status {}: {}",
+            args[0],
+            out.status,
+            String::from_utf8_lossy(&out.stderr)
+        );
         assert!(out.stderr.is_empty());
         out.stdout
     }
@@ -256,7 +262,7 @@ fn multipart_files_stdin_interoperability_and_failures() {
     };
     for (index, kind) in ["aes128", "aes192", "aes256"].into_iter().enumerate() {
         let label = format!("cli-multipart-gcm-{index}");
-        let id = format!("bd{index:02x}");
+        let id = format!("bdc1{index:02x}");
         f.ok(&[
             "generate",
             "--token",
