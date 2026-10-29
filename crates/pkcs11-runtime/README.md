@@ -482,6 +482,19 @@ token generic secret with derivation permission only. A later KDF and peer
 authentication remain the application's responsibility. Context authentication
 for ECDH is unsupported.
 
+`X25519PublicKey::from_bytes` validates 32-byte RFC 7748 public inputs, including
+high-bit/noncanonical encodings, and rejects noncontributory points. It uses
+`curve25519-dalek` with a fixed public scalar for input validation; token private
+keys are never supplied to software. `x25519_public_key` reads an existing
+`CKK_EC_MONTGOMERY` public key with id-X25519 OID parameters and raw CKA_EC_POINT.
+Identity and metadata reads are bounded to 4096 bytes per attribute.
+`derive_x25519_secret` accepts a checked peer and uses CKM_ECDH1_DERIVE/CKD_NULL.
+Its existing private base must be private, sensitive, nonextractable, permit
+derivation and have always-authenticate disabled. The persistent output is a
+complete 32-byte generic secret permitting derivation only, suitable for the
+existing HKDF-SHA256 profile. Mechanism bounds use 255 field bits. Generation,
+public import, curveName parameters and X448 are outside this initial profile.
+
 `derive_ecdh_key` accepts `EcdhKeyRequest` with explicit `EcdhKdf` and
 `EcdhOutput`. ANSI X9.63 and NIST SP 800-56A KDFs support SHA-256/384/512 and
 up to 4096 bytes of public shared info. They create either AES-128/192/256 keys

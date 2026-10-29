@@ -22,7 +22,9 @@ pub use digest::{DigestMode, DigestOperation, HashAlgorithm};
 mod ecdh;
 pub use ecdh::{EcdhKdf, EcdhKeyRequest, EcdhOutput};
 mod eddsa;
+mod x25519;
 pub use eddsa::{EdDsaCapabilities, EdDsaCurve, EdDsaPublicKey, EdDsaRequest};
+pub use x25519::{X25519Derivation, X25519PublicKey};
 mod encryption;
 mod generation;
 pub use generation::{
