@@ -70,6 +70,11 @@ mod object_locator;
 mod public_export;
 mod public_import;
 mod public_metadata;
+mod template_metadata;
+pub use pkcs11_runtime::{
+    TEMPLATE_METADATA_MAX_BYTES, TEMPLATE_METADATA_MAX_DEPTH, TEMPLATE_METADATA_MAX_MEMBERS,
+    TemplateAttribute, TemplateMember, TemplateMetadata,
+};
 pub use public_import::{ClassicalPublicKey, ClassicalPublicKeyPurpose, PublicKeyImportRequest};
 pub use public_metadata::{PUBLIC_METADATA_FIELDS, PUBLIC_METADATA_MAX_ATTRIBUTE};
 mod input;

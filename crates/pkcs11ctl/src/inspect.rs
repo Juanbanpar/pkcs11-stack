@@ -57,6 +57,33 @@ fn class_name(class: ObjectClass) -> String {
         _ => format!("{class:?}"),
     }
 }
+pub(crate) fn template_metadata(report: &pkcs11_client::TemplateMetadata) -> Value {
+    fn status(info: AttributeInfo) -> Value {
+        match info {
+            AttributeInfo::Available(length) => json!({"status":"available", "length":length}),
+            AttributeInfo::Sensitive => json!({"status":"sensitive"}),
+            AttributeInfo::TypeInvalid => json!({"status":"unsupported"}),
+            AttributeInfo::Unavailable => json!({"status":"unavailable"}),
+        }
+    }
+    fn members(entries: &[pkcs11_client::TemplateMember]) -> Vec<Value> {
+        entries
+            .iter()
+            .map(|entry| {
+                let mut value = status(entry.status);
+                value["attribute_type"] = json!(format!("0x{:x}", entry.attribute_type));
+                if let Some(template) = &entry.template {
+                    value["members"] = json!(members(template));
+                }
+                value
+            })
+            .collect()
+    }
+    let mut value = status(report.status);
+    value["attribute_type"] = json!(format!("0x{:x}", report.kind.id()));
+    value["members"] = json!(members(&report.members));
+    value
+}
 fn attr_value(attribute: &Attribute) -> Value {
     match attribute {
         Attribute::Class(v) => json!(class_name(*v)),

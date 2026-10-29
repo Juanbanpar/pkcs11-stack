@@ -855,6 +855,16 @@ fn management_operation(
                 .collect::<Result<Vec<_>>>()?;
             inspect::attributes(&session.inspect(&reference, &types)?, &names)?
         }
+        "template-metadata" => {
+            let reference = object_reference(uri(m, "object")?)?;
+            let kind = match need(m, "template")? {
+                "wrap" => pkcs11_client::TemplateAttribute::Wrap,
+                "unwrap" => pkcs11_client::TemplateAttribute::Unwrap,
+                "derive" => pkcs11_client::TemplateAttribute::Derive,
+                _ => return Err(usage("unsupported template attribute")),
+            };
+            inspect::template_metadata(&session.template_metadata(&reference, kind)?)
+        }
         "export" => {
             let reference = object_reference(uri(m, "object")?)?;
             let bytes = if get(m, "key-family") == Some("ml-kem") {

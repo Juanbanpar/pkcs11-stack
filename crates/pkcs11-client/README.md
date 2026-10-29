@@ -251,6 +251,12 @@ returns the runtime's modulus-width RSA or fixed-width ECDSA `r || s` signature.
 It does not require a certificate. `SignInput::Digest` always means an already
 computed digest, distinct from a message that still needs hashing.
 
+`ManagementSession::template_metadata` resolves one unique object with bounded
+identity reads and inspects its wrap, unwrap or derive template structure. Reports
+contain member IDs, lengths and availability, including unknown IDs and nested
+templates; no leaf values are requested. Runtime depth, entry and allocation limits
+apply. The report is read-only metadata and cannot construct an operation template.
+
 ## Identity association and verification
 
 SHA-224 and SHA3-224/256/384/512 RSA PKCS#1 v1.5, RSA-PSS and ECDSA

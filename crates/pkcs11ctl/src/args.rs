@@ -367,6 +367,9 @@ pub(crate) fn command() -> Command {
         auth(token(Command::new("public-metadata").about("Read bounded public metadata, including profile and validation objects; no trust validation"))),
         token(Command::new("session-validation").about("Query provider-reported validation flags in a fresh session; not a report on previous commands")),
         auth(object(inspect)),
+        auth(object(Command::new("template-metadata")
+            .about("Inspect bounded wrap/unwrap/derive template structure without leaf values")
+            .arg(required("template", "Template attribute").value_parser(["wrap", "unwrap", "derive"])))),
         auth(object(export)),
         auth(object(key_family(
             Command::new("certificate").about("Parse a supported certificate through client"),

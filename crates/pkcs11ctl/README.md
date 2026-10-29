@@ -36,6 +36,7 @@ for current discovery and explicit initialization.
 | `public-metadata --token URI` | Bounded public metadata, including profile/validation objects |
 | `session-validation --token URI` | Provider-reported validation flags in a fresh session |
 | `inspect --object URI` | Unique object's attributes, defaulting to class/label/ID |
+| `template-metadata --object URI --template wrap\|unwrap\|derive` | Bounded template structure without leaf values |
 | `export --object URI --output PATH` | Raw certificate/data CKA_VALUE or public-key SPKI DER |
 | `certificate --object URI` | Supported certificate key summary and SPKI through client |
 | `capabilities --key URI` | Signing capabilities and available public key metadata |
@@ -74,6 +75,14 @@ them. Unknown numeric IDs and flag bits survive. Profile/validation objects have
 null object URIs; CKA_UNIQUE_ID does not replace the CKA_ID selector. Nonempty SPKI
 must parse as DER, but inspection does not enable unsupported key algorithms or
 establish trust.
+
+`template-metadata` returns template member IDs in hexadecimal, byte lengths and
+nested `members`, without reading any leaf values. It permits four template
+levels, 128 total entries and 65,536 bytes of native array storage. Unknown IDs and
+other array types remain opaque. Sensitive, unsupported and unavailable roots are
+distinct; unavailable members have no individual cause because the provider's
+return code covers the entire request. Native errors or changed layouts fail the
+command. Reports cannot be supplied as wrapping, unwrapping or derivation templates.
 
 `session-validation` distinguishes unavailable queries from reported zero flags.
 Its session is newly opened: the result does not describe previous CLI commands.
