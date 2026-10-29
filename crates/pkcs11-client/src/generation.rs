@@ -15,6 +15,8 @@ pub struct GenerationCapabilities {
     pub rsa_encryption: Vec<usize>,
     /// Named curves for derivation-only key-pair templates.
     pub ecdh: Vec<NamedCurve>,
+    /// RFC 8410 X25519 pair generation, independent of agreement support.
+    pub x25519: bool,
     /// AES sizes for encryption, wrapping or CMAC authentication key templates.
     pub aes: Vec<AesKeySize>,
     /// AES sizes with native general-CMAC support for authentication-only templates.
@@ -43,6 +45,7 @@ impl Provider {
             signing: self.generation_options(token)?,
             rsa_encryption: selected.rsa_encryption_generation_options()?,
             ecdh: selected.ecdh_generation_options()?,
+            x25519: selected.x25519_generation_supported()?,
             aes: selected.aes_generation_options()?,
             aes_cmac_general: selected.aes_cmac_general_generation_options()?,
             hmac: selected.hmac_generation_options()?,

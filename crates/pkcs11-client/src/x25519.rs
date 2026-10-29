@@ -83,6 +83,30 @@ fn encode(key: &X25519PublicKey) -> Result<Vec<u8>, Error> {
     .map_err(|_| Error::InvalidPublicKey)
 }
 impl ManagementSession<'_> {
+    /// Generate a persistent RFC 8410 pair with a sensitive, nonextractable,
+    /// derivation-only private key. Requires RW mode, bounded identity and no
+    /// existing public/private ID. No retry/rollback; check session closure.
+    pub fn generate_x25519_key_pair(
+        &mut self,
+        request: &crate::X25519KeyPairRequest<'_>,
+    ) -> Result<(), Error> {
+        self.session.generate_x25519_key_pair(request)?;
+        Ok(())
+    }
+    /// Import strict RFC 8410 public input as a public, untrusted X25519 object
+    /// with operation permissions disabled. Requires RW mode, bounded identity
+    /// and no existing public ID. Does not authenticate ownership or associate a
+    /// private key. No retry/rollback; concurrent writers can race. Check closure.
+    pub fn import_x25519_public_key(
+        &mut self,
+        key: &X25519Peer,
+        id: &[u8],
+        label: &[u8],
+    ) -> Result<(), Error> {
+        self.session
+            .import_x25519_public_key(key.public_key(), id, label)?;
+        Ok(())
+    }
     /// Export one existing RFC 8410 X25519 public key as SPKI DER. Metadata and
     /// identity reads are bounded; private/secret values are never requested.
     pub fn export_x25519_public_key(&mut self, key: &ObjectRef) -> Result<Vec<u8>, Error> {

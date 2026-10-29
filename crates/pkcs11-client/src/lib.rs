@@ -21,7 +21,7 @@ mod certificate;
 mod digest;
 mod eddsa;
 mod x25519;
-pub use pkcs11_runtime::X25519PublicKey;
+pub use pkcs11_runtime::{X25519KeyPairRequest, X25519PublicKey};
 pub use x25519::{X25519Peer, X25519Request};
 mod eddsa_certificate;
 pub use digest::DigestOperation;

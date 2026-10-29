@@ -5,7 +5,8 @@
 mod vectors;
 use pkcs11_client::{
     AesGcmEncryptRequest, Authentication, DigestAlgorithm, HkdfOutput, HkdfRequest, ObjectRef, Pin,
-    Provider, SecretKeyIdentity, SessionMode, X25519Peer, X25519Request, object_reference,
+    Provider, SecretKeyIdentity, SessionMode, X25519KeyPairRequest, X25519Peer, X25519Request,
+    object_reference,
 };
 use secrecy::SecretString;
 fn reference(id: u8, kind: &str) -> ObjectRef {
@@ -25,6 +26,12 @@ fn application_x25519_export_agreement_and_hkdf_match_reference_ciphertext() {
     );
     let root = std::path::PathBuf::from(std::env::var_os("PKCS11_TEST_KDF_DIR").unwrap());
     let provider = Provider::load(std::env::var_os("PKCS11_TEST_KDF_MODULE").unwrap()).unwrap();
+    assert!(
+        provider
+            .generation_capabilities(&"pkcs11:token=kdf-test".parse().unwrap())
+            .unwrap()
+            .x25519
+    );
     let pin = SecretString::from("12345678");
     let mut session = provider
         .management(
@@ -84,6 +91,78 @@ fn application_x25519_export_agreement_and_hkdf_match_reference_ciphertext() {
         encrypted,
         std::fs::read(root.join("x25519-expected-gcm")).unwrap()
     );
+    let pair = X25519KeyPairRequest {
+        id: &[0xd9, 0x58, 0x60],
+        label: b"client generated X25519",
+    };
+    session.generate_x25519_key_pair(&pair).unwrap();
+    assert!(session.generate_x25519_key_pair(&pair).is_err());
+    let generated = session
+        .export_x25519_public_key(&reference(0x60, "public"))
+        .unwrap();
+    let generated_peer = X25519Peer::from_spki_der(&generated).unwrap();
+    session
+        .import_x25519_public_key(
+            &generated_peer,
+            &[0xd9, 0x58, 0x61],
+            b"client imported X25519",
+        )
+        .unwrap();
+    assert!(
+        session
+            .import_x25519_public_key(&generated_peer, &[0xd9, 0x58, 0x61], b"duplicate")
+            .is_err()
+    );
+    assert_eq!(
+        session
+            .export_x25519_public_key(&reference(0x61, "public"))
+            .unwrap(),
+        generated
+    );
+    let bob =
+        X25519Peer::from_spki_der(&vectors::spki(&vectors::hex(vectors::BOB_PUBLIC))).unwrap();
+    let mut ciphers = Vec::new();
+    for (base, peer, id) in [(0x60, &bob, 0x62), (2, &generated_peer, 0x64)] {
+        session
+            .derive_x25519(
+                &reference(base, "private"),
+                &X25519Request {
+                    peer,
+                    identity: SecretKeyIdentity {
+                        id: &[0xd9, 0x58, id],
+                        label: b"client generated agreement",
+                    },
+                },
+            )
+            .unwrap();
+        session
+            .derive_hkdf(
+                &reference(id, "secret-key"),
+                &HkdfRequest {
+                    digest: DigestAlgorithm::Sha256,
+                    salt: b"client generation test",
+                    info: &generated,
+                    output: HkdfOutput::Aes256,
+                    id: &[0xd9, 0x58, id + 1],
+                    label: b"client generated HKDF",
+                },
+            )
+            .unwrap();
+        ciphers.push(
+            session
+                .encrypt_aes_gcm(
+                    &reference(id + 1, "secret-key"),
+                    &AesGcmEncryptRequest {
+                        nonce: &[3; 12],
+                        aad: b"client X25519",
+                        plaintext: b"generated pair agreement",
+                    },
+                )
+                .unwrap(),
+        );
+    }
+    assert_eq!(ciphers[0], ciphers[1]);
+    session.state().unwrap();
     session.close().unwrap();
     provider.finalize().unwrap();
 }

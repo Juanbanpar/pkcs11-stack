@@ -647,13 +647,21 @@ fn derive(session: &mut ManagementSession<'_>, base: &ObjectRef, peer_der: &[u8]
 }
 ```
 
-For existing RFC 8410 X25519 keys, `export_x25519_public_key` emits SPKI DER.
+For RFC 8410 X25519 keys, `export_x25519_public_key` emits SPKI DER.
 `X25519Peer::from_spki_der` requires canonical DER, absent algorithm parameters
 and a 32-byte, contributory public input. It does not authenticate a peer.
 `derive_x25519` creates a protected, nonextractable 32-byte token secret with
 derivation permission only. Apply HKDF-SHA256 separately, binding the authenticated
-protocol context and both public keys. Generation, public import, curveName
-parameters and X448 are outside this profile. Native rejection is not retried.
+protocol context and both public keys. `generate_x25519_key_pair` accepts an
+`X25519KeyPairRequest` and creates a persistent pair with a derivation-only,
+sensitive/nonextractable private key. `generation_capabilities().x25519` reports
+advisory generation support. `import_x25519_public_key` accepts a checked
+`X25519Peer`, ID and label, creating a public object with operation permissions
+disabled; it does not authenticate ownership or associate a private key. Both
+mutations require RW mode and bounded nonempty identity, and reject existing IDs
+(public/private for generation, public for import). Check session closure on every
+result. curveName parameters and X448 remain outside this profile. Native rejection
+is not retried.
 
 ```no_run
 use pkcs11_client::{ManagementSession, ObjectRef, SecretKeyIdentity, X25519Request, X25519Peer};
