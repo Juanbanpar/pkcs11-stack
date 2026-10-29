@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use crate::{
     Attribute, AttributeInfo, AttributeType as A, Error, KeyType, MechanismType, Object,
-    ObjectClass, ObjectRef, Session, SessionMode, key_operations::validate_secret_identity,
+    ObjectClass, ObjectRef, Session, SessionMode, Token, key_operations::validate_secret_identity,
 };
 use cryptoki::{
     context::Function,
@@ -14,6 +14,25 @@ use curve25519_dalek::montgomery::MontgomeryPoint;
 
 const ATTRIBUTE_LIMIT: usize = 4096;
 const PARAMETERS: &[u8] = &[6, 3, 43, 101, 110];
+
+/// Persistent RFC 8410 X25519 pair with a protected derivation-only private key.
+pub struct X25519KeyPairRequest<'a> {
+    /// Shared nonempty key ID, at most 128 bytes.
+    pub id: &'a [u8],
+    /// Shared nonempty label, at most 128 bytes.
+    pub label: &'a [u8],
+}
+impl X25519KeyPairRequest<'_> {
+    /// Check identity bounds without provider access.
+    pub fn validate(&self) -> Result<(), Error> {
+        validate_secret_identity(self.id, self.label)
+    }
+}
+impl std::fmt::Debug for X25519KeyPairRequest<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("X25519KeyPairRequest([REDACTED])")
+    }
+}
 
 /// RFC 7748 public input checked for exact length and noncontributory points.
 /// Contains public bytes only; it does not authenticate a peer. High-bit and
@@ -92,6 +111,149 @@ fn parameters(object: &Object<'_, '_>, class: ObjectClass) -> Result<(), Error> 
         return Err(Error::UnsupportedKeyOperation);
     }
     Ok(())
+}
+
+impl Token<'_> {
+    /// Advertised Montgomery pair generation with a native entry point, the
+    /// generation flag and bounds including 255 field bits. Advisory only:
+    /// template acceptance and subsequent agreement support are checked on use.
+    pub fn x25519_generation_supported(&self) -> Result<bool, Error> {
+        let mechanism = MechanismType::ECC_MONTGOMERY_KEY_PAIR_GEN;
+        if !self
+            .module
+            .raw()?
+            .is_fn_supported(Function::GenerateKeyPair)
+            || !self.mechanisms()?.contains(&mechanism)
+        {
+            return Ok(false);
+        }
+        let info = self.mechanism_info(mechanism)?;
+        Ok(info.generate_key_pair() && (info.min_key_size()..=info.max_key_size()).contains(&255))
+    }
+}
+
+impl<'m> Session<'m> {
+    /// Generate one persistent RFC 8410 X25519 pair in RW mode. The private key
+    /// is sensitive/nonextractable, permits ECDH derivation only and requires no
+    /// per-operation login. Checks both public/private IDs before generation;
+    /// concurrent writers can race. No retry/rollback; failures may leave objects.
+    /// No private values are read. Check session closure before releasing results.
+    pub fn generate_x25519_key_pair(
+        &mut self,
+        request: &X25519KeyPairRequest<'_>,
+    ) -> Result<(Object<'_, 'm>, Object<'_, 'm>), Error> {
+        request.validate()?;
+        self.validate()?;
+        if self.mode != SessionMode::ReadWrite {
+            return Err(Error::ReadWriteRequired);
+        }
+        if !self.token().x25519_generation_supported()? {
+            return Err(Error::UnsupportedKeyOperation);
+        }
+        for class in [ObjectClass::PUBLIC_KEY, ObjectClass::PRIVATE_KEY] {
+            if !self
+                .find_objects(&[
+                    Attribute::Token(true),
+                    Attribute::Class(class),
+                    Attribute::Id(request.id.to_vec()),
+                ])?
+                .is_empty()
+            {
+                return Err(Error::InvalidParameters("key pair ID already exists"));
+            }
+        }
+        let public = [
+            Attribute::Token(true),
+            Attribute::Private(false),
+            Attribute::Id(request.id.to_vec()),
+            Attribute::Label(request.label.to_vec()),
+            Attribute::EcParams(PARAMETERS.to_vec()),
+            Attribute::Verify(false),
+            Attribute::VerifyRecover(false),
+            Attribute::Encrypt(false),
+            Attribute::Wrap(false),
+            Attribute::Derive(false),
+        ];
+        let private = [
+            Attribute::Token(true),
+            Attribute::Private(true),
+            Attribute::Id(request.id.to_vec()),
+            Attribute::Label(request.label.to_vec()),
+            Attribute::Sensitive(true),
+            Attribute::Extractable(false),
+            Attribute::Derive(true),
+            Attribute::Sign(false),
+            Attribute::SignRecover(false),
+            Attribute::Decrypt(false),
+            Attribute::Unwrap(false),
+            Attribute::AlwaysAuthenticate(false),
+            Attribute::AllowedMechanisms(vec![MechanismType::ECDH1_DERIVE]),
+        ];
+        let (public, private) = self.write_operation("generate X25519 key pair", |raw| {
+            raw.generate_key_pair(&Mechanism::EccMontgomeryKeyPairGen, &public, &private)
+        })?;
+        Ok((
+            Object {
+                session: self,
+                handle: public,
+            },
+            Object {
+                session: self,
+                handle: private,
+            },
+        ))
+    }
+
+    /// Import checked raw public input as a public, untrusted RFC 8410 X25519
+    /// object, with all operation permissions disabled. Requires RW mode and
+    /// bounded nonempty identity; rejects existing public IDs. Does not associate
+    /// a private key or authenticate ownership. Concurrent writers can race.
+    /// No retry/rollback; native failures may leave objects. Check session closure.
+    pub fn import_x25519_public_key(
+        &mut self,
+        key: &X25519PublicKey,
+        id: &[u8],
+        label: &[u8],
+    ) -> Result<Object<'_, 'm>, Error> {
+        validate_secret_identity(id, label)?;
+        self.validate()?;
+        if self.mode != SessionMode::ReadWrite {
+            return Err(Error::ReadWriteRequired);
+        }
+        if !self
+            .token()
+            .module
+            .raw()?
+            .is_fn_supported(Function::CreateObject)
+        {
+            return Err(Error::UnsupportedKeyOperation);
+        }
+        if !self
+            .find_objects(&[
+                Attribute::Token(true),
+                Attribute::Class(ObjectClass::PUBLIC_KEY),
+                Attribute::Id(id.to_vec()),
+            ])?
+            .is_empty()
+        {
+            return Err(Error::InvalidParameters("public key ID already exists"));
+        }
+        self.create_object(&[
+            Attribute::Class(ObjectClass::PUBLIC_KEY),
+            Attribute::KeyType(KeyType::EC_MONTGOMERY),
+            Attribute::Token(true),
+            Attribute::Private(false),
+            Attribute::Id(id.to_vec()),
+            Attribute::Label(label.to_vec()),
+            Attribute::EcParams(PARAMETERS.to_vec()),
+            Attribute::EcPoint(key.as_bytes().to_vec()),
+            Attribute::Verify(false),
+            Attribute::VerifyRecover(false),
+            Attribute::Encrypt(false),
+            Attribute::Wrap(false),
+            Attribute::Derive(false),
+        ])
+    }
 }
 
 impl Session<'_> {

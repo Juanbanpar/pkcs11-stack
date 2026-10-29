@@ -492,8 +492,17 @@ Identity and metadata reads are bounded to 4096 bytes per attribute.
 Its existing private base must be private, sensitive, nonextractable, permit
 derivation and have always-authenticate disabled. The persistent output is a
 complete 32-byte generic secret permitting derivation only, suitable for the
-existing HKDF-SHA256 profile. Mechanism bounds use 255 field bits. Generation,
-public import, curveName parameters and X448 are outside this initial profile.
+existing HKDF-SHA256 profile. Mechanism bounds use 255 field bits.
+`generate_x25519_key_pair` creates persistent RFC 8410 pairs using the parameterless
+Montgomery mechanism. Private keys permit only ECDH derivation and are sensitive
+and nonextractable. `x25519_generation_supported` reports advisory native support;
+execution rechecks it. `import_x25519_public_key` stores checked public input with
+operation permissions disabled and does not establish trust or key association.
+Both mutations require RW mode and nonempty IDs/labels of at most 128 bytes;
+generation rejects existing public/private IDs and import rejects public IDs.
+Concurrent writers can race; no retry or rollback occurs after provider failures.
+Check session closure before releasing results. curveName parameters and X448
+remain outside this profile.
 
 `derive_ecdh_key` accepts `EcdhKeyRequest` with explicit `EcdhKdf` and
 `EcdhOutput`. ANSI X9.63 and NIST SP 800-56A KDFs support SHA-256/384/512 and
