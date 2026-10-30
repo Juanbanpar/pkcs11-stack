@@ -70,7 +70,8 @@ or formal conformance. Coverage is recorded per capability below.
 | SP 800-108 Double Pipeline HMAC-SHA-2 | Implemented | Runtime/client/CLI; HMAC-SHA-256/384/512, A(0) constructed from label/separator/context/output bit length, 32-bit big-endian counter and one protected output. Native 3.0/3.1/3.2 fixtures check layout, ordering, policy and failure handling. NSS generic bases and AES/generic outputs through 4096 bytes match independent OpenSSL HMAC calculations. Typed NSS HMAC keys omit required length metadata and are rejected. Desktop choices remain Counter/Feedback. |
 | Remaining symmetric algorithms, MACs and KDF expansion | Pending | Existing AES-GCM, explicit KW/KWP, constrained HKDF and ECDH profiles. GMAC, other SP 800-108 PRFs and PBKDF2 remain pending. |
 | AES-KW/KWP key transfer | Implemented | Runtime/client/CLI/desktop; explicit selection and default IVs. Kryoptic/OpenSSL comparisons cover all AES wrapping/target sizes, output permissions, trust/extractability rejection, RO/duplicate-ID rejection, mismatches and tampering. SoftHSM retains the KW workflow. No deprecated PAD alias or fallback. |
-| HashML-DSA, SLH-DSA and additional TLS signatures | Pending | Existing pure ML-DSA and ML-KEM profiles remain supported. |
+| SHA-512 HashML-DSA | Implemented | Runtime/client/CLI single-part original-message and typed 64-byte prehash profiles. Independent 3.2-header fixtures exercise both parameter layouts on selected 2.40/3.0/3.1/3.2 tables, permissions, pointer gates, context authentication without multipart, exact output bounds, completed mismatches and discarded errors. Required Kryoptic tests cover all three parameter sets and hedge choices, empty/large messages, empty/ASCII/255-byte binary contexts, independent RustCrypto verification and deterministic agreement between input modes. CLI signatures match the independently verified client results and are withheld through native/cleanup failures. |
+| Additional HashML-DSA profiles, SLH-DSA and TLS signatures | Pending | Other prehash functions, token streaming and certificate/TLS integration remain separate work. Existing pure ML-DSA and ML-KEM profiles remain supported. |
 | Legacy algorithm execution | Pending | No legacy opt-in or algorithms are enabled yet. |
 
 The native fixtures require a C99 compiler (`cc`) on Unix and run with the normal
@@ -242,7 +243,7 @@ workflows remain planned. O2 implements bounded AES-GCM multipart workflows and
 client readers. CLI `--multipart` supports files/stdin with checked output commit;
 larger-file staging and desktop multipart integration remain open.
 Keep unconfirmed operations discarded on legacy providers. GMAC, additional
-SP800-108 modes/PRFs, PBKDF2, HashML-DSA/SLH-DSA and TLS extensions remain separate
+SP800-108 PRFs, PBKDF2, additional HashML-DSA profiles, SLH-DSA and TLS extensions remain separate
 backlog items in the coverage table. Provider gaps do not justify implicit software
 fallback or weakening existing metadata/permission checks.
 
@@ -323,6 +324,15 @@ ML-DSA tests run in the same Kryoptic lane, with all three parameter sets and a
 empty, binary 255-byte and ASCII contexts; OpenSSL also verifies the nonempty ASCII
 context cases. Its pkeyutl command rejects zero-byte oneshot input, so empty-message
 verification uses the native and RustCrypto paths.
+
+The Kryoptic runner also requires single-part SHA-512 HashML-DSA through runtime,
+client and CLI. Client tests construct FIPS 204 Algorithm 5's prehash message with
+its SHA-512 OID and use RustCrypto's ML-DSA internal verifier, independently of the
+provider's OpenSSL implementation. Deterministic signatures must agree between
+original-message and caller-digest modes. CLI tests use the client test's keys
+and independently verified reference signatures. No private key value or seed
+is exported. The pinned SoftHSM does not register these HashML-DSA mechanisms;
+its pure ML-DSA coverage remains separate.
 
 Typed ML-KEM tests cover all parameter sets, key permissions, allowed mechanisms,
 read-only sessions, duplicate secret IDs, expected-parameter checks and ciphertext

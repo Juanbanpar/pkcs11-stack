@@ -314,6 +314,32 @@ Always-authenticate keys use the separate context PIN options described above,
 including two authentications for bound signing. Certificate verification is
 available offline or against a token certificate and establishes no issuer trust.
 
+SHA-512 HashML-DSA uses separate single-part commands:
+
+```sh
+pkcs11ctl --module /trusted/provider.so sign-hash-ml-dsa \
+  --object 'pkcs11:token=example;id=%01;type=private' \
+  --parameter-set ml-dsa-65 --input message.bin --output signature.bin \
+  --pin-file user.pin
+
+pkcs11ctl --module /trusted/provider.so verify-hash-ml-dsa \
+  --object 'pkcs11:token=example;id=%01;type=public' \
+  --parameter-set ml-dsa-65 --input message.bin --signature signature.bin
+```
+
+`--input-kind message` is the default and hashes the original message on the
+token with CKM_HASH_ML_DSA_SHA512. `--input-kind digest` instead requires exactly
+64 raw SHA-512 digest bytes and uses CKM_HASH_ML_DSA. Neither mode substitutes
+another mechanism or hashes in software. `hash-ml-dsa-capabilities --object URI`
+reports advisory signing support for the selected `--input-kind`.
+Both signing and verification accept `--parameter-set ml-dsa-44|ml-dsa-65|ml-dsa-87`
+and `--context-file`; signing additionally accepts `--hedging` and the separate
+context PIN options. Contexts default to empty and must match during verification.
+Message input is limited to 64 MiB. Input or signature may read stdin, one at a
+time. Output is released only after checked session closure and module finalization.
+These commands use token keys directly; certificate binding, offline verification,
+TLS and multipart workflows retain their existing pure ML-DSA profile.
+
 RSA/ECDSA signature commands accept explicit `--digest sha224|sha3-224|sha3-256|sha3-384|sha3-512`
 and the same choices for PSS `--mgf-digest`. Caller digests must contain exactly
 28/32/48/64 bytes for the selected hash. Selecting a digest enables it for that

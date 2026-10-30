@@ -8,6 +8,7 @@ mod args;
 mod eddsa;
 mod eddsa_named;
 mod generation;
+mod hash_ml_dsa;
 mod hmac;
 mod inspect;
 mod kbkdf;

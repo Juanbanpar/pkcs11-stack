@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use crate::{
-    aes_cmac, aes_gcm, aes_key_wrap, eddsa, eddsa_named, generation, hmac, inspect, kbkdf,
-    key_establishment, ml_dsa, stream_input::MultipartInput, support::*,
+    aes_cmac, aes_gcm, aes_key_wrap, eddsa, eddsa_named, generation, hash_ml_dsa, hmac, inspect,
+    kbkdf, key_establishment, ml_dsa, stream_input::MultipartInput, support::*,
 };
 use clap::ArgMatches;
 use pkcs11_client::{
@@ -139,6 +139,7 @@ impl Inputs {
         } else if ml_dsa {
             ml_dsa::validate_options(m)?;
         } else if !eddsa_named::selected(name)
+            && !hash_ml_dsa::selected(name)
             && (get(m, "context-file").is_some() || get(m, "hedging").is_some())
         {
             return Err(usage(
@@ -162,6 +163,7 @@ impl Inputs {
                 || aes_key_wrap::selected(name)
                 || key_establishment::selected(name)
                 || eddsa_named::selected(name)
+                || hash_ml_dsa::selected(name)
                 || matches!(
                     name,
                     "certificate"
@@ -194,8 +196,10 @@ impl Inputs {
         } else {
             None
         };
-        if matches!(name, "verify" | "verify-token" | "verify-eddsa-named")
-            && get(m, "input") == Some("-")
+        if matches!(
+            name,
+            "verify" | "verify-token" | "verify-eddsa-named" | "verify-hash-ml-dsa"
+        ) && get(m, "input") == Some("-")
             && get(m, "signature") == Some("-")
         {
             return Err(usage("only one verification input may read stdin"));
@@ -221,7 +225,16 @@ impl Inputs {
         let bytes = if aes_gcm::selected(name) || name == "digest" || stream_input.is_some() {
             vec![]
         } else if let Some(path) = get(m, "input") {
-            if let Some(limit) = eddsa_named::input_limit(name, m) {
+            if hash_ml_dsa::selected(name) {
+                bounded_input(
+                    path,
+                    if hash_ml_dsa::mode(m) == pkcs11_client::HashMlDsaMode::Prehashed {
+                        64
+                    } else {
+                        64 * 1024 * 1024
+                    },
+                )?
+            } else if let Some(limit) = eddsa_named::input_limit(name, m) {
                 bounded_input(path, limit)?
             } else if let Some(limit) = key_establishment::input_limit(name, m)? {
                 bounded_input(path, limit)?
@@ -257,7 +270,10 @@ impl Inputs {
                 request(m, &bytes)?;
             }
         }
-        let signature = if matches!(name, "verify" | "verify-token" | "verify-eddsa-named") {
+        let signature = if matches!(
+            name,
+            "verify" | "verify-token" | "verify-eddsa-named" | "verify-hash-ml-dsa"
+        ) {
             bounded_input(need(m, "signature")?, 16 * 1024)?
         } else {
             vec![]
@@ -411,6 +427,7 @@ impl Inputs {
             }
         }
         eddsa_named::validate(name, m, &bytes, &domain_context, &signature)?;
+        hash_ml_dsa::validate(name, m, &bytes, &domain_context, &signature)?;
         let establishment = key_establishment::Inputs::load(name, m, &bytes)?;
         let kbkdf = kbkdf::Inputs::load(name, m)?;
         if aes_key_wrap::selected(name) {
@@ -766,6 +783,9 @@ fn management_operation(
     m: &ArgMatches,
     inputs: &Inputs,
 ) -> Result<Output> {
+    if hash_ml_dsa::selected(name) {
+        return hash_ml_dsa::operation(session, name, m, inputs);
+    }
     if eddsa_named::selected(name) {
         return eddsa_named::operation(session, name, m, inputs);
     }

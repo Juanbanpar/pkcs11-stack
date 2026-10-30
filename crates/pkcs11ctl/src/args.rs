@@ -364,7 +364,41 @@ pub(crate) fn command() -> Command {
         .arg(required("input", "Input file; - reads stdin; ciphertext includes the full 16-byte tag"))
         .arg(required("output", "New output file, or - for binary stdout; nonce/AAD are not included"))))
     };
+    let hash_mode = |command: Command| {
+        command.arg(
+            value(
+                "input-kind",
+                "Original message hashed on token, or exactly 64 raw SHA-512 digest bytes",
+            )
+            .value_parser(["message", "digest"])
+            .default_value("message"),
+        )
+    };
+    let hash_input = |command: Command| {
+        hash_mode(command)
+            .arg(
+                required("parameter-set", "Expected ML-DSA key parameter set").value_parser([
+                    "ml-dsa-44",
+                    "ml-dsa-65",
+                    "ml-dsa-87",
+                ]),
+            )
+            .arg(required(
+                "input",
+                "Input file; - reads stdin; at most 64 MiB for messages",
+            ))
+            .arg(value(
+                "context-file",
+                "FIPS 204 context file, at most 255 bytes; no stdin",
+            ))
+    };
     let commands = [
+        auth(object(hash_mode(Command::new("hash-ml-dsa-capabilities").about("Inspect single-part SHA-512 HashML-DSA signing support for one input mode")))),
+        context(auth(object(hash_input(Command::new("sign-hash-ml-dsa").about("Sign using native SHA-512 HashML-DSA; no implicit hashing fallback")
+            .arg(value("hedging", "Randomness requirement; defaults to required").value_parser(["required", "preferred", "deterministic"]))
+            .arg(required("output", "New signature file, or - for binary stdout")))))),
+        auth(object(hash_input(Command::new("verify-hash-ml-dsa").about("Verify SHA-512 HashML-DSA on the token with a public key")
+            .arg(required("signature", "Raw signature file; - reads stdin"))))),
         Command::new("info").about("Inspect the loaded library"),
         Command::new("slots").about("List diagnostic slot IDs"),
         Command::new("tokens").about("List tokens and stable token URIs"),
