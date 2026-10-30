@@ -28,7 +28,10 @@ pub use montgomery_named::{MontgomeryNamedCurve, MontgomeryNamedPublicKey};
 mod x448;
 pub use x448::{X448Derivation, X448Kdf, X448KeyPairRequest, X448Output, X448PublicKey};
 mod x25519;
-pub use eddsa::{EdDsaCapabilities, EdDsaCurve, EdDsaPublicKey, EdDsaRequest};
+pub use eddsa::{
+    EdDsaCapabilities, EdDsaCurve, EdDsaNamedRequest, EdDsaNamedScheme, EdDsaPublicKey,
+    EdDsaRequest,
+};
 pub use x25519::{X25519Derivation, X25519KeyPairRequest, X25519PublicKey};
 mod encryption;
 mod generation;

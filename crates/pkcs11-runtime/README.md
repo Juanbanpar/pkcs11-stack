@@ -844,7 +844,7 @@ no trust decision is made, and no software verification or execution retry occur
 `EdDsaCurve::{Ed25519, Ed448}` and `EdDsaRequest` are independent of ECDSA,
 `DigestAlgorithm` and classical signing policy. Requests contain the expected
 curve and original message; empty messages are valid. Context and prehash
-variants are not exposed. RFC 8410 OID keys imply pure EdDSA without mechanism parameters. For RFC 8032
+variants use the separate curveName APIs below. RFC 8410 OID keys imply pure EdDSA without mechanism parameters. For RFC 8032
 curve-name keys, Ed25519 uses no parameter and Ed448 uses `CK_EDDSA_PARAMS`
 with `phFlag=false` and an empty context. Execution preserves this distinction
 from [PKCS #11 3.2 sections 6.3.5 and 6.3.14](https://docs.oasis-open.org/pkcs11/pkcs11-spec/v3.2/pkcs11-spec-v3.2.html).
@@ -863,6 +863,32 @@ buffer without a length query. Errors after initialization discard the session;
 verification mismatches remain reusable. `eddsa_public_key` reads only public,
 non-private CKA_EC_POINT values with the exact DER OCTET STRING encoding. The
 client adds canonical point validation and RFC 8410 SPKI encoding.
+
+## RFC 8032 curveName EdDSA
+
+`EdDsaNamedRequest` explicitly selects `EdDsaNamedScheme::{Ed25519, Ed25519ctx,
+Ed25519ph, Ed448, Ed448ph}`, an original message and 0–255 public context bytes.
+Ed25519 requires an empty context; Ed25519ctx remains distinct even with an empty
+context. The token performs prehashing for ph schemes. Caller-supplied digests
+and automatic substitutions are not part of this API.
+
+`sign_named_eddsa`, `verify_named_eddsa` and `named_eddsa_capabilities` require
+exact RFC 8032 curveName metadata; RFC 8410 OID keys are rejected before native
+initialization. The existing pure APIs retain their behavior. Sign/verify share
+the bounded output, context-login ordering, mismatch reuse and failed-session
+handling of the pure implementation.
+
+`generate_named_eddsa_key_pair` creates a protected signing pair with explicit
+curveName parameters. `import_named_eddsa_public_key` stores length-checked raw
+public bytes for verification only; the client additionally validates the point.
+`named_eddsa_public_key` requires raw CKA_EC_POINT of exactly 32/57 bytes, a public
+non-private object and bounded metadata. No SPKI conversion or private-key export
+occurs. Generation/import require RW mode and bounded nonempty identities, reject
+existing IDs and perform no retry/rollback. Check closure before releasing results.
+
+The Kryoptic validation build enables Edwards support and records a patch for
+255/448-bit mechanism bounds while preserving its 32/57-byte storage widths.
+All published RFC 8032 section 7 vectors run in the provider suite.
 
 ## Explicit session cancellation
 

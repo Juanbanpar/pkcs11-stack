@@ -17,9 +17,9 @@ use cryptoki::{
 /// RFC 8032 Edwards signing curves. These are separate from ECDSA and ECDH curves.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EdDsaCurve {
-    /// Ed25519 with no prehash or context.
+    /// Edwards25519 curve with a 32-byte public encoding.
     Ed25519,
-    /// Ed448 with no prehash and an empty context.
+    /// Edwards448 curve with a 57-byte public encoding.
     Ed448,
 }
 impl EdDsaCurve {
@@ -41,14 +41,21 @@ impl EdDsaCurve {
     pub fn signature_length(self) -> usize {
         self.public_key_length() * 2
     }
-    /// DER named-curve OID used for CKA_EC_PARAMS.
+    /// DER RFC 8410 algorithm OID used by the existing pure-key profile.
     pub fn ec_params(self) -> &'static [u8] {
         match self {
             Self::Ed25519 => &[6, 3, 43, 101, 112],
             Self::Ed448 => &[6, 3, 43, 101, 113],
         }
     }
-    /// Decode the standard named-curve OID or PrintableString curve name.
+    /// DER PrintableString for an explicit RFC 8032 curveName key.
+    pub fn named_ec_params(self) -> &'static [u8] {
+        match self {
+            Self::Ed25519 => b"\x13\x0cedwards25519",
+            Self::Ed448 => b"\x13\x0aedwards448",
+        }
+    }
+    /// Decode an RFC 8410 algorithm OID or RFC 8032 PrintableString curve name.
     /// Explicit parameters, Montgomery curves and malformed DER are rejected.
     pub fn from_ec_params(params: &[u8]) -> Result<Self, Error> {
         match params {
@@ -78,6 +85,69 @@ impl std::fmt::Debug for EdDsaRequest<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("EdDsaRequest")
             .field("curve", &self.curve)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Explicit RFC 8032 scheme, requiring a curveName key rather than an RFC 8410 OID.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EdDsaNamedScheme {
+    /// Ed25519 with no context or prehash.
+    Ed25519,
+    /// Ed25519 with domain separation, including when the context is empty.
+    Ed25519ctx,
+    /// Ed25519 with SHA-512 prehashing performed by the token.
+    Ed25519ph,
+    /// Ed448 with optional context and no prehash.
+    Ed448,
+    /// Ed448 with SHAKE256 prehashing performed by the token.
+    Ed448ph,
+}
+impl EdDsaNamedScheme {
+    /// Edwards curve required by this signature scheme.
+    pub fn curve(self) -> EdDsaCurve {
+        match self {
+            Self::Ed25519 | Self::Ed25519ctx | Self::Ed25519ph => EdDsaCurve::Ed25519,
+            Self::Ed448 | Self::Ed448ph => EdDsaCurve::Ed448,
+        }
+    }
+}
+/// Original-message signing/verification with an explicit RFC 8032 scheme.
+/// The token performs prehashing for ph schemes; caller-supplied digests are not
+/// represented. Context bytes are public protocol input and do not authenticate a peer.
+pub struct EdDsaNamedRequest<'a> {
+    /// Explicit scheme, checked against curveName key metadata on every operation.
+    pub scheme: EdDsaNamedScheme,
+    /// Original message, including an empty message.
+    pub message: &'a [u8],
+    /// Public context of at most 255 bytes; must be empty for Ed25519.
+    pub context: &'a [u8],
+}
+impl EdDsaNamedRequest<'_> {
+    /// Validate context bounds and scheme compatibility without provider access.
+    pub fn validate(&self) -> Result<(), Error> {
+        if self.context.len() > 255
+            || (self.scheme == EdDsaNamedScheme::Ed25519 && !self.context.is_empty())
+        {
+            return Err(Error::InvalidParameters("EdDSA context length or scheme"));
+        }
+        Ok(())
+    }
+    fn mechanism(&self) -> Mechanism<'_> {
+        let scheme = match self.scheme {
+            EdDsaNamedScheme::Ed25519 => EddsaSignatureScheme::Ed25519,
+            EdDsaNamedScheme::Ed25519ctx => EddsaSignatureScheme::Ed25519ctx(self.context),
+            EdDsaNamedScheme::Ed25519ph => EddsaSignatureScheme::Ed25519ph(self.context),
+            EdDsaNamedScheme::Ed448 => EddsaSignatureScheme::Ed448(self.context),
+            EdDsaNamedScheme::Ed448ph => EddsaSignatureScheme::Ed448ph(self.context),
+        };
+        Mechanism::Eddsa(EddsaParams::new(scheme))
+    }
+}
+impl std::fmt::Debug for EdDsaNamedRequest<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EdDsaNamedRequest")
+            .field("scheme", &self.scheme)
             .finish_non_exhaustive()
     }
 }
@@ -167,6 +237,13 @@ fn key_parameters(
         }
         _ => Err(Error::MissingMetadata("EdDSA curve parameters")),
     }
+}
+fn require_named(object: &Object<'_, '_>, curve: EdDsaCurve) -> Result<(), Error> {
+    if !matches!(attribute(object, AttributeType::EcParams, true)?, Some(Attribute::EcParams(value)) if value == curve.named_ec_params())
+    {
+        return Err(Error::UnsupportedSigning("RFC 8032 curveName key required"));
+    }
+    Ok(())
 }
 fn permission(object: &Object<'_, '_>, kind: AttributeType) -> Result<bool, Error> {
     match attribute(object, kind, true)? {
@@ -276,6 +353,28 @@ impl<'m> Session<'m> {
         label: &[u8],
         always_authenticate: bool,
     ) -> Result<(Object<'_, 'm>, Object<'_, 'm>), Error> {
+        self.generate_eddsa_profile(curve, id, label, always_authenticate, false)
+    }
+    /// Generate an explicit RFC 8032 curveName signing pair. Identity, RW mode,
+    /// duplicate checks, protected private material and failure lifecycle follow
+    /// `generate_eddsa_key_pair`; no OID conversion or retry occurs.
+    pub fn generate_named_eddsa_key_pair(
+        &mut self,
+        curve: EdDsaCurve,
+        id: &[u8],
+        label: &[u8],
+        always_authenticate: bool,
+    ) -> Result<(Object<'_, 'm>, Object<'_, 'm>), Error> {
+        self.generate_eddsa_profile(curve, id, label, always_authenticate, true)
+    }
+    fn generate_eddsa_profile(
+        &mut self,
+        curve: EdDsaCurve,
+        id: &[u8],
+        label: &[u8],
+        always_authenticate: bool,
+        named: bool,
+    ) -> Result<(Object<'_, 'm>, Object<'_, 'm>), Error> {
         validate_secret_identity(id, label)?;
         self.validate()?;
         if self.mode != SessionMode::ReadWrite {
@@ -302,7 +401,14 @@ impl<'m> Session<'m> {
             Attribute::Id(id.to_vec()),
             Attribute::Label(label.to_vec()),
             Attribute::Verify(true),
-            Attribute::EcParams(curve.ec_params().to_vec()),
+            Attribute::EcParams(
+                if named {
+                    curve.named_ec_params()
+                } else {
+                    curve.ec_params()
+                }
+                .to_vec(),
+            ),
             Attribute::Derive(false),
             Attribute::AllowedMechanisms(vec![MechanismType::EDDSA]),
         ];
@@ -336,6 +442,80 @@ impl<'m> Session<'m> {
     pub fn eddsa_capabilities(&mut self, key: &ObjectRef) -> Result<EdDsaCapabilities, Error> {
         capabilities(&self.resolve_bounded(key, ATTRIBUTE_LIMIT)?).map(|(caps, _)| caps)
     }
+    /// Inspect permissions and native EdDSA support, requiring RFC 8032 curveName
+    /// metadata. Advisory: individual scheme/context acceptance is checked on use.
+    pub fn named_eddsa_capabilities(
+        &mut self,
+        key: &ObjectRef,
+    ) -> Result<EdDsaCapabilities, Error> {
+        let object = self.resolve_bounded(key, ATTRIBUTE_LIMIT)?;
+        let (caps, _) = capabilities(&object)?;
+        require_named(&object, caps.curve)?;
+        Ok(caps)
+    }
+    /// Read an explicitly public, non-private RFC 8032 curveName key as raw bytes.
+    /// Requires exact curveName parameters and raw CKA_EC_POINT of 32/57 bytes;
+    /// rejects OID keys and ASN.1 wrapping. Point validation belongs to the client.
+    pub fn named_eddsa_public_key(&mut self, key: &PublicKeyRef) -> Result<EdDsaPublicKey, Error> {
+        let object = self.resolve_bounded(key.as_object_ref(), ATTRIBUTE_LIMIT)?;
+        let (curve, _) = key_parameters(&object, ObjectClass::PUBLIC_KEY)?;
+        require_named(&object, curve)?;
+        if attribute(&object, AttributeType::Private, true)? != Some(Attribute::Private(false)) {
+            return Err(Error::UnsupportedSigning("private EdDSA public object"));
+        }
+        match attribute(&object, AttributeType::EcPoint, true)? {
+            Some(Attribute::EcPoint(value)) => EdDsaPublicKey::from_bytes(curve, value),
+            _ => Err(Error::InvalidKeyOutput),
+        }
+    }
+    /// Import length-checked raw RFC 8032 public bytes with verification permission
+    /// only. Requires RW mode, bounded nonempty ID/label and a new public ID.
+    /// Does not validate the point or ownership; the client checks the point.
+    /// Concurrent writers can race. No retry/rollback; failures may leave objects.
+    /// Check session closure before publishing results.
+    pub fn import_named_eddsa_public_key(
+        &mut self,
+        key: &EdDsaPublicKey,
+        id: &[u8],
+        label: &[u8],
+    ) -> Result<Object<'_, 'm>, Error> {
+        validate_secret_identity(id, label)?;
+        self.validate()?;
+        if self.mode != SessionMode::ReadWrite {
+            return Err(Error::ReadWriteRequired);
+        }
+        if !self
+            .token()
+            .module
+            .raw()?
+            .is_fn_supported(Function::CreateObject)
+        {
+            return Err(Error::UnsupportedSigning("EdDSA public import"));
+        }
+        if !self
+            .find_objects(&[
+                Attribute::Token(true),
+                Attribute::Class(ObjectClass::PUBLIC_KEY),
+                Attribute::Id(id.to_vec()),
+            ])?
+            .is_empty()
+        {
+            return Err(Error::InvalidParameters("public key ID already exists"));
+        }
+        self.create_object(&[
+            Attribute::Class(ObjectClass::PUBLIC_KEY),
+            Attribute::KeyType(KeyType::EC_EDWARDS),
+            Attribute::Token(true),
+            Attribute::Private(false),
+            Attribute::Id(id.to_vec()),
+            Attribute::Label(label.to_vec()),
+            Attribute::Verify(true),
+            Attribute::Derive(false),
+            Attribute::EcParams(key.curve().named_ec_params().to_vec()),
+            Attribute::EcPoint(key.as_bytes().to_vec()),
+            Attribute::AllowedMechanisms(vec![MechanismType::EDDSA]),
+        ])
+    }
     /// Read bounded public metadata, requiring a public, non-private object and
     /// a canonical DER OCTET STRING of the curve's exact public-key length.
     pub fn eddsa_public_key(&mut self, key: &PublicKeyRef) -> Result<EdDsaPublicKey, Error> {
@@ -366,8 +546,43 @@ impl<'m> Session<'m> {
         request: &EdDsaRequest<'_>,
         context_pin: Option<Pin<'_>>,
     ) -> Result<Vec<u8>, Error> {
+        self.sign_eddsa_profile(key, request, context_pin, None)
+    }
+    /// Sign original input with an explicit RFC 8032 scheme and bounded context.
+    /// Requires curveName metadata; OID keys are rejected before initialization.
+    /// Context-specific login and failure handling follow `sign_eddsa`.
+    pub fn sign_named_eddsa(
+        &mut self,
+        key: &PrivateKeyRef,
+        request: &EdDsaNamedRequest<'_>,
+        context_pin: Option<Pin<'_>>,
+    ) -> Result<Vec<u8>, Error> {
+        request.validate()?;
+        self.sign_eddsa_profile(
+            key,
+            &EdDsaRequest {
+                curve: request.scheme.curve(),
+                message: request.message,
+            },
+            context_pin,
+            Some(request),
+        )
+    }
+    fn sign_eddsa_profile(
+        &mut self,
+        key: &PrivateKeyRef,
+        request: &EdDsaRequest<'_>,
+        context_pin: Option<Pin<'_>>,
+        named: Option<&EdDsaNamedRequest<'_>>,
+    ) -> Result<Vec<u8>, Error> {
         let object = self.resolve_bounded(key.as_object_ref(), ATTRIBUTE_LIMIT)?;
         let (caps, mechanism) = capabilities(&object)?;
+        let mechanism = if let Some(named) = named {
+            require_named(&object, request.curve)?;
+            named.mechanism()
+        } else {
+            mechanism
+        };
         if !caps.can_sign || caps.curve != request.curve {
             return Err(Error::UnsupportedSigning("EdDSA curve or permissions"));
         }
@@ -409,11 +624,46 @@ impl<'m> Session<'m> {
         request: &EdDsaRequest<'_>,
         signature: &[u8],
     ) -> Result<(), Error> {
+        self.verify_eddsa_profile(key, request, signature, None)
+    }
+    /// Verify original input with an explicit RFC 8032 curveName profile.
+    /// Invalid contexts fail before provider access; OID keys are rejected before
+    /// initialization. Completed signature mismatches leave the session reusable.
+    pub fn verify_named_eddsa(
+        &mut self,
+        key: &PublicKeyRef,
+        request: &EdDsaNamedRequest<'_>,
+        signature: &[u8],
+    ) -> Result<(), Error> {
+        request.validate()?;
+        self.verify_eddsa_profile(
+            key,
+            &EdDsaRequest {
+                curve: request.scheme.curve(),
+                message: request.message,
+            },
+            signature,
+            Some(request),
+        )
+    }
+    fn verify_eddsa_profile(
+        &mut self,
+        key: &PublicKeyRef,
+        request: &EdDsaRequest<'_>,
+        signature: &[u8],
+        named: Option<&EdDsaNamedRequest<'_>>,
+    ) -> Result<(), Error> {
         if signature.len() != request.curve.signature_length() {
             return Err(Error::SignatureMismatch);
         }
         let object = self.resolve_bounded(key.as_object_ref(), ATTRIBUTE_LIMIT)?;
         let (caps, mechanism) = capabilities(&object)?;
+        let mechanism = if let Some(named) = named {
+            require_named(&object, request.curve)?;
+            named.mechanism()
+        } else {
+            mechanism
+        };
         if !caps.can_verify || caps.curve != request.curve {
             return Err(Error::UnsupportedVerification("EdDSA curve or permissions"));
         }

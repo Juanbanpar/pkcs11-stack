@@ -38,11 +38,19 @@ static CK_RV ed_attributes(CK_SESSION_HANDLE s, CK_OBJECT_HANDLE h, CK_ATTRIBUTE
                 if (FAULT == 15) { a->ulValueLen = 4097; continue; }
                 if (FAULT == 11) params[4] = 110;
                 data = params; length = sizeof(params);
+#ifdef NAMED_SCHEME
+                if (FAULT != 20 && FAULT != 11) { data = CURVE448 ? name448 : name25519; length = CURVE448 ? sizeof(name448) : sizeof(name25519); }
+#else
                 if (FAULT == 20) { data = CURVE448 ? name448 : name25519; length = CURVE448 ? sizeof(name448) : sizeof(name25519); }
+#endif
                 break;
             case CKA_EC_POINT:
                 if (FAULT == 14) point[0] = 3;
-                data = point; length = CURVE448 ? 59 : 34; break;
+                data = point; length = CURVE448 ? 59 : 34;
+#ifdef NAMED_SCHEME
+                if (FAULT != 14) { data = point+2; length -= 2; }
+#endif
+                break;
             case CKA_SIGN: value = FAULT != 12; length = sizeof(CK_BBOOL); break;
             case CKA_VERIFY: value = FAULT != 13; length = sizeof(CK_BBOOL); break;
             case CKA_ALWAYS_AUTHENTICATE:
@@ -68,11 +76,25 @@ static CK_RV ed_init(CK_SESSION_HANDLE s, CK_MECHANISM_PTR m, CK_OBJECT_HANDLE h
     (void)s; (void)h;
     if (FAULT == 3) return CKR_DEVICE_ERROR;
     if (m->mechanism != CKM_EDDSA) return CKR_MECHANISM_INVALID;
+#ifdef NAMED_SCHEME
+    if (NAMED_SCHEME != 0) {
+        if (!m->pParameter || m->ulParameterLen != sizeof(CK_EDDSA_PARAMS)) return CKR_MECHANISM_PARAM_INVALID;
+        CK_EDDSA_PARAMS *p = m->pParameter;
+        CK_ULONG context_length = FAULT == 24 ? 0 : FAULT == 25 ? 255 : 3;
+        if (p->phFlag != (NAMED_SCHEME == 2 || NAMED_SCHEME == 4) || p->ulContextDataLen != context_length) return CKR_MECHANISM_PARAM_INVALID;
+        if (!context_length) { if (p->pContextData) return CKR_MECHANISM_PARAM_INVALID; }
+        else {
+            if (!p->pContextData) return CKR_MECHANISM_PARAM_INVALID;
+            for (CK_ULONG i = 0; i < context_length; ++i) if (p->pContextData[i] != 0xA5) return CKR_MECHANISM_PARAM_INVALID;
+        }
+    } else if (m->pParameter || m->ulParameterLen) return CKR_MECHANISM_PARAM_INVALID;
+#else
     if (CURVE448 && FAULT == 20) {
         if (!m->pParameter || m->ulParameterLen != sizeof(CK_EDDSA_PARAMS)) return CKR_MECHANISM_PARAM_INVALID;
         CK_EDDSA_PARAMS *p = m->pParameter;
         if (p->phFlag || p->ulContextDataLen || p->pContextData) return CKR_MECHANISM_PARAM_INVALID;
     } else if (m->pParameter || m->ulParameterLen) return CKR_MECHANISM_PARAM_INVALID;
+#endif
     authenticated = selected_class == CKO_PUBLIC_KEY; active = 1; return CKR_OK;
 }
 static CK_RV ed_login(CK_SESSION_HANDLE s, CK_USER_TYPE role, CK_UTF8CHAR_PTR pin, CK_ULONG length) {
@@ -104,11 +126,18 @@ static CK_RV ed_verify(CK_SESSION_HANDLE s, CK_BYTE_PTR data, CK_ULONG n, CK_BYT
     for (CK_ULONG i = 0; i < length; ++i) if (sig[i] != 0xAB) return CKR_SIGNATURE_INVALID;
     return CKR_OK;
 }
+#ifdef NAMED_SCHEME
+static CK_RV ed_close(CK_SESSION_HANDLE h) { return FAULT == 23 ? CKR_DEVICE_ERROR : close_session(h); }
+static CK_RV ed_finalize(CK_VOID_PTR p) { return FAULT == 24 ? CKR_DEVICE_ERROR : finalize(p); }
+#endif
 CK_RV C_GetFunctionList(CK_FUNCTION_LIST_PTR_PTR out) {
     functions.C_GetMechanismList = ed_mechanisms; functions.C_GetMechanismInfo = ed_info;
     functions.C_FindObjectsInit = ed_find_init; functions.C_GetAttributeValue = ed_attributes;
     functions.C_Login = FAULT == 22 ? NULL : ed_login; functions.C_SignInit = FAULT == 18 ? NULL : ed_init;
     functions.C_Sign = FAULT == 2 ? NULL : ed_sign;
     functions.C_VerifyInit = FAULT == 19 ? NULL : ed_verify_init; functions.C_Verify = FAULT == 10 ? NULL : ed_verify;
+#ifdef NAMED_SCHEME
+    functions.C_CloseSession = ed_close; functions.C_Finalize = ed_finalize;
+#endif
     *out = &functions; return CKR_OK;
 }
