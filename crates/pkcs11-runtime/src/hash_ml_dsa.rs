@@ -91,7 +91,7 @@ impl HashMlDsaRequest<'_> {
         }
         Ok(())
     }
-    fn mechanism(&self) -> Mechanism<'_> {
+    pub(crate) fn mechanism(&self) -> Mechanism<'_> {
         let context = (!self.context.is_empty()).then_some(self.context);
         match self.input.mode() {
             HashMlDsaMode::Message => Mechanism::HashMlDsaSha512(SignAdditionalContext::new(
@@ -117,7 +117,8 @@ impl MlDsaSigningPolicy {
     }
 }
 
-/// Advisory single-part signing snapshot for one selected HashML-DSA mode.
+/// Advisory signing snapshot for one HashML-DSA mode. The discovery method
+/// selects the single-part or multipart entry-point requirements.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct HashMlDsaCapabilities {
     /// Actual key parameter set.
@@ -153,6 +154,13 @@ fn capabilities(
     object: &crate::Object<'_, '_>,
     mode: HashMlDsaMode,
 ) -> Result<HashMlDsaCapabilities, Error> {
+    capabilities_with_functions(object, mode, &[Function::SignInit, Function::Sign])
+}
+pub(crate) fn capabilities_with_functions(
+    object: &crate::Object<'_, '_>,
+    mode: HashMlDsaMode,
+    functions: &[Function],
+) -> Result<HashMlDsaCapabilities, Error> {
     let parameter_set = ml_dsa::parameter_set(object, ObjectClass::PRIVATE_KEY)?;
     let always_authenticate = ml_dsa::permission(object, AttributeType::AlwaysAuthenticate)?;
     let module = object.session.token().module.raw()?;
@@ -164,9 +172,7 @@ fn capabilities(
             mode.mechanism_type(),
             |i| i.sign(),
         )?
-        && [Function::SignInit, Function::Sign]
-            .into_iter()
-            .all(|f| module.is_fn_supported(f))
+        && functions.iter().all(|&f| module.is_fn_supported(f))
         && (!always_authenticate || module.is_fn_supported(Function::Login));
     Ok(HashMlDsaCapabilities {
         parameter_set,
@@ -174,6 +180,22 @@ fn capabilities(
         can_sign,
         always_authenticate,
     })
+}
+
+pub(crate) fn verification_key(
+    object: &crate::Object<'_, '_>,
+    mode: HashMlDsaMode,
+) -> Result<(MlDsaParameterSet, bool), Error> {
+    let parameter = ml_dsa::parameter_set(object, ObjectClass::PUBLIC_KEY)?;
+    let permitted = ml_dsa::permission(object, AttributeType::Verify)?
+        && ml_dsa::allowed_mechanism(object, mode.mechanism_type())?
+        && ml_dsa::mechanism_support(
+            object.session.token(),
+            parameter,
+            mode.mechanism_type(),
+            |i| i.verify(),
+        )?;
+    Ok((parameter, permitted))
 }
 
 impl Session<'_> {
@@ -274,15 +296,10 @@ impl Session<'_> {
             return Err(Error::SignatureMismatch);
         }
         let object = self.resolve(key.as_object_ref())?;
-        let parameter = ml_dsa::parameter_set(&object, ObjectClass::PUBLIC_KEY)?;
-        let mechanism_type = request.input.mode().mechanism_type();
+        let (parameter, permitted) = verification_key(&object, request.input.mode())?;
         let module = object.session.token().module.raw()?;
         if parameter != request.parameter_set
-            || !ml_dsa::permission(&object, AttributeType::Verify)?
-            || !ml_dsa::allowed_mechanism(&object, mechanism_type)?
-            || !ml_dsa::mechanism_support(object.session.token(), parameter, mechanism_type, |i| {
-                i.verify()
-            })?
+            || !permitted
             || ![Function::VerifyInit, Function::Verify]
                 .into_iter()
                 .all(|f| module.is_fn_supported(f))

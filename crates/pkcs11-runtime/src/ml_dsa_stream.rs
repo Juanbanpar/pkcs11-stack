@@ -36,7 +36,8 @@ impl<'a> MlDsaParameters<'a> {
         }
     }
 }
-/// Exclusively borrowed pure ML-DSA signer. Message chunks, contexts and PINs are
+/// Exclusively borrowed ML-DSA family signer. The initialization method selects
+/// pure ML-DSA or token-hashed SHA-512 HashML-DSA. Message chunks, contexts and PINs are
 /// not retained by the guard. Drop before successful finish or confirmed explicit
 /// cancellation discards the session. Provider buffering/resource limits may apply.
 pub struct MlDsaSigningOperation<'a> {
@@ -113,6 +114,23 @@ impl MlDsaSigningOperation<'_> {
         self.active = false;
         self.healthy.set(true);
         Ok(())
+    }
+}
+impl<'a> MlDsaSigningOperation<'a> {
+    pub(crate) fn initialized(
+        raw: &'a cryptoki::session::Session,
+        healthy: &'a Cell<bool>,
+        parameter_set: MlDsaParameterSet,
+        cancellation_supported: bool,
+    ) -> Self {
+        Self {
+            raw,
+            healthy,
+            parameter_set,
+            active: true,
+            updated: false,
+            cancellation_supported,
+        }
     }
 }
 fn capabilities(object: &crate::Object<'_, '_>) -> Result<MlDsaCapabilities, Error> {

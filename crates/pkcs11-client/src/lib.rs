@@ -72,6 +72,10 @@ pub use pkcs11_runtime::{
     HmacTagProfile,
 };
 mod hash_ml_dsa;
+mod hash_ml_dsa_stream;
+pub use hash_ml_dsa_stream::{
+    HashMlDsaParameters, HashMlDsaVerificationCapabilities, HashMlDsaVerificationOperation,
+};
 mod management;
 mod ml_dsa;
 pub use hash_ml_dsa::{HashMlDsaCapabilities, HashMlDsaInput, HashMlDsaMode, HashMlDsaRequest};

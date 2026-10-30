@@ -6,7 +6,13 @@ enum { hash_fault = FAULT };
 #define C_GetFunctionList base_function_list
 #include "cmac.c"
 #undef C_GetFunctionList
+#ifndef STREAM
+#define STREAM 0
+#endif
 static CK_ULONG inits, completions, logins;
+#if STREAM
+static CK_ULONG parts, updates, cancellations;
+#endif
 static int authenticated;
 static CK_ULONG signature_size(void) { return PARAMETER == 0 ? 2420 : PARAMETER == 1 ? 3309 : 4627; }
 static CK_ULONG public_size(void) { return PARAMETER == 0 ? 1312 : PARAMETER == 1 ? 1952 : 2592; }
@@ -19,7 +25,11 @@ static CK_RV hash_finalize(CK_VOID_PTR reserved) {
     CK_RV rv = finalize(reserved); return hash_fault == 24 ? CKR_DEVICE_ERROR : rv;
 }
 static CK_RV hash_info(CK_SESSION_HANDLE s, CK_SESSION_INFO_PTR out) {
-    CK_RV rv = session_info(s,out); out->ulDeviceError = (inits << 16) | (logins << 8) | completions; return rv;
+    CK_RV rv = session_info(s,out); out->ulDeviceError = (inits << 16) | (logins << 8) | completions;
+#if STREAM
+    out->ulDeviceError |= (updates << 24) | (cancellations << 4);
+#endif
+    return rv;
 }
 static CK_RV hash_mechanisms(CK_SLOT_ID s, CK_MECHANISM_TYPE_PTR out, CK_ULONG_PTR n) {
     (void)s; if (out && hash_fault != 26) out[0] = mechanism(); *n = hash_fault == 26 ? 0 : 1; return CKR_OK;
@@ -71,7 +81,11 @@ static CK_RV hash_init(CK_SESSION_HANDLE s, CK_MECHANISM_PTR m, CK_OBJECT_HANDLE
     for (CK_ULONG i = 0; i < length; ++i) if (context[i] != 0xA5) return CKR_MECHANISM_PARAM_INVALID;
     if (hash_fault == 11) return CKR_DEVICE_ERROR;
     if (hash_fault == 22) return CKR_SIGNATURE_INVALID;
-    active = 1; authenticated = !AUTH || VERIFY; return CKR_OK;
+    active = 1; authenticated = !AUTH || VERIFY;
+#if STREAM
+    parts = 0;
+#endif
+    return CKR_OK;
 }
 static CK_RV hash_login(CK_SESSION_HANDLE s, CK_USER_TYPE role, CK_UTF8CHAR_PTR pin, CK_ULONG n) {
     (void)s; ++logins;
@@ -107,6 +121,35 @@ static CK_RV hash_verify(CK_SESSION_HANDLE s, CK_BYTE_PTR bytes, CK_ULONG n, CK_
     for (CK_ULONG i = 0; i < length; ++i) if (sig[i] != 0xAB) return CKR_SIGNATURE_INVALID;
     return CKR_OK;
 }
+#if STREAM
+static CK_RV hash_update(CK_SESSION_HANDLE s, CK_BYTE_PTR bytes, CK_ULONG n) {
+    (void)s; ++updates;
+    if (!active || !authenticated) return CKR_USER_NOT_LOGGED_IN;
+    if (hash_fault == 27) return CKR_DEVICE_ERROR;
+    if (hash_fault == 28) return CKR_SIGNATURE_INVALID;
+    if (hash_fault == 29) return CKR_PENDING;
+    if (hash_fault == 30) return CKR_TOKEN_RESOURCE_EXCEEDED;
+    if (hash_fault != 37 && (n > 3-parts || memcmp(bytes,"abc"+parts,n))) return CKR_DATA_INVALID;
+    parts += n; return CKR_OK;
+}
+static CK_RV hash_sign_final(CK_SESSION_HANDLE s, CK_BYTE_PTR out, CK_ULONG_PTR length) {
+    if (!updates || (hash_fault != 37 && parts != 0 && parts != 3)) return CKR_ARGUMENTS_BAD;
+    return hash_sign(s, NULL, 0, out, length);
+}
+static CK_RV hash_verify_final(CK_SESSION_HANDLE s, CK_BYTE_PTR sig, CK_ULONG length) {
+    if (!updates || (hash_fault != 37 && parts != 0 && parts != 3)) return CKR_ARGUMENTS_BAD;
+    return hash_verify(s, NULL, 0, sig, length);
+}
+#if API_MAJOR >= 3
+static CK_RV hash_cancel(CK_SESSION_HANDLE s, CK_FLAGS flags) {
+    (void)s; ++cancellations;
+    if (!active || flags != (VERIFY ? CKF_VERIFY : CKF_SIGN)) return CKR_ARGUMENTS_BAD;
+    if (hash_fault == 31) return CKR_OPERATION_CANCEL_FAILED;
+    if (hash_fault == 32) return CKR_FUNCTION_NOT_SUPPORTED;
+    active = 0; return CKR_OK;
+}
+#endif
+#endif
 CK_RV C_GetFunctionList(CK_FUNCTION_LIST_PTR_PTR out);
 #if API_MAJOR >= 3
 #if API_MINOR >= 2
@@ -130,11 +173,21 @@ CK_RV C_GetFunctionList(CK_FUNCTION_LIST_PTR_PTR out) {
     functions.C_VerifyInit = hash_fault == 9 ? NULL : hash_init;
     functions.C_Verify = hash_fault == 10 ? NULL : hash_verify;
     functions.C_Login = hash_fault == 6 ? NULL : hash_login;
+#if STREAM
+    functions.C_SignUpdate = hash_fault == 35 ? NULL : hash_update;
+    functions.C_SignFinal = hash_fault == 36 ? NULL : hash_sign_final;
+    functions.C_VerifyUpdate = hash_fault == 35 ? NULL : hash_update;
+    functions.C_VerifyFinal = hash_fault == 36 ? NULL : hash_verify_final;
+#else
     /* Generic prehashed HashML-DSA is single-part only. */
     functions.C_SignUpdate = NULL; functions.C_SignFinal = NULL;
     functions.C_VerifyUpdate = NULL; functions.C_VerifyFinal = NULL;
+#endif
 #if API_MAJOR >= 3
     memcpy(&current,&functions,sizeof(functions)); current.version.major = 3; current.version.minor = API_MINOR;
+#if STREAM
+    current.C_SessionCancel = hash_fault == 33 ? NULL : hash_cancel;
+#endif
 #endif
     *out = &functions; return CKR_OK;
 }

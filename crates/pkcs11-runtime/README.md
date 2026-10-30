@@ -701,8 +701,21 @@ before execution. Contexts are limited to 255 bytes; hedging is explicit.
 Always-authenticate keys use init, context login and C_Sign, without multipart
 calls. Output is exactly the parameter set's signature length, with no native
 size query or retry. `verify_hash_ml_dsa` verifies on the token; only a completed
-C_Verify mismatch preserves session reuse. No hashing fallback, other prehash
-functions, streaming or certificate/TLS integration is added by these APIs.
+C_Verify mismatch preserves session reuse.
+
+`HashMlDsaParameters` selects original-message streams through
+CKM_HASH_ML_DSA_SHA512. `hash_ml_dsa_streaming_capabilities` checks multipart
+signing pointers independently of C_Sign; `start_hash_ml_dsa_signing` returns
+the bounded `MlDsaSigningOperation` guard. Context login follows init and
+precedes updates. `hash_ml_dsa_verification_capabilities` independently checks
+public-key permissions and single-part/multipart verification pointers.
+`start_hash_ml_dsa_verification` uses C_VerifyInit/Update/Final through any
+supported function table, independently of the 3.2 signature-first API.
+Only successful completion, a completed verification mismatch or confirmed
+explicit cancellation permits reuse. Incomplete streams and native failures
+discard sessions. Input budgets and checked closure remain caller-owned.
+Caller-computed digests remain single-part under section 6.67.6. No hashing
+fallback, other prehash functions or certificate/TLS integration is added.
 
 ## Testing
 

@@ -117,10 +117,11 @@ impl Client<'_> {
     }
 }
 
-/// Exclusive pure ML-DSA signing stream. Contexts, PINs and message chunks are
+/// Exclusive ML-DSA family signing stream, initialized as pure ML-DSA or
+/// token-hashed SHA-512 HashML-DSA. Contexts, PINs and message chunks are
 /// not retained. Drop discards an unfinished session; no fallback or retry occurs.
 #[derive(Debug)]
-pub struct MlDsaSigningOperation<'a>(pkcs11_runtime::MlDsaSigningOperation<'a>);
+pub struct MlDsaSigningOperation<'a>(pub(crate) pkcs11_runtime::MlDsaSigningOperation<'a>);
 impl MlDsaSigningOperation<'_> {
     /// Observed key parameter set, checked before initialization.
     pub fn parameter_set(&self) -> MlDsaParameterSet {

@@ -99,8 +99,20 @@ caller. `hash_ml_dsa_capabilities` checks one selected mode independently.
 `sign_hash_ml_dsa` uses the explicit `MlDsaSigningPolicy`, context and hedging;
 `verify_hash_ml_dsa` uses a token public key and maps completed mismatches to
 `SignatureMismatch`. Native failures discard pooled sessions. Both operations
-are single-part, including signing with context authentication. These methods do
-not use the pure ML-DSA certificate/identity or software-verification workflows.
+are single-part, including signing with context authentication.
+
+`HashMlDsaParameters` selects token-hashed original-message streams.
+`sign_hash_ml_dsa_reader` and `verify_hash_ml_dsa_reader` hold an exclusive
+session and use a zeroizing 64 KiB buffer. Management sessions also expose
+`start_hash_ml_dsa_signing` and `start_hash_ml_dsa_verification` guards.
+Signing capabilities check multipart pointers independently of C_Sign;
+verification capabilities check public-key permissions independently of signing
+and the 3.2 signature-first API. Context/PIN borrows end at initialization.
+Read/native/unwind failures and abandoned streams discard sessions; confirmed
+explicit cancellation and completed verification mismatches permit reuse.
+Callers enforce total input budgets and check closure before releasing output.
+Caller-computed digests remain single-part. These methods do not use the pure
+ML-DSA certificate/identity or software-verification workflows.
 
 `ManagementSession::start_ml_dsa_signing` returns an exclusive signing guard;
 `sign_ml_dsa_reader` reads original messages through a zeroizing 64 KiB buffer.
