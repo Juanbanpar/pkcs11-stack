@@ -50,9 +50,11 @@ pub use hmac::{
     HmacTagProfile,
 };
 pub use mac::{MacGeneration, MacVerification};
+mod hash_ml_dsa;
 mod hybrid;
 mod key_operations;
 mod ml_dsa;
+pub use hash_ml_dsa::{HashMlDsaCapabilities, HashMlDsaInput, HashMlDsaMode, HashMlDsaRequest};
 mod ml_dsa_verify;
 pub use ml_dsa_verify::{MlDsaVerificationCapabilities, MlDsaVerificationOperation};
 mod ml_dsa_stream;

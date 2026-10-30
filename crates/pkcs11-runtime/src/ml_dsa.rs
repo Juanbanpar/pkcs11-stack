@@ -68,7 +68,7 @@ pub enum MlDsaHedging {
     Deterministic,
 }
 impl MlDsaHedging {
-    fn mechanism(self) -> HedgeType {
+    pub(crate) fn mechanism(self) -> HedgeType {
         match self {
             Self::Required => HedgeType::Required,
             Self::Preferred => HedgeType::Preferred,
@@ -140,10 +140,10 @@ impl MlDsaRequest<'_> {
     }
 }
 
-/// ML-DSA signing restrictions, independent of the classical digest-based policy.
+/// Pure and SHA-512 HashML-DSA restrictions, independent of the classical signing policy.
 #[derive(Clone, Debug)]
 pub struct MlDsaSigningPolicy {
-    /// Allowed parameter sets. An empty list disables ML-DSA signing.
+    /// Allowed parameter sets. An empty list disables both ML-DSA signing profiles.
     pub parameter_sets: Vec<MlDsaParameterSet>,
 }
 impl Default for MlDsaSigningPolicy {
@@ -223,7 +223,10 @@ impl MlDsaPublicKey {
     }
 }
 
-fn parameter_set(object: &Object<'_, '_>, class: ObjectClass) -> Result<MlDsaParameterSet, Error> {
+pub(crate) fn parameter_set(
+    object: &Object<'_, '_>,
+    class: ObjectClass,
+) -> Result<MlDsaParameterSet, Error> {
     if !matches!(attribute(object, AttributeType::Class, true)?, Some(Attribute::Class(value)) if value == class)
         || !matches!(
             attribute(object, AttributeType::KeyType, true)?,
@@ -238,7 +241,7 @@ fn parameter_set(object: &Object<'_, '_>, class: ObjectClass) -> Result<MlDsaPar
     }
 }
 
-fn permission(object: &Object<'_, '_>, kind: AttributeType) -> Result<bool, Error> {
+pub(crate) fn permission(object: &Object<'_, '_>, kind: AttributeType) -> Result<bool, Error> {
     match (kind, attribute(object, kind, true)?) {
         (AttributeType::Sign, Some(Attribute::Sign(value)))
         | (AttributeType::Verify, Some(Attribute::Verify(value)))
@@ -250,16 +253,23 @@ fn permission(object: &Object<'_, '_>, kind: AttributeType) -> Result<bool, Erro
 }
 
 fn allowed(object: &Object<'_, '_>) -> Result<bool, Error> {
+    allowed_mechanism(object, MechanismType::ML_DSA)
+}
+
+pub(crate) fn allowed_mechanism(
+    object: &Object<'_, '_>,
+    mechanism: MechanismType,
+) -> Result<bool, Error> {
     match attribute(object, AttributeType::AllowedMechanisms, false)? {
         None => Ok(true),
         Some(Attribute::AllowedMechanisms(value)) => {
-            Ok(value.is_empty() || value.contains(&MechanismType::ML_DSA))
+            Ok(value.is_empty() || value.contains(&mechanism))
         }
         _ => Err(Error::MissingMetadata("CKA_ALLOWED_MECHANISMS")),
     }
 }
 
-fn mechanism_support(
+pub(crate) fn mechanism_support(
     token: &Token<'_>,
     parameter: MlDsaParameterSet,
     mechanism: MechanismType,

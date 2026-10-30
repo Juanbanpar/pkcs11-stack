@@ -685,7 +685,24 @@ and checks its encoding length.
 `Error::SignatureMismatch`; a completed C_Verify mismatch leaves the session usable.
 Other backend failures invalidate it. Verification does not bind a private key to
 a public key or establish certificate trust. Software verification and certificate
-binding belong to `pkcs11-client`. HashML-DSA and external-mu signing are not implemented.
+binding belong to `pkcs11-client`. External-mu signing is not implemented.
+
+`HashMlDsaRequest` provides a separate SHA-512 HashML-DSA profile for the same
+three parameter sets. `HashMlDsaInput::Message` supplies the original message to
+CKM_HASH_ML_DSA_SHA512; `Sha512Digest` borrows an exact 64-byte caller-computed
+digest for CKM_HASH_ML_DSA with SHA-512 in CK_HASH_SIGN_ADDITIONAL_CONTEXT.
+Both follow OASIS sections 6.67.6–7 and FIPS 204's prehash domain separation;
+signing a digest with pure ML-DSA is a different operation.
+
+`hash_ml_dsa_capabilities` checks one explicit `HashMlDsaMode`, key permissions,
+allowed mechanisms, byte-based key bounds and single-part entry points.
+`sign_hash_ml_dsa` applies `MlDsaSigningPolicy`, rediscovering the selected key
+before execution. Contexts are limited to 255 bytes; hedging is explicit.
+Always-authenticate keys use init, context login and C_Sign, without multipart
+calls. Output is exactly the parameter set's signature length, with no native
+size query or retry. `verify_hash_ml_dsa` verifies on the token; only a completed
+C_Verify mismatch preserves session reuse. No hashing fallback, other prehash
+functions, streaming or certificate/TLS integration is added by these APIs.
 
 ## Testing
 

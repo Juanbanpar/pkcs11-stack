@@ -68,8 +68,10 @@ pub use pkcs11_runtime::{
     HMAC_MAXIMUM_MESSAGE, HmacAlgorithm, HmacCapabilities, HmacKeyRequest, HmacOptions,
     HmacTagProfile,
 };
+mod hash_ml_dsa;
 mod management;
 mod ml_dsa;
+pub use hash_ml_dsa::{HashMlDsaCapabilities, HashMlDsaInput, HashMlDsaMode, HashMlDsaRequest};
 mod ml_dsa_stream;
 pub use ml_dsa_stream::{MlDsaSigningOperation, MlDsaVerificationOperation};
 pub use pkcs11_runtime::{MlDsaParameters, MlDsaVerificationCapabilities};

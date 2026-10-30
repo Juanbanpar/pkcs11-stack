@@ -92,6 +92,16 @@ these calls. Requests select the expected parameter set, original message, conte
 (0 through 255 bytes), and required/preferred/deterministic hedging. Required hedging
 fails if the token cannot supply randomness; there is no software fallback.
 
+`HashMlDsaRequest` is a separate SHA-512 profile exposed by both `Client` and
+`ManagementSession`. `HashMlDsaInput::Message` requests token-side hashing;
+`HashMlDsaInput::Sha512Digest` borrows an exact `[u8; 64]` digest computed by the
+caller. `hash_ml_dsa_capabilities` checks one selected mode independently.
+`sign_hash_ml_dsa` uses the explicit `MlDsaSigningPolicy`, context and hedging;
+`verify_hash_ml_dsa` uses a token public key and maps completed mismatches to
+`SignatureMismatch`. Native failures discard pooled sessions. Both operations
+are single-part, including signing with context authentication. These methods do
+not use the pure ML-DSA certificate/identity or software-verification workflows.
+
 `ManagementSession::start_ml_dsa_signing` returns an exclusive signing guard;
 `sign_ml_dsa_reader` reads original messages through a zeroizing 64 KiB buffer.
 `MlDsaParameters` separates the parameter set, context and hedging requirement
