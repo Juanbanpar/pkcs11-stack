@@ -5,7 +5,7 @@ umask 077
 cd "$(dirname "$0")/.."
 module=${PKCS11_TEST_KDF_MODULE:?Set PKCS11_TEST_KDF_MODULE to a trusted libkryoptic_pkcs11.so}
 if [[ ! -f "$module" || "$(basename "$module")" != libkryoptic_pkcs11.so ]]; then
-    echo 'Use a trusted Kryoptic module with ML-KEM, ML-DSA, ECDH, concatenation, HKDF, SP800-108 and SQLite enabled.' >&2
+    echo 'Use a trusted Kryoptic module with ML-KEM, ML-DSA, EdDSA, ECDH, concatenation, HKDF, SP800-108 and SQLite enabled.' >&2
     exit 1
 fi
 module=$(realpath "$module")
@@ -23,6 +23,9 @@ export PKCS11_TEST_KDF_MODULE="$module" PKCS11_TEST_KDF_ISOLATED=1
 export PKCS11_TEST_KDF_OPENSSL=${PKCS11_TEST_KDF_OPENSSL:-openssl}
 command -v "$PKCS11_TEST_KDF_OPENSSL" >/dev/null
 cargo test -p pkcs11-runtime --test hkdf_persistent --locked -- --ignored --test-threads=1
+cargo test -p pkcs11-runtime --test eddsa_named_provider --locked -- --ignored --test-threads=1
+cargo test -p pkcs11-client --test eddsa_named_provider --locked -- --ignored --test-threads=1
+cargo test -p pkcs11ctl --test eddsa_named_provider --locked -- --ignored --test-threads=1
 cargo test -p pkcs11-runtime --test montgomery_named_provider --locked -- --ignored --test-threads=1
 cargo test -p pkcs11-client --test montgomery_named_provider --locked -- --ignored --test-threads=1
 cargo test -p pkcs11ctl --test montgomery_named_provider --locked -- --ignored --test-threads=1

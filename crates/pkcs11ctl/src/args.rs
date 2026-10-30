@@ -206,7 +206,7 @@ pub(crate) fn command() -> Command {
         .about("Export certificate/data bytes, public SPKI DER or raw curveName keys; no trust validation")
         .arg(
             value("key-family", "Public-key algorithm family")
-                .value_parser(["classical", "ml-dsa", "ml-kem", "eddsa", "x25519", "x448", "curve25519", "curve448"])
+                .value_parser(["classical", "ml-dsa", "ml-kem", "eddsa", "x25519", "x448", "curve25519", "curve448", "edwards25519", "edwards448"])
                 .default_value("classical"),
         )
         .arg(required(
@@ -301,6 +301,8 @@ pub(crate) fn command() -> Command {
             "x448",
             "curve25519",
             "curve448",
+            "edwards25519",
+            "edwards448",
             "p256",
             "p384",
             "p521",
@@ -343,6 +345,8 @@ pub(crate) fn command() -> Command {
             "x448",
             "curve25519",
             "curve448",
+            "edwards25519",
+            "edwards448",
         ]))
         .arg(required("input", "Input file; - reads stdin"))
         .arg(
@@ -571,6 +575,18 @@ pub(crate) fn command() -> Command {
                     "Public KDF context file, at most 4096 bytes",
                 )),
         )))),
+        context(auth(object(Command::new("sign-eddsa-named")
+            .about("Sign original input using an explicit RFC 8032 curveName scheme")
+            .arg(required("scheme", "EdDSA scheme; ph hashing runs on token").value_parser(["ed25519", "ed25519ctx", "ed25519ph", "ed448", "ed448ph"]))
+            .arg(value("context-file", "Public binary context file, at most 255 bytes; no stdin"))
+            .arg(required("input", "Original message file; - reads stdin"))
+            .arg(required("output", "New signature file, or - for binary stdout"))))),
+        auth(object(Command::new("verify-eddsa-named")
+            .about("Verify original input on token using an explicit RFC 8032 curveName scheme")
+            .arg(required("scheme", "EdDSA scheme; ph hashing runs on token").value_parser(["ed25519", "ed25519ctx", "ed25519ph", "ed448", "ed448ph"]))
+            .arg(value("context-file", "Public binary context file, at most 255 bytes; no stdin"))
+            .arg(required("input", "Original message file; - reads stdin"))
+            .arg(required("signature", "Raw signature file; - reads stdin")))),
         mutation(auth(named(object(Command::new("derive-montgomery")
             .about("Derive a full protected raw secret from a curveName private key")
             .arg(required("curve", "Explicit RFC 7748 curveName profile").value_parser(["curve25519", "curve448"]))

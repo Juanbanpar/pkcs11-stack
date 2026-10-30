@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-use crate::{eddsa, inspect, key_establishment, ml_dsa, support::*};
+use crate::{eddsa, eddsa_named, inspect, key_establishment, ml_dsa, support::*};
 use clap::ArgMatches;
 use pkcs11_client::{
     AesKeyPurpose, AesKeyRequest, AesKeySize, EcdhKeyPairRequest, HmacAlgorithm, HmacKeyRequest,
@@ -85,7 +85,7 @@ pub(crate) fn validate(m: &ArgMatches) -> Result<()> {
     if kind == "rsa" && !matches!(get(m, "purpose"), None | Some("signing" | "encryption")) {
         return Err(usage("RSA purpose must be signing or encryption"));
     }
-    if eddsa::curve(Some(kind)).is_some()
+    if (eddsa::curve(Some(kind)).is_some() || eddsa_named::curve(Some(kind)).is_some())
         && (id.is_empty() || id.len() > 128 || label.is_empty() || label.len() > 128)
     {
         return Err(usage("EdDSA ID and label must each contain 1..=128 bytes"));
@@ -133,6 +133,7 @@ pub(crate) fn validate(m: &ArgMatches) -> Result<()> {
     } else if key_establishment::parameter(Some(kind)).is_none()
         && ml_dsa::parameter(Some(kind)).is_none()
         && eddsa::curve(Some(kind)).is_none()
+        && eddsa_named::curve(Some(kind)).is_none()
     {
         let key = signing(m)?;
         if kind == "rsa" && get(m, "purpose") == Some("encryption") {
@@ -155,7 +156,10 @@ pub(crate) fn generate(session: &mut ManagementSession<'_>, m: &ArgMatches) -> R
     let kind = need(m, "kind")?;
     let id = unhex(need(m, "id")?)?;
     let label = need(m, "label")?.as_bytes();
-    let key = if let Some(curve) = key_establishment::named_curve(Some(kind)) {
+    let key = if let Some(curve) = eddsa_named::curve(Some(kind)) {
+        session.generate_named_eddsa_key_pair(curve, &id, label, flag(m, "always-authenticate"))?;
+        eddsa_named::key_info(curve)
+    } else if let Some(curve) = key_establishment::named_curve(Some(kind)) {
         session.generate_named_montgomery_key_pair(
             &pkcs11_client::MontgomeryNamedKeyPairRequest {
                 curve,
@@ -255,6 +259,7 @@ pub(crate) fn options(provider: &Provider, m: &ArgMatches) -> Result<Value> {
         "hmac_general":options.hmac_general.into_iter().map(|a|a.to_string()).collect::<Vec<_>>(),
         "hmac":options.hmac.into_iter().map(|a|a.to_string()).collect::<Vec<_>>(),
         "eddsa":options.eddsa.into_iter().map(eddsa::key_info).collect::<Vec<_>>(),
+        "eddsa_named":options.eddsa_named.into_iter().map(eddsa_named::key_info).collect::<Vec<_>>(),
         "ml_dsa":options.ml_dsa.into_iter().map(ml_dsa::key_info).collect::<Vec<_>>(),
         "ml_kem":options.ml_kem.into_iter().map(key_establishment::key_info).collect::<Vec<_>>()
     }))

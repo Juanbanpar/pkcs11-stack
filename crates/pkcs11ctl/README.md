@@ -823,4 +823,40 @@ ID/label. Mutations require `--confirm` and RW access.
 `verify-token` uses the selected public key on the token; `verify` uses a token
 certificate or an offline `--certificate-file`. Certificate binding and software
 verification do not validate issuer trust. Signature files contain raw 64/114-byte
-RFC 8032 signatures. Context/prehash EdDSA and X25519/X448 remain unsupported.
+RFC 8032 signatures. Context/prehash schemes use the separate commands below;
+X25519/X448 agreement uses the key-establishment commands.
+
+## RFC 8032 curveName EdDSA
+
+`generate --kind edwards25519|edwards448` creates a protected signing pair with
+explicit curveName parameters. `import --kind edwards25519|edwards448` accepts
+exactly 32/57 raw public bytes and enables verification only;
+`export --key-family edwards25519|edwards448` emits checked raw public bytes.
+These profiles reject OID keys and do not convert to/from SPKI. Generation/import
+require RW mode, `--confirm`, bounded nonempty identity and unused IDs.
+`generation-options` reports advisory choices in `eddsa_named`.
+
+`sign-eddsa-named` and `verify-eddsa-named` require `--object` with private/public
+class respectively and an explicit `--scheme ed25519|ed25519ctx|ed25519ph|ed448|ed448ph`.
+`--input` supplies the original message from a file or stdin; ph hashing runs on
+the token. Optional `--context-file` supplies at most 255 binary bytes from a
+file. Ed25519 rejects nonempty context; Ed25519ctx with empty context remains a
+distinct scheme. There is no digest, certificate-binding or software-verification
+mode in these commands. `verify-eddsa-named --signature` accepts a raw signature
+file or stdin; only one verification input may use stdin.
+
+Signing supports `--context-pin-file`/`--context-protected-path` for
+always-authenticate keys. Signatures and verification results are released only
+after checked session closure and module finalization. Mismatches return exit 4;
+provider failures are not retried.
+
+```sh
+pkcs11ctl --module "$MODULE" generate --token "$TOKEN_URI" --kind edwards25519 \
+  --id 0800 --label edwards-signer --pin-file user.pin --confirm
+pkcs11ctl --module "$MODULE" sign-eddsa-named --object "$PRIVATE_KEY_URI" \
+  --scheme ed25519ph --input message.bin --context-file context.bin \
+  --output signature.bin --pin-file user.pin
+pkcs11ctl --module "$MODULE" verify-eddsa-named --object "$PUBLIC_KEY_URI" \
+  --scheme ed25519ph --input message.bin --context-file context.bin \
+  --signature signature.bin --pin-file user.pin
+```

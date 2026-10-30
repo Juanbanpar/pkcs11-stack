@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use crate::{
-    aes_cmac, aes_gcm, aes_key_wrap, eddsa, generation, hmac, inspect, kbkdf, key_establishment,
-    ml_dsa, stream_input::MultipartInput, support::*,
+    aes_cmac, aes_gcm, aes_key_wrap, eddsa, eddsa_named, generation, hmac, inspect, kbkdf,
+    key_establishment, ml_dsa, stream_input::MultipartInput, support::*,
 };
 use clap::ArgMatches;
 use pkcs11_client::{
@@ -138,7 +138,9 @@ impl Inputs {
             eddsa::validate_options(m)?;
         } else if ml_dsa {
             ml_dsa::validate_options(m)?;
-        } else if get(m, "context-file").is_some() || get(m, "hedging").is_some() {
+        } else if !eddsa_named::selected(name)
+            && (get(m, "context-file").is_some() || get(m, "hedging").is_some())
+        {
             return Err(usage(
                 "context-file and hedging require an ML-DSA algorithm",
             ));
@@ -159,6 +161,7 @@ impl Inputs {
                 || aes_gcm::selected(name)
                 || aes_key_wrap::selected(name)
                 || key_establishment::selected(name)
+                || eddsa_named::selected(name)
                 || matches!(
                     name,
                     "certificate"
@@ -191,7 +194,7 @@ impl Inputs {
         } else {
             None
         };
-        if matches!(name, "verify" | "verify-token")
+        if matches!(name, "verify" | "verify-token" | "verify-eddsa-named")
             && get(m, "input") == Some("-")
             && get(m, "signature") == Some("-")
         {
@@ -218,7 +221,9 @@ impl Inputs {
         let bytes = if aes_gcm::selected(name) || name == "digest" || stream_input.is_some() {
             vec![]
         } else if let Some(path) = get(m, "input") {
-            if let Some(limit) = key_establishment::input_limit(name, m)? {
+            if let Some(limit) = eddsa_named::input_limit(name, m) {
+                bounded_input(path, limit)?
+            } else if let Some(limit) = key_establishment::input_limit(name, m)? {
                 bounded_input(path, limit)?
             } else if hmac::selected(name) {
                 bounded_input(path, pkcs11_client::HMAC_MAXIMUM_MESSAGE)?
@@ -252,7 +257,7 @@ impl Inputs {
                 request(m, &bytes)?;
             }
         }
-        let signature = if matches!(name, "verify" | "verify-token") {
+        let signature = if matches!(name, "verify" | "verify-token" | "verify-eddsa-named") {
             bounded_input(need(m, "signature")?, 16 * 1024)?
         } else {
             vec![]
@@ -405,6 +410,7 @@ impl Inputs {
                 return Err(usage("token label exceeds 32 UTF-8 bytes"));
             }
         }
+        eddsa_named::validate(name, m, &bytes, &domain_context, &signature)?;
         let establishment = key_establishment::Inputs::load(name, m, &bytes)?;
         let kbkdf = kbkdf::Inputs::load(name, m)?;
         if aes_key_wrap::selected(name) {
@@ -760,6 +766,9 @@ fn management_operation(
     m: &ArgMatches,
     inputs: &Inputs,
 ) -> Result<Output> {
+    if eddsa_named::selected(name) {
+        return eddsa_named::operation(session, name, m, inputs);
+    }
     if kbkdf::selected(name) {
         return kbkdf::operation(session, name, m, &inputs.kbkdf);
     }
@@ -891,7 +900,18 @@ fn management_operation(
         }
         "export" => {
             let reference = object_reference(uri(m, "object")?)?;
-            let bytes = if let Some(curve) = key_establishment::named_curve(get(m, "key-family")) {
+            let bytes = if eddsa_named::curve(get(m, "key-family")).is_some() {
+                let key = pkcs11_client::PublicKeyRef::new(uri(m, "object")?)
+                    .map_err(pkcs11_client::Error::from)?;
+                let bytes = session.export_named_eddsa_public_key(&key)?;
+                if Some(bytes.len())
+                    != eddsa_named::curve(get(m, "key-family"))
+                        .map(|curve| curve.public_key_length())
+                {
+                    return Err(usage("Edwards curve does not match export profile"));
+                }
+                bytes
+            } else if let Some(curve) = key_establishment::named_curve(get(m, "key-family")) {
                 session.export_named_montgomery_public_key(&reference, curve)?
             } else if get(m, "key-family") == Some("x25519") {
                 session.export_x25519_public_key(&reference)?
@@ -940,6 +960,13 @@ fn management_operation(
         "generate" => generation::generate(session, m)?,
         "import" => {
             let id = unhex(need(m, "id")?)?;
+            if let Some(curve) = eddsa_named::curve(get(m, "kind")) {
+                let key = pkcs11_client::EdDsaNamedPublicKey::from_bytes(curve, &inputs.bytes)?;
+                session.import_named_eddsa_public_key(&key, &id, need(m, "label")?.as_bytes())?;
+                return Ok(Output::Structured(
+                    json!({"imported":true,"key":eddsa_named::key_info(curve),"id_hex":hex(&id)}),
+                ));
+            }
             if let Some(curve) = key_establishment::named_curve(get(m, "kind")) {
                 let peer = inputs
                     .establishment
