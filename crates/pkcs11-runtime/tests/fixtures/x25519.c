@@ -1,6 +1,10 @@
 /* SPDX-License-Identifier: MIT OR Apache-2.0 */
 /* X25519 descriptors and protected output policy, independent 3.x layouts. */
+#ifdef X_KDF_TEST
+enum { x_fault = FAULT % 40 };
+#else
 enum { x_fault = FAULT };
+#endif
 #undef FAULT
 #define FAULT 0
 #define C_GetFunctionList base_function_list
@@ -99,7 +103,24 @@ static CK_RV x_derive(CK_SESSION_HANDLE s, CK_MECHANISM_PTR m, CK_OBJECT_HANDLE 
     if (m->mechanism != CKM_ECDH1_DERIVE || !m->pParameter || m->ulParameterLen != sizeof(CK_ECDH1_DERIVE_PARAMS) || base != 2) return CKR_MECHANISM_PARAM_INVALID;
     CK_ECDH1_DERIVE_PARAMS *p = m->pParameter;
     CK_BYTE peer[X_LENGTH] = {X_BASE};
-    if (p->kdf != CKD_NULL || p->ulSharedDataLen != 0 || p->pSharedData != NULL_PTR || p->ulPublicDataLen != sizeof(peer) || !p->pPublicData || memcmp(p->pPublicData, peer, sizeof(peer))) return CKR_MECHANISM_PARAM_INVALID;
+    int aes = 0;
+    CK_ULONG output_length = X_LENGTH;
+#ifdef X_KDF_TEST
+    const CK_EC_KDF_TYPE kdfs[] = {CKD_SHA224_KDF, CKD_SHA256_KDF, CKD_SHA384_KDF, CKD_SHA512_KDF,
+        CKD_SHA224_KDF_SP800, CKD_SHA256_KDF_SP800, CKD_SHA384_KDF_SP800, CKD_SHA512_KDF_SP800};
+    const CK_ULONG lengths[] = {1,64,4096,16,24,32};
+    aes = kd_case % 6 >= 3;
+    output_length = lengths[kd_case % 6];
+    if (p->kdf != kdfs[(kd_case % 48) / 6]) return CKR_MECHANISM_PARAM_INVALID;
+    if (kd_case % 6 == 1) { if (p->ulSharedDataLen != 0) return CKR_MECHANISM_PARAM_INVALID; }
+    else if (kd_case % 6 == 2) {
+        if (p->ulSharedDataLen != 4096 || !p->pSharedData) return CKR_MECHANISM_PARAM_INVALID;
+        for (CK_ULONG i = 0; i < 4096; ++i) if (p->pSharedData[i] != 'c') return CKR_MECHANISM_PARAM_INVALID;
+    } else if (p->ulSharedDataLen != 8 || !p->pSharedData || memcmp(p->pSharedData,"context\0",8)) return CKR_MECHANISM_PARAM_INVALID;
+#else
+    if (p->kdf != CKD_NULL || p->ulSharedDataLen != 0 || p->pSharedData != NULL_PTR) return CKR_MECHANISM_PARAM_INVALID;
+#endif
+    if (p->ulPublicDataLen != sizeof(peer) || !p->pPublicData || memcmp(p->pPublicData, peer, sizeof(peer))) return CKR_MECHANISM_PARAM_INVALID;
     unsigned seen = 0;
     const CK_ATTRIBUTE_TYPE expected[] = {CKA_CLASS, CKA_KEY_TYPE, CKA_VALUE_LEN, CKA_TOKEN, CKA_PRIVATE, CKA_SENSITIVE, CKA_DERIVE, CKA_EXTRACTABLE, CKA_ENCRYPT, CKA_DECRYPT, CKA_SIGN, CKA_VERIFY, CKA_WRAP, CKA_UNWRAP, CKA_ID, CKA_LABEL};
     for (CK_ULONG i = 0; i < count; ++i) {
@@ -110,12 +131,18 @@ static CK_RV x_derive(CK_SESSION_HANDLE s, CK_MECHANISM_PTR m, CK_OBJECT_HANDLE 
         seen |= 1U << index;
         switch (a.type) {
             case CKA_CLASS: if (a.ulValueLen != sizeof(CK_ULONG) || *(CK_ULONG *)a.pValue != CKO_SECRET_KEY) return CKR_TEMPLATE_INCONSISTENT; break;
-            case CKA_KEY_TYPE: if (a.ulValueLen != sizeof(CK_ULONG) || *(CK_ULONG *)a.pValue != CKK_GENERIC_SECRET) return CKR_TEMPLATE_INCONSISTENT; break;
-            case CKA_VALUE_LEN: if (a.ulValueLen != sizeof(CK_ULONG) || *(CK_ULONG *)a.pValue != X_LENGTH) return CKR_TEMPLATE_INCONSISTENT; break;
-            case CKA_TOKEN: case CKA_PRIVATE: case CKA_SENSITIVE: case CKA_DERIVE:
+            case CKA_KEY_TYPE: if (a.ulValueLen != sizeof(CK_ULONG) || *(CK_ULONG *)a.pValue != (aes ? CKK_AES : CKK_GENERIC_SECRET)) return CKR_TEMPLATE_INCONSISTENT; break;
+            case CKA_VALUE_LEN: if (a.ulValueLen != sizeof(CK_ULONG) || *(CK_ULONG *)a.pValue != output_length) return CKR_TEMPLATE_INCONSISTENT; break;
+            case CKA_TOKEN: case CKA_PRIVATE: case CKA_SENSITIVE:
                 if (a.ulValueLen != 1 || *(CK_BBOOL *)a.pValue != CK_TRUE) return CKR_TEMPLATE_INCONSISTENT;
                 break;
-            case CKA_EXTRACTABLE: case CKA_ENCRYPT: case CKA_DECRYPT: case CKA_SIGN: case CKA_VERIFY: case CKA_WRAP: case CKA_UNWRAP:
+            case CKA_DERIVE:
+                if (a.ulValueLen != 1 || *(CK_BBOOL *)a.pValue != (aes ? CK_FALSE : CK_TRUE)) return CKR_TEMPLATE_INCONSISTENT;
+                break;
+            case CKA_ENCRYPT: case CKA_DECRYPT:
+                if (a.ulValueLen != 1 || *(CK_BBOOL *)a.pValue != (aes ? CK_TRUE : CK_FALSE)) return CKR_TEMPLATE_INCONSISTENT;
+                break;
+            case CKA_EXTRACTABLE: case CKA_SIGN: case CKA_VERIFY: case CKA_WRAP: case CKA_UNWRAP:
                 if (a.ulValueLen != 1 || *(CK_BBOOL *)a.pValue != CK_FALSE) return CKR_TEMPLATE_INCONSISTENT;
                 break;
             case CKA_ID: if (a.ulValueLen != 1 || *(CK_BYTE *)a.pValue != 2) return CKR_TEMPLATE_INCONSISTENT; break;

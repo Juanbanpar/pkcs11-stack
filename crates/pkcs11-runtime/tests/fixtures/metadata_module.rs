@@ -22,6 +22,10 @@ impl MetadataModule {
     }
     /// Compile a metadata fixture against a specific independent header version.
     pub fn with_headers(source: &str, fault: u8, headers: &str) -> Self {
+        Self::with_case(source, usize::from(fault), headers)
+    }
+    /// Compile a fixture with a larger case selector and an independent header version.
+    pub fn with_case(source: &str, fault: usize, headers: &str) -> Self {
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let dir = std::env::temp_dir().join(format!(
             "pkcs11-opaque-{}-{}",

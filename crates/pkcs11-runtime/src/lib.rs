@@ -23,6 +23,8 @@ mod ecdh;
 pub use ecdh::{EcdhKdf, EcdhKeyRequest, EcdhOutput};
 mod eddsa;
 mod montgomery;
+mod montgomery_kdf;
+pub use montgomery_kdf::{MontgomeryKdfRequest, MontgomeryOutput};
 mod montgomery_named;
 pub use montgomery_named::{MontgomeryNamedCurve, MontgomeryNamedPublicKey};
 mod x448;

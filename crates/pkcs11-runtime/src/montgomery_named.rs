@@ -17,7 +17,7 @@ pub enum MontgomeryNamedCurve {
     Curve448,
 }
 impl MontgomeryNamedCurve {
-    fn curve(self) -> crate::montgomery::Curve {
+    pub(crate) fn curve(self) -> crate::montgomery::Curve {
         match self {
             Self::Curve25519 => crate::montgomery::Curve::Curve25519,
             Self::Curve448 => crate::montgomery::Curve::Curve448,

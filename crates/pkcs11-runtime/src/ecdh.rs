@@ -14,18 +14,20 @@ use cryptoki::{
 
 /// Explicit ECDH key derivation function. Provider parameter support is advisory
 /// until C_DeriveKey completes; no fallback to another KDF is attempted.
+/// [`EcdhKeyRequest`] accepts SHA-256/384/512; [`crate::MontgomeryKdfRequest`]
+/// additionally accepts SHA-224.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EcdhKdf {
     /// No KDF: preserve the complete raw shared secret for a later KDF.
     Null,
-    /// ANSI X9.63 with SHA-256/384/512: Hash(Z || counter || shared info).
+    /// ANSI X9.63 with SHA-224/256/384/512: Hash(Z || counter || shared info).
     /// The counter is big-endian.
     X963(DigestAlgorithm),
-    /// NIST SP 800-56A with SHA-256/384/512: Hash(counter || Z || shared info).
+    /// NIST SP 800-56A with SHA-224/256/384/512: Hash(counter || Z || shared info).
     Sp80056a(DigestAlgorithm),
 }
 impl EcdhKdf {
-    fn parameters(self, info: &[u8]) -> Result<EcKdf<'_>, Error> {
+    pub(crate) fn parameters(self, info: &[u8]) -> Result<EcKdf<'_>, Error> {
         Ok(match self {
             Self::Null => EcKdf::null(),
             Self::X963(DigestAlgorithm::Sha224) => EcKdf::sha224(info),

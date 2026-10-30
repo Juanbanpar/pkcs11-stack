@@ -545,6 +545,22 @@ and authenticate peers separately. The 56-byte curve448 result cannot feed the
 HKDF-SHA512 profile requiring a 64-byte input; SP 800-108 accepts either width.
 Provider rejection is returned without retry, fallback or rollback. The client exposes these operations with explicit raw peer input.
 
+`derive_x25519_with_kdf`, `derive_x448_with_kdf` and
+`derive_named_montgomery_with_kdf` accept a checked peer and
+`MontgomeryKdfRequest`. They retain the exact OID/curveName checks above and use
+`EcdhKdf::{Null, X963, Sp80056a}`. The hashed profiles support
+SHA-224/256/384/512 and public shared info of at most 4096 bytes. Select
+`MontgomeryOutput::DerivationSecret { length }` for 1–4096 bytes permitting
+further derivation only, or `MontgomeryOutput::Aes` for AES-128/192/256 permitting
+encryption/decryption only. All outputs are persistent, private, sensitive and
+nonextractable. The null KDF requires empty shared info and `RawSecret`, retaining
+the complete 32/56-byte result. There is no implicit truncation of raw secrets,
+profile conversion, fallback, retry or software agreement. Existing raw-secret
+and SHA-512-only X448 APIs retain their behavior. A later HKDF stage still
+requires its own supported hash-length input; SP 800-108 requires at least
+16 input bytes. Authenticate the peer, choose protocol-specific context, and
+check session closure before releasing results.
+
 `derive_ecdh_key` accepts `EcdhKeyRequest` with explicit `EcdhKdf` and
 `EcdhOutput`. ANSI X9.63 and NIST SP 800-56A KDFs support SHA-256/384/512 and
 up to 4096 bytes of public shared info. They create either AES-128/192/256 keys
