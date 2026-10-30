@@ -153,11 +153,25 @@ Counter and Double Pipeline modes reject `--kdf-iv-file`, including empty files.
 Capabilities and execution check the selected mode independently; unsupported modes never fall
 back to another. Output permissions and other bounds are identical.
 
+Select `--prf aes-cmac` on either command to use an AES-128/192/256 derivation
+base. Omit `--digest`; that option is rejected for AES-CMAC. Feedback's optional
+IV is then empty or exactly 16 bytes. The base must permit the selected KDF and
+be sensitive and nonextractable; standalone CMAC signing permission is unnecessary.
+The existing `--prf hmac` default requires `--digest` for derivation and retains
+the existing capability response and output policy.
+
+```sh
+pkcs11ctl --module /trusted/provider.so derive-kbkdf \
+  --object 'pkcs11:token=example;id=%01;type=secret-key' \
+  --prf aes-cmac --mode counter --kind aes256 \
+  --id 02 --label 'derived encryption key' --pin-file user.pin --confirm
+```
+
 Double Pipeline constructs `A(0) = label || 0x00 || context || [L]_32` inside
 the token and derives each block using `A(i) || [i]_32 || label || 0x00 ||
 context || [L]_32`. Both integers are big-endian, and L is in bits. It uses the
-same HMAC-SHA-256/384/512 and protected output choices. NSS softoken supports the
-tested generic-secret profile; the pinned Kryoptic provider does not advertise
+selected HMAC-SHA-256/384/512 or AES-CMAC PRF and protected output choices.
+NSS softoken supports the tested generic-secret HMAC and AES-CMAC profiles; the pinned Kryoptic provider does not advertise
 Double Pipeline. Unsupported mechanisms and missing required key metadata are
 returned without a mode substitution.
 

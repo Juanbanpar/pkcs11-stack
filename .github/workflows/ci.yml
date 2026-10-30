@@ -243,5 +243,5 @@ jobs:
         run: |
           ./tools/test-ml-kem.sh
           ./tools/test-kem-hkdf.sh
-      - name: Require NSS SP800-108 Double Pipeline workflows
+      - name: Require NSS SP800-108 workflows
         run: ./tools/test-nss.sh

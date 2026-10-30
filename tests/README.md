@@ -68,7 +68,8 @@ or formal conformance. Coverage is recorded per capability below.
 | Full/general AES-CMAC generation and verification | Implemented | Runtime/client/CLI/desktop; AES-128/192/256 and OpenSSL comparisons, authentication-only key generation, RO use, permission and allow-list rejection, verification mismatches and output preservation. Native fixtures check entry points, flags, fixed output bounds and failed-session handling. General CMAC uses explicit native 8–16-byte parameters with all three AES sizes, independent OpenSSL prefix comparisons, general-only key generation, exact-length verification, permission rejection and stale frontend profiles. Kryoptic requires both profiles; SoftHSM retains its advertised full-tag profile. Independent 2.40 fixtures check CK_MAC_GENERAL_PARAMS and bounded output failures. |
 | SP 800-108 counter/feedback HMAC-SHA-2 | Implemented | Runtime/client/CLI/desktop; HMAC-SHA-256/384/512, 32-bit big-endian counter and output bit length, separator and one output key. Feedback uses an omitted or hash-length public IV. Kryoptic results match OpenSSL for all AES sizes and generic outputs through 4096 bytes, empty/binary/maximum label/context and generic/typed bases. Native fixtures verify both native layouts, null iteration fields and omitted IVs, counter placement, bit-based bounds, permissions and failure health. Frontends check mode selection, IV validation/clearing, output agreement and stale selections. |
 | SP 800-108 Double Pipeline HMAC-SHA-2 | Implemented | Runtime/client/CLI; HMAC-SHA-256/384/512, A(0) constructed from label/separator/context/output bit length, 32-bit big-endian counter and one protected output. Native 3.0/3.1/3.2 fixtures check layout, ordering, policy and failure handling. NSS generic bases and AES/generic outputs through 4096 bytes match independent OpenSSL HMAC calculations. Typed NSS HMAC keys omit required length metadata and are rejected. Desktop choices remain Counter/Feedback. |
-| Remaining symmetric algorithms, MACs and KDF expansion | Pending | Existing AES-GCM, explicit KW/KWP, constrained HKDF and ECDH profiles. GMAC, other SP 800-108 PRFs and PBKDF2 remain pending. |
+| SP 800-108 AES-CMAC PRF | Implemented | Runtime/client/CLI explicit PRF selection with 16/24/32-byte protected AES bases. Existing HMAC APIs, defaults and responses remain supported. Independent 3.0/3.1/3.2 headers verify all three native layouts, bit-based bounds, invalid AES lengths despite broad native bounds, permissions, 16-byte Feedback IVs and derivation without standalone MAC entry points. NSS verifies all three modes; Kryoptic verifies Counter/Feedback and rejects unsupported Double Pipeline. AES/generic outputs through 4096 bytes match OpenSSL KBKDF or an independent CMAC Double Pipeline construction. Client/CLI outputs agree with the independent runtime reference keys, and CLI success is withheld through derivation/close/finalize failures. |
+| Remaining symmetric algorithms, MACs and KDF expansion | Pending | Existing AES-GCM, explicit KW/KWP, constrained HKDF and ECDH profiles. GMAC, additional HMAC PRFs and PBKDF2 remain pending. |
 | AES-KW/KWP key transfer | Implemented | Runtime/client/CLI/desktop; explicit selection and default IVs. Kryoptic/OpenSSL comparisons cover all AES wrapping/target sizes, output permissions, trust/extractability rejection, RO/duplicate-ID rejection, mismatches and tampering. SoftHSM retains the KW workflow. No deprecated PAD alias or fallback. |
 | SHA-512 HashML-DSA | Implemented | Runtime/client/CLI single-part original-message and typed 64-byte prehash profiles. Independent 3.2-header fixtures exercise both parameter layouts on selected 2.40/3.0/3.1/3.2 tables, permissions, pointer gates, context authentication without multipart, exact output bounds, completed mismatches and discarded errors. Required Kryoptic tests cover all three parameter sets and hedge choices, empty/large messages, empty/ASCII/255-byte binary contexts, independent RustCrypto verification and deterministic agreement between input modes. CLI signatures match the independently verified client results and are withheld through native/cleanup failures. |
 | Additional HashML-DSA profiles, SLH-DSA and TLS signatures | Pending | Other prehash functions, token streaming and certificate/TLS integration remain separate work. Existing pure ML-DSA and ML-KEM profiles remain supported. |
@@ -243,7 +244,7 @@ workflows remain planned. O2 implements bounded AES-GCM multipart workflows and
 client readers. CLI `--multipart` supports files/stdin with checked output commit;
 larger-file staging and desktop multipart integration remain open.
 Keep unconfirmed operations discarded on legacy providers. GMAC, additional
-SP800-108 PRFs, PBKDF2, additional HashML-DSA profiles, SLH-DSA and TLS extensions remain separate
+SP800-108 HMAC PRFs, PBKDF2, additional HashML-DSA profiles, SLH-DSA and TLS extensions remain separate
 backlog items in the coverage table. Provider gaps do not justify implicit software
 fallback or weakening existing metadata/permission checks.
 
@@ -420,6 +421,16 @@ other native profile. Native fixtures compile against the independent 2.40
 headers and check parameter widths, permissions, missing pointers, verification
 mismatches and malformed output handling. SoftHSM keeps full-tag coverage.
 
+AES-CMAC KDF tests run in both provider lanes after runtime reference keys are
+created. NSS requires Counter, Feedback and Double Pipeline with all three AES
+base sizes; Kryoptic requires its supported Counter/Feedback modes. OpenSSL KBKDF
+supplies Counter/Feedback references, while Double Pipeline uses an independent
+construction with OpenSSL only as a full-block CMAC primitive. Cases include
+empty/binary/4096-byte label and context, omitted/16-byte Feedback IVs, AES outputs
+and 1/17/128/4096-byte derivation secrets. Challenges compare protected derived
+keys with disposable imported reference values; derived secret values are never
+read. Client/CLI encryption proofs use the independently checked runtime keys.
+
 Counter/feedback SP 800-108 tests compare native HMAC-SHA-256/384/512 outputs with
 OpenSSL KBKDF using a 32-bit counter, separator and sum-of-keys bit length. Feedback
 checks omitted and hash-length IVs for all three digests; invalid IVs are rejected
@@ -430,7 +441,7 @@ read-only sessions and duplicate IDs. Client, CLI and desktop independently
 compare AES-GCM results with runtime-derived reference keys. A native fixture
 checks parameter layout, bit-based mechanism bounds and failed-session behavior.
 
-NSS Double Pipeline tests use an isolated SQL database:
+NSS SP800-108 tests use an isolated SQL database:
 
 ```sh
 # Debian/Ubuntu: apt install libnss3-tools; Fedora: dnf install nss-tools
@@ -440,8 +451,8 @@ bash tools/test-nss.sh
 The runner locates the packaged `libsoftokn3.so`, or uses the trusted path in
 `PKCS11_TEST_NSS_MODULE`. It requires `certutil` and OpenSSL, creates a temporary
 password-protected database and sets `NSS_LIB_PARAMS` only for its subprocesses.
-Runtime tests provision public test bases and compare Double Pipeline outputs
-with an independent construction using OpenSSL HMAC. Client and CLI tests reuse
+Runtime tests provision public test bases and compare outputs with OpenSSL KBKDF
+and independent HMAC/CMAC Double Pipeline constructions. Client and CLI tests reuse
 those reference keys. The Linux provider CI job requires all three layers.
 Kryoptic's existing Counter/Feedback workflows remain mandatory.
 

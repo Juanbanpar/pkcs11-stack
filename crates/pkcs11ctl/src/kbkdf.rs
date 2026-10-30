@@ -5,7 +5,8 @@ use crate::{
 };
 use clap::ArgMatches;
 use pkcs11_client::{
-    DigestAlgorithm, KbkdfMode, KbkdfOutput, KbkdfRequest, ManagementSession, object_reference,
+    DigestAlgorithm, KbkdfMode, KbkdfOutput, KbkdfPrf, KbkdfPrfRequest, ManagementSession,
+    object_reference,
 };
 use serde_json::json;
 pub(crate) fn selected(name: &str) -> bool {
@@ -25,6 +26,9 @@ impl Inputs {
         }
         if uri(m, "object")?.path_attribute("type") != Some(b"secret-key") {
             return Err(usage("SP800-108 requires type=secret-key"));
+        }
+        if get(m, "prf") == Some("aes-cmac") && get(m, "digest").is_some() {
+            return Err(usage("AES-CMAC does not accept --digest"));
         }
         if name == "derive-kbkdf" {
             for (name, value) in [
@@ -54,7 +58,7 @@ impl Inputs {
         }
         Ok(inputs)
     }
-    fn request<'a>(&'a self, m: &'a ArgMatches, id: &'a [u8]) -> Result<KbkdfRequest<'a>> {
+    fn request<'a>(&'a self, m: &'a ArgMatches, id: &'a [u8]) -> Result<KbkdfPrfRequest<'a>> {
         let output = match need(m, "kind")? {
             "aes128" => KbkdfOutput::Aes128,
             "aes192" => KbkdfOutput::Aes192,
@@ -67,8 +71,13 @@ impl Inputs {
         if !matches!(output, KbkdfOutput::DerivationSecret { .. }) && get(m, "length").is_some() {
             return Err(usage("--length applies only to derivation-secret"));
         }
-        Ok(KbkdfRequest {
-            digest: digest(need(m, "digest")?),
+        let prf = if get(m, "prf") == Some("aes-cmac") {
+            KbkdfPrf::AesCmac
+        } else {
+            KbkdfPrf::try_from(digest(need(m, "digest")?)).map_err(pkcs11_client::Error::from)?
+        };
+        Ok(KbkdfPrfRequest {
+            prf,
             kdf_label: &self.label,
             context: &self.context,
             output,
@@ -93,6 +102,12 @@ pub(crate) fn operation(
 ) -> Result<Output> {
     let base = object_reference(uri(m, "object")?)?;
     let value = if name == "kbkdf-capabilities" {
+        if get(m, "prf") == Some("aes-cmac") {
+            let caps = session.kbkdf_prf_capabilities(&base, KbkdfPrf::AesCmac, mode(m)?)?;
+            return Ok(Output::Structured(
+                json!({"advisory":true,"prf":"aes-cmac","mode":need(m,"mode")?,"input_length":caps.input_length,"prf_output_length":16,"counter_bits":32,"length_bits":32,"separator":true}),
+            ));
+        }
         let caps = session.kbkdf_capabilities_with_mode(&base, mode(m)?)?;
         let digests: Vec<_> = [
             (DigestAlgorithm::Sha256, "sha256"),
@@ -106,8 +121,14 @@ pub(crate) fn operation(
     } else {
         let id = unhex(need(m, "id")?)?;
         let request = inputs.request(m, &id)?;
-        session.derive_kbkdf_with_mode(&base, &request, mode(m)?, &inputs.iv)?;
-        json!({"derived":true,"mode":need(m,"mode")?,"digest":need(m,"digest")?,"kind":need(m,"kind")?,"length":request.output.length(),"id_hex":hex(&id),"extractable":false})
+        session.derive_kbkdf_prf(&base, &request, mode(m)?, &inputs.iv)?;
+        let mut value = json!({"derived":true,"mode":need(m,"mode")?,"kind":need(m,"kind")?,"length":request.output.length(),"id_hex":hex(&id),"extractable":false});
+        if request.prf == KbkdfPrf::AesCmac {
+            value["prf"] = json!("aes-cmac");
+        } else {
+            value["digest"] = json!(need(m, "digest")?);
+        }
+        value
     };
     Ok(Output::Structured(value))
 }

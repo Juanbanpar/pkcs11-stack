@@ -737,6 +737,7 @@ pub(crate) fn command() -> Command {
         auth(object(
             Command::new("kbkdf-capabilities")
                 .about("Inspect native SP800-108 PRF choices for an explicit mode")
+                .arg(value("prf", "PRF family; defaults to the existing HMAC profile").value_parser(["hmac","aes-cmac"]).default_value("hmac"))
                 .arg(
                     value("mode", "SP800-108 mode")
                         .value_parser(["counter", "feedback", "double-pipeline"])
@@ -745,7 +746,8 @@ pub(crate) fn command() -> Command {
         )),
         mutation(auth(named(hkdf_digest(object(
             Command::new("derive-kbkdf")
-                .about("Derive one token key using explicit SP800-108 mode and HMAC-SHA2")
+                .about("Derive one token key using explicit SP800-108 mode and PRF")
+                .arg(value("prf", "PRF family; HMAC requires --digest, AES-CMAC forbids it").value_parser(["hmac","aes-cmac"]).default_value("hmac"))
                 .arg(
                     value("mode", "SP800-108 mode")
                         .value_parser(["counter", "feedback", "double-pipeline"])
@@ -753,7 +755,7 @@ pub(crate) fn command() -> Command {
                 )
                 .arg(value(
                     "kdf-iv-file",
-                    "Public feedback IV file, empty or hash-length; no stdin",
+                    "Public feedback IV file, empty or PRF-block-length (16 bytes for AES-CMAC); no stdin",
                 ))
                 .arg(
                     required("kind", "Output type and permissions").value_parser([
@@ -776,7 +778,7 @@ pub(crate) fn command() -> Command {
                     "Public context file, at most 4096 bytes; omitted means empty",
                 )),
         )))))
-        .mut_arg("digest", |arg| arg.help("SP800-108 HMAC hash")),
+        .mut_arg("digest", |arg| arg.required(false).required_if_eq("prf","hmac").help("HMAC hash; forbidden with --prf aes-cmac")),
         mutation(auth(named(hkdf_options(object(
             Command::new("derive-hkdf")
                 .about("Derive a persistent nonextractable token key using HKDF")

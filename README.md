@@ -136,6 +136,9 @@ mismatches permit reuse.
 SP 800-108 counter and feedback modes derive AES or generic derivation keys with
 HMAC-SHA-256/384/512 through the libraries, CLI and desktop, using explicit protocol
 label/context.
+The libraries and CLI also support an explicit AES-CMAC PRF with protected AES
+derivation bases. NSS validates Counter, Feedback and Double Pipeline; Kryoptic
+validates Counter/Feedback. Existing HMAC calls and defaults remain supported.
 Private-key import is not implemented. Certificate parsing and binding do not validate
 certificate trust; applications configure trust separately.
 

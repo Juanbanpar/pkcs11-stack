@@ -25,3 +25,6 @@ command -v "$PKCS11_TEST_KDF_OPENSSL" >/dev/null
 cargo test -p pkcs11-runtime --test kbkdf_provider --locked -- double_pipeline_nss --ignored --test-threads=1
 cargo test -p pkcs11-client --test kbkdf_provider --locked -- double_pipeline_nss --ignored --test-threads=1
 cargo test -p pkcs11ctl --test kbkdf --locked -- double_pipeline_nss --ignored --test-threads=1
+cargo test -p pkcs11-runtime --test kbkdf_provider --locked -- kbkdf_aes_cmac --ignored --test-threads=1
+cargo test -p pkcs11-client --test kbkdf_provider --locked -- kbkdf_aes_cmac --ignored --test-threads=1
+cargo test -p pkcs11ctl --test kbkdf --locked -- kbkdf_aes_cmac --ignored --test-threads=1

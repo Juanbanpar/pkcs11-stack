@@ -112,13 +112,17 @@ fn kbkdf_modes_cli_capabilities_derive_and_independent_runtime_agreement() {
     }
 }
 fn check_mode(mode: &str) {
+    check_mode_with_prf(mode, false);
+}
+fn check_mode_with_prf(mode: &str, cmac: bool) {
     assert_eq!(
         std::env::var("PKCS11_TEST_KDF_ISOLATED").as_deref(),
         Ok("1")
     );
     let module = std::env::var("PKCS11_TEST_KDF_MODULE").unwrap();
-    let root = std::path::PathBuf::from(std::env::var_os("PKCS11_TEST_KDF_DIR").unwrap())
-        .join(format!("cli-kbkdf-{mode}"));
+    let root = std::path::PathBuf::from(std::env::var_os("PKCS11_TEST_KDF_DIR").unwrap()).join(
+        format!("cli-kbkdf-{}-{mode}", if cmac { "cmac" } else { "hmac" }),
+    );
     std::fs::create_dir(&root).unwrap();
     let pin = root.join("pin");
     std::fs::write(&pin, b"12345678\n").unwrap();
@@ -131,6 +135,9 @@ fn check_mode(mode: &str) {
     let iv_file = root.join("iv");
     let invoke = |args: &[&str]| {
         let mut args = args.to_vec();
+        if cmac && args[0] == "kbkdf-capabilities" {
+            args.extend(["--prf", "aes-cmac"]);
+        }
         if mode != "counter" && matches!(args[0], "kbkdf-capabilities" | "derive-kbkdf") {
             args.extend(["--mode", mode]);
         }
@@ -153,30 +160,48 @@ fn check_mode(mode: &str) {
         serde_json::from_slice::<Value>(&out.stdout).unwrap()["result"].clone()
     };
     for (index, digest) in ["sha256", "sha384", "sha512"].into_iter().enumerate() {
-        std::fs::write(&iv_file, vec![0xA5; [32, 48, 64][index]]).unwrap();
-        let base = format!("pkcs11:token=kdf-test;id=%A0%{index:02X};type=secret-key");
+        std::fs::write(
+            &iv_file,
+            vec![0xA5; if cmac { 16 } else { [32, 48, 64][index] }],
+        )
+        .unwrap();
+        let base = if cmac {
+            format!("pkcs11:token=kdf-test;id=%FA%93%{index:02X};type=secret-key")
+        } else {
+            format!("pkcs11:token=kdf-test;id=%A0%{index:02X};type=secret-key")
+        };
         let caps = ok(&["kbkdf-capabilities", "--object", &base]);
-        assert_eq!(
-            caps["digests"],
-            serde_json::json!(["sha256", "sha384", "sha512"])
-        );
+        if cmac {
+            assert_eq!(caps["prf"], "aes-cmac");
+            assert_eq!(caps["input_length"], [16, 24, 32][index]);
+        } else {
+            assert_eq!(
+                caps["digests"],
+                serde_json::json!(["sha256", "sha384", "sha512"])
+            );
+        }
         assert_eq!(caps["mode"], mode);
-        let id = format!("fa88{index:02x}");
-        let object = format!("pkcs11:token=kdf-test;id=%FA%88%{index:02X};type=secret-key");
+        let prefix = if cmac { 0x96 } else { 0x88 };
+        let id = format!("fa{prefix:02x}{index:02x}");
+        let object =
+            format!("pkcs11:token=kdf-test;id=%FA%{prefix:02X}%{index:02X};type=secret-key");
         let canonical = format!(
             "pkcs11:token=kdf-test;id=%FA%{:02X}%{index:02X};type=secret-key",
-            match mode {
-                "counter" => 0x82,
-                "feedback" => 0x8a,
-                _ => 0x8b,
+            match (mode, cmac) {
+                ("counter", true) => 0x90,
+                ("feedback", true) => 0x91,
+                (_, true) => 0x92,
+                ("counter", false) => 0x82,
+                ("feedback", false) => 0x8a,
+                (_, false) => 0x8b,
             }
         );
         let args = [
             "derive-kbkdf",
             "--object",
             &base,
-            "--digest",
-            digest,
+            if cmac { "--prf" } else { "--digest" },
+            if cmac { "aes-cmac" } else { digest },
             "--kind",
             "aes256",
             "--kdf-label-file",
@@ -225,8 +250,8 @@ fn check_mode(mode: &str) {
             "derive-kbkdf",
             "--object",
             &canonical,
-            "--digest",
-            digest,
+            if cmac { "--prf" } else { "--digest" },
+            if cmac { "aes-cmac" } else { digest },
             "--kind",
             "aes256",
             "--id",
@@ -307,5 +332,16 @@ fn double_pipeline_native_failures_withhold_success_until_checked_cleanup() {
                 assert_eq!(result.status.code(), Some(5));
             }
         }
+    }
+}
+
+#[test]
+#[ignore = "requires runtime AES-CMAC KDF reference keys from the provider runners"]
+fn kbkdf_aes_cmac_cli_capabilities_derive_and_independent_runtime_agreement() {
+    for mode in ["counter", "feedback"] {
+        check_mode_with_prf(mode, true);
+    }
+    if std::env::var("PKCS11_TEST_NSS_ISOLATED").as_deref() == Ok("1") {
+        check_mode_with_prf("double-pipeline", true);
     }
 }
