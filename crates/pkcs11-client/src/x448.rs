@@ -138,3 +138,23 @@ impl ManagementSession<'_> {
             .derive_x448_key(base, &request.runtime_request())?)
     }
 }
+
+impl ManagementSession<'_> {
+    /// Derive once with explicit native KDF/output choices from a matching,
+    /// protected private key in RW mode. Requires the exact peer profile; no
+    /// OID/curveName conversion or KDF fallback occurs. Secret bytes stay on
+    /// the token. Failures may leave objects; no retry/rollback. Authenticate
+    /// peer ownership separately and check session closure on every result.
+    pub fn derive_x448_with_kdf(
+        &mut self,
+        base: &ObjectRef,
+        peer: &X448Peer,
+        request: &crate::MontgomeryKdfRequest<'_>,
+    ) -> Result<(), Error> {
+        Ok(self.session.derive_x448_with_kdf(
+            base,
+            peer.public_key(),
+            &request.runtime_request(),
+        )?)
+    }
+}

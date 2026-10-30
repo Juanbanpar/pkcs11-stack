@@ -22,6 +22,8 @@ mod digest;
 mod eddsa;
 mod eddsa_named;
 pub use eddsa_named::EdDsaNamedPublicKey;
+mod montgomery_kdf;
+pub use montgomery_kdf::{MontgomeryKdfRequest, MontgomeryOutput};
 mod montgomery_named;
 pub use montgomery_named::{
     MontgomeryNamedCurve, MontgomeryNamedKeyPairRequest, MontgomeryNamedPeer,

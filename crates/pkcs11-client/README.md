@@ -704,6 +704,30 @@ width, while raw curve448 cannot feed the hash-length HKDF-SHA512 profile.
 Identity bounds, RW requirements, duplicate checks, persistent effects and checked
 closure follow the OID operations above.
 
+`derive_x25519_with_kdf`, `derive_x448_with_kdf` and
+`derive_named_montgomery_with_kdf` take the corresponding checked peer plus a
+`MontgomeryKdfRequest`. Explicit `EcdhKdf::X963` and `EcdhKdf::Sp80056a` support
+SHA-224/256/384/512 with up to 4096 bytes of public shared info. Select
+`MontgomeryOutput::DerivationSecret { length }` for 1–4096 bytes permitting
+further derivation only, or `MontgomeryOutput::Aes` for AES encryption/decryption.
+Null KDF requires empty context and `RawSecret`, preserving the full 32/56 bytes.
+All outputs remain private, sensitive and nonextractable. The separate OID and
+curveName profiles, existing raw APIs and legacy X448 output choices are retained.
+Further HKDF/SP 800-108 operations enforce their existing input-length rules.
+
+```no_run
+# use pkcs11_client::*;
+# fn example(session: &mut ManagementSession<'_>, base: &ObjectRef, peer_der: &[u8]) -> Result<(), Error> {
+let peer = X25519Peer::from_spki_der(peer_der)?;
+session.derive_x25519_with_kdf(base, &peer, &MontgomeryKdfRequest {
+    kdf: EcdhKdf::X963(DigestAlgorithm::Sha256),
+    shared_info: b"authenticated protocol transcript",
+    output: MontgomeryOutput::Aes(AesKeySize::Bits256),
+    identity: SecretKeyIdentity { id: b"agreement-aes", label: b"Agreement AES" },
+})
+# }
+```
+
 `derive_ecdh` accepts an `EcdhRequest` with the same validated peer, an explicit
 `EcdhKdf`, public shared info and `EcdhOutput`. ANSI X9.63 and NIST SP 800-56A
 support SHA-256/384/512. Hashed output can be AES-128/192/256 for encryption and

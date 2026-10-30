@@ -137,3 +137,23 @@ impl ManagementSession<'_> {
         )?)
     }
 }
+
+impl ManagementSession<'_> {
+    /// Derive once with explicit native KDF/output choices from a matching,
+    /// protected private key in RW mode. Requires the exact peer profile; no
+    /// OID/curveName conversion or KDF fallback occurs. Secret bytes stay on
+    /// the token. Failures may leave objects; no retry/rollback. Authenticate
+    /// peer ownership separately and check session closure on every result.
+    pub fn derive_named_montgomery_with_kdf(
+        &mut self,
+        base: &ObjectRef,
+        peer: &MontgomeryNamedPeer,
+        request: &crate::MontgomeryKdfRequest<'_>,
+    ) -> Result<(), Error> {
+        Ok(self.session.derive_named_montgomery_with_kdf(
+            base,
+            &peer.0,
+            &request.runtime_request(),
+        )?)
+    }
+}
