@@ -71,8 +71,8 @@ or formal conformance. Coverage is recorded per capability below.
 | SP 800-108 AES-CMAC PRF | Implemented | Runtime/client/CLI explicit PRF selection with 16/24/32-byte protected AES bases. Existing HMAC APIs, defaults and responses remain supported. Independent 3.0/3.1/3.2 headers verify all three native layouts, bit-based bounds, invalid AES lengths despite broad native bounds, permissions, 16-byte Feedback IVs and derivation without standalone MAC entry points. NSS verifies all three modes; Kryoptic verifies Counter/Feedback and rejects unsupported Double Pipeline. AES/generic outputs through 4096 bytes match OpenSSL KBKDF or an independent CMAC Double Pipeline construction. Client/CLI outputs agree with the independent runtime reference keys, and CLI success is withheld through derivation/close/finalize failures. |
 | Remaining symmetric algorithms, MACs and KDF expansion | Pending | Existing AES-GCM, explicit KW/KWP, constrained HKDF and ECDH profiles. GMAC, additional HMAC PRFs and PBKDF2 remain pending. |
 | AES-KW/KWP key transfer | Implemented | Runtime/client/CLI/desktop; explicit selection and default IVs. Kryoptic/OpenSSL comparisons cover all AES wrapping/target sizes, output permissions, trust/extractability rejection, RO/duplicate-ID rejection, mismatches and tampering. SoftHSM retains the KW workflow. No deprecated PAD alias or fallback. |
-| SHA-512 HashML-DSA | Implemented | Runtime/client/CLI single-part original-message and typed 64-byte prehash profiles. Independent 3.2-header fixtures exercise both parameter layouts on selected 2.40/3.0/3.1/3.2 tables, permissions, pointer gates, context authentication without multipart, exact output bounds, completed mismatches and discarded errors. Required Kryoptic tests cover all three parameter sets and hedge choices, empty/large messages, empty/ASCII/255-byte binary contexts, independent RustCrypto verification and deterministic agreement between input modes. CLI signatures match the independently verified client results and are withheld through native/cleanup failures. |
-| Additional HashML-DSA profiles, SLH-DSA and TLS signatures | Pending | Other prehash functions, token streaming and certificate/TLS integration remain separate work. Existing pure ML-DSA and ML-KEM profiles remain supported. |
+| SHA-512 HashML-DSA | Implemented | Runtime/client/CLI single-part original-message and typed 64-byte prehash profiles, plus native original-message signing and verification streams. Independent 3.2-header fixtures exercise both parameter layouts on selected 2.40/3.0/3.1/3.2 tables, independent single-part/multipart pointer gates, permissions, context authentication, exact output bounds, completed mismatches, cancellation and discarded errors. Reader tests cover interrupted reads, bounds, input errors and unwinding. Required Kryoptic tests cover all three parameter sets and hedge choices, empty/large messages, empty/ASCII/255-byte binary contexts, independent RustCrypto verification, deterministic agreement between input modes and cancellation followed by same-session reuse. CLI file/stdin signatures match the independently verified client results and are withheld through native/cleanup failures; external digests cannot select multipart. |
+| Additional HashML-DSA profiles, SLH-DSA and TLS signatures | Pending | Other prehash functions and certificate/TLS integration remain separate work. Existing pure ML-DSA and ML-KEM profiles remain supported. |
 | Legacy algorithm execution | Pending | No legacy opt-in or algorithms are enabled yet. |
 
 The native fixtures require a C99 compiler (`cc`) on Unix and run with the normal
@@ -326,13 +326,17 @@ empty, binary 255-byte and ASCII contexts; OpenSSL also verifies the nonempty AS
 context cases. Its pkeyutl command rejects zero-byte oneshot input, so empty-message
 verification uses the native and RustCrypto paths.
 
-The Kryoptic runner also requires single-part SHA-512 HashML-DSA through runtime,
-client and CLI. Client tests construct FIPS 204 Algorithm 5's prehash message with
+The Kryoptic runner also requires SHA-512 HashML-DSA through runtime, client and
+CLI, including native original-message signing and verification streams. Client
+tests construct FIPS 204 Algorithm 5's prehash message with
 its SHA-512 OID and use RustCrypto's ML-DSA internal verifier, independently of the
 provider's OpenSSL implementation. Deterministic signatures must agree between
-original-message and caller-digest modes. CLI tests use the client test's keys
-and independently verified reference signatures. No private key value or seed
-is exported. The pinned SoftHSM does not register these HashML-DSA mechanisms;
+single-part original-message, caller-digest and streaming modes. Interrupted
+readers, empty/large messages and cancellation followed by reuse of the same
+pooled session are exercised. CLI tests use the client test's keys and independently
+verified reference signatures for single-part and multipart file/stdin input.
+No private key value or seed is exported. The pinned SoftHSM does not register
+these HashML-DSA mechanisms;
 its pure ML-DSA coverage remains separate.
 
 Typed ML-KEM tests cover all parameter sets, key permissions, allowed mechanisms,

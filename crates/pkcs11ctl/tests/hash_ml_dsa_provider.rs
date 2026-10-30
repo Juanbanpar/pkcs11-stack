@@ -161,5 +161,73 @@ fn hash_ml_dsa_cli_modes_context_authentication_stdin_and_independent_signatures
             assert!(!failed.status.success());
             assert!(failed.stdout.is_empty());
         }
+
+        for domain in [vec![], b"context".to_vec(), vec![0xA5; 255]] {
+            std::fs::write(&context, &domain).unwrap();
+            for length in [0, 3, 1_000_003] {
+                let bytes = if length == 3 {
+                    b"abc".to_vec()
+                } else {
+                    (0..length).map(|i| (i % 251) as u8).collect()
+                };
+                std::fs::write(&input, &bytes).unwrap();
+                let expected = std::fs::read(
+                    root.join(format!("hash-stream-{index}-{}-{length}.sig", domain.len())),
+                )
+                .unwrap();
+                for file_input in [false, true] {
+                    let mut args = vec![
+                        "sign-hash-ml-dsa",
+                        "--object",
+                        &private,
+                        "--parameter-set",
+                        parameter,
+                        "--multipart",
+                        "--context-file",
+                        context.to_str().unwrap(),
+                        "--input",
+                        if file_input {
+                            input.to_str().unwrap()
+                        } else {
+                            "-"
+                        },
+                        "--hedging",
+                        "deterministic",
+                        "--output",
+                        "-",
+                    ];
+                    if index == 1 {
+                        args.extend(["--context-pin-file", pin.to_str().unwrap()]);
+                    }
+                    let signed = run(&args, (!file_input).then_some(bytes.as_slice()));
+                    ok(&signed);
+                    assert_eq!(signed.stdout, expected);
+                    std::fs::write(&signature, &signed.stdout).unwrap();
+                    let verified = run(
+                        &[
+                            "verify-hash-ml-dsa",
+                            "--object",
+                            &public,
+                            "--parameter-set",
+                            parameter,
+                            "--multipart",
+                            "--context-file",
+                            context.to_str().unwrap(),
+                            "--input",
+                            if file_input {
+                                input.to_str().unwrap()
+                            } else {
+                                "-"
+                            },
+                            "--signature",
+                            signature.to_str().unwrap(),
+                        ],
+                        (!file_input).then_some(bytes.as_slice()),
+                    );
+                    ok(&verified);
+                }
+            }
+        }
+        std::fs::write(&context, b"context").unwrap();
     }
 }

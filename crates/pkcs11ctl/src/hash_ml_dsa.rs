@@ -23,6 +23,25 @@ pub(crate) fn mode(m: &ArgMatches) -> HashMlDsaMode {
         HashMlDsaMode::Message
     }
 }
+pub(crate) fn validate_options(name: &str, m: &ArgMatches) -> Result<()> {
+    if selected(name) && flag(m, "multipart") && mode(m) == HashMlDsaMode::Prehashed {
+        return Err(usage(
+            "multipart HashML-DSA requires an original message; digest input is single-part",
+        ));
+    }
+    Ok(())
+}
+fn parameters<'a>(
+    m: &ArgMatches,
+    context: &'a [u8],
+) -> Result<pkcs11_client::HashMlDsaParameters<'a>> {
+    let request = request(m, &[], context)?;
+    Ok(pkcs11_client::HashMlDsaParameters {
+        parameter_set: request.parameter_set,
+        context,
+        hedging: request.hedging,
+    })
+}
 pub(crate) fn request<'a>(
     m: &ArgMatches,
     bytes: &'a [u8],
@@ -88,9 +107,37 @@ pub(crate) fn operation(
 ) -> Result<Output> {
     if name == "hash-ml-dsa-capabilities" {
         let key = PrivateKeyRef::new(uri(m, "object")?).map_err(pkcs11_client::Error::from)?;
-        let caps = session.hash_ml_dsa_capabilities(&key, mode(m))?;
+        let caps = if flag(m, "multipart") {
+            session.hash_ml_dsa_streaming_capabilities(&key)?
+        } else {
+            session.hash_ml_dsa_capabilities(&key, mode(m))?
+        };
         return Ok(Output::Structured(
             json!({"advisory":true,"key":crate::ml_dsa::key_info(caps.parameter_set),"hash":"sha512","input_kind":get(m,"input-kind").unwrap_or("message"),"can_sign":caps.can_sign,"always_authenticate":caps.always_authenticate}),
+        ));
+    }
+    if let Some(input) = &inputs.stream_input {
+        let parameters = parameters(m, &inputs.domain_context)?;
+        if name == "sign-hash-ml-dsa" {
+            let key = PrivateKeyRef::new(uri(m, "object")?).map_err(pkcs11_client::Error::from)?;
+            return input
+                .read(|mut reader| {
+                    session.sign_hash_ml_dsa_reader(
+                        &key,
+                        parameters,
+                        &MlDsaSigningPolicy::default(),
+                        inputs.context.pin(),
+                        &mut reader,
+                    )
+                })
+                .map(Output::Binary);
+        }
+        let key = PublicKeyRef::new(uri(m, "object")?).map_err(pkcs11_client::Error::from)?;
+        input.read(|mut reader| {
+            session.verify_hash_ml_dsa_reader(&key, parameters, &inputs.signature, &mut reader)
+        })?;
+        return Ok(Output::Structured(
+            json!({"verified":true,"verification":"token","hash":"sha512","trust_validated":false}),
         ));
     }
     let request = request(m, &inputs.bytes, &inputs.domain_context)?;

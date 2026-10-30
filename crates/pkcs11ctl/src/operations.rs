@@ -122,6 +122,7 @@ pub(crate) struct Inputs {
 }
 impl Inputs {
     pub fn load(name: &str, m: &ArgMatches) -> Result<Self> {
+        hash_ml_dsa::validate_options(name, m)?;
         let ml_dsa = ml_dsa::selected(m);
         let eddsa = eddsa::selected(m);
         if matches!(name, "sign" | "verify" | "verify-token") && flag(m, "multipart") {

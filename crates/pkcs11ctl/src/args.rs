@@ -365,14 +365,19 @@ pub(crate) fn command() -> Command {
         .arg(required("output", "New output file, or - for binary stdout; nonce/AAD are not included"))))
     };
     let hash_mode = |command: Command| {
-        command.arg(
-            value(
-                "input-kind",
-                "Original message hashed on token, or exactly 64 raw SHA-512 digest bytes",
+        command
+            .arg(flag(
+                "multipart",
+                "Use native token-hashed SHA-512 streams; original messages only, at most 64 MiB",
+            ))
+            .arg(
+                value(
+                    "input-kind",
+                    "Original message hashed on token, or exactly 64 raw SHA-512 digest bytes",
+                )
+                .value_parser(["message", "digest"])
+                .default_value("message"),
             )
-            .value_parser(["message", "digest"])
-            .default_value("message"),
-        )
     };
     let hash_input = |command: Command| {
         hash_mode(command)
@@ -393,7 +398,7 @@ pub(crate) fn command() -> Command {
             ))
     };
     let commands = [
-        auth(object(hash_mode(Command::new("hash-ml-dsa-capabilities").about("Inspect single-part SHA-512 HashML-DSA signing support for one input mode")))),
+        auth(object(hash_mode(Command::new("hash-ml-dsa-capabilities").about("Inspect SHA-512 HashML-DSA signing support for one input mode")))),
         context(auth(object(hash_input(Command::new("sign-hash-ml-dsa").about("Sign using native SHA-512 HashML-DSA; no implicit hashing fallback")
             .arg(value("hedging", "Randomness requirement; defaults to required").value_parser(["required", "preferred", "deterministic"]))
             .arg(required("output", "New signature file, or - for binary stdout")))))),

@@ -328,7 +328,7 @@ Always-authenticate keys use the separate context PIN options described above,
 including two authentications for bound signing. Certificate verification is
 available offline or against a token certificate and establishes no issuer trust.
 
-SHA-512 HashML-DSA uses separate single-part commands:
+SHA-512 HashML-DSA uses separate commands:
 
 ```sh
 pkcs11ctl --module /trusted/provider.so sign-hash-ml-dsa \
@@ -345,14 +345,21 @@ pkcs11ctl --module /trusted/provider.so verify-hash-ml-dsa \
 token with CKM_HASH_ML_DSA_SHA512. `--input-kind digest` instead requires exactly
 64 raw SHA-512 digest bytes and uses CKM_HASH_ML_DSA. Neither mode substitutes
 another mechanism or hashes in software. `hash-ml-dsa-capabilities --object URI`
-reports advisory signing support for the selected `--input-kind`.
+reports advisory single-part signing support for the selected `--input-kind`;
+adding `--multipart` checks native signing streams instead.
 Both signing and verification accept `--parameter-set ml-dsa-44|ml-dsa-65|ml-dsa-87`
 and `--context-file`; signing additionally accepts `--hedging` and the separate
 context PIN options. Contexts default to empty and must match during verification.
 Message input is limited to 64 MiB. Input or signature may read stdin, one at a
 time. Output is released only after checked session closure and module finalization.
-These commands use token keys directly; certificate binding, offline verification,
-TLS and multipart workflows retain their existing pure ML-DSA profile.
+Add `--multipart` to either command to stream original messages through native
+update/final calls using zeroizing 64 KiB reader buffers, retaining the 64 MiB
+limit. Verification uses C_VerifyUpdate/Final independently of the selected
+table's 3.2 signature-first support. `--multipart --input-kind digest` is rejected
+before input loading or module initialization: external digests remain single-part.
+Single-part execution remains the default. These commands use token keys directly;
+certificate binding, offline verification and TLS retain their existing pure
+ML-DSA profile.
 
 RSA/ECDSA signature commands accept explicit `--digest sha224|sha3-224|sha3-256|sha3-384|sha3-512`
 and the same choices for PSS `--mgf-digest`. Caller digests must contain exactly

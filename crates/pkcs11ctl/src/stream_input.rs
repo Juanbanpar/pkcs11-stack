@@ -12,7 +12,9 @@ impl MultipartInput {
         let maximum = match name {
             "mac-hmac" | "verify-hmac" => pkcs11_client::HMAC_MAXIMUM_MESSAGE,
             "mac-aes-cmac" | "verify-aes-cmac" => pkcs11_client::AES_CMAC_MAXIMUM_MESSAGE,
-            "sign" | "verify" | "verify-token" => 64 * 1024 * 1024,
+            "sign" | "verify" | "verify-token" | "sign-hash-ml-dsa" | "verify-hash-ml-dsa" => {
+                64 * 1024 * 1024
+            }
             _ => return Ok(None),
         };
         if !flag(m, "multipart") {

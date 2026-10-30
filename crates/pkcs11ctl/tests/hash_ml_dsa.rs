@@ -17,6 +17,9 @@ struct Fixture {
 impl Fixture {
     fn new(version: (u8, u8), fault: u8, prehash: bool, verify: bool) -> Self {
         let module = HashMlDsaModule::new(version.0, version.1, fault, 0, 1, 0, 1, prehash, verify);
+        Self::from_module(module, prehash, verify)
+    }
+    fn from_module(module: HashMlDsaModule, prehash: bool, verify: bool) -> Self {
         let root = module.path().parent().unwrap().join("cli");
         std::fs::create_dir(&root).unwrap();
         std::fs::write(
@@ -37,6 +40,14 @@ impl Fixture {
             verify,
         }
     }
+    fn streaming(version: (u8, u8), fault: u8, verify: bool) -> Self {
+        Self::from_module(
+            HashMlDsaModule::streaming(version.0, version.1, fault, 0, 1, 0, 1, verify),
+            false,
+            verify,
+        )
+    }
+
     fn run(&self, extras: &[&str]) -> Output {
         let mut command = Command::new(env!("CARGO_BIN_EXE_pkcs11ctl"));
         command
@@ -135,5 +146,58 @@ fn malformed_digest_context_and_signature_fail_before_loading_a_module() {
             std::fs::write(f.root.join("signature"), [0; 2419]).unwrap();
             assert_eq!(f.run(&[]).status.code(), Some(2));
         }
+    }
+}
+
+#[test]
+fn multipart_profiles_on_legacy_and_current_tables_and_cleanup_failures() {
+    for version in [(2, 40), (3, 0), (3, 1), (3, 2)] {
+        for verify in [false, true] {
+            let fixture = Fixture::streaming(version, 0, verify);
+            let output = fixture.run(&["--multipart"]);
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            if verify {
+                let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+                assert_eq!(value["result"]["verified"], true);
+            } else {
+                assert_eq!(output.stdout, vec![0xAB; 2420]);
+            }
+        }
+    }
+    for verify in [false, true] {
+        let faults = if verify {
+            vec![11, 18, 19, 20, 21, 22, 23, 24, 27, 28, 29, 30]
+        } else {
+            vec![11, 12, 13, 14, 15, 16, 17, 22, 23, 24, 27, 28, 29, 30]
+        };
+        for fault in faults {
+            let fixture = Fixture::streaming((3, 2), fault, verify);
+            let output = fixture.run(&["--multipart"]);
+            assert!(!output.status.success());
+            assert!(output.stdout.is_empty());
+        }
+    }
+}
+#[test]
+fn multipart_digest_and_oversized_regular_files_are_rejected_before_loading() {
+    for verify in [false, true] {
+        let fixture = Fixture::new((3, 2), 0, true, verify);
+        let output = fixture.run(&["--multipart"]);
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        let fixture = Fixture::streaming((3, 2), 0, verify);
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(fixture.root.join("input"))
+            .unwrap()
+            .set_len(64 * 1024 * 1024 + 1)
+            .unwrap();
+        let output = fixture.run(&["--multipart"]);
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
     }
 }
