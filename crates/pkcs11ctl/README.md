@@ -537,8 +537,8 @@ a file or stdin (at most 128 bytes) and disables public operation permissions.
 Both require nonempty IDs/labels of at most 128 bytes and explicit confirmation.
 Generation rejects existing public/private IDs; import rejects public IDs and does
 not establish trust or associate a private key. Signing, RSA-size, AES-purpose and
-context-authentication options do not apply to X448 generation. curveName
-parameters and desktop workflows remain deferred.
+context-authentication options do not apply to X448 generation. This profile
+requires OID parameters; desktop workflows remain deferred.
 
 ```sh
 pkcs11ctl --module "$MODULE" generate --token "$TOKEN_URI" --kind x448 \
@@ -548,6 +548,34 @@ pkcs11ctl --module "$MODULE" import --token "$TOKEN_URI" --kind x448 \
 pkcs11ctl --module "$MODULE" derive-x448 --object "$PRIVATE_KEY_URI" \
   --input peer-x448.der --kdf nist-sha512 --kind secret \
   --shared-info-file context.bin --id 0600 --label x448-material \
+  --pin-file user.pin --confirm
+```
+
+`generate --kind curve25519|curve448`, `import --kind curve25519|curve448` and
+`export --key-family curve25519|curve448` select the separate RFC 7748 curveName
+profiles. Public input/output consists of exactly 32/56 raw little-endian bytes;
+SPKI DER is not accepted or produced. Generation and import require RW access,
+explicit confirmation and bounded nonempty identity, with the same duplicate-ID
+and protected-key policy as the OID profiles. `generation-options` lists advisory
+choices in `montgomery_named`.
+
+`derive-montgomery --curve curve25519|curve448` accepts a raw peer from a file or
+stdin and requires a matching curveName private object. It creates a complete
+32/56-byte sensitive, nonextractable derivation-only secret using CKD_NULL.
+Authenticate peers and apply a protocol KDF separately. `derive-kbkdf` accepts
+either raw width; the 56-byte curve448 result cannot feed the hash-length
+HKDF-SHA512 profile. No conversion between curveName and OID objects occurs.
+Outputs are released only after checked session closure and module finalization.
+
+```sh
+pkcs11ctl --module "$MODULE" generate --token "$TOKEN_URI" --kind curve25519 \
+  --id 0700 --label curve25519-pair --pin-file user.pin --confirm
+pkcs11ctl --module "$MODULE" export --object "$PUBLIC_KEY_URI" \
+  --key-family curve25519 --output local.raw
+pkcs11ctl --module "$MODULE" import --token "$TOKEN_URI" --kind curve25519 \
+  --input peer.raw --id 0701 --label curve25519-peer --pin-file user.pin --confirm
+pkcs11ctl --module "$MODULE" derive-montgomery --object "$PRIVATE_KEY_URI" \
+  --curve curve25519 --input peer.raw --id 0702 --label curve25519-secret \
   --pin-file user.pin --confirm
 ```
 

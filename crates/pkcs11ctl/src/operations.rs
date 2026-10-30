@@ -891,7 +891,9 @@ fn management_operation(
         }
         "export" => {
             let reference = object_reference(uri(m, "object")?)?;
-            let bytes = if get(m, "key-family") == Some("x25519") {
+            let bytes = if let Some(curve) = key_establishment::named_curve(get(m, "key-family")) {
+                session.export_named_montgomery_public_key(&reference, curve)?
+            } else if get(m, "key-family") == Some("x25519") {
                 session.export_x25519_public_key(&reference)?
             } else if get(m, "key-family") == Some("x448") {
                 session.export_x448_public_key(&reference)?
@@ -938,6 +940,21 @@ fn management_operation(
         "generate" => generation::generate(session, m)?,
         "import" => {
             let id = unhex(need(m, "id")?)?;
+            if let Some(curve) = key_establishment::named_curve(get(m, "kind")) {
+                let peer = inputs
+                    .establishment
+                    .named_peer
+                    .as_ref()
+                    .ok_or_else(|| usage("missing raw curveName public key"))?;
+                session.import_named_montgomery_public_key(
+                    peer,
+                    &id,
+                    need(m, "label")?.as_bytes(),
+                )?;
+                return Ok(Output::Structured(
+                    json!({"imported":true,"key":key_establishment::named_key_info(curve),"id_hex":hex(&id)}),
+                ));
+            }
             if need(m, "kind")? == "x25519" {
                 session.import_x25519_public_key(
                     inputs

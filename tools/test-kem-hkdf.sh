@@ -25,6 +25,7 @@ command -v "$PKCS11_TEST_KDF_OPENSSL" >/dev/null
 cargo test -p pkcs11-runtime --test hkdf_persistent --locked -- --ignored --test-threads=1
 cargo test -p pkcs11-runtime --test montgomery_named_provider --locked -- --ignored --test-threads=1
 cargo test -p pkcs11-client --test montgomery_named_provider --locked -- --ignored --test-threads=1
+cargo test -p pkcs11ctl --test montgomery_named_provider --locked -- --ignored --test-threads=1
 cargo test -p pkcs11-runtime --test x25519_provider --locked -- --ignored --test-threads=1
 cargo test -p pkcs11-client --test x25519_provider --locked -- --ignored --test-threads=1
 cargo test -p pkcs11ctl --test x25519_provider --locked -- --ignored --test-threads=1

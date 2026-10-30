@@ -29,6 +29,27 @@ pub(crate) fn parameter(value: Option<&str>) -> Option<MlKemParameterSet> {
         _ => None,
     }
 }
+pub(crate) fn named_curve(value: Option<&str>) -> Option<pkcs11_client::MontgomeryNamedCurve> {
+    use pkcs11_client::MontgomeryNamedCurve;
+    match value {
+        Some("curve25519") => Some(MontgomeryNamedCurve::Curve25519),
+        Some("curve448") => Some(MontgomeryNamedCurve::Curve448),
+        _ => None,
+    }
+}
+pub(crate) fn named_curve_name(curve: pkcs11_client::MontgomeryNamedCurve) -> &'static str {
+    match curve {
+        pkcs11_client::MontgomeryNamedCurve::Curve25519 => "curve25519",
+        pkcs11_client::MontgomeryNamedCurve::Curve448 => "curve448",
+    }
+}
+pub(crate) fn named_key_info(curve: pkcs11_client::MontgomeryNamedCurve) -> Value {
+    let bits = match curve {
+        pkcs11_client::MontgomeryNamedCurve::Curve25519 => 255,
+        pkcs11_client::MontgomeryNamedCurve::Curve448 => 448,
+    };
+    json!({"type":named_curve_name(curve),"bits":bits})
+}
 fn selected_parameter(m: &ArgMatches) -> Result<MlKemParameterSet> {
     parameter(get(m, "parameter-set")).ok_or_else(|| usage("expected an ML-KEM parameter set"))
 }
@@ -52,6 +73,7 @@ pub(crate) fn selected(name: &str) -> bool {
             | "derive-ecdh"
             | "derive-x25519"
             | "derive-x448"
+            | "derive-montgomery"
     )
 }
 pub(crate) fn mutation(name: &str) -> bool {
@@ -64,9 +86,23 @@ pub(crate) fn mutation(name: &str) -> bool {
             | "derive-ecdh"
             | "derive-x25519"
             | "derive-x448"
+            | "derive-montgomery"
     )
 }
 pub(crate) fn input_limit(name: &str, m: &ArgMatches) -> Result<Option<usize>> {
+    let curve = if name == "derive-montgomery" {
+        named_curve(get(m, "curve"))
+    } else if name == "import" {
+        named_curve(get(m, "kind"))
+    } else {
+        None
+    };
+    if let Some(curve) = curve {
+        return Ok(Some(match curve {
+            pkcs11_client::MontgomeryNamedCurve::Curve25519 => 32,
+            pkcs11_client::MontgomeryNamedCurve::Curve448 => 56,
+        }));
+    }
     Ok(if name == "decapsulate" {
         Some(selected_parameter(m)?.ciphertext_length())
     } else if matches!(name, "derive-x25519" | "derive-x448")
@@ -171,6 +207,7 @@ pub(crate) struct Inputs {
     ecdh_peer: Option<EcdhPeer>,
     x25519_peer: Option<pkcs11_client::X25519Peer>,
     x448_peer: Option<pkcs11_client::X448Peer>,
+    pub named_peer: Option<pkcs11_client::MontgomeryNamedPeer>,
     salt: Vec<u8>,
     salt_key: Option<pkcs11_client::ObjectRef>,
     info: Vec<u8>,
@@ -193,12 +230,33 @@ impl Inputs {
         {
             return Err(usage("Montgomery SPKI export requires type=public"));
         }
+        if name == "import" {
+            if let Some(curve) = named_curve(get(m, "kind")) {
+                let id = unhex(need(m, "id")?)?;
+                pkcs11_client::MontgomeryNamedKeyPairRequest {
+                    curve,
+                    id: &id,
+                    label: need(m, "label")?.as_bytes(),
+                }
+                .validate()?;
+                inputs.named_peer = Some(pkcs11_client::MontgomeryNamedPeer::from_bytes(
+                    curve, bytes,
+                )?);
+            }
+        }
+        if name == "export"
+            && named_curve(get(m, "key-family")).is_some()
+            && uri(m, "object")?.path_attribute("type") != Some(b"public")
+        {
+            return Err(usage("curveName raw public export requires type=public"));
+        }
         if !selected(name) {
             return Ok(inputs);
         }
         let kind = match name {
             "encapsulate" => "public",
-            "decapsulate" | "derive-ecdh" | "derive-x25519" | "derive-x448" => "private",
+            "decapsulate" | "derive-ecdh" | "derive-x25519" | "derive-x448"
+            | "derive-montgomery" => "private",
             "kem-capabilities" => {
                 if direction(m) == MlKemOperation::Encapsulate {
                     "public"
@@ -233,6 +291,15 @@ impl Inputs {
             }
             let id = unhex(need(m, "id")?)?;
             ecdh_request(m, &inputs, &id)?.validate()?;
+        }
+        if name == "derive-montgomery" {
+            let curve = named_curve(get(m, "curve"))
+                .ok_or_else(|| usage("expected curve25519 or curve448"))?;
+            inputs.named_peer = Some(pkcs11_client::MontgomeryNamedPeer::from_bytes(
+                curve, bytes,
+            )?);
+            let id = unhex(need(m, "id")?)?;
+            named_request(m, &inputs, &id)?.validate()?;
         }
         if name == "derive-x448" {
             inputs.x448_peer = Some(pkcs11_client::X448Peer::from_spki_der(bytes)?);
@@ -309,6 +376,12 @@ pub(crate) fn operation(
 ) -> Result<Output> {
     let reference = object_reference(uri(m, "object")?)?;
     let value = match name {
+        "derive-montgomery" => {
+            let id = unhex(need(m, "id")?)?;
+            let request = named_request(m, &inputs.establishment, &id)?;
+            session.derive_named_montgomery(&reference, &request)?;
+            json!({"derived":true,"curve":need(m,"curve")?,"id_hex":hex(&id),"kdf":"null","kind":"raw-secret","length":request.peer.as_bytes().len(),"extractable":false})
+        }
         "derive-x448" => {
             let id = unhex(need(m, "id")?)?;
             let request = x448_request(m, &inputs.establishment, &id)?;
@@ -408,6 +481,23 @@ fn x448_request<'a>(
             "aes256" => X448Output::Aes(AesKeySize::Bits256),
             _ => return Err(usage("invalid X448 output")),
         },
+        identity: SecretKeyIdentity {
+            id,
+            label: need(m, "label")?.as_bytes(),
+        },
+    })
+}
+
+fn named_request<'a>(
+    m: &'a ArgMatches,
+    inputs: &'a Inputs,
+    id: &'a [u8],
+) -> Result<pkcs11_client::MontgomeryNamedRequest<'a>> {
+    Ok(pkcs11_client::MontgomeryNamedRequest {
+        peer: inputs
+            .named_peer
+            .as_ref()
+            .ok_or_else(|| usage("missing raw curveName peer"))?,
         identity: SecretKeyIdentity {
             id,
             label: need(m, "label")?.as_bytes(),

@@ -203,10 +203,10 @@ pub(crate) fn command() -> Command {
         .arg(value("attributes", "Comma-separated class,label,id,object-id,private,sign,sensitive,extractable,always-authenticate,key-type,modulus,exponent,ec-params,ec-point,subject,issuer,serial,value")
             .default_value("class,label,id"));
     let export = Command::new("export")
-        .about("Export certificate/data bytes or public-key SPKI DER; no trust validation")
+        .about("Export certificate/data bytes, public SPKI DER or raw curveName keys; no trust validation")
         .arg(
             value("key-family", "Public-key algorithm family")
-                .value_parser(["classical", "ml-dsa", "ml-kem", "eddsa", "x25519", "x448"])
+                .value_parser(["classical", "ml-dsa", "ml-kem", "eddsa", "x25519", "x448", "curve25519", "curve448"])
                 .default_value("classical"),
         )
         .arg(required(
@@ -299,6 +299,8 @@ pub(crate) fn command() -> Command {
             "hmac-sha3-512",
             "x25519",
             "x448",
+            "curve25519",
+            "curve448",
             "p256",
             "p384",
             "p521",
@@ -330,7 +332,7 @@ pub(crate) fn command() -> Command {
             "Require context authentication for each private-key operation",
         ));
     let import = Command::new("import")
-        .about("Import public certificate/key DER or data bytes")
+        .about("Import public certificate/key DER, raw curveName public keys or data bytes")
         .arg(required("kind", "Object kind").value_parser([
             "cert",
             "data",
@@ -339,6 +341,8 @@ pub(crate) fn command() -> Command {
             "eddsa",
             "x25519",
             "x448",
+            "curve25519",
+            "curve448",
         ]))
         .arg(required("input", "Input file; - reads stdin"))
         .arg(
@@ -567,6 +571,10 @@ pub(crate) fn command() -> Command {
                     "Public KDF context file, at most 4096 bytes",
                 )),
         )))),
+        mutation(auth(named(object(Command::new("derive-montgomery")
+            .about("Derive a full protected raw secret from a curveName private key")
+            .arg(required("curve", "Explicit RFC 7748 curveName profile").value_parser(["curve25519", "curve448"]))
+            .arg(required("input", "Raw 32/56-byte little-endian peer public key; - reads stdin")))))),
         mutation(auth(named(object(Command::new("derive-x25519")
             .about("Derive a protected token-held 32-byte secret from an existing X25519 key")
             .arg(required("input", "Peer X25519 public key (SPKI DER); - reads stdin")))))),

@@ -70,6 +70,7 @@ pub(crate) fn validate(m: &ArgMatches) -> Result<()> {
     let label = need(m, "label")?.as_bytes();
     let non_signing = hmac(kind).is_some()
         || matches!(kind, "x25519" | "x448")
+        || key_establishment::named_curve(Some(kind)).is_some()
         || curve(kind).is_some()
         || aes(kind).is_some()
         || key_establishment::parameter(Some(kind)).is_some();
@@ -89,7 +90,14 @@ pub(crate) fn validate(m: &ArgMatches) -> Result<()> {
     {
         return Err(usage("EdDSA ID and label must each contain 1..=128 bytes"));
     }
-    if kind == "x448" {
+    if let Some(curve) = key_establishment::named_curve(Some(kind)) {
+        pkcs11_client::MontgomeryNamedKeyPairRequest {
+            curve,
+            id: &id,
+            label,
+        }
+        .validate()?;
+    } else if kind == "x448" {
         X448KeyPairRequest { id: &id, label }
             .validate()
             .map_err(|_| usage("X448 ID and label must each contain 1..=128 bytes"))?;
@@ -147,7 +155,18 @@ pub(crate) fn generate(session: &mut ManagementSession<'_>, m: &ArgMatches) -> R
     let kind = need(m, "kind")?;
     let id = unhex(need(m, "id")?)?;
     let label = need(m, "label")?.as_bytes();
-    let key = if kind == "x448" {
+    let key = if let Some(curve) = key_establishment::named_curve(Some(kind)) {
+        session.generate_named_montgomery_key_pair(
+            &pkcs11_client::MontgomeryNamedKeyPairRequest {
+                curve,
+                id: &id,
+                label,
+            },
+        )?;
+        let mut metadata = key_establishment::named_key_info(curve);
+        metadata["purpose"] = json!("derivation");
+        metadata
+    } else if kind == "x448" {
         session.generate_x448_key_pair(&X448KeyPairRequest { id: &id, label })?;
         json!({"type":"x448","bits":448,"purpose":"derivation"})
     } else if kind == "x25519" {
@@ -224,6 +243,7 @@ pub(crate) fn options(provider: &Provider, m: &ArgMatches) -> Result<Value> {
         "rsa_encryption":options.rsa_encryption,
         "x25519":options.x25519,
         "x448":options.x448,
+        "montgomery_named":options.montgomery_named.into_iter().map(key_establishment::named_curve_name).collect::<Vec<_>>(),
         "ecdh":options.ecdh.into_iter().map(|curve| match curve {
             NamedCurve::P256=>"ecdh-p256", NamedCurve::P384=>"ecdh-p384", NamedCurve::P521=>"ecdh-p521"
         }).collect::<Vec<_>>(),
