@@ -996,6 +996,17 @@ An altered ML-KEM ciphertext can produce a different derived key without an erro
 
 ## SP 800-108 KDF
 
+`ManagementSession::derive_kbkdf_prf` takes `KbkdfPrfRequest`, an explicit mode
+and a public Feedback IV. `KbkdfPrf::AesCmac` requires a sensitive, nonextractable
+AES-128/192/256 derivation base; `HmacSha256`, `HmacSha384` and `HmacSha512` use
+generic or matching HMAC bases. `kbkdf_prf_capabilities` checks one PRF/mode,
+including the selected KDF's allowed mechanism, derive flag and bit-based bounds.
+Standalone MAC signing permission is not required. AES-CMAC Feedback accepts an
+empty or 16-byte IV; other modes require an empty IV. Execution rediscovers the
+key and creates one protected AES or generic output under the same bounds below.
+Check session closure before reporting success. Existing HMAC requests, capability
+snapshots, mode options and default calls keep their original contracts.
+
 `ManagementSession::kbkdf_capabilities` inspects native counter-mode support for a
 selected generic or matching SHA-256/384/512 HMAC secret. Bases must be sensitive,
 nonextractable, 16–4096 bytes and permit derivation and the selected mechanism.

@@ -8,7 +8,8 @@ use cryptoki::{
 };
 use pkcs11_runtime::{
     Attribute, AttributeType, Authentication, DigestAlgorithm, Error, KbkdfMode, KbkdfOutput,
-    KbkdfRequest, MechanismType, Module, ObjectClass, ObjectRef, Pin, SessionMode,
+    KbkdfPrf, KbkdfPrfRequest, KbkdfRequest, MechanismType, Module, ObjectClass, ObjectRef, Pin,
+    SessionMode,
 };
 use secrecy::SecretString;
 fn reference(id: &[u8]) -> ObjectRef {
@@ -422,7 +423,15 @@ fn check_mode(mode: KbkdfMode) {
     session.close().unwrap();
     drop(token);
     module.finalize().unwrap();
-    let raw = Pkcs11::new(&path).unwrap();
+    prove_outputs(&path, &pin, proofs, canonical_id);
+}
+fn prove_outputs(
+    path: &std::ffi::OsStr,
+    pin: &SecretString,
+    proofs: Vec<(Vec<u8>, KbkdfOutput, Vec<u8>)>,
+    canonical_id: u8,
+) {
+    let raw = Pkcs11::new(path).unwrap();
     raw.initialize(CInitializeArgs::new(CInitializeFlags::OS_LOCKING_OK))
         .unwrap();
     let slot = raw
@@ -432,7 +441,7 @@ fn check_mode(mode: KbkdfMode) {
         .find(|slot| raw.get_token_info(*slot).unwrap().label() == "kdf-test")
         .unwrap();
     let session = raw.open_rw_session(slot).unwrap();
-    session.login(UserType::User, Some(&pin)).unwrap();
+    session.login(UserType::User, Some(pin)).unwrap();
     for (id, output, value) in proofs {
         let keys = session
             .find_objects(&[Attribute::Token(true), Attribute::Id(id.clone())])
@@ -576,4 +585,298 @@ fn double_pipeline_nss_outputs_key_types_permissions_and_bounds() {
     drop(token);
     module.finalize().unwrap();
     check_mode(KbkdfMode::DoublePipeline);
+}
+
+// CMAC references use OpenSSL KBKDF for Counter/Feedback. Double Pipeline is
+// constructed independently with OpenSSL used only as a full-block CMAC primitive.
+fn cmac_expected(
+    mode: KbkdfMode,
+    iv: &[u8],
+    key_length: usize,
+    length: usize,
+    label: &[u8],
+    context: &[u8],
+) -> Vec<u8> {
+    use std::{
+        io::Write,
+        process::{Command, Stdio},
+    };
+    let hex = |v: &[u8]| v.iter().map(|b| format!("{b:02x}")).collect::<String>();
+    let cipher = format!("AES-{}-CBC", key_length * 8);
+    let key = "0b".repeat(key_length);
+    let binary = std::env::var_os("PKCS11_TEST_KDF_OPENSSL").unwrap();
+    if mode != KbkdfMode::DoublePipeline {
+        let mut command = Command::new(&binary);
+        command.args([
+            "kdf",
+            "-binary",
+            "-keylen",
+            &length.to_string(),
+            "-kdfopt",
+            if mode == KbkdfMode::Counter {
+                "mode:COUNTER"
+            } else {
+                "mode:FEEDBACK"
+            },
+            "-kdfopt",
+            "mac:CMAC",
+            "-kdfopt",
+            &format!("cipher:{cipher}"),
+            "-kdfopt",
+            &format!("hexkey:{key}"),
+            "-kdfopt",
+            "use-l:1",
+            "-kdfopt",
+            "use-separator:1",
+        ]);
+        for (name, bytes) in [("hexsalt", label), ("hexinfo", context), ("hexseed", iv)] {
+            if !bytes.is_empty() {
+                command.args(["-kdfopt", &format!("{name}:{}", hex(bytes))]);
+            }
+        }
+        let out = command.arg("KBKDF").output().unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert_eq!(out.stdout.len(), length);
+        return out.stdout;
+    }
+    let cmac = |bytes: &[u8]| {
+        let mut child = Command::new(&binary)
+            .args([
+                "mac",
+                "-binary",
+                "-macopt",
+                &format!("cipher:{cipher}"),
+                "-macopt",
+                &format!("hexkey:{key}"),
+                "CMAC",
+            ])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child.stdin.take().unwrap().write_all(bytes).unwrap();
+        let out = child.wait_with_output().unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert_eq!(out.stdout.len(), 16);
+        out.stdout
+    };
+    let mut fixed = label.to_vec();
+    fixed.push(0);
+    fixed.extend(context);
+    fixed.extend(u32::try_from(length * 8).unwrap().to_be_bytes());
+    let mut a = fixed.clone();
+    let mut result = vec![];
+    for i in 1u32.. {
+        a = cmac(&a);
+        let mut block = a.clone();
+        block.extend(i.to_be_bytes());
+        block.extend(&fixed);
+        result.extend(cmac(&block));
+        if result.len() >= length {
+            result.truncate(length);
+            return result;
+        }
+    }
+    unreachable!()
+}
+#[test]
+#[ignore = "requires an isolated NSS or Kryoptic store through the provider runners"]
+fn kbkdf_aes_cmac_modes_outputs_permissions_and_independent_references() {
+    assert_eq!(
+        std::env::var("PKCS11_TEST_KDF_ISOLATED").as_deref(),
+        Ok("1")
+    );
+    let nss = std::env::var("PKCS11_TEST_NSS_ISOLATED").as_deref() == Ok("1");
+    let modes = if nss {
+        KbkdfMode::ALL.as_slice()
+    } else {
+        &KbkdfMode::ALL[..2]
+    };
+    let path = std::env::var_os("PKCS11_TEST_KDF_MODULE").unwrap();
+    let pin = SecretString::from("12345678");
+    // Retained bases and canonical outputs are used by the client and CLI suites.
+    {
+        let module = Module::load(&path).unwrap();
+        let token = module
+            .resolve_token_uri(&"pkcs11:token=kdf-test".parse().unwrap())
+            .unwrap();
+        let mut session = token.open_session(SessionMode::ReadWrite).unwrap();
+        session
+            .authenticate(Authentication::User(Pin::Value(&pin)))
+            .unwrap();
+        for (index, length) in [16, 24, 32].into_iter().enumerate() {
+            session
+                .create_object(&base(&[0xFA, 0x93, index as u8], KeyType::AES, length))
+                .unwrap();
+        }
+        session.close().unwrap();
+        drop(token);
+        module.finalize().unwrap();
+    }
+    for (mode_index, &mode) in modes.iter().enumerate() {
+        let canonical = 0x90 + mode_index as u8;
+        let module = Module::load(&path).unwrap();
+        let token = module
+            .resolve_token_uri(&"pkcs11:token=kdf-test".parse().unwrap())
+            .unwrap();
+        let mut session = token.open_session(SessionMode::ReadWrite).unwrap();
+        session
+            .authenticate(Authentication::User(Pin::Value(&pin)))
+            .unwrap();
+        let mut proofs = vec![];
+        for (index, length) in [16, 24, 32].into_iter().enumerate() {
+            let key = reference(&[0xFA, 0x93, index as u8]);
+            let caps = session
+                .kbkdf_prf_capabilities(&key, KbkdfPrf::AesCmac, mode)
+                .unwrap();
+            assert_eq!(caps.input_length, length);
+            assert!(matches!(
+                session.kbkdf_capabilities_with_mode(&key, mode),
+                Err(Error::UnsupportedKeyOperation)
+            ));
+            if !nss {
+                assert!(matches!(
+                    session.kbkdf_prf_capabilities(
+                        &key,
+                        KbkdfPrf::AesCmac,
+                        KbkdfMode::DoublePipeline
+                    ),
+                    Err(Error::UnsupportedKeyOperation)
+                ));
+            }
+            for (case, output) in [
+                KbkdfOutput::Aes128,
+                KbkdfOutput::Aes192,
+                KbkdfOutput::Aes256,
+                KbkdfOutput::DerivationSecret { length: 1 },
+                KbkdfOutput::DerivationSecret { length: 17 },
+                KbkdfOutput::DerivationSecret { length: 128 },
+                KbkdfOutput::DerivationSecret { length: 4096 },
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                let id = [0xFA, 0x94, mode_index as u8, index as u8, case as u8];
+                let long = [0xA5; 4096];
+                let (label, context) = match case % 4 {
+                    0 => (&[][..], &[][..]),
+                    1 => (b"label\0binary".as_slice(), b"\xFFctx\0".as_slice()),
+                    2 => (long.as_slice(), long.as_slice()),
+                    _ => (b"label".as_slice(), b"ctx".as_slice()),
+                };
+                let iv = if mode == KbkdfMode::Feedback && case % 2 == 0 {
+                    vec![0xA5; 16]
+                } else {
+                    vec![]
+                };
+                let request = KbkdfPrfRequest {
+                    prf: KbkdfPrf::AesCmac,
+                    kdf_label: label,
+                    context,
+                    output,
+                    id: &id,
+                    label: b"CMAC KDF output",
+                };
+                session.derive_kbkdf_prf(&key, &request, mode, &iv).unwrap();
+                let object = session.resolve(&reference(&id)).unwrap();
+                let attrs = object
+                    .read_attributes(&[
+                        AttributeType::Sensitive,
+                        AttributeType::Extractable,
+                        AttributeType::Derive,
+                        AttributeType::Sign,
+                        AttributeType::Verify,
+                        AttributeType::Encrypt,
+                        AttributeType::Decrypt,
+                        AttributeType::Wrap,
+                        AttributeType::Unwrap,
+                        AttributeType::Private,
+                        AttributeType::ValueLen,
+                    ])
+                    .unwrap();
+                let aes = !matches!(output, KbkdfOutput::DerivationSecret { .. });
+                for expected in [
+                    Attribute::Sensitive(true),
+                    Attribute::Extractable(false),
+                    Attribute::Private(true),
+                    Attribute::Derive(!aes),
+                    Attribute::Encrypt(aes),
+                    Attribute::Decrypt(aes),
+                    Attribute::Sign(false),
+                    Attribute::Verify(false),
+                    Attribute::Wrap(false),
+                    Attribute::Unwrap(false),
+                    Attribute::ValueLen(output.length().try_into().unwrap()),
+                ] {
+                    assert!(attrs.expose_values().contains(&expected));
+                }
+                assert!(matches!(
+                    object
+                        .attribute_info(&[AttributeType::Value])
+                        .unwrap()
+                        .as_slice(),
+                    [pkcs11_runtime::AttributeInfo::Sensitive]
+                ));
+                proofs.push((
+                    id.to_vec(),
+                    output,
+                    cmac_expected(mode, &iv, length, output.length(), label, context),
+                ));
+                assert!(matches!(
+                    session.derive_kbkdf_prf(&key, &request, mode, &iv),
+                    Err(Error::InvalidParameters(_))
+                ));
+            }
+            let id = [0xFA, canonical, index as u8];
+            let iv = if mode == KbkdfMode::Feedback {
+                vec![0xA5; 16]
+            } else {
+                vec![]
+            };
+            let request = KbkdfPrfRequest {
+                prf: KbkdfPrf::AesCmac,
+                kdf_label: b"application",
+                context: b"v1 context",
+                output: KbkdfOutput::Aes256,
+                id: &id,
+                label: b"CMAC KDF reference",
+            };
+            session.derive_kbkdf_prf(&key, &request, mode, &iv).unwrap();
+            proofs.push((
+                id.to_vec(),
+                request.output,
+                cmac_expected(mode, &iv, length, 32, request.kdf_label, request.context),
+            ));
+            let mut ro = token.open_session(SessionMode::ReadOnly).unwrap();
+            assert!(matches!(
+                ro.derive_kbkdf_prf(&key, &request, mode, &iv),
+                Err(Error::ReadWriteRequired)
+            ));
+            ro.close().unwrap();
+        }
+        // A generic secret of a valid AES length must not be reinterpreted as AES.
+        let id = [0xFA, 0x97, mode_index as u8];
+        session
+            .create_object(&base(&id, KeyType::GENERIC_SECRET, 32))
+            .unwrap();
+        assert!(matches!(
+            session.kbkdf_prf_capabilities(&reference(&id), KbkdfPrf::AesCmac, mode),
+            Err(Error::UnsupportedKeyOperation)
+        ));
+        session.info().unwrap();
+        session.resolve(&reference(&id)).unwrap().destroy().unwrap();
+        session.close().unwrap();
+        drop(token);
+        module.finalize().unwrap();
+        prove_outputs(&path, &pin, proofs, canonical);
+    }
 }

@@ -3,6 +3,14 @@
 #define C_GetFunctionList lifecycle_function_list
 #include "cmac.c"
 #undef C_GetFunctionList
+#ifndef KDF_PRF
+#define KDF_PRF CKM_SHA256_HMAC
+#define KDF_KEY_TYPE CKK_GENERIC_SECRET
+#define KDF_BLOCK_LENGTH 32
+#endif
+#ifndef KDF_BASE_LENGTH
+#define KDF_BASE_LENGTH 32
+#endif
 #define KDF_FAULT (FAULT % 20)
 #define FEEDBACK (FAULT >= 20 && FAULT < 40)
 #define DOUBLE_PIPELINE (FAULT >= 40)
@@ -15,7 +23,8 @@ static CK_RV kbkdf_info(CK_SLOT_ID slot, CK_MECHANISM_TYPE mechanism, CK_MECHANI
     (void)slot; (void)mechanism;
     if (KDF_FAULT == 9) return CKR_DEVICE_ERROR;
     memset(out, 0, sizeof(*out));
-    out->ulMinKeySize = KDF_FAULT == 6 ? 257 : 256; out->ulMaxKeySize = 256;
+    out->ulMinKeySize = KDF_BASE_LENGTH * 8 + (KDF_FAULT == 6); out->ulMaxKeySize = KDF_BASE_LENGTH * 8;
+    if (KDF_FAULT == 14) { out->ulMinKeySize = 8; out->ulMaxKeySize = 32768; }
     out->flags = KDF_FAULT == 1 ? 0 : CKF_DERIVE; return CKR_OK;
 }
 static CK_RV kbkdf_find_init(CK_SESSION_HANDLE s, CK_ATTRIBUTE_PTR attrs, CK_ULONG count) {
@@ -40,9 +49,9 @@ static CK_RV kbkdf_attributes(CK_SESSION_HANDLE s, CK_OBJECT_HANDLE handle, CK_A
         switch (attrs[i].type) {
             case CKA_LABEL: attrs[i].ulValueLen = 0; continue;
             case CKA_ID: value = handle; length = 1; break;
-            case CKA_CLASS: value = CKO_SECRET_KEY; break;
-            case CKA_KEY_TYPE: value = KDF_FAULT == 7 ? CKK_HKDF : CKK_GENERIC_SECRET; break;
-            case CKA_VALUE_LEN: value = KDF_FAULT == 8 ? 15 : 32; break;
+            case CKA_CLASS: value = KDF_FAULT == 15 ? CKO_PUBLIC_KEY : CKO_SECRET_KEY; break;
+            case CKA_KEY_TYPE: value = KDF_FAULT == 7 ? CKK_HKDF : KDF_FAULT == 16 ? CKK_GENERIC_SECRET : KDF_KEY_TYPE; break;
+            case CKA_VALUE_LEN: value = KDF_FAULT == 8 ? 15 : KDF_FAULT == 14 ? 31 : KDF_BASE_LENGTH; break;
             case CKA_ALLOWED_MECHANISMS: value = KDF_FAULT == 4 ? CKM_HKDF_DERIVE : KDF_MECHANISM; break;
             case CKA_DERIVE: value = KDF_FAULT != 3; length = sizeof(CK_BBOOL); break;
             case CKA_TOKEN: case CKA_PRIVATE: value = 1; length = sizeof(CK_BBOOL); break;
@@ -68,11 +77,11 @@ static CK_RV kbkdf_derive(CK_SESSION_HANDLE s, CK_MECHANISM_PTR mechanism, CK_OB
     if (FEEDBACK) {
         if (mechanism->ulParameterLen != sizeof(CK_SP800_108_FEEDBACK_KDF_PARAMS)) return CKR_ARGUMENTS_BAD;
         CK_SP800_108_FEEDBACK_KDF_PARAMS *p = mechanism->pParameter;
-        if (p->prfType != CKM_SHA256_HMAC || p->ulAdditionalDerivedKeys != 0 || p->pAdditionalDerivedKeys != NULL || !p->pDataParams) return CKR_MECHANISM_PARAM_INVALID;
+        if (p->prfType != KDF_PRF || p->ulAdditionalDerivedKeys != 0 || p->pAdditionalDerivedKeys != NULL || !p->pDataParams) return CKR_MECHANISM_PARAM_INVALID;
         if (p->ulIVLen == 0) { if (p->pIV != NULL) return CKR_MECHANISM_PARAM_INVALID; }
         else {
-            if (p->ulIVLen != 32 || !p->pIV) return CKR_MECHANISM_PARAM_INVALID;
-            for (CK_ULONG i = 0; i < 32; ++i) if (p->pIV[i] != 0xA5) return CKR_MECHANISM_PARAM_INVALID;
+            if (p->ulIVLen != KDF_BLOCK_LENGTH || !p->pIV) return CKR_MECHANISM_PARAM_INVALID;
+            for (CK_ULONG i = 0; i < KDF_BLOCK_LENGTH; ++i) if (p->pIV[i] != 0xA5) return CKR_MECHANISM_PARAM_INVALID;
         }
         fields = p->pDataParams;
         n = p->ulNumberOfDataParams;
@@ -82,7 +91,7 @@ static CK_RV kbkdf_derive(CK_SESSION_HANDLE s, CK_MECHANISM_PTR mechanism, CK_OB
     } else {
         if (mechanism->ulParameterLen != sizeof(CK_SP800_108_KDF_PARAMS)) return CKR_ARGUMENTS_BAD;
         CK_SP800_108_KDF_PARAMS *p = mechanism->pParameter;
-        if (p->prfType != CKM_SHA256_HMAC || p->ulAdditionalDerivedKeys != 0 || p->pAdditionalDerivedKeys != NULL || !p->pDataParams) return CKR_MECHANISM_PARAM_INVALID;
+        if (p->prfType != KDF_PRF || p->ulAdditionalDerivedKeys != 0 || p->pAdditionalDerivedKeys != NULL || !p->pDataParams) return CKR_MECHANISM_PARAM_INVALID;
         fields = p->pDataParams;
         n = p->ulNumberOfDataParams;
         if (fields[0].type != CK_SP800_108_ITERATION_VARIABLE) return CKR_MECHANISM_PARAM_INVALID;
@@ -119,7 +128,10 @@ static CK_RV kbkdf_derive(CK_SESSION_HANDLE s, CK_MECHANISM_PTR mechanism, CK_OB
 }
 static CK_RV kbkdf_close(CK_SESSION_HANDLE s) { return KDF_FAULT == 10 ? CKR_DEVICE_ERROR : close_session(s); }
 static CK_RV kbkdf_finalize(CK_VOID_PTR p) { return KDF_FAULT == 11 ? CKR_DEVICE_ERROR : finalize(p); }
-CK_RV C_GetFunctionList(CK_FUNCTION_LIST_PTR_PTR out) {
+#ifndef KDF_FUNCTION_LIST
+#define KDF_FUNCTION_LIST C_GetFunctionList
+#endif
+CK_RV KDF_FUNCTION_LIST(CK_FUNCTION_LIST_PTR_PTR out) {
     functions.C_CloseSession = kbkdf_close;
     functions.C_Finalize = kbkdf_finalize;
     functions.C_GetMechanismList = kbkdf_mechanisms;

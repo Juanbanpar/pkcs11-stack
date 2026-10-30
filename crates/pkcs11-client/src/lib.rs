@@ -60,7 +60,10 @@ pub use generation::{
 };
 mod hkdf;
 mod kbkdf;
-pub use pkcs11_runtime::{KbkdfCapabilities, KbkdfMode, KbkdfOptions, KbkdfOutput, KbkdfRequest};
+pub use pkcs11_runtime::{
+    KbkdfCapabilities, KbkdfMode, KbkdfOptions, KbkdfOutput, KbkdfPrf, KbkdfPrfCapabilities,
+    KbkdfPrfRequest, KbkdfRequest,
+};
 mod hmac;
 mod mac;
 pub use mac::{MacGeneration, MacVerification};

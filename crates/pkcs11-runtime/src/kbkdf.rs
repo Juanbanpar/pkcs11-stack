@@ -95,6 +95,119 @@ impl KbkdfOutput {
         }
     }
 }
+/// Explicit SP 800-108 PRF. AES-CMAC requires a 16/24/32-byte AES base key.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KbkdfPrf {
+    /// HMAC-SHA-256, with a generic or matching typed HMAC base.
+    HmacSha256,
+    /// HMAC-SHA-384, with a generic or matching typed HMAC base.
+    HmacSha384,
+    /// HMAC-SHA-512, with a generic or matching typed HMAC base.
+    HmacSha512,
+    /// Full-block AES-CMAC; standalone MAC permission is not required.
+    AesCmac,
+}
+impl KbkdfPrf {
+    /// PRF output block length, also the nonempty Feedback IV length, in bytes.
+    pub fn output_len(self) -> usize {
+        match self {
+            Self::HmacSha256 => 32,
+            Self::HmacSha384 => 48,
+            Self::HmacSha512 => 64,
+            Self::AesCmac => 16,
+        }
+    }
+    fn mechanism(self) -> MechanismType {
+        match self {
+            Self::HmacSha256 => MechanismType::SHA256_HMAC,
+            Self::HmacSha384 => MechanismType::SHA384_HMAC,
+            Self::HmacSha512 => MechanismType::SHA512_HMAC,
+            Self::AesCmac => MechanismType::AES_CMAC,
+        }
+    }
+    fn permits(self, kind: KeyType, length: usize) -> bool {
+        match self {
+            Self::AesCmac => kind == KeyType::AES && matches!(length, 16 | 24 | 32),
+            Self::HmacSha256 => kind == KeyType::GENERIC_SECRET || kind == KeyType::SHA256_HMAC,
+            Self::HmacSha384 => kind == KeyType::GENERIC_SECRET || kind == KeyType::SHA384_HMAC,
+            Self::HmacSha512 => kind == KeyType::GENERIC_SECRET || kind == KeyType::SHA512_HMAC,
+        }
+    }
+}
+impl TryFrom<DigestAlgorithm> for KbkdfPrf {
+    type Error = Error;
+    fn try_from(digest: DigestAlgorithm) -> Result<Self, Error> {
+        match digest {
+            DigestAlgorithm::Sha256 => Ok(Self::HmacSha256),
+            DigestAlgorithm::Sha384 => Ok(Self::HmacSha384),
+            DigestAlgorithm::Sha512 => Ok(Self::HmacSha512),
+            _ => Err(Error::InvalidParameters("SP800-108 digest")),
+        }
+    }
+}
+/// One explicit PRF derivation, with the same encoding and output policy as KbkdfRequest.
+/// Debug omits label/context/identity bytes. No PRF, mode or key-type substitution occurs.
+#[derive(Clone, Copy)]
+pub struct KbkdfPrfRequest<'a> {
+    /// Native PRF to execute.
+    pub prf: KbkdfPrf,
+    /// Public protocol label, up to 4096 bytes; empty is permitted.
+    pub kdf_label: &'a [u8],
+    /// Public protocol context, up to 4096 bytes; empty is permitted.
+    pub context: &'a [u8],
+    /// Output key length, type and permissions.
+    pub output: KbkdfOutput,
+    /// New nonempty secret ID, at most 128 bytes.
+    pub id: &'a [u8],
+    /// New nonempty object label, at most 128 bytes; distinct from kdf_label.
+    pub label: &'a [u8],
+}
+impl KbkdfPrfRequest<'_> {
+    /// Validate identity and public input/output bounds without provider access.
+    pub fn validate(&self) -> Result<(), Error> {
+        validate_secret_identity(self.id, self.label)?;
+        if self.kdf_label.len() > 4096
+            || self.context.len() > 4096
+            || !(1..=4096).contains(&self.output.length())
+        {
+            return Err(Error::InvalidParameters("SP800-108 input or output length"));
+        }
+        Ok(())
+    }
+    /// Counter/Double Pipeline require an empty IV. Feedback accepts an omitted
+    /// IV or exactly one PRF output block, including 16 bytes for AES-CMAC.
+    pub fn validate_with_mode(&self, mode: KbkdfMode, iv: &[u8]) -> Result<(), Error> {
+        self.validate()?;
+        match mode {
+            KbkdfMode::Counter | KbkdfMode::DoublePipeline if !iv.is_empty() => Err(
+                Error::InvalidParameters("KDF mode does not accept an external IV"),
+            ),
+            KbkdfMode::Feedback if !iv.is_empty() && iv.len() != self.prf.output_len() => {
+                Err(Error::InvalidParameters("feedback KDF IV length"))
+            }
+            _ => Ok(()),
+        }
+    }
+}
+impl std::fmt::Debug for KbkdfPrfRequest<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("KbkdfPrfRequest")
+            .field("prf", &self.prf)
+            .field("output", &self.output)
+            .finish_non_exhaustive()
+    }
+}
+/// Advisory native support for exactly one selected base, PRF and mode.
+/// Providers may still reject PRF parameters or output templates at execution.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct KbkdfPrfCapabilities {
+    /// Base-key length in bytes; AES-CMAC permits only 16/24/32.
+    pub input_length: usize,
+    /// Explicit native PRF checked by this snapshot.
+    pub prf: KbkdfPrf,
+    /// Explicit native KDF mode checked by this snapshot.
+    pub mode: KbkdfMode,
+}
 /// SP 800-108 with HMAC-SHA-256/384/512, using counter mode by default.
 /// The counter-mode PRF input is
 /// `[i]_32 || kdf_label || 0x00 || context || [L]_32`, with big-endian integers
@@ -114,39 +227,26 @@ pub struct KbkdfRequest<'a> {
     /// New nonempty object label, at most 128 bytes; distinct from kdf_label.
     pub label: &'a [u8],
 }
-impl KbkdfRequest<'_> {
-    /// Validate this request and an explicit mode's public IV. Counter and
-    /// double-pipeline modes require an empty IV. Feedback accepts an omitted IV
-    /// or exactly one PRF output block (32/48/64 bytes). Empty IVs are not synthesized.
+impl<'a> KbkdfRequest<'a> {
+    fn prf_request(&self) -> Result<KbkdfPrfRequest<'a>, Error> {
+        Ok(KbkdfPrfRequest {
+            prf: self.digest.try_into()?,
+            kdf_label: self.kdf_label,
+            context: self.context,
+            output: self.output,
+            id: self.id,
+            label: self.label,
+        })
+    }
+    /// Validate the existing HMAC profile and its explicit mode's public IV.
+    /// Feedback accepts an omitted IV or exactly 32/48/64 bytes for the hash.
     pub fn validate_with_mode(&self, mode: KbkdfMode, iv: &[u8]) -> Result<(), Error> {
-        self.validate()?;
-        match mode {
-            KbkdfMode::Counter | KbkdfMode::DoublePipeline if !iv.is_empty() => Err(
-                Error::InvalidParameters("KDF mode does not accept an external IV"),
-            ),
-            KbkdfMode::Feedback if !iv.is_empty() && iv.len() != self.digest.output_len() => {
-                Err(Error::InvalidParameters("feedback KDF IV length"))
-            }
-            _ => Ok(()),
-        }
+        self.prf_request()?.validate_with_mode(mode, iv)
     }
     /// Validate identity, input and output bounds without I/O. Callers establish
     /// an unambiguous protocol encoding for label/context and authenticate peers.
     pub fn validate(&self) -> Result<(), Error> {
-        if !matches!(
-            self.digest,
-            DigestAlgorithm::Sha256 | DigestAlgorithm::Sha384 | DigestAlgorithm::Sha512
-        ) {
-            return Err(Error::InvalidParameters("SP800-108 digest"));
-        }
-        validate_secret_identity(self.id, self.label)?;
-        if self.kdf_label.len() > 4096
-            || self.context.len() > 4096
-            || !(1..=4096).contains(&self.output.length())
-        {
-            return Err(Error::InvalidParameters("SP800-108 input or output length"));
-        }
-        Ok(())
+        self.prf_request()?.validate()
     }
 }
 impl std::fmt::Debug for KbkdfRequest<'_> {
@@ -186,6 +286,36 @@ impl KbkdfCapabilities {
     }
 }
 fn capabilities(object: &Object<'_, '_>, mode: KbkdfMode) -> Result<KbkdfCapabilities, Error> {
+    let (kind, length) = base_metadata(object)?;
+    let caps = KbkdfCapabilities {
+        input_length: length,
+        sha256: KbkdfPrf::HmacSha256.permits(kind, length),
+        sha384: KbkdfPrf::HmacSha384.permits(kind, length),
+        sha512: KbkdfPrf::HmacSha512.permits(kind, length),
+    };
+    if !caps.sha256 && !caps.sha384 && !caps.sha512 {
+        return Err(Error::UnsupportedKeyOperation);
+    }
+    mechanism_support(object, mode, length)?;
+    Ok(caps)
+}
+fn prf_capabilities(
+    object: &Object<'_, '_>,
+    prf: KbkdfPrf,
+    mode: KbkdfMode,
+) -> Result<KbkdfPrfCapabilities, Error> {
+    let (kind, length) = base_metadata(object)?;
+    if !prf.permits(kind, length) {
+        return Err(Error::UnsupportedKeyOperation);
+    }
+    mechanism_support(object, mode, length)?;
+    Ok(KbkdfPrfCapabilities {
+        input_length: length,
+        prf,
+        mode,
+    })
+}
+fn base_metadata(object: &Object<'_, '_>) -> Result<(KeyType, usize), Error> {
     for (kind, expected) in [
         (
             AttributeType::Class,
@@ -207,16 +337,9 @@ fn capabilities(object: &Object<'_, '_>, mode: KbkdfMode) -> Result<KbkdfCapabil
         Some(Attribute::KeyType(kind)) => kind,
         _ => return Err(Error::UnsupportedKeyOperation),
     };
-    let generic = kind == KeyType::GENERIC_SECRET;
-    let caps = KbkdfCapabilities {
-        input_length: length,
-        sha256: generic || kind == KeyType::SHA256_HMAC,
-        sha384: generic || kind == KeyType::SHA384_HMAC,
-        sha512: generic || kind == KeyType::SHA512_HMAC,
-    };
-    if !caps.sha256 && !caps.sha384 && !caps.sha512 {
-        return Err(Error::UnsupportedKeyOperation);
-    }
+    Ok((kind, length))
+}
+fn mechanism_support(object: &Object<'_, '_>, mode: KbkdfMode, length: usize) -> Result<(), Error> {
     let mechanism = mode.mechanism();
     permits(object, mechanism)?;
     let token = object.session.token();
@@ -230,9 +353,20 @@ fn capabilities(object: &Object<'_, '_>, mode: KbkdfMode) -> Result<KbkdfCapabil
     if !info.derive() || !(info.min_key_size()..=info.max_key_size()).contains(&(length * 8)) {
         return Err(Error::UnsupportedKeyOperation);
     }
-    Ok(caps)
+    Ok(())
 }
 impl Session<'_> {
+    /// Inspect one explicit PRF/mode. Requires sensitive, nonextractable,
+    /// derivation-enabled secret metadata and native derive support. AES-CMAC
+    /// accepts only AES-128/192/256 bases; standalone CMAC flags/pointers are irrelevant.
+    pub fn kbkdf_prf_capabilities(
+        &mut self,
+        base: &ObjectRef,
+        prf: KbkdfPrf,
+        mode: KbkdfMode,
+    ) -> Result<KbkdfPrfCapabilities, Error> {
+        prf_capabilities(&self.resolve(base)?, prf, mode)
+    }
     /// Inspect a unique generic or SHA-2 HMAC secret for native counter derivation.
     /// Requires sensitive/nonextractable policy, CKA_DERIVE, permitted mechanism,
     /// bit-based mechanism bounds and a native C_DeriveKey entry point.
@@ -298,6 +432,20 @@ impl Session<'_> {
         mode: KbkdfMode,
         iv: &[u8],
     ) -> Result<(), Error> {
+        self.derive_kbkdf_prf(base, &request.prf_request()?, mode, iv)
+    }
+    /// Derive once using an explicit PRF and mode with the fixed 32-bit big-endian
+    /// counter/output bit length, zero separator and one protected output key.
+    /// Feedback uses an omitted or PRF-block-length IV. Requires RW access and a
+    /// fresh identity. No values are read; native failure discards the session and
+    /// may leave persistent effects. Check closure before reporting success.
+    pub fn derive_kbkdf_prf(
+        &mut self,
+        base: &ObjectRef,
+        request: &KbkdfPrfRequest<'_>,
+        mode: KbkdfMode,
+        iv: &[u8],
+    ) -> Result<(), Error> {
         request.validate_with_mode(mode, iv)?;
         self.validate()?;
         if self.mode != SessionMode::ReadWrite {
@@ -316,9 +464,7 @@ impl Session<'_> {
                 .map_err(|_| Error::InvalidParameters("SP800-108 output length"))?,
         ));
         let object = self.resolve(base)?;
-        if !capabilities(&object, mode)?.supports(request.digest) {
-            return Err(Error::UnsupportedKeyOperation);
-        }
+        prf_capabilities(&object, request.prf, mode)?;
         const WIDTH: NonZeroUsize = NonZeroUsize::new(32).unwrap();
         let counter = KbkdfCounterFormat::new(Endianness::Big, WIDTH);
         let length =
@@ -345,16 +491,7 @@ impl Session<'_> {
             )));
         }
         fields.push(PrfDataParam::new(PrfDataParamType::DkmLength(&length)));
-        let prf = match request.digest {
-            DigestAlgorithm::Sha224 => MechanismType::SHA224_HMAC,
-            DigestAlgorithm::Sha3_224 => MechanismType::SHA3_224_HMAC,
-            DigestAlgorithm::Sha3_256 => MechanismType::SHA3_256_HMAC,
-            DigestAlgorithm::Sha3_384 => MechanismType::SHA3_384_HMAC,
-            DigestAlgorithm::Sha3_512 => MechanismType::SHA3_512_HMAC,
-            DigestAlgorithm::Sha256 => MechanismType::SHA256_HMAC,
-            DigestAlgorithm::Sha384 => MechanismType::SHA384_HMAC,
-            DigestAlgorithm::Sha512 => MechanismType::SHA512_HMAC,
-        };
+        let prf = request.prf.mechanism();
         let mechanism = match mode {
             KbkdfMode::Counter => Mechanism::KbkdfCounter(KbkdfParams::new(prf, &fields, None)),
             KbkdfMode::DoublePipeline => {

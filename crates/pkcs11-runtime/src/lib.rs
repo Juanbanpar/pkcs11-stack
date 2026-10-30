@@ -42,7 +42,10 @@ pub use generation::{
 };
 mod hkdf;
 mod kbkdf;
-pub use kbkdf::{KbkdfCapabilities, KbkdfMode, KbkdfOptions, KbkdfOutput, KbkdfRequest};
+pub use kbkdf::{
+    KbkdfCapabilities, KbkdfMode, KbkdfOptions, KbkdfOutput, KbkdfPrf, KbkdfPrfCapabilities,
+    KbkdfPrfRequest, KbkdfRequest,
+};
 mod hmac;
 mod mac;
 pub use hmac::{

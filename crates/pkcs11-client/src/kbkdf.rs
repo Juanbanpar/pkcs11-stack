@@ -1,8 +1,31 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use crate::{
-    Error, KbkdfCapabilities, KbkdfMode, KbkdfOptions, KbkdfRequest, ManagementSession, ObjectRef,
+    Error, KbkdfCapabilities, KbkdfMode, KbkdfOptions, KbkdfPrf, KbkdfPrfCapabilities,
+    KbkdfPrfRequest, KbkdfRequest, ManagementSession, ObjectRef,
 };
 impl ManagementSession<'_> {
+    /// Inspect one explicit SP800-108 PRF and mode without reading secret values.
+    /// AES-CMAC requires an AES-128/192/256 derivation base; native support is advisory.
+    pub fn kbkdf_prf_capabilities(
+        &mut self,
+        base: &ObjectRef,
+        prf: KbkdfPrf,
+        mode: KbkdfMode,
+    ) -> Result<KbkdfPrfCapabilities, Error> {
+        Ok(self.session.kbkdf_prf_capabilities(base, prf, mode)?)
+    }
+    /// Derive one protected key using an explicit PRF/mode, with no substitution,
+    /// retry or rollback. Feedback accepts an omitted or PRF-block-length IV.
+    /// Requires RW mode and a new ID. Check session closure before reporting success.
+    pub fn derive_kbkdf_prf(
+        &mut self,
+        base: &ObjectRef,
+        request: &KbkdfPrfRequest<'_>,
+        mode: KbkdfMode,
+        iv: &[u8],
+    ) -> Result<(), Error> {
+        Ok(self.session.derive_kbkdf_prf(base, request, mode, iv)?)
+    }
     /// Inspect native SP 800-108 counter-mode support for one generic/SHA-2 HMAC
     /// secret. Requires sensitivity, nonextractability and derivation permission.
     /// This reads metadata only; individual PRF/template support remains advisory.
