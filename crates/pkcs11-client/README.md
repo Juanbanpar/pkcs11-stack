@@ -1032,10 +1032,21 @@ IV supplies no initial bytes. `KbkdfMode::Counter` rejects a nonempty IV and
 keeps the original `derive_kbkdf` behavior.
 
 `kbkdf_capabilities_with_mode` inspects one mode; `kbkdf_options` returns the
-permitted counter/feedback profiles. Only unsupported profiles are omitted.
+permitted counter/feedback/double-pipeline profiles. Only unsupported profiles are omitted.
 Selection/provider failures propagate, and execution checks the selected mode
-again without substitution or software fallback. Both modes retain the same
+again without substitution or software fallback. All modes retain the same
 output types, permissions, bounds and checked session lifecycle.
+
+For Double Pipeline, call `derive_kbkdf_with_mode(base, request,
+KbkdfMode::DoublePipeline, &[])`. The token constructs
+`Fixed = label || 0x00 || context || [L]_32` and starts with `A(0) = Fixed`.
+Each iteration computes `A(i) = HMAC(K, A(i-1))`, then
+`K(i) = HMAC(K, A(i) || [i]_32 || Fixed)`. The explicit counter and output
+bit length are 32-bit big-endian. External IVs are rejected. Discover this mode
+with `kbkdf_capabilities_with_mode` or `kbkdf_options().double_pipeline`;
+provider rejection never selects a different mode. Existing calls still use
+Counter mode. NSS generic-secret bases are covered by the provider tests;
+NSS typed HMAC bases omit required length metadata and remain unsupported.
 
 ## Application hybrid derivation
 

@@ -81,6 +81,7 @@ fn mode(m: &ArgMatches) -> Result<KbkdfMode> {
     match need(m, "mode")? {
         "counter" => Ok(KbkdfMode::Counter),
         "feedback" => Ok(KbkdfMode::Feedback),
+        "double-pipeline" => Ok(KbkdfMode::DoublePipeline),
         _ => Err(usage("unsupported SP800-108 mode")),
     }
 }

@@ -1896,6 +1896,7 @@ fn counter_kdf_form_selects_prf_by_keyboard_and_keeps_protocol_inputs_separate()
                     pkcs11_client::KbkdfOptions {
                         counter: Some(caps),
                         feedback: Some(caps),
+                        double_pipeline: None,
                     }
                 }),
             }),

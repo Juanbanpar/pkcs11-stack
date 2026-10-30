@@ -25,14 +25,18 @@ pub enum KbkdfMode {
     Counter,
     /// PRF input starts with the previous PRF output, then the counter.
     Feedback,
+    /// Two PRF pipelines, with A(0) built from label, separator, context and L.
+    /// Uses a 32-bit big-endian counter after A(i); external IVs are rejected.
+    DoublePipeline,
 }
 impl KbkdfMode {
     /// Supported mode profiles; individual provider support remains advisory.
-    pub const ALL: [Self; 2] = [Self::Counter, Self::Feedback];
+    pub const ALL: [Self; 3] = [Self::Counter, Self::Feedback, Self::DoublePipeline];
     fn mechanism(self) -> MechanismType {
         match self {
             Self::Counter => MechanismType::SP800_108_COUNTER_KDF,
             Self::Feedback => MechanismType::SP800_108_FEEDBACK_KDF,
+            Self::DoublePipeline => MechanismType::SP800_108_DOUBLE_PIPELINE_KDF,
         }
     }
 }
@@ -41,6 +45,7 @@ impl std::fmt::Display for KbkdfMode {
         f.write_str(match self {
             Self::Counter => "Counter",
             Self::Feedback => "Feedback",
+            Self::DoublePipeline => "Double Pipeline",
         })
     }
 }
@@ -51,6 +56,8 @@ pub struct KbkdfOptions {
     pub counter: Option<KbkdfCapabilities>,
     /// Permitted feedback-mode profile, if supported.
     pub feedback: Option<KbkdfCapabilities>,
+    /// Permitted double-pipeline profile, if supported.
+    pub double_pipeline: Option<KbkdfCapabilities>,
 }
 impl KbkdfOptions {
     /// Get the inspected profile for a mode. Execution rechecks native support.
@@ -58,6 +65,7 @@ impl KbkdfOptions {
         match mode {
             KbkdfMode::Counter => self.counter,
             KbkdfMode::Feedback => self.feedback,
+            KbkdfMode::DoublePipeline => self.double_pipeline,
         }
     }
 }
@@ -107,13 +115,15 @@ pub struct KbkdfRequest<'a> {
     pub label: &'a [u8],
 }
 impl KbkdfRequest<'_> {
-    /// Validate this request and an explicit mode's public IV. Counter mode
-    /// requires an empty IV. Feedback accepts an omitted IV or exactly one PRF
-    /// output block (32/48/64 bytes). Empty IVs are omitted, never synthesized.
+    /// Validate this request and an explicit mode's public IV. Counter and
+    /// double-pipeline modes require an empty IV. Feedback accepts an omitted IV
+    /// or exactly one PRF output block (32/48/64 bytes). Empty IVs are not synthesized.
     pub fn validate_with_mode(&self, mode: KbkdfMode, iv: &[u8]) -> Result<(), Error> {
         self.validate()?;
         match mode {
-            KbkdfMode::Counter if !iv.is_empty() => Err(Error::InvalidParameters("counter KDF IV")),
+            KbkdfMode::Counter | KbkdfMode::DoublePipeline if !iv.is_empty() => Err(
+                Error::InvalidParameters("KDF mode does not accept an external IV"),
+            ),
             KbkdfMode::Feedback if !iv.is_empty() && iv.len() != self.digest.output_len() => {
                 Err(Error::InvalidParameters("feedback KDF IV length"))
             }
@@ -238,8 +248,8 @@ impl Session<'_> {
     ) -> Result<KbkdfCapabilities, Error> {
         capabilities(&self.resolve(base)?, mode)
     }
-    /// Inspect both modes. Only unsupported profiles are omitted; selection and
-    /// provider errors propagate. Returns UnsupportedKeyOperation if neither qualifies.
+    /// Inspect all three modes. Only unsupported profiles are omitted; selection
+    /// and provider errors propagate. Fails if no supported profile qualifies.
     pub fn kbkdf_options(&mut self, base: &ObjectRef) -> Result<KbkdfOptions, Error> {
         let object = self.resolve(base)?;
         let inspect = |mode| match capabilities(&object, mode) {
@@ -250,8 +260,12 @@ impl Session<'_> {
         let options = KbkdfOptions {
             counter: inspect(KbkdfMode::Counter)?,
             feedback: inspect(KbkdfMode::Feedback)?,
+            double_pipeline: inspect(KbkdfMode::DoublePipeline)?,
         };
-        if options.counter.is_none() && options.feedback.is_none() {
+        if KbkdfMode::ALL
+            .into_iter()
+            .all(|mode| options.get(mode).is_none())
+        {
             return Err(Error::UnsupportedKeyOperation);
         }
         Ok(options)
@@ -268,10 +282,13 @@ impl Session<'_> {
     ) -> Result<(), Error> {
         self.derive_kbkdf_with_mode(base, request, KbkdfMode::Counter, &[])
     }
-    /// Derive once using an explicit mode and public feedback IV. Counter mode
-    /// rejects nonempty IVs; feedback accepts empty or hash-length IVs. Feedback
-    /// PRF input is `K(i-1) || [i]_32 || label || 0x00 || context || [L]_32`,
-    /// with K(0) equal to the supplied IV. Integers are big-endian; L is in bits.
+    /// Derive once using an explicit mode and public feedback IV. Counter and
+    /// double-pipeline modes reject nonempty IVs; feedback accepts empty or
+    /// hash-length IVs. Feedback PRF input is `K(i-1) || [i]_32 || label || 0x00 || context || [L]_32`,
+    /// with K(0) equal to the supplied IV. Double pipeline uses
+    /// `A(0) = label || 0x00 || context || [L]_32`, `A(i) = PRF(K, A(i-1))`,
+    /// then `PRF(K, A(i) || [i]_32 || label || 0x00 || context || [L]_32)`.
+    /// Integers are big-endian; L is in bits.
     /// Requires the same key policy, RW access and checked closure as derive_kbkdf.
     /// Native rejection invalidates the session and is never retried in another mode.
     pub fn derive_kbkdf_with_mode(
@@ -313,7 +330,7 @@ impl Session<'_> {
                 None
             },
         ))];
-        if mode == KbkdfMode::Feedback {
+        if mode != KbkdfMode::Counter {
             fields.push(PrfDataParam::new(PrfDataParamType::Counter(&counter)));
         }
         if !request.kdf_label.is_empty() {
@@ -340,6 +357,9 @@ impl Session<'_> {
         };
         let mechanism = match mode {
             KbkdfMode::Counter => Mechanism::KbkdfCounter(KbkdfParams::new(prf, &fields, None)),
+            KbkdfMode::DoublePipeline => {
+                Mechanism::KbkdfDoublePipeline(KbkdfParams::new(prf, &fields, None))
+            }
             KbkdfMode::Feedback => Mechanism::KbkdfFeedback(KbkdfFeedbackParams::new(
                 prf,
                 &fields,
@@ -369,6 +389,9 @@ mod tests {
             label: b"object-canary",
         };
         request.validate().unwrap();
+        request
+            .validate_with_mode(KbkdfMode::DoublePipeline, &[])
+            .unwrap();
         assert!(!format!("{request:?}").contains("canary"));
         for digest in [
             DigestAlgorithm::Sha256,
@@ -387,6 +410,11 @@ mod tests {
                         .is_err()
                 );
                 assert!(request.validate_with_mode(KbkdfMode::Counter, &iv).is_err());
+                assert!(
+                    request
+                        .validate_with_mode(KbkdfMode::DoublePipeline, &iv)
+                        .is_err()
+                );
             }
         }
         for length in [1, 4096] {

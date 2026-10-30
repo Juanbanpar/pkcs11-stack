@@ -431,89 +431,93 @@ fn kbkdf_modes_native_fields_bit_bounds_and_failure_health() {
     use pkcs11_runtime::{
         DigestAlgorithm, Error, KbkdfMode, KbkdfOutput, KbkdfRequest, ObjectRef, SessionMode,
     };
-    for case in (0..=9).chain(20..=29) {
+    for case in (0..=9).chain(20..=29).chain(40..=49).chain(52..=53) {
         let fault = case % 20;
-        let mode = if case >= 20 {
+        let mode = if case >= 40 {
+            KbkdfMode::DoublePipeline
+        } else if case >= 20 {
             KbkdfMode::Feedback
         } else {
             KbkdfMode::Counter
         };
-        let fixture = Fixture::from_source("kbkdf.c", V::V3_2, case, false);
-        let module = fixture.load(InterfaceSelection::Auto).unwrap();
-        let token = module
-            .resolve_token_uri(&"pkcs11:token=cmac".parse().unwrap())
-            .unwrap();
-        let key =
-            ObjectRef::new("pkcs11:token=cmac;id=%01;type=secret-key".parse().unwrap()).unwrap();
-        let mut session = token.open_session(SessionMode::ReadWrite).unwrap();
-        if fault == 0 {
-            let options = session.kbkdf_options(&key).unwrap();
-            assert!(options.get(mode).is_some());
-            let other = if mode == KbkdfMode::Counter {
-                KbkdfMode::Feedback
-            } else {
-                KbkdfMode::Counter
-            };
-            assert_eq!(options.get(other), None);
-        } else if fault == 9 {
-            assert!(matches!(
-                session.kbkdf_options(&key),
-                Err(Error::Backend {
-                    operation: "mechanism info",
-                    ..
-                })
-            ));
-        } else if fault != 5 {
-            assert!(matches!(
-                session.kbkdf_options(&key),
-                Err(Error::UnsupportedKeyOperation)
-            ));
-        }
-        for empty in [false, true] {
-            let request = KbkdfRequest {
-                digest: DigestAlgorithm::Sha256,
-                kdf_label: if empty { &[] } else { b"label" },
-                context: if empty { &[] } else { b"ctx" },
-                output: KbkdfOutput::DerivationSecret { length: 32 },
-                id: &[3],
-                label: b"derived",
-            };
-            let iv = if mode == KbkdfMode::Feedback && !empty {
-                &[0xA5; 32][..]
-            } else {
-                &[]
-            };
-            let result = session.derive_kbkdf_with_mode(&key, &request, mode, iv);
+        for version in [V::V3_0, V::V3_1, V::V3_2] {
+            let fixture = Fixture::from_source("kbkdf.c", version, case, false);
+            let module = fixture.load(InterfaceSelection::Auto).unwrap();
+            let token = module
+                .resolve_token_uri(&"pkcs11:token=cmac".parse().unwrap())
+                .unwrap();
+            let key = ObjectRef::new("pkcs11:token=cmac;id=%01;type=secret-key".parse().unwrap())
+                .unwrap();
+            let mut session = token.open_session(SessionMode::ReadWrite).unwrap();
             if fault == 0 {
-                result.unwrap();
-                session.info().unwrap();
-            } else if fault == 5 {
-                assert!(matches!(
-                    result,
-                    Err(Error::Backend {
-                        operation: "derive SP800-108 key",
-                        ..
-                    })
-                ));
-                assert!(matches!(session.info(), Err(Error::Closed)));
-                break;
+                let options = session.kbkdf_options(&key).unwrap();
+                assert!(options.get(mode).is_some());
+                for other in KbkdfMode::ALL
+                    .into_iter()
+                    .filter(|candidate| *candidate != mode)
+                {
+                    assert_eq!(options.get(other), None);
+                }
             } else if fault == 9 {
                 assert!(matches!(
-                    result,
+                    session.kbkdf_options(&key),
                     Err(Error::Backend {
                         operation: "mechanism info",
                         ..
                     })
                 ));
-                session.info().unwrap();
-            } else {
-                assert!(matches!(result, Err(Error::UnsupportedKeyOperation)));
-                session.info().unwrap();
+            } else if fault != 5 {
+                assert!(matches!(
+                    session.kbkdf_options(&key),
+                    Err(Error::UnsupportedKeyOperation)
+                ));
             }
+            for empty in [false, true] {
+                let request = KbkdfRequest {
+                    digest: DigestAlgorithm::Sha256,
+                    kdf_label: if empty { &[] } else { b"label" },
+                    context: if empty { &[] } else { b"ctx" },
+                    output: KbkdfOutput::DerivationSecret { length: 32 },
+                    id: &[3],
+                    label: b"derived",
+                };
+                let iv = if mode == KbkdfMode::Feedback && !empty {
+                    &[0xA5; 32][..]
+                } else {
+                    &[]
+                };
+                let result = session.derive_kbkdf_with_mode(&key, &request, mode, iv);
+                if fault == 0 {
+                    result.unwrap();
+                    session.info().unwrap();
+                } else if fault == 5 {
+                    assert!(matches!(
+                        result,
+                        Err(Error::Backend {
+                            operation: "derive SP800-108 key",
+                            ..
+                        })
+                    ));
+                    assert!(matches!(session.info(), Err(Error::Closed)));
+                    break;
+                } else if fault == 9 {
+                    assert!(matches!(
+                        result,
+                        Err(Error::Backend {
+                            operation: "mechanism info",
+                            ..
+                        })
+                    ));
+                    session.info().unwrap();
+                } else {
+                    assert!(matches!(result, Err(Error::UnsupportedKeyOperation)));
+                    session.info().unwrap();
+                }
+            }
+            session.close().unwrap();
+            drop(token);
+            module.finalize().unwrap();
         }
-        session.close().unwrap();
-        drop(token);
-        module.finalize().unwrap();
     }
 }
 #[test]

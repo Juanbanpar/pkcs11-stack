@@ -2,7 +2,7 @@
 use crate::{
     app::Message,
     backend::KeyProfile,
-    state::{HkdfOutputChoice, KbkdfDigest, KeyField, UiState},
+    state::{HkdfOutputChoice, KbkdfDigest, KbkdfForm, KeyField, UiState},
     ui::{button, components::EMPHASIS, pick_list, text_input},
 };
 use iced::{
@@ -22,7 +22,7 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
         Some(KeyProfile::Kbkdf(options)) => Some(options),
         _ => None,
     };
-    let modes: Vec<_> = KbkdfMode::ALL
+    let modes: Vec<_> = KbkdfForm::MODES
         .into_iter()
         .filter(|mode| options.and_then(|o| o.get(*mode)).is_some())
         .collect();

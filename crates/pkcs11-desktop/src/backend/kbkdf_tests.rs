@@ -21,7 +21,7 @@ fn managed(result: BackendResult) -> Vec<ObjectEntry> {
 #[test]
 #[ignore = "requires tools/test-kem-hkdf.sh SP800-108 provider"]
 fn persistent_kbkdf_desktop_rechecks_profiles_and_matches_runtime_outputs() {
-    for mode in KbkdfMode::ALL {
+    for mode in [KbkdfMode::Counter, KbkdfMode::Feedback] {
         check_mode(mode);
     }
 }

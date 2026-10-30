@@ -144,14 +144,29 @@ Derivation requires USER authentication, RW access and a new ID/label of
 AES outputs reject `--length`. All outputs are persistent private, sensitive and
 nonextractable. Native rejection causes no fallback or retry and may leave effects.
 
-Both commands accept `--mode counter|feedback`, defaulting to counter. For
-feedback, add `--mode feedback` and optionally `--kdf-iv-file public-iv.bin`.
+Both commands accept `--mode counter|feedback|double-pipeline`, defaulting to
+counter. For feedback, add `--mode feedback` and optionally `--kdf-iv-file public-iv.bin`.
 The raw IV file must be empty or exactly the selected hash length (32/48/64 bytes)
 and cannot be stdin. Feedback prepends the previous PRF output before the counter;
 the initial input is the supplied IV, with no bytes supplied when omitted.
-Counter mode rejects `--kdf-iv-file`, including empty files. Capabilities and
-execution check the selected mode independently; unsupported modes never fall
+Counter and Double Pipeline modes reject `--kdf-iv-file`, including empty files.
+Capabilities and execution check the selected mode independently; unsupported modes never fall
 back to another. Output permissions and other bounds are identical.
+
+Double Pipeline constructs `A(0) = label || 0x00 || context || [L]_32` inside
+the token and derives each block using `A(i) || [i]_32 || label || 0x00 ||
+context || [L]_32`. Both integers are big-endian, and L is in bits. It uses the
+same HMAC-SHA-256/384/512 and protected output choices. NSS softoken supports the
+tested generic-secret profile; the pinned Kryoptic provider does not advertise
+Double Pipeline. Unsupported mechanisms and missing required key metadata are
+returned without a mode substitution.
+
+```sh
+pkcs11ctl --module "$MODULE" derive-kbkdf --object "$BASE_SECRET_URI" \
+  --mode double-pipeline --digest sha256 --kind aes256 \
+  --kdf-label-file protocol-label.bin --kdf-context-file protocol-context.bin \
+  --id 0900 --label "Double Pipeline AES" --pin-file user.pin --confirm
+```
 
 ## Authentication
 

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Counter/feedback client permissions and agreement with runtime reference keys.
+//! SP800-108 client permissions and agreement with runtime reference keys.
 use pkcs11_client::{
     AesGcmDecryptRequest, AesGcmEncryptRequest, Attribute, AttributeType, Authentication,
     DigestAlgorithm, ErrorKind, KbkdfMode, KbkdfOutput, KbkdfRequest, ObjectRef, Pin, Provider,
@@ -18,7 +18,7 @@ fn key(id: &[u8]) -> ObjectRef {
 #[test]
 #[ignore = "requires tools/test-kem-hkdf.sh SP800-108 provider"]
 fn client_kbkdf_modes_permissions_outputs_and_runtime_agreement() {
-    for mode in KbkdfMode::ALL {
+    for mode in [KbkdfMode::Counter, KbkdfMode::Feedback] {
         check_mode(mode);
     }
 }
@@ -167,10 +167,10 @@ fn check_mode(mode: KbkdfMode) {
                     .decrypt_aes_gcm(
                         &key(&[
                             0xFA,
-                            if mode == KbkdfMode::Counter {
-                                0x82
-                            } else {
-                                0x8A
+                            match mode {
+                                KbkdfMode::Counter => 0x82,
+                                KbkdfMode::Feedback => 0x8a,
+                                KbkdfMode::DoublePipeline => 0x8b,
                             },
                             index as u8,
                         ]),
@@ -196,4 +196,14 @@ fn check_mode(mode: KbkdfMode) {
     }
     session.close().unwrap();
     provider.finalize().unwrap();
+}
+
+#[test]
+#[ignore = "requires tools/test-nss.sh disposable NSS store"]
+fn client_double_pipeline_nss_permissions_outputs_and_runtime_agreement() {
+    assert_eq!(
+        std::env::var("PKCS11_TEST_NSS_ISOLATED").as_deref(),
+        Ok("1")
+    );
+    check_mode(KbkdfMode::DoublePipeline);
 }

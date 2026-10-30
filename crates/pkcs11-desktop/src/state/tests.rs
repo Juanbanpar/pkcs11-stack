@@ -3193,7 +3193,7 @@ fn hkdf_salt_key_forms_validate_locators_conflicts_and_disabled_stages() {
 fn kbkdf_mode_forms_select_only_supported_prfs_and_validate_typed_jobs() {
     use crate::backend::{CryptoMode, KeyJob, KeyProfile};
     use pkcs11_client::{DigestAlgorithm, KbkdfCapabilities, KbkdfMode, KbkdfOutput};
-    for mode in KbkdfMode::ALL {
+    for mode in KbkdfForm::MODES {
         for (index, digest) in [
             DigestAlgorithm::Sha256,
             DigestAlgorithm::Sha384,
@@ -3226,6 +3226,7 @@ fn kbkdf_mode_forms_select_only_supported_prfs_and_validate_typed_jobs() {
                         profile: KeyProfile::Kbkdf(pkcs11_client::KbkdfOptions {
                             counter: (mode == KbkdfMode::Counter).then_some(caps),
                             feedback: (mode == KbkdfMode::Feedback).then_some(caps),
+                            double_pipeline: None,
                         }),
                     },
                 ));

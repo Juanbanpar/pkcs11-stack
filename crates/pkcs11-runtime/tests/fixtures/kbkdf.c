@@ -4,8 +4,9 @@
 #include "cmac.c"
 #undef C_GetFunctionList
 #define KDF_FAULT (FAULT % 20)
-#define FEEDBACK (FAULT >= 20)
-#define KDF_MECHANISM (FEEDBACK ? CKM_SP800_108_FEEDBACK_KDF : CKM_SP800_108_COUNTER_KDF)
+#define FEEDBACK (FAULT >= 20 && FAULT < 40)
+#define DOUBLE_PIPELINE (FAULT >= 40)
+#define KDF_MECHANISM (DOUBLE_PIPELINE ? CKM_SP800_108_DOUBLE_PIPELINE_KDF : FEEDBACK ? CKM_SP800_108_FEEDBACK_KDF : CKM_SP800_108_COUNTER_KDF)
 static CK_OBJECT_HANDLE selected;
 static CK_RV kbkdf_mechanisms(CK_SLOT_ID slot, CK_MECHANISM_TYPE_PTR list, CK_ULONG_PTR count) {
     (void)slot; if (list) list[0] = KDF_MECHANISM; *count = 1; return CKR_OK;
@@ -44,8 +45,9 @@ static CK_RV kbkdf_attributes(CK_SESSION_HANDLE s, CK_OBJECT_HANDLE handle, CK_A
             case CKA_VALUE_LEN: value = KDF_FAULT == 8 ? 15 : 32; break;
             case CKA_ALLOWED_MECHANISMS: value = KDF_FAULT == 4 ? CKM_HKDF_DERIVE : KDF_MECHANISM; break;
             case CKA_DERIVE: value = KDF_FAULT != 3; length = sizeof(CK_BBOOL); break;
-            case CKA_TOKEN: case CKA_PRIVATE: case CKA_SENSITIVE: value = 1; length = sizeof(CK_BBOOL); break;
-            case CKA_EXTRACTABLE: length = sizeof(CK_BBOOL); break;
+            case CKA_TOKEN: case CKA_PRIVATE: value = 1; length = sizeof(CK_BBOOL); break;
+            case CKA_SENSITIVE: value = KDF_FAULT != 12; length = sizeof(CK_BBOOL); break;
+            case CKA_EXTRACTABLE: value = KDF_FAULT == 13; length = sizeof(CK_BBOOL); break;
             /* Reading CKA_VALUE is deliberately unsupported. */
             default: return CKR_ATTRIBUTE_TYPE_INVALID;
         }
@@ -84,6 +86,11 @@ static CK_RV kbkdf_derive(CK_SESSION_HANDLE s, CK_MECHANISM_PTR mechanism, CK_OB
         fields = p->pDataParams;
         n = p->ulNumberOfDataParams;
         if (fields[0].type != CK_SP800_108_ITERATION_VARIABLE) return CKR_MECHANISM_PARAM_INVALID;
+        if (DOUBLE_PIPELINE) {
+            if (n < 2 || fields[0].pValue != NULL || fields[0].ulValueLen != 0) return CKR_MECHANISM_PARAM_INVALID;
+            ++fields; --n;
+            if (fields[0].type != CK_SP800_108_COUNTER) return CKR_MECHANISM_PARAM_INVALID;
+        }
     }
     if (fields[0].ulValueLen != sizeof(CK_SP800_108_COUNTER_FORMAT) || !fields[0].pValue) return CKR_MECHANISM_PARAM_INVALID;
     CK_SP800_108_COUNTER_FORMAT *counter = fields[0].pValue;
@@ -110,7 +117,11 @@ static CK_RV kbkdf_derive(CK_SESSION_HANDLE s, CK_MECHANISM_PTR mechanism, CK_OB
     if (KDF_FAULT == 5) return CKR_DEVICE_ERROR;
     *result = 3; return CKR_OK;
 }
+static CK_RV kbkdf_close(CK_SESSION_HANDLE s) { return KDF_FAULT == 10 ? CKR_DEVICE_ERROR : close_session(s); }
+static CK_RV kbkdf_finalize(CK_VOID_PTR p) { return KDF_FAULT == 11 ? CKR_DEVICE_ERROR : finalize(p); }
 CK_RV C_GetFunctionList(CK_FUNCTION_LIST_PTR_PTR out) {
+    functions.C_CloseSession = kbkdf_close;
+    functions.C_Finalize = kbkdf_finalize;
     functions.C_GetMechanismList = kbkdf_mechanisms;
     functions.C_GetMechanismInfo = kbkdf_info;
     functions.C_FindObjectsInit = kbkdf_find_init;

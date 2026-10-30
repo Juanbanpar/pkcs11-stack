@@ -719,7 +719,7 @@ impl UiState {
                                 form.cmac_profile = profile;
                             }
                             if let crate::backend::KeyProfile::Kbkdf(options) = profile
-                                && let Some(mode) = pkcs11_client::KbkdfMode::ALL
+                                && let Some(mode) = KbkdfForm::MODES
                                     .into_iter()
                                     .find(|mode| options.get(*mode).is_some())
                                 && let Some(caps) = options.get(mode)

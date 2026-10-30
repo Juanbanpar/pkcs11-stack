@@ -68,6 +68,8 @@ fn kbkdf_preflight_bounds_class_and_public_files() {
     for (mode, digest, bytes, expected) in [
         ("counter", "sha256", vec![], 2),
         ("counter", "sha256", vec![0; 32], 2),
+        ("double-pipeline", "sha256", vec![], 2),
+        ("double-pipeline", "sha256", vec![0; 32], 2),
         ("feedback", "sha256", vec![0; 31], 2),
         ("feedback", "sha384", vec![0; 32], 2),
         ("feedback", "sha512", vec![0; 65], 2),
@@ -129,7 +131,7 @@ fn check_mode(mode: &str) {
     let iv_file = root.join("iv");
     let invoke = |args: &[&str]| {
         let mut args = args.to_vec();
-        if mode == "feedback" && matches!(args[0], "kbkdf-capabilities" | "derive-kbkdf") {
+        if mode != "counter" && matches!(args[0], "kbkdf-capabilities" | "derive-kbkdf") {
             args.extend(["--mode", mode]);
         }
         if args[0] == "derive-kbkdf" && mode == "feedback" {
@@ -163,7 +165,11 @@ fn check_mode(mode: &str) {
         let object = format!("pkcs11:token=kdf-test;id=%FA%88%{index:02X};type=secret-key");
         let canonical = format!(
             "pkcs11:token=kdf-test;id=%FA%{:02X}%{index:02X};type=secret-key",
-            if mode == "counter" { 0x82 } else { 0x8A }
+            match mode {
+                "counter" => 0x82,
+                "feedback" => 0x8a,
+                _ => 0x8b,
+            }
         );
         let args = [
             "derive-kbkdf",
@@ -232,5 +238,74 @@ fn check_mode(mode: &str) {
         assert_eq!(blocked.status.code(), Some(4));
         assert!(blocked.stdout.is_empty());
         ok(&["delete", "--object", &object, "--confirm"]);
+    }
+}
+
+#[test]
+#[ignore = "requires tools/test-nss.sh disposable NSS store"]
+fn double_pipeline_nss_cli_capabilities_derive_and_independent_runtime_agreement() {
+    assert_eq!(
+        std::env::var("PKCS11_TEST_NSS_ISOLATED").as_deref(),
+        Ok("1")
+    );
+    check_mode("double-pipeline");
+}
+
+#[cfg(unix)]
+#[path = "../../pkcs11-runtime/tests/fixtures/metadata_module.rs"]
+#[allow(dead_code)]
+mod metadata_module;
+#[test]
+#[cfg(unix)]
+fn double_pipeline_native_failures_withhold_success_until_checked_cleanup() {
+    use metadata_module::MetadataModule;
+    for fault in 0..=13 {
+        let fixture = MetadataModule::from_source("kbkdf.c", 40 + fault);
+        let root = fixture.path().parent().unwrap();
+        let label = root.join("label");
+        let context = root.join("context");
+        std::fs::write(&label, b"label").unwrap();
+        std::fs::write(&context, b"ctx").unwrap();
+        let result = Command::new(env!("CARGO_BIN_EXE_pkcs11ctl"))
+            .arg("--module")
+            .arg(fixture.path())
+            .args([
+                "--format",
+                "json",
+                "derive-kbkdf",
+                "--mode",
+                "double-pipeline",
+                "--object",
+                "pkcs11:token=cmac;id=%01;type=secret-key",
+                "--digest",
+                "sha256",
+                "--kind",
+                "derivation-secret",
+                "--length",
+                "32",
+                "--id",
+                "03",
+                "--label",
+                "derived",
+                "--confirm",
+                "--kdf-label-file",
+            ])
+            .arg(label)
+            .arg("--kdf-context-file")
+            .arg(context)
+            .output()
+            .unwrap();
+        assert_eq!(result.status.success(), fault == 0, "{fault}: {result:?}");
+        if fault == 0 {
+            let result: Value = serde_json::from_slice(&result.stdout).unwrap();
+            assert_eq!(result["result"]["mode"], "double-pipeline");
+            assert_eq!(result["result"]["length"], 32);
+            assert_eq!(result["result"]["extractable"], false);
+        } else {
+            assert!(result.stdout.is_empty());
+            if [5, 9, 10, 11].contains(&fault) {
+                assert_eq!(result.status.code(), Some(5));
+            }
+        }
     }
 }

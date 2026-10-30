@@ -48,6 +48,7 @@ impl Default for KbkdfForm {
     }
 }
 impl KbkdfForm {
+    pub const MODES: [KbkdfMode; 2] = [KbkdfMode::Counter, KbkdfMode::Feedback];
     pub(super) fn job(
         &self,
         options: KbkdfOptions,

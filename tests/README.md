@@ -14,7 +14,8 @@ PKCS11_TEST_KDF_MODULE=/absolute/path/to/kdf-provider/libkryoptic_pkcs11.so \
 ./tools/test.sh
 ```
 
-Install SoftHSM, OpenSC, OpenSSL and Python 3 for the runners below. Provider
+Install SoftHSM, OpenSC, OpenSSL, NSS softoken with `certutil`, and Python 3
+for the runners below. Provider
 builds additionally require Git, a C/C++ toolchain, Make, Perl, Autoconf, Automake,
 Libtool, Clang/libclang, pkg-config and SQLite development files. Desktop requires
 its normal native build dependencies. All token stores are temporary. Missing
@@ -66,7 +67,8 @@ or formal conformance. Coverage is recorded per capability below.
 | Full/general SHA-2/SHA-3 HMAC | Implemented | Runtime/client/CLI/desktop; ten SHA-224/256/384/512, SHA-512/224, SHA-512/256 and SHA3-224/256/384/512 profiles, generic and matching typed keys, bounded full/general tags with a half-hash minimum, algorithm-restricted generic key generation, permission rejection and reusable mismatches. SoftHSM/Kryoptic results match OpenSSL, including shorter Kryoptic keys. Kryoptic exercises all ten profiles; SoftHSM exercises its advertised subset. The pinned Kryoptic advertises 0/0 generic-generation bounds; full-tag generation is rejected there and exercised on SoftHSM. Native fixtures check every general length, all ten mechanism IDs/parameter layouts, generation templates, missing pointers, flags and malformed outputs. CLI/desktop check explicit tag selection, stale profiles, reusable mismatches and output preservation. General-only generation templates are fixture-tested; the pinned providers do not expose compatible general-HMAC generation capabilities. HMAC key-type IDs have round-trip regressions. |
 | Full/general AES-CMAC generation and verification | Implemented | Runtime/client/CLI/desktop; AES-128/192/256 and OpenSSL comparisons, authentication-only key generation, RO use, permission and allow-list rejection, verification mismatches and output preservation. Native fixtures check entry points, flags, fixed output bounds and failed-session handling. General CMAC uses explicit native 8–16-byte parameters with all three AES sizes, independent OpenSSL prefix comparisons, general-only key generation, exact-length verification, permission rejection and stale frontend profiles. Kryoptic requires both profiles; SoftHSM retains its advertised full-tag profile. Independent 2.40 fixtures check CK_MAC_GENERAL_PARAMS and bounded output failures. |
 | SP 800-108 counter/feedback HMAC-SHA-2 | Implemented | Runtime/client/CLI/desktop; HMAC-SHA-256/384/512, 32-bit big-endian counter and output bit length, separator and one output key. Feedback uses an omitted or hash-length public IV. Kryoptic results match OpenSSL for all AES sizes and generic outputs through 4096 bytes, empty/binary/maximum label/context and generic/typed bases. Native fixtures verify both native layouts, null iteration fields and omitted IVs, counter placement, bit-based bounds, permissions and failure health. Frontends check mode selection, IV validation/clearing, output agreement and stale selections. |
-| Remaining symmetric algorithms, MACs and KDF expansion | Pending | Existing AES-GCM, explicit KW/KWP, constrained HKDF and ECDH profiles. GMAC, SP 800-108 double-pipeline mode/other PRFs and PBKDF2 remain pending. |
+| SP 800-108 Double Pipeline HMAC-SHA-2 | Implemented | Runtime/client/CLI; HMAC-SHA-256/384/512, A(0) constructed from label/separator/context/output bit length, 32-bit big-endian counter and one protected output. Native 3.0/3.1/3.2 fixtures check layout, ordering, policy and failure handling. NSS generic bases and AES/generic outputs through 4096 bytes match independent OpenSSL HMAC calculations. Typed NSS HMAC keys omit required length metadata and are rejected. Desktop choices remain Counter/Feedback. |
+| Remaining symmetric algorithms, MACs and KDF expansion | Pending | Existing AES-GCM, explicit KW/KWP, constrained HKDF and ECDH profiles. GMAC, other SP 800-108 PRFs and PBKDF2 remain pending. |
 | AES-KW/KWP key transfer | Implemented | Runtime/client/CLI/desktop; explicit selection and default IVs. Kryoptic/OpenSSL comparisons cover all AES wrapping/target sizes, output permissions, trust/extractability rejection, RO/duplicate-ID rejection, mismatches and tampering. SoftHSM retains the KW workflow. No deprecated PAD alias or fallback. |
 | HashML-DSA, SLH-DSA and additional TLS signatures | Pending | Existing pure ML-DSA and ML-KEM profiles remain supported. |
 | Legacy algorithm execution | Pending | No legacy opt-in or algorithms are enabled yet. |
@@ -418,6 +420,21 @@ read-only sessions and duplicate IDs. Client, CLI and desktop independently
 compare AES-GCM results with runtime-derived reference keys. A native fixture
 checks parameter layout, bit-based mechanism bounds and failed-session behavior.
 
+NSS Double Pipeline tests use an isolated SQL database:
+
+```sh
+# Debian/Ubuntu: apt install libnss3-tools; Fedora: dnf install nss-tools
+bash tools/test-nss.sh
+```
+
+The runner locates the packaged `libsoftokn3.so`, or uses the trusted path in
+`PKCS11_TEST_NSS_MODULE`. It requires `certutil` and OpenSSL, creates a temporary
+password-protected database and sets `NSS_LIB_PARAMS` only for its subprocesses.
+Runtime tests provision public test bases and compare Double Pipeline outputs
+with an independent construction using OpenSSL HMAC. Client and CLI tests reuse
+those reference keys. The Linux provider CI job requires all three layers.
+Kryoptic's existing Counter/Feedback workflows remain mandatory.
+
 For ML-KEM-512/768/1024, each sender/receiver secret feeds typed HKDF-SHA256 on the
 same token. AES challenge comparisons verify matching derived keys and different
 results for altered ciphertext/context. Generic known-answer outputs are compared
@@ -433,6 +450,12 @@ keys and preserve existing output files. A separate native lifecycle verifies CL
 key agreement using AES challenges.
 
 ## AES-GCM provider compatibility
+
+Single-part encryption allocates exactly plaintext length plus the 16-byte tag,
+without querying or retrying the provider. Independent 2.40/3.0/3.1/3.2 fixtures
+check empty/nonempty inputs, exact capacity, native failures, returned-length
+changes and nonce mutation. NSS derived-key tests also exercise this path;
+NSS's output-size query does not include the GCM tag.
 
 The SoftHSM runner tests AES-GCM with a 96-bit nonce and 128-bit tag. Runtime
 fixtures select 12 NIST CAVP known-answer vectors across AES-128/192/256,

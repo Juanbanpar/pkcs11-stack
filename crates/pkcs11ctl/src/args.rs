@@ -705,7 +705,7 @@ pub(crate) fn command() -> Command {
                 .about("Inspect native SP800-108 PRF choices for an explicit mode")
                 .arg(
                     value("mode", "SP800-108 mode")
-                        .value_parser(["counter", "feedback"])
+                        .value_parser(["counter", "feedback", "double-pipeline"])
                         .default_value("counter"),
                 ),
         )),
@@ -714,7 +714,7 @@ pub(crate) fn command() -> Command {
                 .about("Derive one token key using explicit SP800-108 mode and HMAC-SHA2")
                 .arg(
                     value("mode", "SP800-108 mode")
-                        .value_parser(["counter", "feedback"])
+                        .value_parser(["counter", "feedback", "double-pipeline"])
                         .default_value("counter"),
                 )
                 .arg(value(

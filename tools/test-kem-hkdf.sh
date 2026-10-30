@@ -46,14 +46,14 @@ cargo test -p pkcs11-runtime --test aes_cmac_provider --locked -- --ignored --te
 cargo test -p pkcs11-client --test aes_cmac_provider --locked -- --ignored --test-threads=1
 cargo test -p pkcs11ctl --test aes_cmac --locked -- --ignored --test-threads=1
 cargo test -p pkcs11-desktop --locked -- software_token_cmac --ignored --test-threads=1
-cargo test -p pkcs11-runtime --test kbkdf_provider --locked -- --ignored --test-threads=1
+cargo test -p pkcs11-runtime --test kbkdf_provider --locked -- kbkdf_modes_ --ignored --test-threads=1
 cargo test -p pkcs11-runtime --test hmac_provider --locked -- --ignored --test-threads=1
 cargo test -p pkcs11-client --test hmac_general_provider --locked -- general_hmac_client --ignored --test-threads=1
 cargo test -p pkcs11ctl --test hmac_general --locked -- --ignored --test-threads=1
 cargo test -p pkcs11ctl --test mac_multipart_provider --locked -- --ignored --test-threads=1
 cargo test -p pkcs11-desktop --locked -- persistent_hmac_general_desktop --ignored --test-threads=1
-cargo test -p pkcs11-client --test kbkdf_provider --locked -- --ignored --test-threads=1
-cargo test -p pkcs11ctl --test kbkdf --locked -- --ignored --test-threads=1
+cargo test -p pkcs11-client --test kbkdf_provider --locked -- kbkdf_modes_ --ignored --test-threads=1
+cargo test -p pkcs11ctl --test kbkdf --locked -- kbkdf_modes_ --ignored --test-threads=1
 cargo test -p pkcs11-desktop --locked -- persistent_kbkdf_desktop --ignored --test-threads=1
 cargo test -p pkcs11-client --test key_wrap_persistent --locked -- --ignored --test-threads=1
 cargo test -p pkcs11ctl --test key_wrap --locked -- --ignored --test-threads=1

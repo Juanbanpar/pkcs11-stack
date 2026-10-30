@@ -811,10 +811,25 @@ initial bytes. Counter mode rejects a nonempty IV. Mode/IV errors are rejected
 before native derivation; no failed mode is replaced with another.
 
 `kbkdf_capabilities_with_mode` checks one explicit mode. `kbkdf_options` inspects
-both modes on the same selected key, omitting unsupported profiles while
+all three modes on the same selected key, omitting unsupported profiles while
 propagating selection/provider errors. Each mode checks its own native mechanism,
 allowed mechanisms, derive flag and bit-based key-size bounds. A token may support
 only one mode. The original capability and derivation methods retain counter mode.
+
+`KbkdfMode::DoublePipeline` uses the same protected output policy and native
+`CK_SP800_108_KDF_PARAMS` layout as Counter mode. Its fixed encoding is
+`Fixed = kdf_label || 0x00 || context || [L]_32`, `A(0) = Fixed`,
+`A(i) = HMAC(K, A(i-1))`, then
+`K(i) = HMAC(K, A(i) || [i]_32 || Fixed)`. Integers are 32-bit big-endian;
+L is the requested output length in bits. The token constructs A(0), so the
+external IV must be empty. No additional keys are requested. Capability
+inspection includes `KbkdfOptions::double_pipeline` and native support is
+rechecked on execution. These parameters follow
+[PKCS #11 section 6.42.5](https://docs.oasis-open.org/pkcs11/pkcs11-spec/v3.2/pkcs11-spec-v3.2.pdf#page=358).
+NSS softoken validates this profile against independent OpenSSL HMAC calculations.
+NSS typed HMAC objects omit required length metadata and are rejected; generic
+secrets retain the existing explicit length checks. Kryoptic covers Counter and
+Feedback and currently reports Double Pipeline as unsupported.
 
 ## Application hybrid derivation
 

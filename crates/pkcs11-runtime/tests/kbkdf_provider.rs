@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Native counter/feedback KDFs compared with the independent OpenSSL KBKDF implementation.
+//! Native SP800-108 modes compared with OpenSSL KBKDF and an independent HMAC construction.
 use cryptoki::{
     context::{CInitializeArgs, CInitializeFlags, Pkcs11},
     mechanism::Mechanism,
@@ -21,7 +21,7 @@ fn reference(id: &[u8]) -> ObjectRef {
     .unwrap()
 }
 fn base(id: &[u8], kind: KeyType, length: usize) -> Vec<Attribute> {
-    vec![
+    let mut attrs = vec![
         Attribute::Class(ObjectClass::SECRET_KEY),
         Attribute::KeyType(kind),
         Attribute::Token(true),
@@ -38,10 +38,17 @@ fn base(id: &[u8], kind: KeyType, length: usize) -> Vec<Attribute> {
         Attribute::AllowedMechanisms(vec![
             MechanismType::SP800_108_COUNTER_KDF,
             MechanismType::SP800_108_FEEDBACK_KDF,
+            MechanismType::SP800_108_DOUBLE_PIPELINE_KDF,
         ]),
         Attribute::Id(id.to_vec()),
         Attribute::Value(vec![0x0B; length]),
-    ]
+    ];
+    // NSS does not persist CKA_ALLOWED_MECHANISMS on imported secret objects.
+    // Native fixtures and the Kryoptic lane cover explicit mechanism restrictions.
+    if std::env::var("PKCS11_TEST_NSS_ISOLATED").as_deref() == Ok("1") {
+        attrs.retain(|a| a.attribute_type() != AttributeType::AllowedMechanisms);
+    }
+    attrs
 }
 fn expected(
     mode: KbkdfMode,
@@ -52,6 +59,9 @@ fn expected(
     label: &[u8],
     context: &[u8],
 ) -> Vec<u8> {
+    if mode == KbkdfMode::DoublePipeline {
+        return double_pipeline_expected(digest, key_length, output.length(), label, context);
+    }
     let hex = |v: &[u8]| v.iter().map(|b| format!("{b:02x}")).collect::<String>();
     let mut cmd = std::process::Command::new(std::env::var_os("PKCS11_TEST_KDF_OPENSSL").unwrap());
     cmd.args([
@@ -106,15 +116,15 @@ fn expected(
 #[test]
 #[ignore = "requires tools/test-kem-hkdf.sh with the SP800-108 Kryoptic build"]
 fn kbkdf_modes_openssl_outputs_key_types_permissions_and_bounds() {
-    for mode in KbkdfMode::ALL {
+    for mode in [KbkdfMode::Counter, KbkdfMode::Feedback] {
         check_mode(mode);
     }
 }
 fn check_mode(mode: KbkdfMode) {
-    let canonical_id = if mode == KbkdfMode::Counter {
-        0x82
-    } else {
-        0x8A
+    let canonical_id = match mode {
+        KbkdfMode::Counter => 0x82,
+        KbkdfMode::Feedback => 0x8a,
+        KbkdfMode::DoublePipeline => 0x8b,
     };
     assert_eq!(
         std::env::var("PKCS11_TEST_KDF_ISOLATED").as_deref(),
@@ -129,6 +139,7 @@ fn check_mode(mode: KbkdfMode) {
         token.mechanisms().unwrap().contains(&match mode {
             KbkdfMode::Counter => MechanismType::SP800_108_COUNTER_KDF,
             KbkdfMode::Feedback => MechanismType::SP800_108_FEEDBACK_KDF,
+            KbkdfMode::DoublePipeline => MechanismType::SP800_108_DOUBLE_PIPELINE_KDF,
         }),
         "rebuild the provider with tools/build-kem-hkdf-provider.sh"
     );
@@ -151,6 +162,17 @@ fn check_mode(mode: KbkdfMode) {
             let id = [0xFA, 0x80, index as u8, u8::from(typed)];
             session.create_object(&base(&id, kind, key_length)).unwrap();
             let key = reference(&id);
+            // NSS omits CKA_VALUE_LEN on typed HMAC keys. Do not infer their
+            // length from the hash name: HMAC key lengths are variable.
+            if mode == KbkdfMode::DoublePipeline && typed {
+                assert!(matches!(
+                    session.kbkdf_capabilities_with_mode(&key, mode),
+                    Err(Error::MissingMetadata(_))
+                ));
+                session.info().unwrap();
+                session.resolve(&key).unwrap().destroy().unwrap();
+                continue;
+            }
             let caps = session.kbkdf_capabilities_with_mode(&key, mode).unwrap();
             assert_eq!(caps.input_length, key_length);
             for candidate in [
@@ -306,32 +328,35 @@ fn check_mode(mode: KbkdfMode) {
             ),
         ));
     }
-    for (case, bad) in [
-        Attribute::Derive(false),
-        Attribute::Sensitive(false),
-        Attribute::Extractable(true),
-        Attribute::AllowedMechanisms(vec![MechanismType::HKDF_DERIVE]),
-        Attribute::KeyType(KeyType::HKDF),
-        Attribute::Value(vec![0x0B; 15]),
-        Attribute::Value(vec![0x0B; 4097]),
-    ]
-    .into_iter()
-    .enumerate()
-    {
-        let id = [0xFA, 0x83, case as u8];
-        let mut attrs = base(&id, KeyType::GENERIC_SECRET, 32);
-        let kind = bad.attribute_type();
-        *attrs
-            .iter_mut()
-            .find(|a| a.attribute_type() == kind)
-            .unwrap() = bad;
-        session.create_object(&attrs).unwrap();
-        assert!(matches!(
-            session.kbkdf_capabilities_with_mode(&reference(&id), mode),
-            Err(Error::UnsupportedKeyOperation)
-        ));
-        assert!(matches!(
-            session.derive_kbkdf_with_mode(
+    // Kryoptic preserves the hostile templates below. NSS normalizes persistent
+    // templates and omits some attributes; independent ABI fixtures cover the
+    // same policy rejections for DoublePipeline.
+    if mode != KbkdfMode::DoublePipeline {
+        for (case, bad) in [
+            Attribute::Derive(false),
+            Attribute::Sensitive(false),
+            Attribute::Extractable(true),
+            Attribute::AllowedMechanisms(vec![MechanismType::HKDF_DERIVE]),
+            Attribute::KeyType(KeyType::HKDF),
+            Attribute::Value(vec![0x0B; 15]),
+            Attribute::Value(vec![0x0B; 4097]),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let id = [0xFA, 0x83, case as u8];
+            let mut attrs = base(&id, KeyType::GENERIC_SECRET, 32);
+            let kind = bad.attribute_type();
+            *attrs
+                .iter_mut()
+                .find(|a| a.attribute_type() == kind)
+                .unwrap() = bad;
+            session.create_object(&attrs).unwrap();
+            assert!(matches!(
+                session.kbkdf_capabilities_with_mode(&reference(&id), mode),
+                Err(Error::UnsupportedKeyOperation)
+            ));
+            let result = session.derive_kbkdf_with_mode(
                 &reference(&id),
                 &KbkdfRequest {
                     digest: DigestAlgorithm::Sha256,
@@ -339,15 +364,15 @@ fn check_mode(mode: KbkdfMode) {
                     context: b"ctx",
                     output: KbkdfOutput::Aes256,
                     id: b"policy-output",
-                    label: b"policy"
+                    label: b"policy",
                 },
                 mode,
-                &[]
-            ),
-            Err(Error::UnsupportedKeyOperation)
-        ));
-        session.info().unwrap();
-        session.resolve(&reference(&id)).unwrap().destroy().unwrap();
+                &[],
+            );
+            assert!(matches!(result, Err(Error::UnsupportedKeyOperation)));
+            session.info().unwrap();
+            session.resolve(&reference(&id)).unwrap().destroy().unwrap();
+        }
     }
     for length in [16, 4096] {
         let id = [0xFA, 0x84, (length == 4096) as u8];
@@ -400,7 +425,12 @@ fn check_mode(mode: KbkdfMode) {
     let raw = Pkcs11::new(&path).unwrap();
     raw.initialize(CInitializeArgs::new(CInitializeFlags::OS_LOCKING_OK))
         .unwrap();
-    let slot = raw.get_slots_with_initialized_token().unwrap()[0];
+    let slot = raw
+        .get_slots_with_initialized_token()
+        .unwrap()
+        .into_iter()
+        .find(|slot| raw.get_token_info(*slot).unwrap().label() == "kdf-test")
+        .unwrap();
     let session = raw.open_rw_session(slot).unwrap();
     session.login(UserType::User, Some(&pin)).unwrap();
     for (id, output, value) in proofs {
@@ -456,4 +486,94 @@ fn check_mode(mode: KbkdfMode) {
     }
     session.close().unwrap();
     raw.finalize().unwrap();
+}
+
+// SP800-108 section 5.3: the construction is independent of the provider's
+// KBKDF implementation. OpenSSL is used only as an HMAC primitive.
+fn double_pipeline_expected(
+    digest: DigestAlgorithm,
+    key_length: usize,
+    length: usize,
+    label: &[u8],
+    context: &[u8],
+) -> Vec<u8> {
+    use std::{
+        io::Write,
+        process::{Command, Stdio},
+    };
+    let prf = |message: &[u8]| {
+        let mut child = Command::new(std::env::var_os("PKCS11_TEST_KDF_OPENSSL").unwrap())
+            .args([
+                "dgst",
+                match digest {
+                    DigestAlgorithm::Sha256 => "-sha256",
+                    DigestAlgorithm::Sha384 => "-sha384",
+                    DigestAlgorithm::Sha512 => "-sha512",
+                    _ => unreachable!(),
+                },
+                "-mac",
+                "HMAC",
+                "-macopt",
+                &format!("hexkey:{}", "0b".repeat(key_length)),
+                "-binary",
+            ])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child.stdin.take().unwrap().write_all(message).unwrap();
+        let out = child.wait_with_output().unwrap();
+        assert!(
+            out.status.success(),
+            "OpenSSL HMAC: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert_eq!(out.stdout.len(), digest.output_len());
+        out.stdout
+    };
+    let mut fixed = label.to_vec();
+    fixed.push(0);
+    fixed.extend(context);
+    fixed.extend(u32::try_from(length * 8).unwrap().to_be_bytes());
+    let mut a = fixed.clone();
+    let mut result = Vec::new();
+    for counter in 1u32.. {
+        a = prf(&a);
+        let mut block = a.clone();
+        block.extend(counter.to_be_bytes());
+        block.extend(&fixed);
+        result.extend(prf(&block));
+        if result.len() >= length {
+            result.truncate(length);
+            return result;
+        }
+    }
+    unreachable!()
+}
+#[test]
+#[ignore = "requires tools/test-nss.sh disposable NSS store"]
+fn double_pipeline_nss_outputs_key_types_permissions_and_bounds() {
+    assert_eq!(
+        std::env::var("PKCS11_TEST_NSS_ISOLATED").as_deref(),
+        Ok("1")
+    );
+    let module = Module::load(std::env::var_os("PKCS11_TEST_KDF_MODULE").unwrap()).unwrap();
+    let token = module
+        .resolve_token_uri(&"pkcs11:token=kdf-test".parse().unwrap())
+        .unwrap();
+    let pin = SecretString::from("12345678");
+    let mut session = token.open_session(SessionMode::ReadWrite).unwrap();
+    session
+        .authenticate(Authentication::User(Pin::Value(&pin)))
+        .unwrap();
+    for (index, length) in [32, 48, 64].into_iter().enumerate() {
+        session
+            .create_object(&base(&[0xa0, index as u8], KeyType::GENERIC_SECRET, length))
+            .unwrap();
+    }
+    session.close().unwrap();
+    drop(token);
+    module.finalize().unwrap();
+    check_mode(KbkdfMode::DoublePipeline);
 }

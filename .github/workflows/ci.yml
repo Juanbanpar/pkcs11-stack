@@ -232,7 +232,7 @@ jobs:
           rustup toolchain install stable --no-self-update --profile minimal
           rustup default stable
           sudo apt-get update
-          sudo apt-get install --yes clang libclang-dev pkg-config libsqlite3-dev g++ make perl openssl opensc libxkbcommon-dev libwayland-dev libegl1-mesa-dev
+          sudo apt-get install --yes clang libclang-dev pkg-config libsqlite3-dev g++ make perl openssl opensc libnss3-tools libxkbcommon-dev libwayland-dev libegl1-mesa-dev
       - name: Build pinned Kryoptic and OpenSSL with ML-KEM, ML-DSA, ECDH, X25519/X448 and HKDF
         run: ./tools/build-kem-hkdf-provider.sh "$RUNNER_TEMP/kdf-provider"
       - name: Require library, CLI and desktop provider workflows on the same token
@@ -243,3 +243,5 @@ jobs:
         run: |
           ./tools/test-ml-kem.sh
           ./tools/test-kem-hkdf.sh
+      - name: Require NSS SP800-108 Double Pipeline workflows
+        run: ./tools/test-nss.sh

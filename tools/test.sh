@@ -9,3 +9,4 @@ bash tools/test-softhsm.sh
 bash tools/test-ml-dsa.sh
 bash tools/test-ml-kem.sh
 bash tools/test-kem-hkdf.sh
+bash tools/test-nss.sh

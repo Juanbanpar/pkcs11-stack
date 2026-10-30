@@ -442,7 +442,7 @@ fn signature_digests_do_not_expand_cipher_or_kdf_profiles() {
             id: b"id",
             label: b"label",
         };
-        for mode in [KbkdfMode::Counter, KbkdfMode::Feedback] {
+        for mode in KbkdfMode::ALL {
             assert!(kbkdf.validate_with_mode(mode, &[]).is_err());
         }
         assert!(
