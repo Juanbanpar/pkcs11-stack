@@ -9,6 +9,10 @@ Published crate SHA-256:
 
 Local changes:
 
+- `src/session/encryption.rs`: complete initialized single-part encryption into
+  caller-bounded storage without a size query or retry; reject oversized returned
+  lengths. Runtime AES-GCM supplies its exact plaintext-plus-tag bound.
+
 - `src/session/object_management.rs`: reject rewritten attribute types or value
   pointers after metadata queries and both value-read passes, including unavailable
   entries. Decoding uses only the original application-owned buffers and types.

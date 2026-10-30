@@ -191,8 +191,10 @@ impl Session<'_> {
     /// Encrypt once with CKM_AES_GCM, a 12-byte supplied nonce and 128-bit tag.
     /// Returns ciphertext || tag; nonce and AAD remain with the caller. The caller
     /// must ensure nonce uniqueness per key, including after errors. No retry,
-    /// software fallback or automatic nonce management occurs. Read-only sessions
-    /// are permitted. Provider errors/unwinds or malformed outputs invalidate the session.
+    /// software fallback, output-size query or automatic nonce management occurs.
+    /// Output storage is exactly plaintext length plus the 16-byte tag. Read-only
+    /// sessions are permitted. Provider errors/unwinds or malformed outputs
+    /// invalidate the session.
     pub fn encrypt_aes_gcm(
         &mut self,
         key: &ObjectRef,
@@ -206,10 +208,13 @@ impl Session<'_> {
             .map_err(|e| backend("AES GCM parameters", e))?;
         let raw = object.session.raw()?;
         object.session.healthy.set(false);
-        let result = raw
-            .encrypt(&Mechanism::AesGcm(params), object.handle, request.plaintext)
+        raw.encrypt_init(&Mechanism::AesGcm(params), object.handle)
+            .map_err(|e| backend("AES GCM encrypt init", e))?;
+        let mut result = vec![0; request.plaintext.len() + AES_GCM_TAG_LENGTH];
+        let written = raw
+            .encrypt_initialized_into(request.plaintext, &mut result)
             .map_err(|e| backend("AES GCM encrypt", e))?;
-        if result.len() != request.plaintext.len() + AES_GCM_TAG_LENGTH || nonce != *request.nonce {
+        if written != result.len() || nonce != *request.nonce {
             return Err(Error::InvalidKeyOutput);
         }
         object.session.healthy.set(true);

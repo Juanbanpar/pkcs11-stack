@@ -60,6 +60,27 @@ impl Session {
         Ok(encrypted_data)
     }
 
+    /// Complete initialized single-part encryption into caller-bounded storage.
+    /// Makes no output-size query, allocation or retry; validates returned length.
+    pub fn encrypt_initialized_into(&self, data: &[u8], output: &mut [u8]) -> Result<usize> {
+        let mut written = output.len().try_into()?;
+        unsafe {
+            Rv::from(get_pkcs11!(self.client(), C_Encrypt)(
+                self.handle(),
+                data.as_ptr() as *mut u8,
+                data.len().try_into()?,
+                output.as_mut_ptr(),
+                &mut written,
+            ))
+            .into_result(Function::Encrypt)?;
+        }
+        let written: usize = written.try_into()?;
+        if written > output.len() {
+            return Err(crate::error::Error::InvalidValue);
+        }
+        Ok(written)
+    }
+
     /// Starts new multi-part encryption operation
     pub fn encrypt_init(&self, mechanism: &Mechanism, key: ObjectHandle) -> Result<()> {
         let mut mechanism: CK_MECHANISM = mechanism.into();

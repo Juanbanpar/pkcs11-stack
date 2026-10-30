@@ -9,6 +9,9 @@ enum { gcm_fault = FAULT };
 #define C_GetFunctionList base_function_list
 #include "cmac.c"
 #undef C_GetFunctionList
+#ifndef GCM_FUNCTION_LIST
+#define GCM_FUNCTION_LIST C_GetFunctionList
+#endif
 #if API_MAJOR >= 3 && API_MINOR >= 2
 #define GCM_PENDING CKR_PENDING
 #else
@@ -139,13 +142,13 @@ static CK_FUNCTION_LIST_3_2 current;
 static CK_FUNCTION_LIST_3_0 current;
 #endif
 static CK_INTERFACE standard={.pInterfaceName=(CK_UTF8CHAR_PTR)"PKCS 11",.pFunctionList=&current};
-CK_RV C_GetFunctionList(CK_FUNCTION_LIST_PTR_PTR out);
+CK_RV GCM_FUNCTION_LIST(CK_FUNCTION_LIST_PTR_PTR out);
 CK_RV C_GetInterface(CK_UTF8CHAR_PTR name, CK_VERSION_PTR version, CK_INTERFACE_PTR_PTR out, CK_FLAGS flags) {
     if(!name || strcmp((char *)name,"PKCS 11") || !version || version->major!=3 || version->minor!=API_MINOR || flags) return CKR_FUNCTION_NOT_SUPPORTED;
-    CK_FUNCTION_LIST_PTR prefix; C_GetFunctionList(&prefix); *out=&standard; return CKR_OK;
+    CK_FUNCTION_LIST_PTR prefix; GCM_FUNCTION_LIST(&prefix); *out=&standard; return CKR_OK;
 }
 #endif
-CK_RV C_GetFunctionList(CK_FUNCTION_LIST_PTR_PTR out) {
+CK_RV GCM_FUNCTION_LIST(CK_FUNCTION_LIST_PTR_PTR out) {
     functions.C_CloseSession=gcm_close; functions.C_Finalize=gcm_finalize;
     functions.C_GetSessionInfo=gcm_info; functions.C_GetAttributeValue=gcm_attributes; functions.C_GetMechanismInfo=gcm_mechanism_info;
     functions.C_EncryptInit=gcm_fault == 10 ? NULL : gcm_encrypt_init;
