@@ -156,7 +156,7 @@ impl EdDsaVerifyingKey {
         }
     }
 }
-fn verification_error(error: pkcs11_runtime::Error) -> Error {
+pub(crate) fn verification_error(error: pkcs11_runtime::Error) -> Error {
     match error {
         pkcs11_runtime::Error::SignatureMismatch => Error::SignatureMismatch,
         other => other.into(),

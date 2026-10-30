@@ -31,6 +31,8 @@ pub struct GenerationCapabilities {
     pub hmac_general: Vec<crate::HmacAlgorithm>,
     /// Pure Ed25519 and Ed448 signing curves.
     pub eddsa: Vec<crate::EdDsaCurve>,
+    /// RFC 8032 curveName choices; generation flags do not prove template acceptance.
+    pub eddsa_named: Vec<crate::EdDsaCurve>,
     /// Pure ML-DSA parameter sets.
     pub ml_dsa: Vec<crate::MlDsaParameterSet>,
     /// ML-KEM parameter sets.
@@ -66,6 +68,7 @@ impl Provider {
             hmac: selected.hmac_generation_options()?,
             hmac_general: selected.hmac_general_generation_options()?,
             eddsa: selected.eddsa_generation_options()?,
+            eddsa_named: selected.eddsa_generation_options()?,
             ml_dsa: self.ml_dsa_generation_options(token)?,
             ml_kem: self.ml_kem_generation_options(token)?,
         })

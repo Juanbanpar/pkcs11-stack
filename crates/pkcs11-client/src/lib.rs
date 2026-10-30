@@ -20,6 +20,8 @@ pub use pkcs11_runtime::AesGcmStreamParameters;
 mod certificate;
 mod digest;
 mod eddsa;
+mod eddsa_named;
+pub use eddsa_named::EdDsaNamedPublicKey;
 mod montgomery_named;
 pub use montgomery_named::{
     MontgomeryNamedCurve, MontgomeryNamedKeyPairRequest, MontgomeryNamedPeer,
@@ -36,7 +38,9 @@ pub use digest::DigestOperation;
 pub use eddsa::EdDsaVerifyingKey;
 pub use eddsa_certificate::{EdDsaCertificate, EdDsaIdentity};
 pub use pkcs11_runtime::{CancelFlags, DigestMode, HashAlgorithm};
-pub use pkcs11_runtime::{EdDsaCapabilities, EdDsaCurve, EdDsaRequest};
+pub use pkcs11_runtime::{
+    EdDsaCapabilities, EdDsaCurve, EdDsaNamedRequest, EdDsaNamedScheme, EdDsaRequest,
+};
 mod encryption;
 mod key_operations;
 pub use encryption::{DecryptRequest, EncryptRequest, OaepChoice, Plaintext};

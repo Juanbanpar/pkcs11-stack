@@ -1141,3 +1141,22 @@ even when the module reports a newer library/table version.
 The existing `digest_reader` contract is unchanged: interrupted reads continue,
 while read/native failures discard the operation and session. No reader failure
 causes an automatic cancellation or second attempt.
+
+## RFC 8032 curveName EdDSA
+
+`EdDsaNamedRequest` and `EdDsaNamedScheme` select pure/context/prehash schemes
+explicitly, with original message input and at most 255 public context bytes.
+Prehashing runs on the token. `Client` and `ManagementSession` expose
+`sign_named_eddsa`, `verify_named_eddsa` and `named_eddsa_capabilities`, requiring
+curveName keys and rejecting OID-profile keys before initialization. Pool leases,
+context authentication and session health follow the existing pure EdDSA rules.
+These methods do not provide certificate binding or software verification.
+
+`EdDsaNamedPublicKey::from_bytes` checks canonical, nonidentity prime-subgroup
+points. Management sessions provide `generate_named_eddsa_key_pair`,
+`import_named_eddsa_public_key` and `export_named_eddsa_public_key` with raw public
+bytes and no SPKI conversion. Generation creates sensitive/nonextractable signing
+pairs; imports permit verification only. Mutations require RW mode and bounded
+identity, reject existing IDs and do not retry or roll back. Check closure before
+releasing outputs. `generation_capabilities().eddsa_named` is advisory: advertised
+generation flags do not prove curveName template or individual scheme acceptance.
