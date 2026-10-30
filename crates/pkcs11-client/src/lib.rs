@@ -20,6 +20,11 @@ pub use pkcs11_runtime::AesGcmStreamParameters;
 mod certificate;
 mod digest;
 mod eddsa;
+mod montgomery_named;
+pub use montgomery_named::{
+    MontgomeryNamedCurve, MontgomeryNamedKeyPairRequest, MontgomeryNamedPeer,
+    MontgomeryNamedRequest,
+};
 mod x448;
 pub use pkcs11_runtime::{X448Kdf, X448KeyPairRequest, X448Output, X448PublicKey};
 pub use x448::{X448Peer, X448Request};

@@ -691,7 +691,18 @@ ECDH derivation. `import_x448_public_key` accepts a checked `X448Peer`, ID and
 label and disables public operation permissions. Generation rejects existing
 public/private IDs; import rejects public IDs. Both require RW mode and checked
 closure, without retry/rollback or trust/private-key association on import.
-curveName parameters remain deferred.
+The separate RFC 7748 curveName profiles use `MontgomeryNamedCurve`,
+`MontgomeryNamedPeer::from_bytes` and raw public input/output. They do not accept
+SPKI or convert OID keys. `generate_named_montgomery_key_pair` accepts a
+`MontgomeryNamedKeyPairRequest`; `generation_capabilities().montgomery_named`
+reports advisory choices. `import_named_montgomery_public_key` disables public
+operation permissions and `export_named_montgomery_public_key` requires the
+explicit curveName profile. `derive_named_montgomery` accepts a
+`MontgomeryNamedRequest` and creates a full 32/56-byte protected derivation-only
+secret with CKD_NULL. Use a protocol KDF separately; SP 800-108 accepts either
+width, while raw curve448 cannot feed the hash-length HKDF-SHA512 profile.
+Identity bounds, RW requirements, duplicate checks, persistent effects and checked
+closure follow the OID operations above.
 
 `derive_ecdh` accepts an `EcdhRequest` with the same validated peer, an explicit
 `EcdhKdf`, public shared info and `EcdhOutput`. ANSI X9.63 and NIST SP 800-56A

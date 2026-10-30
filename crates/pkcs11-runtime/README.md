@@ -543,8 +543,7 @@ matching curveName parameters and derives a full 32/56-byte sensitive,
 nonextractable generic secret with derivation permission only. Use a protocol KDF
 and authenticate peers separately. The 56-byte curve448 result cannot feed the
 HKDF-SHA512 profile requiring a 64-byte input; SP 800-108 accepts either width.
-Provider rejection is returned without retry, fallback or rollback. These methods
-are available in the runtime; client and CLI exposure remains separate work.
+Provider rejection is returned without retry, fallback or rollback. The client exposes these operations with explicit raw peer input.
 
 `derive_ecdh_key` accepts `EcdhKeyRequest` with explicit `EcdhKdf` and
 `EcdhOutput`. ANSI X9.63 and NIST SP 800-56A KDFs support SHA-256/384/512 and
