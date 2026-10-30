@@ -1,0 +1,10 @@
+--- a/src/ec/mod.rs
++++ b/src/ec/mod.rs
+@@ -33,5 +33,5 @@
+ /// Minimum Edwards key size
+-pub const MIN_EC_EDWARDS_SIZE_BITS: usize = BITS_ED25519;
++pub const MIN_EC_EDWARDS_SIZE_BITS: usize = 255;
+ /// Maximum Edwards key size
+-pub const MAX_EC_EDWARDS_SIZE_BITS: usize = BITS_ED448;
++pub const MAX_EC_EDWARDS_SIZE_BITS: usize = 448;
+ /// Minimum Montgomery key size

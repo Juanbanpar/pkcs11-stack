@@ -7,6 +7,7 @@ if [[ $# != 1 || "$1" != /* ]]; then
 fi
 prefix=$1
 provider_patch=$(realpath "$(dirname "$0")/patches/kryoptic-x25519-bounds.patch")
+eddsa_patch=$(realpath "$(dirname "$0")/patches/kryoptic-eddsa-bounds.patch")
 mkdir -p "$prefix"
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/pkcs11-kdf-build.XXXXXXXX")
 trap 'rm -rf -- "$scratch"' EXIT
@@ -25,12 +26,16 @@ cd "$scratch/kryoptic"
 # PKCS #11 uses 255 field bits for X25519 mechanism bounds. The pinned
 # provider used its 256-bit storage width and excluded X25519 from ECDH bounds.
 git apply "$provider_patch"
+# Edwards mechanism bounds use field bits; retain the separate 32/57-byte
+# storage widths used by the provider for raw public keys and private seeds.
+git apply "$eddsa_patch"
 # Upstream has no Cargo.lock. Resolve its dependencies before the locked build.
 cargo generate-lockfile
 KRYOPTIC_OPENSSL_SOURCES="$scratch/openssl" \
     cargo build --release --locked -p kryoptic --no-default-features --target-dir "$scratch/target" \
-    --features kryoptic-lib/aes,kryoptic-lib/mlkem,kryoptic-lib/mldsa,kryoptic-lib/hkdf,kryoptic-lib/sqlitedb,kryoptic-lib/ecc_min,kryoptic-lib/ec_montgomery,kryoptic-lib/simplekdf,kryoptic-lib/sp800_108,ossl/ossl-sys
+    --features kryoptic-lib/aes,kryoptic-lib/mlkem,kryoptic-lib/mldsa,kryoptic-lib/hkdf,kryoptic-lib/sqlitedb,kryoptic-lib/ecc_min,kryoptic-lib/ec_montgomery,kryoptic-lib/eddsa,kryoptic-lib/simplekdf,kryoptic-lib/sp800_108,ossl/ossl-sys
 install -m 755 "$scratch/target/release/libkryoptic_pkcs11.so" "$prefix/libkryoptic_pkcs11.so"
 install -m 644 LICENSE.txt "$prefix/LICENSE-kryoptic"
 install -m 644 "$provider_patch" "$prefix/kryoptic-x25519-bounds.patch"
+install -m 644 "$eddsa_patch" "$prefix/kryoptic-eddsa-bounds.patch"
 install -m 644 "$scratch/openssl/LICENSE.txt" "$prefix/LICENSE-openssl"
