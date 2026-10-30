@@ -292,17 +292,20 @@ impl Inputs {
             let id = unhex(need(m, "id")?)?;
             ecdh_request(m, &inputs, &id)?.validate()?;
         }
-        if name == "derive-montgomery" {
-            let curve = named_curve(get(m, "curve"))
-                .ok_or_else(|| usage("expected curve25519 or curve448"))?;
-            inputs.named_peer = Some(pkcs11_client::MontgomeryNamedPeer::from_bytes(
-                curve, bytes,
-            )?);
-            let id = unhex(need(m, "id")?)?;
-            named_request(m, &inputs, &id)?.validate()?;
-        }
-        if name == "derive-x448" {
-            inputs.x448_peer = Some(pkcs11_client::X448Peer::from_spki_der(bytes)?);
+        if matches!(name, "derive-montgomery" | "derive-x448" | "derive-x25519") {
+            match name {
+                "derive-montgomery" => {
+                    let curve = named_curve(get(m, "curve"))
+                        .ok_or_else(|| usage("expected curve25519 or curve448"))?;
+                    inputs.named_peer = Some(pkcs11_client::MontgomeryNamedPeer::from_bytes(
+                        curve, bytes,
+                    )?);
+                }
+                "derive-x448" => {
+                    inputs.x448_peer = Some(pkcs11_client::X448Peer::from_spki_der(bytes)?)
+                }
+                _ => inputs.x25519_peer = Some(pkcs11_client::X25519Peer::from_spki_der(bytes)?),
+            }
             if let Some(path) = get(m, "shared-info-file") {
                 if path == "-" {
                     return Err(usage("shared-info-file requires a file path"));
@@ -310,22 +313,7 @@ impl Inputs {
                 inputs.info = bounded_input(path, 4096)?;
             }
             let id = unhex(need(m, "id")?)?;
-            x448_request(m, &inputs, &id)?.validate()?;
-        }
-        if name == "derive-x25519" {
-            inputs.x25519_peer = Some(pkcs11_client::X25519Peer::from_spki_der(bytes)?);
-            let id = unhex(need(m, "id")?)?;
-            pkcs11_client::X25519Request {
-                peer: inputs
-                    .x25519_peer
-                    .as_ref()
-                    .ok_or_else(|| usage("missing X25519 peer"))?,
-                identity: SecretKeyIdentity {
-                    id: &id,
-                    label: need(m, "label")?.as_bytes(),
-                },
-            }
-            .validate()?;
+            montgomery_request(m, &inputs, &id)?.validate()?;
         }
         if matches!(name, "derive-hkdf" | "derive-hybrid") {
             for (name, target) in [
@@ -376,36 +364,41 @@ pub(crate) fn operation(
 ) -> Result<Output> {
     let reference = object_reference(uri(m, "object")?)?;
     let value = match name {
-        "derive-montgomery" => {
+        "derive-montgomery" | "derive-x448" | "derive-x25519" => {
             let id = unhex(need(m, "id")?)?;
-            let request = named_request(m, &inputs.establishment, &id)?;
-            session.derive_named_montgomery(&reference, &request)?;
-            json!({"derived":true,"curve":need(m,"curve")?,"id_hex":hex(&id),"kdf":"null","kind":"raw-secret","length":request.peer.as_bytes().len(),"extractable":false})
-        }
-        "derive-x448" => {
-            let id = unhex(need(m, "id")?)?;
-            let request = x448_request(m, &inputs.establishment, &id)?;
-            session.derive_x448(&reference, &request)?;
-            json!({"derived":true,"id_hex":hex(&id),"kdf":need(m,"kdf")?,"kind":need(m,"kind")?,"length":request.output.length(),"extractable":false})
-        }
-        "derive-x25519" => {
-            let id = unhex(need(m, "id")?)?;
-            let peer = inputs
-                .establishment
-                .x25519_peer
-                .as_ref()
-                .ok_or_else(|| usage("missing X25519 peer"))?;
-            session.derive_x25519(
-                &reference,
-                &pkcs11_client::X25519Request {
-                    peer,
-                    identity: SecretKeyIdentity {
-                        id: &id,
-                        label: need(m, "label")?.as_bytes(),
-                    },
-                },
-            )?;
-            json!({"derived":true,"id_hex":hex(&id),"kdf":"null","kind":"raw-secret","length":32,"extractable":false})
+            let data = &inputs.establishment;
+            let request = montgomery_request(m, data, &id)?;
+            let raw_length = match name {
+                "derive-montgomery" => {
+                    let peer = data
+                        .named_peer
+                        .as_ref()
+                        .ok_or_else(|| usage("missing raw curveName peer"))?;
+                    session.derive_named_montgomery_with_kdf(&reference, peer, &request)?;
+                    peer.as_bytes().len()
+                }
+                "derive-x448" => {
+                    let peer = data
+                        .x448_peer
+                        .as_ref()
+                        .ok_or_else(|| usage("missing X448 peer"))?;
+                    session.derive_x448_with_kdf(&reference, peer, &request)?;
+                    56
+                }
+                _ => {
+                    let peer = data
+                        .x25519_peer
+                        .as_ref()
+                        .ok_or_else(|| usage("missing X25519 peer"))?;
+                    session.derive_x25519_with_kdf(&reference, peer, &request)?;
+                    32
+                }
+            };
+            let mut result = json!({"derived":true,"id_hex":hex(&id),"kdf":need(m,"kdf")?,"kind":need(m,"kind")?,"length":request.output.length().unwrap_or(raw_length),"extractable":false});
+            if name == "derive-montgomery" {
+                result["curve"] = json!(need(m, "curve")?);
+            }
+            result
         }
         "derive-ecdh" => {
             let id = unhex(need(m, "id")?)?;
@@ -455,49 +448,42 @@ pub(crate) fn operation(
     Ok(Output::Structured(value))
 }
 
-fn x448_request<'a>(
+fn montgomery_request<'a>(
     m: &'a ArgMatches,
     inputs: &'a Inputs,
     id: &'a [u8],
-) -> Result<pkcs11_client::X448Request<'a>> {
-    use pkcs11_client::{X448Kdf, X448Output};
-    Ok(pkcs11_client::X448Request {
-        peer: inputs
-            .x448_peer
-            .as_ref()
-            .ok_or_else(|| usage("missing X448 peer"))?,
-        kdf: match need(m, "kdf")? {
-            "null" => X448Kdf::Null,
-            "x963-sha512" => X448Kdf::X963Sha512,
-            "nist-sha512" => X448Kdf::Sp80056aSha512,
-            _ => return Err(usage("invalid X448 KDF")),
+) -> Result<pkcs11_client::MontgomeryKdfRequest<'a>> {
+    use pkcs11_client::{DigestAlgorithm as D, MontgomeryOutput as O};
+    let kdf = match need(m, "kdf")? {
+        "null" => EcdhKdf::Null,
+        "x963-sha224" => EcdhKdf::X963(D::Sha224),
+        "x963-sha256" => EcdhKdf::X963(D::Sha256),
+        "x963-sha384" => EcdhKdf::X963(D::Sha384),
+        "x963-sha512" => EcdhKdf::X963(D::Sha512),
+        "nist-sha224" => EcdhKdf::Sp80056a(D::Sha224),
+        "nist-sha256" => EcdhKdf::Sp80056a(D::Sha256),
+        "nist-sha384" => EcdhKdf::Sp80056a(D::Sha384),
+        "nist-sha512" => EcdhKdf::Sp80056a(D::Sha512),
+        _ => return Err(usage("invalid Montgomery KDF")),
+    };
+    let output = match need(m, "kind")? {
+        "raw-secret" => O::RawSecret,
+        "secret" => O::DerivationSecret { length: 64 },
+        "derivation-secret" => O::DerivationSecret {
+            length: number(m, "length")?,
         },
+        "aes128" => O::Aes(AesKeySize::Bits128),
+        "aes192" => O::Aes(AesKeySize::Bits192),
+        "aes256" => O::Aes(AesKeySize::Bits256),
+        _ => return Err(usage("invalid Montgomery output")),
+    };
+    if need(m, "kind")? != "derivation-secret" && get(m, "length").is_some() {
+        return Err(usage("--length applies only to derivation-secret"));
+    }
+    Ok(pkcs11_client::MontgomeryKdfRequest {
+        kdf,
         shared_info: &inputs.info,
-        output: match need(m, "kind")? {
-            "raw-secret" => X448Output::RawSecret,
-            "secret" => X448Output::DerivationSecret,
-            "aes128" => X448Output::Aes(AesKeySize::Bits128),
-            "aes192" => X448Output::Aes(AesKeySize::Bits192),
-            "aes256" => X448Output::Aes(AesKeySize::Bits256),
-            _ => return Err(usage("invalid X448 output")),
-        },
-        identity: SecretKeyIdentity {
-            id,
-            label: need(m, "label")?.as_bytes(),
-        },
-    })
-}
-
-fn named_request<'a>(
-    m: &'a ArgMatches,
-    inputs: &'a Inputs,
-    id: &'a [u8],
-) -> Result<pkcs11_client::MontgomeryNamedRequest<'a>> {
-    Ok(pkcs11_client::MontgomeryNamedRequest {
-        peer: inputs
-            .named_peer
-            .as_ref()
-            .ok_or_else(|| usage("missing raw curveName peer"))?,
+        output,
         identity: SecretKeyIdentity {
             id,
             label: need(m, "label")?.as_bytes(),

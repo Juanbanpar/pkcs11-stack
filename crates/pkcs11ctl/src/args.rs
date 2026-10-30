@@ -588,18 +588,18 @@ pub(crate) fn command() -> Command {
             .arg(required("input", "Original message file; - reads stdin"))
             .arg(required("signature", "Raw signature file; - reads stdin")))),
         mutation(auth(named(object(Command::new("derive-montgomery")
-            .about("Derive a full protected raw secret from a curveName private key")
+            .about("Derive a protected key from an explicit curveName private key")
             .arg(required("curve", "Explicit RFC 7748 curveName profile").value_parser(["curve25519", "curve448"]))
-            .arg(required("input", "Raw 32/56-byte little-endian peer public key; - reads stdin")))))),
+            .arg(required("input", "Raw 32/56-byte little-endian peer public key; - reads stdin"))
+            .args(montgomery_kdf_args(false)))))),
         mutation(auth(named(object(Command::new("derive-x25519")
-            .about("Derive a protected token-held 32-byte secret from an existing X25519 key")
-            .arg(required("input", "Peer X25519 public key (SPKI DER); - reads stdin")))))),
+            .about("Derive a protected token-held key from an existing X25519 key")
+            .arg(required("input", "Peer X25519 public key (SPKI DER); - reads stdin"))
+            .args(montgomery_kdf_args(false)))))),
         mutation(auth(named(object(Command::new("derive-x448")
             .about("Derive a protected token-held key from an existing X448 private key")
             .arg(required("input", "Peer X448 public key (SPKI DER); - reads stdin"))
-            .arg(required("kdf", "Explicit X448 KDF").value_parser(["null", "x963-sha512", "nist-sha512"]))
-            .arg(required("kind", "Output purpose; secret is 64 bytes").value_parser(["raw-secret", "secret", "aes128", "aes192", "aes256"]))
-            .arg(value("shared-info-file", "Public context file, at most 4096 bytes; no stdin")))))),
+            .args(montgomery_kdf_args(true)))))),
         auth(hkdf_digest(object(
             Command::new("hkdf-capabilities")
                 .about("Inspect a sensitive, nonextractable HKDF base secret"),
@@ -812,4 +812,64 @@ pub(crate) fn command() -> Command {
             .global(true),
         )
         .subcommands(commands)
+}
+
+fn montgomery_kdf_args(x448: bool) -> [clap::Arg; 4] {
+    let kdf = value("kdf", "Native key derivation function").value_parser([
+        "null",
+        "x963-sha224",
+        "x963-sha256",
+        "x963-sha384",
+        "x963-sha512",
+        "nist-sha224",
+        "nist-sha256",
+        "nist-sha384",
+        "nist-sha512",
+    ]);
+    let kind = value(
+        "kind",
+        if x448 {
+            "Output purpose; secret is the legacy 64-byte output"
+        } else {
+            "Output purpose"
+        },
+    )
+    .value_parser(if x448 {
+        vec![
+            "raw-secret",
+            "secret",
+            "derivation-secret",
+            "aes128",
+            "aes192",
+            "aes256",
+        ]
+    } else {
+        vec![
+            "raw-secret",
+            "derivation-secret",
+            "aes128",
+            "aes192",
+            "aes256",
+        ]
+    });
+    [
+        if x448 {
+            kdf.required(true)
+        } else {
+            kdf.default_value("null")
+        },
+        if x448 {
+            kind.required(true)
+        } else {
+            kind.default_value("raw-secret")
+        },
+        value(
+            "length",
+            "Byte length (1..=4096), required only for derivation-secret",
+        ),
+        value(
+            "shared-info-file",
+            "Public context file, at most 4096 bytes; no stdin",
+        ),
+    ]
 }

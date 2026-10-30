@@ -499,7 +499,7 @@ pkcs11ctl --module "$MODULE" derive-ecdh --object "$PRIVATE_KEY_URI" \
 `export --key-family x25519 --object "$PUBLIC_KEY_URI" --output peer.der`
 exports an existing RFC 8410 X25519 public key. `derive-x25519` accepts a strict
 peer SPKI DER, including stdin, and creates a complete 32-byte token-held secret
-using CKD_NULL. Small-order public inputs are rejected before module loading.
+using CKD_NULL by default. Small-order public inputs are rejected before module loading.
 The private base must be sensitive/nonextractable and permit derivation without
 always-authenticate. The output permits further derivation only. Run
 `derive-hkdf --digest sha256` separately, with public salt and a protocol context
@@ -523,7 +523,7 @@ pkcs11ctl --module "$MODULE" derive-x25519 --object "$PRIVATE_KEY_URI" \
 
 For existing RFC 8410 X448 keys, `export --key-family x448` emits SPKI DER.
 `derive-x448` accepts strict peer SPKI DER from a file or stdin, at most 128 bytes.
-It requires explicit `--kdf` (`null`, `x963-sha512` or `nist-sha512`) and `--kind`.
+It requires explicit `--kdf` and `--kind`; SHA-2 choices are listed below.
 The null KDF requires `raw-secret`, preserving all 56 bytes with derivation-only
 permission and no shared info. SHA-512 KDFs accept a public `--shared-info-file`
 (up to 4096 bytes, no stdin); their outputs are `aes128`/`aes192`/`aes256` or a
@@ -561,7 +561,8 @@ choices in `montgomery_named`.
 
 `derive-montgomery --curve curve25519|curve448` accepts a raw peer from a file or
 stdin and requires a matching curveName private object. It creates a complete
-32/56-byte sensitive, nonextractable derivation-only secret using CKD_NULL.
+32/56-byte sensitive, nonextractable derivation-only secret using CKD_NULL
+by default.
 Authenticate peers and apply a protocol KDF separately. `derive-kbkdf` accepts
 either raw width; the 56-byte curve448 result cannot feed the hash-length
 HKDF-SHA512 profile. No conversion between curveName and OID objects occurs.
@@ -577,6 +578,34 @@ pkcs11ctl --module "$MODULE" import --token "$TOKEN_URI" --kind curve25519 \
 pkcs11ctl --module "$MODULE" derive-montgomery --object "$PRIVATE_KEY_URI" \
   --curve curve25519 --input peer.raw --id 0702 --label curve25519-secret \
   --pin-file user.pin --confirm
+```
+
+`derive-x25519`, `derive-x448` and `derive-montgomery` also accept
+`--kdf x963-sha224|x963-sha256|x963-sha384|x963-sha512` or
+`nist-sha224|nist-sha256|nist-sha384|nist-sha512`. Hashed output requires
+`--kind aes128|aes192|aes256`, or `--kind derivation-secret --length N`
+(1–4096 bytes). `--shared-info-file` supplies at most 4096 bytes of public binary
+context and cannot read stdin. Peer input can still come from a file or stdin.
+X25519 and curveName commands default to `--kdf null --kind raw-secret`;
+X448 continues to require both options. Its existing `--kind secret` remains
+64 bytes. `--length` applies only to `derivation-secret`. Null KDF rejects context
+and all outputs except the complete raw secret; hashed KDFs reject raw output.
+All new keys remain token-held, sensitive and nonextractable. Generic secrets
+permit further derivation only; AES keys permit encryption/decryption only.
+Provider rejection never changes the selected KDF or curve profile. Authenticate
+peer ownership and bind shared info to the protocol. Further HKDF/SP 800-108
+operations retain their existing input-length requirements.
+
+```sh
+pkcs11ctl --module "$MODULE" derive-x25519 --object "$PRIVATE_KEY_URI" \
+  --input peer-x25519.der --kdf x963-sha256 --kind aes256 \
+  --shared-info-file transcript.bin --id 0420 --label "Agreement AES" \
+  --pin-file user.pin --confirm
+
+pkcs11ctl --module "$MODULE" derive-montgomery --object "$PRIVATE_KEY_URI" \
+  --curve curve448 --input peer-curve448.raw --kdf nist-sha512 \
+  --kind derivation-secret --length 64 --shared-info-file transcript.bin \
+  --id 0421 --label "Curve448 HKDF base" --pin-file user.pin --confirm
 ```
 
 Raw certificate export and inspection work independently of client key support.

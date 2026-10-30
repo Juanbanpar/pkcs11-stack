@@ -33,6 +33,9 @@ cargo test -p pkcs11-runtime --test x25519_provider --locked -- --ignored --test
 cargo test -p pkcs11-client --test x25519_provider --locked -- --ignored --test-threads=1
 cargo test -p pkcs11ctl --test x25519_provider --locked -- --ignored --test-threads=1
 cargo test -p pkcs11-runtime --test x448_provider --locked -- --ignored --test-threads=1
+cargo test -p pkcs11-runtime --test montgomery_kdf_provider --locked -- --ignored --test-threads=1
+cargo test -p pkcs11-client --test montgomery_kdf_provider --locked -- --ignored --test-threads=1
+cargo test -p pkcs11ctl --test montgomery_kdf_provider --locked -- --ignored --test-threads=1
 cargo test -p pkcs11-client --test x448_provider --locked -- --ignored --test-threads=1
 cargo test -p pkcs11ctl --test x448_provider --locked -- --ignored --test-threads=1
 cargo test -p pkcs11-runtime --test aes_gcm_stream_provider --locked -- --ignored --test-threads=1
