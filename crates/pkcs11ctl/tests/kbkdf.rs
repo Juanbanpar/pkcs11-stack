@@ -345,3 +345,133 @@ fn kbkdf_aes_cmac_cli_capabilities_derive_and_independent_runtime_agreement() {
         check_mode_with_prf("double-pipeline", true);
     }
 }
+
+#[test]
+#[ignore = "requires tools/test-kem-hkdf.sh after runtime HMAC KDF profiles"]
+fn kbkdf_hmac_profiles_cli_and_independent_runtime_agreement() {
+    assert_eq!(
+        std::env::var("PKCS11_TEST_KDF_ISOLATED").as_deref(),
+        Ok("1")
+    );
+    let module = std::env::var("PKCS11_TEST_KDF_MODULE").unwrap();
+    let root = std::path::PathBuf::from(std::env::var_os("PKCS11_TEST_KDF_DIR").unwrap())
+        .join("cli-kbkdf-hmac-profiles");
+    std::fs::create_dir(&root).unwrap();
+    let pin = root.join("pin");
+    let label = root.join("label");
+    let context = root.join("context");
+    let plaintext = root.join("plain");
+    let iv = root.join("iv");
+    std::fs::write(&pin, b"12345678\n").unwrap();
+    std::fs::write(&label, b"application").unwrap();
+    std::fs::write(&context, b"v1 context").unwrap();
+    std::fs::write(&plaintext, b"CLI HMAC KDF agreement").unwrap();
+    let invoke = |args: &[&str]| {
+        let mut args = args.to_vec();
+        args.extend(["--pin-file", pin.to_str().unwrap()]);
+        run(&module, &args)
+    };
+    let ok = |args: &[&str]| {
+        let out = invoke(args);
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert!(out.stderr.is_empty());
+        if out.stdout.is_empty() {
+            return Value::Null;
+        }
+        serde_json::from_slice::<Value>(&out.stdout).unwrap()["result"].clone()
+    };
+    for (mode_index, mode) in ["counter", "feedback"].into_iter().enumerate() {
+        for (index, (digest, length)) in [
+            ("sha224", 28),
+            ("sha3-224", 28),
+            ("sha3-256", 32),
+            ("sha3-384", 48),
+            ("sha3-512", 64),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let base = format!("pkcs11:token=kdf-test;id=%FA%A7%{index:02X}%01;type=secret-key");
+            let caps = ok(&[
+                "kbkdf-capabilities",
+                "--object",
+                &base,
+                "--digest",
+                digest,
+                "--mode",
+                mode,
+            ]);
+            assert_eq!(caps["digest"], digest);
+            assert_eq!(caps["prf_output_length"], length);
+            let id = format!("faac{mode_index:02x}{index:02x}");
+            let object = format!(
+                "pkcs11:token=kdf-test;id=%FA%AC%{mode_index:02X}%{index:02X};type=secret-key"
+            );
+            let canonical = format!(
+                "pkcs11:token=kdf-test;id=%FA%{:02X}%{index:02X};type=secret-key",
+                0xA8 + mode_index
+            );
+            let mut args = vec![
+                "derive-kbkdf",
+                "--object",
+                &base,
+                "--digest",
+                digest,
+                "--mode",
+                mode,
+                "--kind",
+                "aes256",
+                "--kdf-label-file",
+                label.to_str().unwrap(),
+                "--kdf-context-file",
+                context.to_str().unwrap(),
+                "--id",
+                &id,
+                "--label",
+                "CLI HMAC KDF",
+                "--confirm",
+            ];
+            std::fs::write(&iv, vec![0xA5; length]).unwrap();
+            if mode == "feedback" {
+                args.extend(["--kdf-iv-file", iv.to_str().unwrap()]);
+            }
+            let derived = ok(&args);
+            assert_eq!(derived["digest"], digest);
+            assert_eq!(derived["extractable"], false);
+            let duplicate = invoke(&args);
+            assert_eq!(duplicate.status.code(), Some(2));
+            assert!(duplicate.stdout.is_empty());
+            let cipher = root.join(format!("cipher-{mode}-{index}"));
+            let recovered = root.join(format!("recovered-{mode}-{index}"));
+            let nonce = format!("{index:02x}").repeat(12);
+            ok(&[
+                "encrypt-aes-gcm",
+                "--object",
+                &object,
+                "--nonce",
+                &nonce,
+                "--input",
+                plaintext.to_str().unwrap(),
+                "--output",
+                cipher.to_str().unwrap(),
+            ]);
+            ok(&[
+                "decrypt-aes-gcm",
+                "--object",
+                &canonical,
+                "--nonce",
+                &nonce,
+                "--input",
+                cipher.to_str().unwrap(),
+                "--output",
+                recovered.to_str().unwrap(),
+            ]);
+            assert_eq!(std::fs::read(recovered).unwrap(), b"CLI HMAC KDF agreement");
+            ok(&["delete", "--object", &object, "--confirm"]);
+        }
+    }
+}

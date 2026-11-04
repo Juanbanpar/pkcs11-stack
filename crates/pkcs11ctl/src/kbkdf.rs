@@ -1,8 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-use crate::{
-    operations::{Output, digest},
-    support::*,
-};
+use crate::{operations::Output, support::*};
 use clap::ArgMatches;
 use pkcs11_client::{
     DigestAlgorithm, KbkdfMode, KbkdfOutput, KbkdfPrf, KbkdfPrfRequest, ManagementSession,
@@ -71,13 +68,8 @@ impl Inputs {
         if !matches!(output, KbkdfOutput::DerivationSecret { .. }) && get(m, "length").is_some() {
             return Err(usage("--length applies only to derivation-secret"));
         }
-        let prf = if get(m, "prf") == Some("aes-cmac") {
-            KbkdfPrf::AesCmac
-        } else {
-            KbkdfPrf::try_from(digest(need(m, "digest")?)).map_err(pkcs11_client::Error::from)?
-        };
         Ok(KbkdfPrfRequest {
-            prf,
+            prf: prf(m)?,
             kdf_label: &self.label,
             context: &self.context,
             output,
@@ -85,6 +77,22 @@ impl Inputs {
             label: need(m, "label")?.as_bytes(),
         })
     }
+}
+fn prf(m: &ArgMatches) -> Result<KbkdfPrf> {
+    if get(m, "prf") == Some("aes-cmac") {
+        return Ok(KbkdfPrf::AesCmac);
+    }
+    Ok(match need(m, "digest")? {
+        "sha224" => KbkdfPrf::HmacSha224,
+        "sha256" => KbkdfPrf::HmacSha256,
+        "sha384" => KbkdfPrf::HmacSha384,
+        "sha512" => KbkdfPrf::HmacSha512,
+        "sha3-224" => KbkdfPrf::HmacSha3_224,
+        "sha3-256" => KbkdfPrf::HmacSha3_256,
+        "sha3-384" => KbkdfPrf::HmacSha3_384,
+        "sha3-512" => KbkdfPrf::HmacSha3_512,
+        _ => return Err(usage("unsupported SP800-108 HMAC hash")),
+    })
 }
 fn mode(m: &ArgMatches) -> Result<KbkdfMode> {
     match need(m, "mode")? {
@@ -102,11 +110,14 @@ pub(crate) fn operation(
 ) -> Result<Output> {
     let base = object_reference(uri(m, "object")?)?;
     let value = if name == "kbkdf-capabilities" {
-        if get(m, "prf") == Some("aes-cmac") {
-            let caps = session.kbkdf_prf_capabilities(&base, KbkdfPrf::AesCmac, mode(m)?)?;
-            return Ok(Output::Structured(
-                json!({"advisory":true,"prf":"aes-cmac","mode":need(m,"mode")?,"input_length":caps.input_length,"prf_output_length":16,"counter_bits":32,"length_bits":32,"separator":true}),
-            ));
+        if get(m, "prf") == Some("aes-cmac") || get(m, "digest").is_some() {
+            let prf = prf(m)?;
+            let caps = session.kbkdf_prf_capabilities(&base, prf, mode(m)?)?;
+            let mut value = json!({"advisory":true,"prf":need(m,"prf")?,"mode":need(m,"mode")?,"input_length":caps.input_length,"prf_output_length":prf.output_len(),"counter_bits":32,"length_bits":32,"separator":true});
+            if let Some(digest) = get(m, "digest") {
+                value["digest"] = json!(digest);
+            }
+            return Ok(Output::Structured(value));
         }
         let caps = session.kbkdf_capabilities_with_mode(&base, mode(m)?)?;
         let digests: Vec<_> = [

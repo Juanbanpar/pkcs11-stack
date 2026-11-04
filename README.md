@@ -143,6 +143,10 @@ label/context.
 The libraries and CLI also support an explicit AES-CMAC PRF with protected AES
 derivation bases. NSS validates Counter, Feedback and Double Pipeline; Kryoptic
 validates Counter/Feedback. Existing HMAC calls and defaults remain supported.
+Explicit HMAC-SHA-224 and SHA3-224/256/384/512 PRFs are available through
+`KbkdfPrfRequest` and CLI `--digest`, with generic or matching typed HMAC bases.
+Kryoptic/OpenSSL comparisons cover Counter/Feedback; Double Pipeline for these
+additional hashes has native fixture coverage only.
 Private-key import is not implemented. Certificate parsing and binding do not validate
 certificate trust; applications configure trust separately.
 

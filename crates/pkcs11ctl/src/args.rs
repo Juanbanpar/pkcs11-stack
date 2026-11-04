@@ -743,6 +743,7 @@ pub(crate) fn command() -> Command {
             Command::new("kbkdf-capabilities")
                 .about("Inspect native SP800-108 PRF choices for an explicit mode")
                 .arg(value("prf", "PRF family; defaults to the existing HMAC profile").value_parser(["hmac","aes-cmac"]).default_value("hmac"))
+                .arg(value("digest", "Inspect one HMAC hash; omitted retains the SHA-256/384/512 capability list").value_parser(["sha224", "sha256", "sha384", "sha512", "sha3-224", "sha3-256", "sha3-384", "sha3-512"]))
                 .arg(
                     value("mode", "SP800-108 mode")
                         .value_parser(["counter", "feedback", "double-pipeline"])
@@ -783,7 +784,7 @@ pub(crate) fn command() -> Command {
                     "Public context file, at most 4096 bytes; omitted means empty",
                 )),
         )))))
-        .mut_arg("digest", |arg| arg.required(false).required_if_eq("prf","hmac").help("HMAC hash; forbidden with --prf aes-cmac")),
+        .mut_arg("digest", |arg| arg.required(false).required_if_eq("prf","hmac").value_parser(["sha224", "sha256", "sha384", "sha512", "sha3-224", "sha3-256", "sha3-384", "sha3-512"]).help("HMAC hash; forbidden with --prf aes-cmac")),
         mutation(auth(named(hkdf_options(object(
             Command::new("derive-hkdf")
                 .about("Derive a persistent nonextractable token key using HKDF")

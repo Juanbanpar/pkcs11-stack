@@ -130,13 +130,14 @@ pkcs11ctl --module /path/to/provider.so derive-kbkdf \
   --pin-file user.pin --confirm
 ```
 
-`--digest sha256|sha384|sha512` selects HMAC. Counter mode uses the PRF input
+`--digest sha224|sha256|sha384|sha512|sha3-224|sha3-256|sha3-384|sha3-512` selects
+HMAC. Counter mode uses the PRF input
 `[i]_32 || label || 0x00 || context || [L]_32`, with big-endian integers and L in
 bits. Each optional public input file accepts at most 4096 bytes; omission means
 empty. Neither accepts stdin. The KDF label is separate from `--label`, which
 names the new object. Agree on an unambiguous protocol encoding with the peer.
 
-The base must be a sensitive, nonextractable generic or matching SHA-2 HMAC
+The base must be a sensitive, nonextractable generic or matching typed HMAC
 secret of 16–4096 bytes with permitted derivation. Capabilities are advisory.
 Derivation requires USER authentication, RW access and a new ID/label of
 1–128 bytes. `--kind aes128|aes192|aes256` creates an encryption/decryption key;
@@ -146,7 +147,7 @@ nonextractable. Native rejection causes no fallback or retry and may leave effec
 
 Both commands accept `--mode counter|feedback|double-pipeline`, defaulting to
 counter. For feedback, add `--mode feedback` and optionally `--kdf-iv-file public-iv.bin`.
-The raw IV file must be empty or exactly the selected hash length (32/48/64 bytes)
+The raw IV file must be empty or exactly the selected hash output length (28/32/48/64 bytes)
 and cannot be stdin. Feedback prepends the previous PRF output before the counter;
 the initial input is the supplied IV, with no bytes supplied when omitted.
 Counter and Double Pipeline modes reject `--kdf-iv-file`, including empty files.
@@ -158,7 +159,10 @@ base. Omit `--digest`; that option is rejected for AES-CMAC. Feedback's optional
 IV is then empty or exactly 16 bytes. The base must permit the selected KDF and
 be sensitive and nonextractable; standalone CMAC signing permission is unnecessary.
 The existing `--prf hmac` default requires `--digest` for derivation and retains
-the existing capability response and output policy.
+the existing capability response and output policy when no capability hash is
+selected. Add `--digest HASH` to `kbkdf-capabilities` to inspect one explicit HMAC
+PRF, including SHA-224 and SHA-3 typed keys; this response includes `digest` and
+`prf_output_length`. Individual PRF acceptance remains provider-dependent.
 
 ```sh
 pkcs11ctl --module /trusted/provider.so derive-kbkdf \
@@ -170,10 +174,12 @@ pkcs11ctl --module /trusted/provider.so derive-kbkdf \
 Double Pipeline constructs `A(0) = label || 0x00 || context || [L]_32` inside
 the token and derives each block using `A(i) || [i]_32 || label || 0x00 ||
 context || [L]_32`. Both integers are big-endian, and L is in bits. It uses the
-selected HMAC-SHA-256/384/512 or AES-CMAC PRF and protected output choices.
-NSS softoken supports the tested generic-secret HMAC and AES-CMAC profiles; the pinned Kryoptic provider does not advertise
+selected HMAC or AES-CMAC PRF and protected output choices.
+NSS softoken tests cover generic-secret HMAC-SHA-256/384/512 and AES-CMAC; the pinned Kryoptic provider does not advertise
 Double Pipeline. Unsupported mechanisms and missing required key metadata are
 returned without a mode substitution.
+Kryoptic tests cover all eight HMAC PRFs in Counter/Feedback with generic and
+typed bases. SHA-224/SHA-3 Double Pipeline has native fixture coverage only.
 
 ```sh
 pkcs11ctl --module "$MODULE" derive-kbkdf --object "$BASE_SECRET_URI" \
