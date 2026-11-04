@@ -368,12 +368,23 @@ pub(crate) fn command() -> Command {
         command
             .arg(flag(
                 "multipart",
-                "Use native token-hashed SHA-512 streams; original messages only, at most 64 MiB",
+                "Use native HashML-DSA streams; original messages only, at most 64 MiB",
             ))
             .arg(
                 value(
+                    "digest",
+                    "HashML-DSA fixed-output hash; defaults to SHA-512",
+                )
+                .value_parser([
+                    "sha224", "sha256", "sha384", "sha512", "sha3-224", "sha3-256", "sha3-384",
+                    "sha3-512",
+                ])
+                .default_value("sha512"),
+            )
+            .arg(
+                value(
                     "input-kind",
-                    "Original message hashed on token, or exactly 64 raw SHA-512 digest bytes",
+                    "Original message hashed on token, or an exact-length caller digest",
                 )
                 .value_parser(["message", "digest"])
                 .default_value("message"),
@@ -398,11 +409,11 @@ pub(crate) fn command() -> Command {
             ))
     };
     let commands = [
-        auth(object(hash_mode(Command::new("hash-ml-dsa-capabilities").about("Inspect SHA-512 HashML-DSA signing support for one input mode")))),
-        context(auth(object(hash_input(Command::new("sign-hash-ml-dsa").about("Sign using native SHA-512 HashML-DSA; no implicit hashing fallback")
+        auth(object(hash_mode(Command::new("hash-ml-dsa-capabilities").about("Inspect HashML-DSA signing support for one hash and input mode")))),
+        context(auth(object(hash_input(Command::new("sign-hash-ml-dsa").about("Sign using native HashML-DSA; no implicit hashing fallback")
             .arg(value("hedging", "Randomness requirement; defaults to required").value_parser(["required", "preferred", "deterministic"]))
             .arg(required("output", "New signature file, or - for binary stdout")))))),
-        auth(object(hash_input(Command::new("verify-hash-ml-dsa").about("Verify SHA-512 HashML-DSA on the token with a public key")
+        auth(object(hash_input(Command::new("verify-hash-ml-dsa").about("Verify HashML-DSA on the token with a public key")
             .arg(required("signature", "Raw signature file; - reads stdin"))))),
         Command::new("info").about("Inspect the loaded library"),
         Command::new("slots").about("List diagnostic slot IDs"),

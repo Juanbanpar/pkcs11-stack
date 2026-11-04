@@ -69,9 +69,10 @@ workflows with a 64 MiB input limit, including offline certificate verification,
 bound signing and context authentication. Multipart token verification requires
 the selected 3.2 signature-first API and an implementing provider.
 
-Runtime, client and CLI also expose a separate SHA-512 HashML-DSA
-profile, accepting either original messages for token-side hashing or exact
-64-byte caller-computed digests. Capabilities and execution check each mechanism
+Runtime, client and CLI also expose a separate fixed-output SHA-2/SHA-3 HashML-DSA
+profile, accepting either original messages for token-side hashing or caller
+digests of the exact hash length. SHA-512 remains the default. Capabilities and
+execution check each mechanism
 independently, including context authentication and bounded signature output.
 Original messages also support native signing and verification streams; CLI
 `--multipart` file/stdin workflows retain the 64 MiB limit. Caller digests remain

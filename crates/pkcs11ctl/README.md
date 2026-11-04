@@ -334,7 +334,7 @@ Always-authenticate keys use the separate context PIN options described above,
 including two authentications for bound signing. Certificate verification is
 available offline or against a token certificate and establishes no issuer trust.
 
-SHA-512 HashML-DSA uses separate commands:
+HashML-DSA uses separate commands, with SHA-512 as the default:
 
 ```sh
 pkcs11ctl --module /trusted/provider.so sign-hash-ml-dsa \
@@ -347,11 +347,14 @@ pkcs11ctl --module /trusted/provider.so verify-hash-ml-dsa \
   --parameter-set ml-dsa-65 --input message.bin --signature signature.bin
 ```
 
-`--input-kind message` is the default and hashes the original message on the
-token with CKM_HASH_ML_DSA_SHA512. `--input-kind digest` instead requires exactly
-64 raw SHA-512 digest bytes and uses CKM_HASH_ML_DSA. Neither mode substitutes
+`--digest sha224|sha256|sha384|sha512|sha3-224|sha3-256|sha3-384|sha3-512` selects
+the hash; omission retains SHA-512. `--input-kind message` is the default and
+hashes the original message on the token with CKM_HASH_ML_DSA_<hash>.
+`--input-kind digest` instead requires exactly 28/32/48/64 raw digest bytes
+matching the selected hash and uses CKM_HASH_ML_DSA. Equal-length hashes are not
+interchangeable. Neither mode substitutes
 another mechanism or hashes in software. `hash-ml-dsa-capabilities --object URI`
-reports advisory single-part signing support for the selected `--input-kind`;
+reports advisory single-part signing support for the selected hash and `--input-kind`;
 adding `--multipart` checks native signing streams instead.
 Both signing and verification accept `--parameter-set ml-dsa-44|ml-dsa-65|ml-dsa-87`
 and `--context-file`; signing additionally accepts `--hedging` and the separate

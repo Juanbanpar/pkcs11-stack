@@ -201,3 +201,143 @@ fn multipart_digest_and_oversized_regular_files_are_rejected_before_loading() {
         assert!(output.stdout.is_empty());
     }
 }
+
+#[test]
+fn explicit_hashes_select_native_message_digest_and_multipart_profiles() {
+    for (hash, native, length) in [
+        ("sha224", "CKM_SHA224", 28),
+        ("sha256", "CKM_SHA256", 32),
+        ("sha384", "CKM_SHA384", 48),
+        ("sha512", "CKM_SHA512", 64),
+        ("sha3-224", "CKM_SHA3_224", 28),
+        ("sha3-256", "CKM_SHA3_256", 32),
+        ("sha3-384", "CKM_SHA3_384", 48),
+        ("sha3-512", "CKM_SHA3_512", 64),
+    ] {
+        for (prehash, stream) in [(false, false), (true, false), (false, true)] {
+            for verify in [false, true] {
+                let fixture = Fixture::from_module(
+                    HashMlDsaModule::profile(3, 2, 0, 0, native, length, prehash, stream, verify),
+                    prehash,
+                    verify,
+                );
+                if prehash {
+                    std::fs::write(fixture.root.join("input"), vec![0xA5; length]).unwrap();
+                }
+                let context = fixture.root.join("context");
+                std::fs::write(&context, vec![0xA5; 255]).unwrap();
+                let mut args = vec![
+                    "--digest",
+                    hash,
+                    "--context-file",
+                    context.to_str().unwrap(),
+                ];
+                if stream {
+                    args.push("--multipart");
+                }
+                let out = fixture.run(&args);
+                assert!(
+                    out.status.success(),
+                    "{hash}: {}",
+                    String::from_utf8_lossy(&out.stderr)
+                );
+                if verify {
+                    let value: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+                    assert_eq!(value["result"]["hash"], hash);
+                    assert_eq!(value["result"]["verified"], true);
+                } else {
+                    assert_eq!(out.stdout, vec![0xAB; 2420]);
+                }
+                if !verify {
+                    let mut command = Command::new(env!("CARGO_BIN_EXE_pkcs11ctl"));
+                    command.arg("--module").arg(fixture.module.path()).args([
+                        "--format",
+                        "json",
+                        "hash-ml-dsa-capabilities",
+                        "--object",
+                        "pkcs11:token=cmac;id=%01;type=private",
+                        "--digest",
+                        hash,
+                        "--input-kind",
+                        if prehash { "digest" } else { "message" },
+                    ]);
+                    if stream {
+                        command.arg("--multipart");
+                    }
+                    let caps = command.output().unwrap();
+                    assert!(caps.status.success());
+                    let value: serde_json::Value = serde_json::from_slice(&caps.stdout).unwrap();
+                    assert_eq!(value["result"]["hash"], hash);
+                    assert_eq!(value["result"]["can_sign"], true);
+                }
+            }
+        }
+    }
+}
+#[test]
+fn hash_specific_digest_lengths_and_multipart_rejection_precede_module_access() {
+    for (hash, length) in [
+        ("sha224", 28),
+        ("sha256", 32),
+        ("sha384", 48),
+        ("sha512", 64),
+        ("sha3-224", 28),
+        ("sha3-256", 32),
+        ("sha3-384", 48),
+        ("sha3-512", 64),
+    ] {
+        let fixture = Fixture::new((3, 2), 0, true, false);
+        for n in [length - 1, length + 1] {
+            std::fs::write(fixture.root.join("input"), vec![0; n]).unwrap();
+            let out = fixture.run(&["--digest", hash]);
+            assert_eq!(out.status.code(), Some(2));
+            assert!(out.stdout.is_empty());
+        }
+        std::fs::write(fixture.root.join("input"), vec![0; length]).unwrap();
+        let out = fixture.run(&["--digest", hash, "--multipart"]);
+        assert_eq!(out.status.code(), Some(2));
+        assert!(out.stdout.is_empty());
+    }
+}
+
+#[test]
+fn explicit_hash_native_and_cleanup_failures_withhold_output() {
+    for (prehash, stream) in [(false, false), (true, false), (false, true)] {
+        for verify in [false, true] {
+            for fault in [if verify { 18 } else { 13 }, 23, 24] {
+                let fixture = Fixture::from_module(
+                    HashMlDsaModule::profile(
+                        3,
+                        2,
+                        fault,
+                        0,
+                        "CKM_SHA3_256",
+                        32,
+                        prehash,
+                        stream,
+                        verify,
+                    ),
+                    prehash,
+                    verify,
+                );
+                if prehash {
+                    std::fs::write(fixture.root.join("input"), vec![0xA5; 32]).unwrap();
+                }
+                let context = fixture.root.join("context");
+                std::fs::write(&context, vec![0xA5; 255]).unwrap();
+                let mut args = vec![
+                    "--digest",
+                    "sha3-256",
+                    "--context-file",
+                    context.to_str().unwrap(),
+                ];
+                if stream {
+                    args.push("--multipart");
+                }
+                let out = fixture.run(&args);
+                assert!(!out.status.success());
+                assert!(out.stdout.is_empty());
+            }
+        }
+    }
+}

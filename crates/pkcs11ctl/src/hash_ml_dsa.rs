@@ -5,8 +5,8 @@ use crate::{
 };
 use clap::ArgMatches;
 use pkcs11_client::{
-    HashMlDsaInput, HashMlDsaMode, HashMlDsaRequest, ManagementSession, MlDsaHedging,
-    MlDsaSigningPolicy, PrivateKeyRef, PublicKeyRef,
+    DigestAlgorithm, HashMlDsaInput, HashMlDsaMode, HashMlDsaRequest, ManagementSession,
+    MlDsaHedging, MlDsaSigningPolicy, PrivateKeyRef, PublicKeyRef,
 };
 use serde_json::json;
 
@@ -16,15 +16,18 @@ pub(crate) fn selected(name: &str) -> bool {
         "hash-ml-dsa-capabilities" | "sign-hash-ml-dsa" | "verify-hash-ml-dsa"
     )
 }
+fn hash(m: &ArgMatches) -> DigestAlgorithm {
+    crate::operations::digest(get(m, "digest").unwrap_or("sha512"))
+}
 pub(crate) fn mode(m: &ArgMatches) -> HashMlDsaMode {
     if get(m, "input-kind") == Some("digest") {
-        HashMlDsaMode::Prehashed
+        HashMlDsaMode::prehashed(hash(m))
     } else {
-        HashMlDsaMode::Message
+        HashMlDsaMode::message(hash(m))
     }
 }
 pub(crate) fn validate_options(name: &str, m: &ArgMatches) -> Result<()> {
-    if selected(name) && flag(m, "multipart") && mode(m) == HashMlDsaMode::Prehashed {
+    if selected(name) && flag(m, "multipart") && mode(m).is_prehashed() {
         return Err(usage(
             "multipart HashML-DSA requires an original message; digest input is single-part",
         ));
@@ -34,25 +37,29 @@ pub(crate) fn validate_options(name: &str, m: &ArgMatches) -> Result<()> {
 fn parameters<'a>(
     m: &ArgMatches,
     context: &'a [u8],
-) -> Result<pkcs11_client::HashMlDsaParameters<'a>> {
+) -> Result<pkcs11_client::HashMlDsaProfileParameters<'a>> {
     let request = request(m, &[], context)?;
     Ok(pkcs11_client::HashMlDsaParameters {
         parameter_set: request.parameter_set,
         context,
         hedging: request.hedging,
-    })
+    }
+    .with_hash(hash(m)))
 }
 pub(crate) fn request<'a>(
     m: &ArgMatches,
     bytes: &'a [u8],
     context: &'a [u8],
 ) -> Result<HashMlDsaRequest<'a>> {
-    let input = match mode(m) {
-        HashMlDsaMode::Message => HashMlDsaInput::Message(bytes),
-        HashMlDsaMode::Prehashed => {
-            HashMlDsaInput::Sha512Digest(bytes.try_into().map_err(|_| {
-                usage("HashML-DSA SHA-512 digest input must contain exactly 64 bytes")
-            })?)
+    let input = if mode(m).is_prehashed() {
+        HashMlDsaInput::Digest {
+            hash: hash(m),
+            bytes,
+        }
+    } else {
+        HashMlDsaInput::MessageWithHash {
+            hash: hash(m),
+            message: bytes,
         }
     };
     let request = HashMlDsaRequest {
@@ -108,12 +115,12 @@ pub(crate) fn operation(
     if name == "hash-ml-dsa-capabilities" {
         let key = PrivateKeyRef::new(uri(m, "object")?).map_err(pkcs11_client::Error::from)?;
         let caps = if flag(m, "multipart") {
-            session.hash_ml_dsa_streaming_capabilities(&key)?
+            session.hash_ml_dsa_streaming_capabilities_with_hash(&key, hash(m))?
         } else {
             session.hash_ml_dsa_capabilities(&key, mode(m))?
         };
         return Ok(Output::Structured(
-            json!({"advisory":true,"key":crate::ml_dsa::key_info(caps.parameter_set),"hash":"sha512","input_kind":get(m,"input-kind").unwrap_or("message"),"can_sign":caps.can_sign,"always_authenticate":caps.always_authenticate}),
+            json!({"advisory":true,"key":crate::ml_dsa::key_info(caps.parameter_set),"hash":get(m,"digest").unwrap_or("sha512"),"input_kind":get(m,"input-kind").unwrap_or("message"),"can_sign":caps.can_sign,"always_authenticate":caps.always_authenticate}),
         ));
     }
     if let Some(input) = &inputs.stream_input {
@@ -137,7 +144,7 @@ pub(crate) fn operation(
             session.verify_hash_ml_dsa_reader(&key, parameters, &inputs.signature, &mut reader)
         })?;
         return Ok(Output::Structured(
-            json!({"verified":true,"verification":"token","hash":"sha512","trust_validated":false}),
+            json!({"verified":true,"verification":"token","hash":get(m,"digest").unwrap_or("sha512"),"trust_validated":false}),
         ));
     }
     let request = request(m, &inputs.bytes, &inputs.domain_context)?;
@@ -153,7 +160,7 @@ pub(crate) fn operation(
         let key = PublicKeyRef::new(uri(m, "object")?).map_err(pkcs11_client::Error::from)?;
         session.verify_hash_ml_dsa(&key, &request, &inputs.signature)?;
         Ok(Output::Structured(
-            json!({"verified":true,"verification":"token","hash":"sha512","trust_validated":false}),
+            json!({"verified":true,"verification":"token","hash":get(m,"digest").unwrap_or("sha512"),"trust_validated":false}),
         ))
     }
 }

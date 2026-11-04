@@ -231,3 +231,183 @@ fn hash_ml_dsa_cli_modes_context_authentication_stdin_and_independent_signatures
         std::fs::write(&context, b"context").unwrap();
     }
 }
+
+#[test]
+#[ignore = "requires tools/test-kem-hkdf.sh after fixed-output HashML-DSA client tests"]
+fn hash_ml_dsa_cli_fixed_output_profiles_files_stdin_and_reference_signatures() {
+    assert_eq!(
+        std::env::var("PKCS11_TEST_KDF_ISOLATED").as_deref(),
+        Ok("1")
+    );
+    let root = PathBuf::from(std::env::var_os("PKCS11_TEST_KDF_DIR").unwrap());
+    let module = std::env::var_os("PKCS11_TEST_KDF_MODULE").unwrap();
+    let pin = root.join("hash-profile-cli.pin");
+    std::fs::write(&pin, b"12345678").unwrap();
+    let context = root.join("hash-profile-cli.context");
+    let input = root.join("hash-profile-cli.message");
+    let digest_file = root.join("hash-profile-cli.digest");
+    let signature = root.join("hash-profile-cli.sig");
+    let run = |args: &[&str], stdin: Option<&[u8]>| {
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_pkcs11ctl"));
+        cmd.arg("--module")
+            .arg(&module)
+            .args(["--format", "json"])
+            .args(args)
+            .arg("--pin-file")
+            .arg(&pin)
+            .stdin(if stdin.is_some() {
+                Stdio::piped()
+            } else {
+                Stdio::null()
+            })
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let mut child = cmd.spawn().unwrap();
+        if let Some(bytes) = stdin {
+            child.stdin.take().unwrap().write_all(bytes).unwrap();
+        }
+        child.wait_with_output().unwrap()
+    };
+    let large: Vec<u8> = (0..1_000_003).map(|i| (i % 251) as u8).collect();
+    for (index, parameter) in ["ml-dsa-44", "ml-dsa-65", "ml-dsa-87"]
+        .into_iter()
+        .enumerate()
+    {
+        let private = format!("pkcs11:token=kdf-test;id=%E2%{index:02X};type=private");
+        let public = private.replace("private", "public");
+        for (hash_index, hash) in [
+            "sha224", "sha256", "sha384", "sha512", "sha3-224", "sha3-256", "sha3-384", "sha3-512",
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let caps = run(
+                &[
+                    "hash-ml-dsa-capabilities",
+                    "--object",
+                    &private,
+                    "--digest",
+                    hash,
+                    "--multipart",
+                ],
+                None,
+            );
+            ok(&caps);
+            let value: serde_json::Value = serde_json::from_slice(&caps.stdout).unwrap();
+            assert_eq!(value["result"]["hash"], hash);
+            assert_eq!(value["result"]["can_sign"], true);
+            for (message, domain) in [
+                (b"abc".as_slice(), b"context".as_slice()),
+                (&[][..], &[][..]),
+                (large.as_slice(), &[0xA5; 255][..]),
+            ] {
+                std::fs::write(&input, message).unwrap();
+                std::fs::write(&context, domain).unwrap();
+                let output = Command::new(std::env::var_os("PKCS11_TEST_KDF_OPENSSL").unwrap())
+                    .args([
+                        "dgst",
+                        &format!("-{hash}"),
+                        "-binary",
+                        "-out",
+                        digest_file.to_str().unwrap(),
+                        input.to_str().unwrap(),
+                    ])
+                    .output()
+                    .unwrap();
+                ok(&output);
+                let digest = std::fs::read(&digest_file).unwrap();
+                let expected = std::fs::read(root.join(format!(
+                    "hash-profile-{index}-{hash_index}-{}-{}.sig",
+                    domain.len(),
+                    message.len()
+                )))
+                .unwrap();
+                for mode in ["message", "digest", "multipart"] {
+                    let bytes = if mode == "digest" {
+                        digest.as_slice()
+                    } else {
+                        message
+                    };
+                    let path = if mode == "digest" {
+                        &digest_file
+                    } else {
+                        &input
+                    };
+                    for file_input in [false, true] {
+                        let mut args = vec![
+                            "sign-hash-ml-dsa",
+                            "--object",
+                            &private,
+                            "--parameter-set",
+                            parameter,
+                            "--digest",
+                            hash,
+                            "--input-kind",
+                            if mode == "digest" {
+                                "digest"
+                            } else {
+                                "message"
+                            },
+                            "--context-file",
+                            context.to_str().unwrap(),
+                            "--input",
+                            if file_input {
+                                path.to_str().unwrap()
+                            } else {
+                                "-"
+                            },
+                            "--hedging",
+                            "deterministic",
+                            "--output",
+                            "-",
+                        ];
+                        if mode == "multipart" {
+                            args.push("--multipart");
+                        }
+                        if index == 1 {
+                            args.extend(["--context-pin-file", pin.to_str().unwrap()]);
+                        }
+                        let signed = run(&args, (!file_input).then_some(bytes));
+                        ok(&signed);
+                        assert_eq!(signed.stdout, expected);
+                        std::fs::write(&signature, &signed.stdout).unwrap();
+                        let mut args = vec![
+                            "verify-hash-ml-dsa",
+                            "--object",
+                            &public,
+                            "--parameter-set",
+                            parameter,
+                            "--digest",
+                            hash,
+                            "--input-kind",
+                            if mode == "digest" {
+                                "digest"
+                            } else {
+                                "message"
+                            },
+                            "--context-file",
+                            context.to_str().unwrap(),
+                            "--input",
+                            if file_input {
+                                path.to_str().unwrap()
+                            } else {
+                                "-"
+                            },
+                            "--signature",
+                            signature.to_str().unwrap(),
+                        ];
+                        if mode == "multipart" {
+                            args.push("--multipart");
+                        }
+                        let verified = run(&args, (!file_input).then_some(bytes));
+                        ok(&verified);
+                        let value: serde_json::Value =
+                            serde_json::from_slice(&verified.stdout).unwrap();
+                        assert_eq!(value["result"]["hash"], hash);
+                        assert_eq!(value["result"]["verified"], true);
+                    }
+                }
+            }
+        }
+    }
+}

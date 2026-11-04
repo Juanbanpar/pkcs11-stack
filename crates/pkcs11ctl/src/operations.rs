@@ -229,8 +229,8 @@ impl Inputs {
             if hash_ml_dsa::selected(name) {
                 bounded_input(
                     path,
-                    if hash_ml_dsa::mode(m) == pkcs11_client::HashMlDsaMode::Prehashed {
-                        64
+                    if hash_ml_dsa::mode(m).is_prehashed() {
+                        hash_ml_dsa::mode(m).hash().output_len()
                     } else {
                         64 * 1024 * 1024
                     },

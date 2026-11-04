@@ -73,7 +73,8 @@ or formal conformance. Coverage is recorded per capability below.
 | Remaining symmetric algorithms, MACs and KDF expansion | Pending | Existing AES-GCM, explicit KW/KWP, constrained HKDF and ECDH profiles. GMAC and PBKDF2 remain pending. |
 | AES-KW/KWP key transfer | Implemented | Runtime/client/CLI/desktop; explicit selection and default IVs. Kryoptic/OpenSSL comparisons cover all AES wrapping/target sizes, output permissions, trust/extractability rejection, RO/duplicate-ID rejection, mismatches and tampering. SoftHSM retains the KW workflow. No deprecated PAD alias or fallback. |
 | SHA-512 HashML-DSA | Implemented | Runtime/client/CLI single-part original-message and typed 64-byte prehash profiles, plus native original-message signing and verification streams. Independent 3.2-header fixtures exercise both parameter layouts on selected 2.40/3.0/3.1/3.2 tables, independent single-part/multipart pointer gates, permissions, context authentication, exact output bounds, completed mismatches, cancellation and discarded errors. Reader tests cover interrupted reads, bounds, input errors and unwinding. Required Kryoptic tests cover all three parameter sets and hedge choices, empty/large messages, empty/ASCII/255-byte binary contexts, independent RustCrypto verification, deterministic agreement between input modes and cancellation followed by same-session reuse. CLI file/stdin signatures match the independently verified client results and are withheld through native/cleanup failures; external digests cannot select multipart. |
-| Additional HashML-DSA profiles, SLH-DSA and TLS signatures | Pending | Other prehash functions and certificate/TLS integration remain separate work. Existing pure ML-DSA and ML-KEM profiles remain supported. |
+| Fixed-output SHA-2/SHA-3 HashML-DSA expansion | Implemented | Runtime/client/CLI select SHA-224/256/384/512 and SHA3-224/256/384/512 for original messages, exact-length caller digests and native original-message streams. SHA-512 APIs, parameters and defaults remain supported. Independent 3.2-header fixtures on selected 2.40/3.0/3.1/3.2 tables check mechanism/hash identifiers, layouts, context authentication, independent pointer gates, length validation, hash separation and failed-session handling. Kryoptic covers all eight hashes, all parameter sets, hedging choices and contexts with empty/large readers. RustCrypto verifies FIPS 204 prehash domain separation and each hash OID independently; deterministic signatures agree between single-part message, digest and streaming inputs. Equal-length wrong-hash verification fails and preserves completed-mismatch session reuse. CLI file/stdin outputs match the independent references; invalid digest lengths, multipart caller digests and native/cleanup errors release no output. |
+| Additional HashML-DSA profiles, SLH-DSA and TLS signatures | Pending | SHAKE prehash functions and certificate/TLS integration remain separate work. Existing pure ML-DSA and ML-KEM profiles remain supported. |
 | Legacy algorithm execution | Pending | No legacy opt-in or algorithms are enabled yet. |
 
 The native fixtures require a C99 compiler (`cc`) on Unix and run with the normal
@@ -339,6 +340,11 @@ verified reference signatures for single-part and multipart file/stdin input.
 No private key value or seed is exported. The pinned SoftHSM does not register
 these HashML-DSA mechanisms;
 its pure ML-DSA coverage remains separate.
+The same runner requires all eight fixed-output SHA-2/SHA-3 HashML-DSA profiles.
+Client SHA-2/SHA-3 implementations compute the reference prehashes; RustCrypto's
+internal verifier checks the FIPS 204 context, hash OID and prehash encoding.
+CLI OpenSSL digests and deterministic file/stdin signatures agree with these
+references across all parameter sets, input modes and original-message streams.
 
 Typed ML-KEM tests cover all parameter sets, key permissions, allowed mechanisms,
 read-only sessions, duplicate secret IDs, expected-parameter checks and ciphertext
