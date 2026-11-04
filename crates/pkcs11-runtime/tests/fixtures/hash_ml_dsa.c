@@ -9,6 +9,11 @@ enum { hash_fault = FAULT };
 #ifndef STREAM
 #define STREAM 0
 #endif
+#ifndef HASH
+#define HASH CKM_SHA512
+#define HASH_MECHANISM CKM_HASH_ML_DSA_SHA512
+#define HASH_LENGTH 64
+#endif
 static CK_ULONG inits, completions, logins;
 #if STREAM
 static CK_ULONG parts, updates, cancellations;
@@ -17,7 +22,7 @@ static int authenticated;
 static CK_ULONG signature_size(void) { return PARAMETER == 0 ? 2420 : PARAMETER == 1 ? 3309 : 4627; }
 static CK_ULONG public_size(void) { return PARAMETER == 0 ? 1312 : PARAMETER == 1 ? 1952 : 2592; }
 static CK_ULONG parameter(void) { return PARAMETER == 0 ? CKP_ML_DSA_44 : PARAMETER == 1 ? CKP_ML_DSA_65 : CKP_ML_DSA_87; }
-static CK_MECHANISM_TYPE mechanism(void) { return PREHASH ? CKM_HASH_ML_DSA : CKM_HASH_ML_DSA_SHA512; }
+static CK_MECHANISM_TYPE mechanism(void) { return PREHASH ? CKM_HASH_ML_DSA : HASH_MECHANISM; }
 static CK_RV hash_close(CK_SESSION_HANDLE s) {
     CK_RV rv = close_session(s); return hash_fault == 23 ? CKR_DEVICE_ERROR : rv;
 }
@@ -67,7 +72,7 @@ static CK_RV hash_init(CK_SESSION_HANDLE s, CK_MECHANISM_PTR m, CK_OBJECT_HANDLE
     if (PREHASH) {
         if (!m->pParameter || m->ulParameterLen != sizeof(CK_HASH_SIGN_ADDITIONAL_CONTEXT)) return CKR_MECHANISM_PARAM_INVALID;
         CK_HASH_SIGN_ADDITIONAL_CONTEXT *p = m->pParameter;
-        if (p->hash != CKM_SHA512) return CKR_MECHANISM_PARAM_INVALID;
+        if (p->hash != HASH) return CKR_MECHANISM_PARAM_INVALID;
         hedge = p->hedgeVariant; length = p->ulContextLen; context = p->pContext;
     } else if (HEDGE == 0 && CONTEXT_LENGTH == 0) {
         if (m->pParameter || m->ulParameterLen) return CKR_MECHANISM_PARAM_INVALID;
@@ -97,7 +102,7 @@ static CK_RV hash_login(CK_SESSION_HANDLE s, CK_USER_TYPE role, CK_UTF8CHAR_PTR 
 static CK_RV hash_input(CK_BYTE_PTR bytes, CK_ULONG n) {
     if (!active || !authenticated) return CKR_USER_NOT_LOGGED_IN;
     if (PREHASH) {
-        if (n != 64) return CKR_DATA_LEN_RANGE;
+        if (n != HASH_LENGTH) return CKR_DATA_LEN_RANGE;
         for (CK_ULONG i = 0; i < n; ++i) if (bytes[i] != 0xA5) return CKR_DATA_INVALID;
     } else if (n && (n != 3 || memcmp(bytes,"abc",3))) return CKR_DATA_INVALID;
     return CKR_OK;

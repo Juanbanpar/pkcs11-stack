@@ -56,7 +56,8 @@ pub use mac::{MacGeneration, MacVerification};
 mod hash_ml_dsa;
 mod hash_ml_dsa_stream;
 pub use hash_ml_dsa_stream::{
-    HashMlDsaParameters, HashMlDsaVerificationCapabilities, HashMlDsaVerificationOperation,
+    HashMlDsaParameters, HashMlDsaProfileParameters, HashMlDsaVerificationCapabilities,
+    HashMlDsaVerificationOperation,
 };
 mod hybrid;
 mod key_operations;

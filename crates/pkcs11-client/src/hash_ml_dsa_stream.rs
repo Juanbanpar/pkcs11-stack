@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use crate::{
-    Authentication, Client, Error, HashMlDsaCapabilities, ManagementSession, MlDsaParameterSet,
-    MlDsaSigningOperation, MlDsaSigningPolicy, Pin, PrivateKeyRef, PublicKeyRef,
+    Authentication, Client, DigestAlgorithm, Error, HashMlDsaCapabilities, ManagementSession,
+    MlDsaParameterSet, MlDsaSigningOperation, MlDsaSigningPolicy, Pin, PrivateKeyRef, PublicKeyRef,
     input::read_chunks, ml_dsa::verification_error,
 };
-pub use pkcs11_runtime::{HashMlDsaParameters, HashMlDsaVerificationCapabilities};
+pub use pkcs11_runtime::{
+    HashMlDsaParameters, HashMlDsaProfileParameters, HashMlDsaVerificationCapabilities,
+};
 use std::io::Read;
 
-/// Exclusive token-hashed SHA-512 verifier. Chunks/contexts are not retained;
+/// Exclusive token-hashed SHA-2/SHA-3 verifier. Chunks/contexts are not retained;
 /// drop discards an incomplete session. Only completed mismatches permit reuse.
 #[derive(Debug)]
 pub struct HashMlDsaVerificationOperation<'a>(pkcs11_runtime::HashMlDsaVerificationOperation<'a>);
@@ -45,7 +47,27 @@ impl ManagementSession<'_> {
     ) -> Result<HashMlDsaVerificationCapabilities, Error> {
         Ok(self.session.hash_ml_dsa_verification_capabilities(key)?)
     }
-    /// Begin exclusive token-hashed SHA-512 signing. Context/PIN borrows end
+    /// Inspect native signing streams for one explicit SHA-2/SHA-3 hash.
+    pub fn hash_ml_dsa_streaming_capabilities_with_hash(
+        &mut self,
+        key: &PrivateKeyRef,
+        hash: DigestAlgorithm,
+    ) -> Result<HashMlDsaCapabilities, Error> {
+        Ok(self
+            .session
+            .hash_ml_dsa_streaming_capabilities_with_hash(key, hash)?)
+    }
+    /// Inspect token-hashed public-key verification for one explicit SHA-2/SHA-3 hash.
+    pub fn hash_ml_dsa_verification_capabilities_with_hash(
+        &mut self,
+        key: &PublicKeyRef,
+        hash: DigestAlgorithm,
+    ) -> Result<HashMlDsaVerificationCapabilities, Error> {
+        Ok(self
+            .session
+            .hash_ml_dsa_verification_capabilities_with_hash(key, hash)?)
+    }
+    /// Begin exclusive token-hashed SHA-2/SHA-3 signing. Context/PIN borrows end
     /// after initialization; input budgets and checked closure remain caller-owned.
     ///
     /// ```compile_fail,E0499
@@ -57,10 +79,10 @@ impl ManagementSession<'_> {
     ///     Ok(())
     /// }
     /// ```
-    pub fn start_hash_ml_dsa_signing(
+    pub fn start_hash_ml_dsa_signing<'p>(
         &mut self,
         key: &PrivateKeyRef,
-        parameters: HashMlDsaParameters<'_>,
+        parameters: impl Into<HashMlDsaProfileParameters<'p>>,
         policy: &MlDsaSigningPolicy,
         context_pin: Option<Pin<'_>>,
     ) -> Result<MlDsaSigningOperation<'_>, Error> {
@@ -69,12 +91,12 @@ impl ManagementSession<'_> {
                 .start_hash_ml_dsa_signing(key, parameters, policy, context_pin)?,
         ))
     }
-    /// Begin exclusive token-hashed SHA-512 verification through C_VerifyUpdate/Final.
+    /// Begin exclusive token-hashed SHA-2/SHA-3 verification through C_VerifyUpdate/Final.
     /// Context borrows end here. This does not establish certificate trust.
-    pub fn start_hash_ml_dsa_verification(
+    pub fn start_hash_ml_dsa_verification<'p>(
         &mut self,
         key: &PublicKeyRef,
-        parameters: HashMlDsaParameters<'_>,
+        parameters: impl Into<HashMlDsaProfileParameters<'p>>,
     ) -> Result<HashMlDsaVerificationOperation<'_>, Error> {
         self.session
             .start_hash_ml_dsa_verification(key, parameters)
@@ -84,10 +106,10 @@ impl ManagementSession<'_> {
     /// Sign original-message chunks with a zeroizing 64 KiB reader buffer. Empty
     /// input and Interrupted reads are supported. Read/native/unwind failures
     /// discard the active session. Callers enforce total budgets and check closure.
-    pub fn sign_hash_ml_dsa_reader(
+    pub fn sign_hash_ml_dsa_reader<'p>(
         &mut self,
         key: &PrivateKeyRef,
-        parameters: HashMlDsaParameters<'_>,
+        parameters: impl Into<HashMlDsaProfileParameters<'p>>,
         policy: &MlDsaSigningPolicy,
         context_pin: Option<Pin<'_>>,
         reader: &mut impl Read,
@@ -103,15 +125,16 @@ impl ManagementSession<'_> {
     /// Verify original-message chunks with a zeroizing 64 KiB buffer. Parameters
     /// and signature length are checked before initialization. Callers enforce
     /// total budgets; read/native/unwind failures discard incomplete sessions.
-    pub fn verify_hash_ml_dsa_reader(
+    pub fn verify_hash_ml_dsa_reader<'p>(
         &mut self,
         key: &PublicKeyRef,
-        parameters: HashMlDsaParameters<'_>,
+        parameters: impl Into<HashMlDsaProfileParameters<'p>>,
         signature: &[u8],
         reader: &mut impl Read,
     ) -> Result<(), Error> {
+        let parameters = parameters.into();
         parameters.request(&[]).validate()?;
-        if signature.len() != parameters.parameter_set.signature_length() {
+        if signature.len() != parameters.parameters.parameter_set.signature_length() {
             return Err(Error::SignatureMismatch);
         }
         let mut operation = self.start_hash_ml_dsa_verification(key, parameters)?;
@@ -148,18 +171,45 @@ impl Client<'_> {
             .session()
             .hash_ml_dsa_verification_capabilities(key)?)
     }
+    /// Discover native signing streams for one explicit SHA-2/SHA-3 hash.
+    pub fn hash_ml_dsa_streaming_capabilities_with_hash(
+        &self,
+        key: &PrivateKeyRef,
+        hash: DigestAlgorithm,
+        authentication: Authentication<'_>,
+    ) -> Result<HashMlDsaCapabilities, Error> {
+        Ok(self
+            .pool()
+            .try_acquire(authentication)?
+            .session()
+            .hash_ml_dsa_streaming_capabilities_with_hash(key, hash)?)
+    }
+    /// Discover token-hashed public-key verification for one explicit SHA-2/SHA-3 hash.
+    pub fn hash_ml_dsa_verification_capabilities_with_hash(
+        &self,
+        key: &PublicKeyRef,
+        hash: DigestAlgorithm,
+        authentication: Authentication<'_>,
+    ) -> Result<HashMlDsaVerificationCapabilities, Error> {
+        Ok(self
+            .pool()
+            .try_acquire(authentication)?
+            .session()
+            .hash_ml_dsa_verification_capabilities_with_hash(key, hash)?)
+    }
     /// Sign a reader while holding one exclusive pool lease. Policy precedes
     /// authentication. Uses a zeroizing 64 KiB buffer, with no software hashing,
     /// digest substitution or retry. Callers enforce budgets and check closure.
-    pub fn sign_hash_ml_dsa_reader(
+    pub fn sign_hash_ml_dsa_reader<'p>(
         &self,
         key: &PrivateKeyRef,
-        parameters: HashMlDsaParameters<'_>,
+        parameters: impl Into<HashMlDsaProfileParameters<'p>>,
         policy: &MlDsaSigningPolicy,
         authentication: Authentication<'_>,
         context_pin: Option<Pin<'_>>,
         reader: &mut impl Read,
     ) -> Result<Vec<u8>, Error> {
+        let parameters = parameters.into();
         policy.validate_hash_ml_dsa(&parameters.request(&[]))?;
         let mut lease = self.pool().try_acquire(authentication)?;
         let mut operation =
@@ -176,16 +226,17 @@ impl Client<'_> {
     /// Verify a reader under an exclusive pool lease. Context/signature bounds
     /// precede checkout. Completed mismatches permit reuse; initialized read,
     /// native and unwind failures discard the session. Callers enforce budgets.
-    pub fn verify_hash_ml_dsa_reader(
+    pub fn verify_hash_ml_dsa_reader<'p>(
         &self,
         key: &PublicKeyRef,
-        parameters: HashMlDsaParameters<'_>,
+        parameters: impl Into<HashMlDsaProfileParameters<'p>>,
         signature: &[u8],
         authentication: Authentication<'_>,
         reader: &mut impl Read,
     ) -> Result<(), Error> {
+        let parameters = parameters.into();
         parameters.request(&[]).validate()?;
-        if signature.len() != parameters.parameter_set.signature_length() {
+        if signature.len() != parameters.parameters.parameter_set.signature_length() {
             return Err(Error::SignatureMismatch);
         }
         let mut lease = self.pool().try_acquire(authentication)?;

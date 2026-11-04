@@ -92,10 +92,15 @@ these calls. Requests select the expected parameter set, original message, conte
 (0 through 255 bytes), and required/preferred/deterministic hedging. Required hedging
 fails if the token cannot supply randomness; there is no software fallback.
 
-`HashMlDsaRequest` is a separate SHA-512 profile exposed by both `Client` and
+`HashMlDsaRequest` exposes separate fixed-output SHA-2/SHA-3 profiles through both `Client` and
 `ManagementSession`. `HashMlDsaInput::Message` requests token-side hashing;
 `HashMlDsaInput::Sha512Digest` borrows an exact `[u8; 64]` digest computed by the
 caller. `hash_ml_dsa_capabilities` checks one selected mode independently.
+These input variants retain SHA-512. `MessageWithHash { hash, message }` and
+`Digest { hash, bytes }` explicitly select SHA-224/256/384/512 or
+SHA3-224/256/384/512. Caller digest lengths must match exactly; Client validates them before
+pool checkout/authentication. Mode constructors select token or caller hashing
+without reinterpreting equal-length hashes.
 `sign_hash_ml_dsa` uses the explicit `MlDsaSigningPolicy`, context and hedging;
 `verify_hash_ml_dsa` uses a token public key and maps completed mismatches to
 `SignatureMismatch`. Native failures discard pooled sessions. Both operations
@@ -105,6 +110,10 @@ are single-part, including signing with context authentication.
 `sign_hash_ml_dsa_reader` and `verify_hash_ml_dsa_reader` hold an exclusive
 session and use a zeroizing 64 KiB buffer. Management sessions also expose
 `start_hash_ml_dsa_signing` and `start_hash_ml_dsa_verification` guards.
+Pass `parameters.with_hash(hash)` to select an explicit hash using
+`HashMlDsaProfileParameters`; existing `HashMlDsaParameters` values remain accepted
+and keep SHA-512. Capability methods ending in `_with_hash` inspect one explicit
+token-hashed profile; the original queries retain SHA-512.
 Signing capabilities check multipart pointers independently of C_Sign;
 verification capabilities check public-key permissions independently of signing
 and the 3.2 signature-first API. Context/PIN borrows end at initialization.

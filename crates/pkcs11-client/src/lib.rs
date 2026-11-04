@@ -74,7 +74,8 @@ pub use pkcs11_runtime::{
 mod hash_ml_dsa;
 mod hash_ml_dsa_stream;
 pub use hash_ml_dsa_stream::{
-    HashMlDsaParameters, HashMlDsaVerificationCapabilities, HashMlDsaVerificationOperation,
+    HashMlDsaParameters, HashMlDsaProfileParameters, HashMlDsaVerificationCapabilities,
+    HashMlDsaVerificationOperation,
 };
 mod management;
 mod ml_dsa;

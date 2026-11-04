@@ -687,10 +687,17 @@ Other backend failures invalidate it. Verification does not bind a private key t
 a public key or establish certificate trust. Software verification and certificate
 binding belong to `pkcs11-client`. External-mu signing is not implemented.
 
-`HashMlDsaRequest` provides a separate SHA-512 HashML-DSA profile for the same
+`HashMlDsaRequest` provides separate SHA-224/256/384/512 and
+SHA3-224/256/384/512 HashML-DSA profiles for the same
 three parameter sets. `HashMlDsaInput::Message` supplies the original message to
 CKM_HASH_ML_DSA_SHA512; `Sha512Digest` borrows an exact 64-byte caller-computed
 digest for CKM_HASH_ML_DSA with SHA-512 in CK_HASH_SIGN_ADDITIONAL_CONTEXT.
+These legacy input variants retain their SHA-512 behavior.
+`MessageWithHash { hash, message }` selects another native combined mechanism;
+`Digest { hash, bytes }` selects CKM_HASH_ML_DSA with that hash in its parameter.
+Caller digests must contain exactly the hash output length, checked before native
+initialization. `HashMlDsaMode::message(hash)` and `prehashed(hash)` inspect the
+corresponding signing profiles; equal-length hashes remain distinct.
 Both follow OASIS sections 6.67.6–7 and FIPS 204's prehash domain separation;
 signing a digest with pure ML-DSA is a different operation.
 
@@ -709,13 +716,18 @@ signing pointers independently of C_Sign; `start_hash_ml_dsa_signing` returns
 the bounded `MlDsaSigningOperation` guard. Context login follows init and
 precedes updates. `hash_ml_dsa_verification_capabilities` independently checks
 public-key permissions and single-part/multipart verification pointers.
+For another hash, pass `parameters.with_hash(hash)` to the same start/reader
+methods. This produces `HashMlDsaProfileParameters`; the original parameters
+also remain accepted and continue to select SHA-512. The capability methods
+ending in `_with_hash` inspect one explicit token-hashed profile. Queries without
+that suffix retain SHA-512. There is no software hashing or mechanism substitution.
 `start_hash_ml_dsa_verification` uses C_VerifyInit/Update/Final through any
 supported function table, independently of the 3.2 signature-first API.
 Only successful completion, a completed verification mismatch or confirmed
 explicit cancellation permits reuse. Incomplete streams and native failures
 discard sessions. Input budgets and checked closure remain caller-owned.
 Caller-computed digests remain single-part under section 6.67.6. No hashing
-fallback, other prehash functions or certificate/TLS integration is added.
+fallback or certificate/TLS integration is added. SHAKE profiles remain unsupported.
 
 ## Testing
 

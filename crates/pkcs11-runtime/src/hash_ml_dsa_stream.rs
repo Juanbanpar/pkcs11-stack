@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use crate::{
-    CancelFlags, Error, Function, HashMlDsaCapabilities, HashMlDsaInput, HashMlDsaMode,
-    HashMlDsaRequest, MlDsaHedging, MlDsaParameterSet, MlDsaSigningOperation, MlDsaSigningPolicy,
-    Pin, PrivateKeyRef, PublicKeyRef, Session, error::backend, hash_ml_dsa,
+    CancelFlags, DigestAlgorithm, Error, Function, HashMlDsaCapabilities, HashMlDsaInput,
+    HashMlDsaMode, HashMlDsaRequest, MlDsaHedging, MlDsaParameterSet, MlDsaSigningOperation,
+    MlDsaSigningPolicy, Pin, PrivateKeyRef, PublicKeyRef, Session, error::backend, hash_ml_dsa,
 };
 use cryptoki::{
     error::{Error as NativeError, RvError},
@@ -30,6 +30,13 @@ impl std::fmt::Debug for HashMlDsaParameters<'_> {
     }
 }
 impl<'a> HashMlDsaParameters<'a> {
+    /// Select an explicit hash, retaining the parameter set, context and hedging.
+    pub fn with_hash(self, hash: DigestAlgorithm) -> HashMlDsaProfileParameters<'a> {
+        HashMlDsaProfileParameters {
+            hash,
+            parameters: self,
+        }
+    }
     /// Borrow an original message for validation or the existing single-part API.
     pub fn request(self, message: &'a [u8]) -> HashMlDsaRequest<'a> {
         HashMlDsaRequest {
@@ -41,7 +48,34 @@ impl<'a> HashMlDsaParameters<'a> {
     }
 }
 
-/// Advisory token-hashed SHA-512 verification support, independent of signing.
+/// Explicit SHA-2/SHA-3 token-hashed stream parameters. Existing SHA-512
+/// parameters convert into this type without changing their default or fields.
+#[derive(Clone, Copy, Debug)]
+pub struct HashMlDsaProfileParameters<'a> {
+    /// Exact hash used by the native combined mechanism.
+    pub hash: DigestAlgorithm,
+    /// Expected parameter set, context and hedging requirement.
+    pub parameters: HashMlDsaParameters<'a>,
+}
+impl<'a> From<HashMlDsaParameters<'a>> for HashMlDsaProfileParameters<'a> {
+    fn from(parameters: HashMlDsaParameters<'a>) -> Self {
+        parameters.with_hash(DigestAlgorithm::Sha512)
+    }
+}
+impl<'a> HashMlDsaProfileParameters<'a> {
+    /// Borrow an original message for validation or a single-part native operation.
+    pub fn request(self, message: &'a [u8]) -> HashMlDsaRequest<'a> {
+        HashMlDsaRequest {
+            input: HashMlDsaInput::MessageWithHash {
+                hash: self.hash,
+                message,
+            },
+            ..self.parameters.request(message)
+        }
+    }
+}
+
+/// Advisory token-hashed SHA-2/SHA-3 verification support, independent of signing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct HashMlDsaVerificationCapabilities {
     /// Observed public-key parameter set.
@@ -51,10 +85,13 @@ pub struct HashMlDsaVerificationCapabilities {
     /// Native init/update/final are present and permitted, without requiring C_Verify.
     pub can_stream: bool,
 }
-fn signing_capabilities(object: &crate::Object<'_, '_>) -> Result<HashMlDsaCapabilities, Error> {
+fn signing_capabilities(
+    object: &crate::Object<'_, '_>,
+    hash: DigestAlgorithm,
+) -> Result<HashMlDsaCapabilities, Error> {
     hash_ml_dsa::capabilities_with_functions(
         object,
-        HashMlDsaMode::Message,
+        HashMlDsaMode::message(hash),
         &[
             Function::SignInit,
             Function::SignUpdate,
@@ -64,8 +101,10 @@ fn signing_capabilities(object: &crate::Object<'_, '_>) -> Result<HashMlDsaCapab
 }
 fn verification_capabilities(
     object: &crate::Object<'_, '_>,
+    hash: DigestAlgorithm,
 ) -> Result<HashMlDsaVerificationCapabilities, Error> {
-    let (parameter_set, permitted) = hash_ml_dsa::verification_key(object, HashMlDsaMode::Message)?;
+    let (parameter_set, permitted) =
+        hash_ml_dsa::verification_key(object, HashMlDsaMode::message(hash))?;
     let module = object.session.token().module.raw()?;
     let permitted = permitted && module.is_fn_supported(Function::VerifyInit);
     Ok(HashMlDsaVerificationCapabilities {
@@ -77,7 +116,7 @@ fn verification_capabilities(
     })
 }
 
-/// Exclusive token-hashed SHA-512 HashML-DSA verifier using C_VerifyUpdate/Final.
+/// Exclusive token-hashed SHA-2/SHA-3 HashML-DSA verifier using C_VerifyUpdate/Final.
 /// Drop before completion or confirmed cancellation discards the session. Message
 /// chunks and contexts are not retained. Provider buffering/resource limits may apply.
 pub struct HashMlDsaVerificationOperation<'a> {
@@ -163,7 +202,15 @@ impl Session<'_> {
         &mut self,
         key: &PrivateKeyRef,
     ) -> Result<HashMlDsaCapabilities, Error> {
-        signing_capabilities(&self.resolve(key.as_object_ref())?)
+        self.hash_ml_dsa_streaming_capabilities_with_hash(key, DigestAlgorithm::Sha512)
+    }
+    /// Discover signing streams for one explicit hash, independently of C_Sign.
+    pub fn hash_ml_dsa_streaming_capabilities_with_hash(
+        &mut self,
+        key: &PrivateKeyRef,
+        hash: DigestAlgorithm,
+    ) -> Result<HashMlDsaCapabilities, Error> {
+        signing_capabilities(&self.resolve(key.as_object_ref())?, hash)
     }
     /// Discover token-hashed SHA-512 public-key verification permissions and pointers.
     /// These C_Verify entry points are independent of the 3.2 signature-first API.
@@ -171,22 +218,31 @@ impl Session<'_> {
         &mut self,
         key: &PublicKeyRef,
     ) -> Result<HashMlDsaVerificationCapabilities, Error> {
-        verification_capabilities(&self.resolve(key.as_object_ref())?)
+        self.hash_ml_dsa_verification_capabilities_with_hash(key, DigestAlgorithm::Sha512)
     }
-    /// Begin exclusive token-hashed SHA-512 signing. Context login follows init and
+    /// Discover token-hashed public-key verification for one hash; signing is independent.
+    pub fn hash_ml_dsa_verification_capabilities_with_hash(
+        &mut self,
+        key: &PublicKeyRef,
+        hash: DigestAlgorithm,
+    ) -> Result<HashMlDsaVerificationCapabilities, Error> {
+        verification_capabilities(&self.resolve(key.as_object_ref())?, hash)
+    }
+    /// Begin exclusive token-hashed SHA-2/SHA-3 signing. Context login follows init and
     /// precedes updates. Context/PIN borrows end here. Read/update/drop failures
     /// discard incomplete sessions. Input budgets and checked closure are caller-owned.
-    pub fn start_hash_ml_dsa_signing(
+    pub fn start_hash_ml_dsa_signing<'p>(
         &mut self,
         key: &PrivateKeyRef,
-        parameters: HashMlDsaParameters<'_>,
+        parameters: impl Into<HashMlDsaProfileParameters<'p>>,
         policy: &MlDsaSigningPolicy,
         context_pin: Option<Pin<'_>>,
     ) -> Result<MlDsaSigningOperation<'_>, Error> {
+        let parameters = parameters.into();
         let request = parameters.request(&[]);
         policy.validate_hash_ml_dsa(&request)?;
         let object = self.resolve(key.as_object_ref())?;
-        let caps = signing_capabilities(&object)?;
+        let caps = signing_capabilities(&object, parameters.hash)?;
         caps.validate(&request, policy)?;
         let pin = if caps.always_authenticate {
             object
@@ -219,19 +275,20 @@ impl Session<'_> {
                 .supports_function(Function::SessionCancel),
         ))
     }
-    /// Begin exclusive token-hashed SHA-512 verification. No signature is supplied
+    /// Begin exclusive token-hashed SHA-2/SHA-3 verification. No signature is supplied
     /// until finish. Context borrows end here; only completed mismatches permit reuse.
     /// Uses C_VerifyInit/Update/Final through any supported table, with no fallback.
-    pub fn start_hash_ml_dsa_verification(
+    pub fn start_hash_ml_dsa_verification<'p>(
         &mut self,
         key: &PublicKeyRef,
-        parameters: HashMlDsaParameters<'_>,
+        parameters: impl Into<HashMlDsaProfileParameters<'p>>,
     ) -> Result<HashMlDsaVerificationOperation<'_>, Error> {
+        let parameters = parameters.into();
         let request = parameters.request(&[]);
         request.validate()?;
         let object = self.resolve(key.as_object_ref())?;
-        let caps = verification_capabilities(&object)?;
-        if caps.parameter_set != parameters.parameter_set || !caps.can_stream {
+        let caps = verification_capabilities(&object, parameters.hash)?;
+        if caps.parameter_set != request.parameter_set || !caps.can_stream {
             return Err(Error::UnsupportedSigning("HashML-DSA verification stream"));
         }
         let raw = object.session.raw()?;

@@ -33,6 +33,7 @@ impl HashMlDsaModule {
             prehash,
             verify,
             false,
+            None,
         )
     }
     /// Compile a token-hashed streaming fixture with independent multipart pointers.
@@ -58,6 +59,34 @@ impl HashMlDsaModule {
             false,
             verify,
             true,
+            None,
+        )
+    }
+    /// Compile one explicit hash with required hedging and a 255-byte context.
+    #[allow(dead_code, clippy::too_many_arguments)]
+    pub fn profile(
+        major: u8,
+        minor: u8,
+        fault: u8,
+        parameter: u8,
+        hash: &str,
+        length: usize,
+        prehash: bool,
+        stream: bool,
+        verify: bool,
+    ) -> Self {
+        Self::build(
+            major,
+            minor,
+            fault,
+            parameter,
+            1,
+            255,
+            1,
+            prehash,
+            verify,
+            stream,
+            Some((hash, length)),
         )
     }
     #[allow(clippy::too_many_arguments)]
@@ -72,6 +101,7 @@ impl HashMlDsaModule {
         prehash: bool,
         verify: bool,
         stream: bool,
+        hash: Option<(&str, usize)>,
     ) -> Self {
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let dir = std::env::temp_dir().join(format!(
@@ -83,7 +113,17 @@ impl HashMlDsaModule {
         let fixture = Self(dir);
         let root =
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../pkcs11-runtime/tests/fixtures");
-        let output = Command::new("cc")
+        let mut command = Command::new("cc");
+        if let Some((hash, length)) = hash {
+            command
+                .arg(format!("-DHASH={hash}"))
+                .arg(format!(
+                    "-DHASH_MECHANISM={}",
+                    hash.replace("CKM_", "CKM_HASH_ML_DSA_")
+                ))
+                .arg(format!("-DHASH_LENGTH={length}"));
+        }
+        let output = command
             .args([
                 "-std=c99",
                 "-Wall",

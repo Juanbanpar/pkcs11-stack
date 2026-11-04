@@ -37,7 +37,7 @@ impl<'a> MlDsaParameters<'a> {
     }
 }
 /// Exclusively borrowed ML-DSA family signer. The initialization method selects
-/// pure ML-DSA or token-hashed SHA-512 HashML-DSA. Message chunks, contexts and PINs are
+/// pure ML-DSA or token-hashed SHA-2/SHA-3 HashML-DSA. Message chunks, contexts and PINs are
 /// not retained by the guard. Drop before successful finish or confirmed explicit
 /// cancellation discards the session. Provider buffering/resource limits may apply.
 pub struct MlDsaSigningOperation<'a> {

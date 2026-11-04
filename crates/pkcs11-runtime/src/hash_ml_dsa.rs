@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use crate::{
-    AttributeType, Error, MechanismType, MlDsaHedging, MlDsaParameterSet, MlDsaSigningPolicy,
-    ObjectClass, Pin, PrivateKeyRef, PublicKeyRef, Session, error::backend, ml_dsa,
+    AttributeType, DigestAlgorithm, Error, MechanismType, MlDsaHedging, MlDsaParameterSet,
+    MlDsaSigningPolicy, ObjectClass, Pin, PrivateKeyRef, PublicKeyRef, Session, error::backend,
+    ml_dsa,
 };
 use cryptoki::{
     context::Function,
@@ -13,30 +14,84 @@ use cryptoki::{
     session::UserType,
 };
 
-/// Native SHA-512 HashML-DSA input contract. No implicit hashing or fallback.
+/// Native HashML-DSA input contract. Legacy variants select SHA-512.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HashMlDsaMode {
     /// Original message, hashed on the token by CKM_HASH_ML_DSA_SHA512.
     Message,
     /// Already computed 64-byte SHA-512 digest, supplied to CKM_HASH_ML_DSA.
     Prehashed,
+    /// Original message hashed on the token with an explicit fixed-output hash.
+    MessageWithHash(DigestAlgorithm),
+    /// Caller-computed digest with an explicit fixed-output hash; single-part only.
+    PrehashedWithHash(DigestAlgorithm),
 }
 impl HashMlDsaMode {
-    pub(crate) fn mechanism_type(self) -> MechanismType {
+    /// Select token-side hashing, retaining the legacy SHA-512 mode value.
+    pub fn message(hash: DigestAlgorithm) -> Self {
+        if hash == DigestAlgorithm::Sha512 {
+            Self::Message
+        } else {
+            Self::MessageWithHash(hash)
+        }
+    }
+    /// Select caller-side hashing, retaining the legacy SHA-512 mode value.
+    pub fn prehashed(hash: DigestAlgorithm) -> Self {
+        if hash == DigestAlgorithm::Sha512 {
+            Self::Prehashed
+        } else {
+            Self::PrehashedWithHash(hash)
+        }
+    }
+    /// Exact hash selected by this profile; equal output lengths remain distinct.
+    pub fn hash(self) -> DigestAlgorithm {
         match self {
-            Self::Message => MechanismType::HASH_ML_DSA_SHA512,
-            Self::Prehashed => MechanismType::HASH_ML_DSA,
+            Self::Message | Self::Prehashed => DigestAlgorithm::Sha512,
+            Self::MessageWithHash(hash) | Self::PrehashedWithHash(hash) => hash,
+        }
+    }
+    /// Whether input is an already computed digest, which cannot be streamed.
+    pub fn is_prehashed(self) -> bool {
+        matches!(self, Self::Prehashed | Self::PrehashedWithHash(_))
+    }
+    pub(crate) fn mechanism_type(self) -> MechanismType {
+        if self.is_prehashed() {
+            return MechanismType::HASH_ML_DSA;
+        }
+        match self.hash() {
+            DigestAlgorithm::Sha224 => MechanismType::HASH_ML_DSA_SHA224,
+            DigestAlgorithm::Sha256 => MechanismType::HASH_ML_DSA_SHA256,
+            DigestAlgorithm::Sha384 => MechanismType::HASH_ML_DSA_SHA384,
+            DigestAlgorithm::Sha512 => MechanismType::HASH_ML_DSA_SHA512,
+            DigestAlgorithm::Sha3_224 => MechanismType::HASH_ML_DSA_SHA3_224,
+            DigestAlgorithm::Sha3_256 => MechanismType::HASH_ML_DSA_SHA3_256,
+            DigestAlgorithm::Sha3_384 => MechanismType::HASH_ML_DSA_SHA3_384,
+            DigestAlgorithm::Sha3_512 => MechanismType::HASH_ML_DSA_SHA3_512,
         }
     }
 }
 
-/// Original message or a SHA-512 digest. Debug omits input bytes.
+/// Original message or caller digest; legacy variants use SHA-512. Debug omits input bytes.
 #[derive(Clone, Copy)]
 pub enum HashMlDsaInput<'a> {
     /// Original message; empty input is valid.
     Message(&'a [u8]),
     /// Exactly 64 bytes computed with SHA-512 by the caller.
     Sha512Digest(&'a [u8; 64]),
+    /// Original message hashed on the token with the selected SHA-2/SHA-3 hash.
+    MessageWithHash {
+        /// Fixed-output hash used by the native combined mechanism.
+        hash: DigestAlgorithm,
+        /// Original message; empty input is valid.
+        message: &'a [u8],
+    },
+    /// Caller-computed SHA-2/SHA-3 digest. Request validation checks its exact length.
+    Digest {
+        /// Exact digest algorithm, including FIPS 204's prehash domain separation.
+        hash: DigestAlgorithm,
+        /// Exactly hash.output_len() bytes; no software hashing or truncation occurs.
+        bytes: &'a [u8],
+    },
 }
 impl<'a> HashMlDsaInput<'a> {
     /// Native mechanism required by this input, without provider access.
@@ -44,12 +99,16 @@ impl<'a> HashMlDsaInput<'a> {
         match self {
             Self::Message(_) => HashMlDsaMode::Message,
             Self::Sha512Digest(_) => HashMlDsaMode::Prehashed,
+            Self::MessageWithHash { hash, .. } => HashMlDsaMode::message(hash),
+            Self::Digest { hash, .. } => HashMlDsaMode::prehashed(hash),
         }
     }
     pub(crate) fn bytes(self) -> &'a [u8] {
         match self {
             Self::Message(bytes) => bytes,
             Self::Sha512Digest(bytes) => bytes,
+            Self::MessageWithHash { message, .. } => message,
+            Self::Digest { bytes, .. } => bytes,
         }
     }
 }
@@ -59,13 +118,13 @@ impl std::fmt::Debug for HashMlDsaInput<'_> {
     }
 }
 
-/// SHA-512 HashML-DSA request, distinct from pure ML-DSA and external-mu input.
+/// Fixed-output SHA-2/SHA-3 HashML-DSA request, distinct from pure ML-DSA and external-mu input.
 /// Debug omits input and context bytes. No private material is read.
 #[derive(Clone, Copy)]
 pub struct HashMlDsaRequest<'a> {
     /// Expected key parameter set, rediscovered before execution.
     pub parameter_set: MlDsaParameterSet,
-    /// Original message or caller-computed SHA-512 digest.
+    /// Original message or caller-computed digest; legacy variants select SHA-512.
     pub input: HashMlDsaInput<'a>,
     /// FIPS 204 context, at most 255 bytes.
     pub context: &'a [u8],
@@ -82,32 +141,45 @@ impl std::fmt::Debug for HashMlDsaRequest<'_> {
     }
 }
 impl HashMlDsaRequest<'_> {
-    /// Check the context bound without provider access. Digest length is typed.
+    /// Check context and exact caller-digest lengths without provider access.
     pub fn validate(&self) -> Result<(), Error> {
         if self.context.len() > 255 {
             return Err(Error::InvalidParameters(
                 "HashML-DSA context exceeds 255 bytes",
             ));
         }
+        if let HashMlDsaInput::Digest { hash, bytes } = self.input {
+            if bytes.len() != hash.output_len() {
+                return Err(Error::InvalidParameters("HashML-DSA digest length"));
+            }
+        }
         Ok(())
     }
     pub(crate) fn mechanism(&self) -> Mechanism<'_> {
         let context = (!self.context.is_empty()).then_some(self.context);
-        match self.input.mode() {
-            HashMlDsaMode::Message => Mechanism::HashMlDsaSha512(SignAdditionalContext::new(
+        let mode = self.input.mode();
+        if mode.is_prehashed() {
+            return Mechanism::HashMlDsa(HashSignAdditionalContext::new(
                 self.hedging.mechanism(),
                 context,
-            )),
-            HashMlDsaMode::Prehashed => Mechanism::HashMlDsa(HashSignAdditionalContext::new(
-                self.hedging.mechanism(),
-                context,
-                MechanismType::SHA512,
-            )),
+                mode.hash().mechanism(),
+            ));
+        }
+        let parameters = SignAdditionalContext::new(self.hedging.mechanism(), context);
+        match mode.hash() {
+            DigestAlgorithm::Sha224 => Mechanism::HashMlDsaSha224(parameters),
+            DigestAlgorithm::Sha256 => Mechanism::HashMlDsaSha256(parameters),
+            DigestAlgorithm::Sha384 => Mechanism::HashMlDsaSha384(parameters),
+            DigestAlgorithm::Sha512 => Mechanism::HashMlDsaSha512(parameters),
+            DigestAlgorithm::Sha3_224 => Mechanism::HashMlDsaSha3_224(parameters),
+            DigestAlgorithm::Sha3_256 => Mechanism::HashMlDsaSha3_256(parameters),
+            DigestAlgorithm::Sha3_384 => Mechanism::HashMlDsaSha3_384(parameters),
+            DigestAlgorithm::Sha3_512 => Mechanism::HashMlDsaSha3_512(parameters),
         }
     }
 }
 impl MlDsaSigningPolicy {
-    /// Apply the ML-DSA parameter-set policy to an explicit SHA-512 HashML-DSA request.
+    /// Apply the ML-DSA parameter-set policy to an explicit HashML-DSA request.
     pub fn validate_hash_ml_dsa(&self, request: &HashMlDsaRequest<'_>) -> Result<(), Error> {
         request.validate()?;
         if !self.parameter_sets.contains(&request.parameter_set) {
@@ -139,7 +211,8 @@ impl HashMlDsaCapabilities {
     ) -> Result<(), Error> {
         policy.validate_hash_ml_dsa(request)?;
         if self.parameter_set != request.parameter_set
-            || self.mode != request.input.mode()
+            || self.mode.hash() != request.input.mode().hash()
+            || self.mode.is_prehashed() != request.input.mode().is_prehashed()
             || !self.can_sign
         {
             return Err(Error::UnsupportedSigning(
@@ -199,7 +272,7 @@ pub(crate) fn verification_key(
 }
 
 impl Session<'_> {
-    /// Discover one key's single-part SHA-512 HashML-DSA signing support.
+    /// Discover one key's single-part HashML-DSA signing support for one hash/input mode.
     /// Modes are checked independently and never substituted for one another.
     pub fn hash_ml_dsa_capabilities(
         &mut self,

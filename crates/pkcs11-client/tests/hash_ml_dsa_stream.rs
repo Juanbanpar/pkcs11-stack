@@ -249,3 +249,37 @@ fn context_and_pin_borrows_end_after_native_initialization() {
     session.close().unwrap();
     provider.finalize().unwrap();
 }
+
+#[test]
+fn explicit_hash_profile_context_and_pin_borrows_end_at_initialization() {
+    use secrecy::SecretString;
+    let fixture = HashMlDsaModule::profile(3, 2, 0, 0, "CKM_SHA3_256", 32, false, true, false);
+    let provider = Provider::load(fixture.path()).unwrap();
+    let mut session = provider
+        .management(
+            &"pkcs11:token=cmac".parse().unwrap(),
+            SessionMode::ReadOnly,
+            Authentication::None,
+        )
+        .unwrap();
+    let mut operation = {
+        let context = vec![0xA5; 255];
+        let pin = SecretString::from("1234");
+        session
+            .start_hash_ml_dsa_signing(
+                &private(),
+                HashMlDsaParameters {
+                    context: &context,
+                    ..parameters()
+                }
+                .with_hash(DigestAlgorithm::Sha3_256),
+                &MlDsaSigningPolicy::default(),
+                Some(Pin::Value(&pin)),
+            )
+            .unwrap()
+    };
+    operation.update(b"abc").unwrap();
+    operation.finish().unwrap();
+    session.close().unwrap();
+    provider.finalize().unwrap();
+}

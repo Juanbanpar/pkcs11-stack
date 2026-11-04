@@ -40,12 +40,15 @@ impl Read for Chunks<'_> {
 }
 
 fn verify<P: MlDsaParams>(bytes: &[u8], context: &[u8], digest: &[u8; 64], sig: &[u8]) {
+    verify_hash::<P>(bytes, context, digest, 3, sig);
+}
+fn verify_hash<P: MlDsaParams>(bytes: &[u8], context: &[u8], digest: &[u8], oid: u8, sig: &[u8]) {
     let key = VerifyingKey::<P>::decode(&EncodedVerifyingKey::<P>::try_from(bytes).unwrap());
     // FIPS 204 Algorithm 5: 0x01 || context length || context || DER SHA-512 OID || PH(M).
     let mut encoded = vec![1, context.len().try_into().unwrap()];
     encoded.extend_from_slice(context);
     encoded.extend_from_slice(&[
-        0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x03,
+        0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, oid,
     ]);
     encoded.extend_from_slice(digest);
     let signature = Signature::<P>::try_from(sig).unwrap();
@@ -308,6 +311,241 @@ fn hash_ml_dsa_client_independent_verification_contexts_and_both_input_modes() {
                             std::fs::write(
                                 root.join(format!("hash-mldsa-{index}.sig")),
                                 &signatures[0],
+                            )
+                            .unwrap();
+                        }
+                    }
+                }
+            }
+        }
+    }
+    client.close().unwrap();
+    provider.finalize().unwrap();
+}
+
+#[test]
+#[ignore = "requires tools/test-kem-hkdf.sh with ML-DSA enabled"]
+fn hash_ml_dsa_fixed_output_profiles_independent_signatures_and_streams() {
+    assert_eq!(
+        std::env::var("PKCS11_TEST_KDF_ISOLATED").as_deref(),
+        Ok("1")
+    );
+    let root = PathBuf::from(std::env::var_os("PKCS11_TEST_KDF_DIR").unwrap());
+    let provider = Provider::load(std::env::var_os("PKCS11_TEST_KDF_MODULE").unwrap()).unwrap();
+    let token = "pkcs11:token=kdf-test".parse().unwrap();
+    let pin = SecretString::from("12345678");
+    let auth = || Authentication::User(Pin::Value(&pin));
+    let sets = [
+        MlDsaParameterSet::MlDsa44,
+        MlDsaParameterSet::MlDsa65,
+        MlDsaParameterSet::MlDsa87,
+    ];
+    let mut management = provider
+        .management(&token, SessionMode::ReadWrite, auth())
+        .unwrap();
+    for (index, set) in sets.into_iter().enumerate() {
+        management
+            .generate_ml_dsa_key_pair(
+                set,
+                &[0xE2, index as u8],
+                b"HashML-DSA profiles",
+                index == 1,
+            )
+            .unwrap();
+    }
+    management.close().unwrap();
+    let client = provider
+        .client(
+            &token,
+            NonZeroUsize::new(1).unwrap(),
+            SigningPolicy::default(),
+        )
+        .unwrap();
+    let large: Vec<_> = (0..1_000_003).map(|i| (i % 251) as u8).collect();
+    for (index, set) in sets.into_iter().enumerate() {
+        let private = PrivateKeyRef::new(
+            format!("pkcs11:token=kdf-test;id=%E2%{index:02X};type=private")
+                .parse()
+                .unwrap(),
+        )
+        .unwrap();
+        let public = PublicKeyRef::new(
+            format!("pkcs11:token=kdf-test;id=%E2%{index:02X};type=public")
+                .parse()
+                .unwrap(),
+        )
+        .unwrap();
+        let spki = client.export_ml_dsa_public_key(&public, auth()).unwrap();
+        std::fs::write(root.join(format!("hash-profile-{index}.der")), &spki).unwrap();
+        use x509_cert::der::Decode;
+        let decoded = x509_cert::spki::SubjectPublicKeyInfoOwned::from_der(&spki).unwrap();
+        let raw = decoded.subject_public_key.as_bytes().unwrap();
+        let context_pin = || (index == 1).then_some(Pin::Value(&pin));
+        for (hash_index, (hash, oid)) in [
+            (DigestAlgorithm::Sha224, 4),
+            (DigestAlgorithm::Sha256, 1),
+            (DigestAlgorithm::Sha384, 2),
+            (DigestAlgorithm::Sha512, 3),
+            (DigestAlgorithm::Sha3_224, 7),
+            (DigestAlgorithm::Sha3_256, 8),
+            (DigestAlgorithm::Sha3_384, 9),
+            (DigestAlgorithm::Sha3_512, 10),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            assert!(
+                client
+                    .hash_ml_dsa_streaming_capabilities_with_hash(&private, hash, auth())
+                    .unwrap()
+                    .can_sign
+            );
+            assert!(
+                client
+                    .hash_ml_dsa_verification_capabilities_with_hash(&public, hash, auth())
+                    .unwrap()
+                    .can_stream
+            );
+            for context in [&[][..], b"context", &[0xA5; 255]] {
+                for message in [&[][..], b"abc", large.as_slice()] {
+                    let digest = match hash {
+                        DigestAlgorithm::Sha224 => sha2::Sha224::digest(message).to_vec(),
+                        DigestAlgorithm::Sha256 => sha2::Sha256::digest(message).to_vec(),
+                        DigestAlgorithm::Sha384 => sha2::Sha384::digest(message).to_vec(),
+                        DigestAlgorithm::Sha512 => sha2::Sha512::digest(message).to_vec(),
+                        DigestAlgorithm::Sha3_224 => sha3::Sha3_224::digest(message).to_vec(),
+                        DigestAlgorithm::Sha3_256 => sha3::Sha3_256::digest(message).to_vec(),
+                        DigestAlgorithm::Sha3_384 => sha3::Sha3_384::digest(message).to_vec(),
+                        DigestAlgorithm::Sha3_512 => sha3::Sha3_512::digest(message).to_vec(),
+                    };
+                    for hedging in [
+                        MlDsaHedging::Required,
+                        MlDsaHedging::Preferred,
+                        MlDsaHedging::Deterministic,
+                    ] {
+                        let parameters = HashMlDsaParameters {
+                            parameter_set: set,
+                            context,
+                            hedging,
+                        }
+                        .with_hash(hash);
+                        let policy = MlDsaSigningPolicy::default();
+                        let request = parameters.request(message);
+                        let caps = client
+                            .hash_ml_dsa_capabilities(&private, request.input.mode(), auth())
+                            .unwrap();
+                        caps.validate(&request, &policy).unwrap();
+                        let message_sig = client
+                            .sign_hash_ml_dsa(&private, &request, &policy, auth(), context_pin())
+                            .unwrap();
+                        let prehashed = HashMlDsaRequest {
+                            input: HashMlDsaInput::Digest {
+                                hash,
+                                bytes: &digest,
+                            },
+                            ..request
+                        };
+                        let digest_sig = client
+                            .sign_hash_ml_dsa(&private, &prehashed, &policy, auth(), context_pin())
+                            .unwrap();
+                        let mut reader = Chunks::new(message);
+                        let stream_sig = client
+                            .sign_hash_ml_dsa_reader(
+                                &private,
+                                parameters,
+                                &policy,
+                                auth(),
+                                context_pin(),
+                                &mut reader,
+                            )
+                            .unwrap();
+                        assert_eq!(reader.maximum, 65536);
+                        assert!(reader.bytes.is_empty());
+                        for sig in [&message_sig, &digest_sig, &stream_sig] {
+                            match set {
+                                MlDsaParameterSet::MlDsa44 => {
+                                    verify_hash::<MlDsa44>(raw, context, &digest, oid, sig)
+                                }
+                                MlDsaParameterSet::MlDsa65 => {
+                                    verify_hash::<MlDsa65>(raw, context, &digest, oid, sig)
+                                }
+                                MlDsaParameterSet::MlDsa87 => {
+                                    verify_hash::<MlDsa87>(raw, context, &digest, oid, sig)
+                                }
+                            }
+                            client
+                                .verify_hash_ml_dsa(&public, &request, sig, auth())
+                                .unwrap();
+                            client
+                                .verify_hash_ml_dsa(&public, &prehashed, sig, auth())
+                                .unwrap();
+                            client
+                                .verify_hash_ml_dsa_reader(
+                                    &public,
+                                    parameters,
+                                    sig,
+                                    auth(),
+                                    &mut Chunks::new(message),
+                                )
+                                .unwrap();
+                        }
+                        let generation = client.pool().try_acquire(auth()).unwrap().generation();
+                        let mut changed = stream_sig.clone();
+                        changed[0] ^= 1;
+                        assert!(matches!(
+                            client.verify_hash_ml_dsa_reader(
+                                &public,
+                                parameters,
+                                &changed,
+                                auth(),
+                                &mut Chunks::new(message)
+                            ),
+                            Err(Error::SignatureMismatch)
+                        ));
+                        assert_eq!(
+                            client.pool().try_acquire(auth()).unwrap().generation(),
+                            generation
+                        );
+                        if hedging == MlDsaHedging::Deterministic {
+                            let other = match hash {
+                                DigestAlgorithm::Sha224 => DigestAlgorithm::Sha3_224,
+                                DigestAlgorithm::Sha256 => DigestAlgorithm::Sha3_256,
+                                DigestAlgorithm::Sha384 => DigestAlgorithm::Sha3_384,
+                                DigestAlgorithm::Sha512 => DigestAlgorithm::Sha3_512,
+                                DigestAlgorithm::Sha3_224 => DigestAlgorithm::Sha224,
+                                DigestAlgorithm::Sha3_256 => DigestAlgorithm::Sha256,
+                                DigestAlgorithm::Sha3_384 => DigestAlgorithm::Sha384,
+                                DigestAlgorithm::Sha3_512 => DigestAlgorithm::Sha512,
+                            };
+                            let wrong_hash = HashMlDsaRequest {
+                                input: HashMlDsaInput::Digest {
+                                    hash: other,
+                                    bytes: &digest,
+                                },
+                                ..request
+                            };
+                            assert!(matches!(
+                                client.verify_hash_ml_dsa(
+                                    &public,
+                                    &wrong_hash,
+                                    &digest_sig,
+                                    auth()
+                                ),
+                                Err(Error::SignatureMismatch)
+                            ));
+                            assert_eq!(
+                                client.pool().try_acquire(auth()).unwrap().generation(),
+                                generation
+                            );
+                            assert_eq!(message_sig, digest_sig);
+                            assert_eq!(message_sig, stream_sig);
+                            std::fs::write(
+                                root.join(format!(
+                                    "hash-profile-{index}-{hash_index}-{}-{}.sig",
+                                    context.len(),
+                                    message.len()
+                                )),
+                                &stream_sig,
                             )
                             .unwrap();
                         }

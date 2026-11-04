@@ -12,7 +12,7 @@ fn verification_error(error: pkcs11_runtime::Error) -> Error {
     }
 }
 impl ManagementSession<'_> {
-    /// Advisory support for one SHA-512 HashML-DSA input mode and private key.
+    /// Advisory support for one HashML-DSA hash/input mode and private key.
     pub fn hash_ml_dsa_capabilities(
         &mut self,
         key: &PrivateKeyRef,
@@ -20,7 +20,7 @@ impl ManagementSession<'_> {
     ) -> Result<HashMlDsaCapabilities, Error> {
         Ok(self.session.hash_ml_dsa_capabilities(key, mode)?)
     }
-    /// Sign once using explicit original-message or SHA-512-digest input.
+    /// Sign once using explicit original-message or exact-length digest input.
     /// Close the session before releasing output when checked cleanup is required.
     pub fn sign_hash_ml_dsa(
         &mut self,
