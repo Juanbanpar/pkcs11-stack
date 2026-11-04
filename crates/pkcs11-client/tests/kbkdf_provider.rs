@@ -363,3 +363,111 @@ fn client_kbkdf_aes_cmac_permissions_outputs_and_runtime_agreement() {
     session.close().unwrap();
     provider.finalize().unwrap();
 }
+
+#[test]
+#[ignore = "requires tools/test-kem-hkdf.sh after runtime HMAC KDF profiles"]
+fn client_kbkdf_hmac_profiles_permissions_and_runtime_agreement() {
+    assert_eq!(
+        std::env::var("PKCS11_TEST_KDF_ISOLATED").as_deref(),
+        Ok("1")
+    );
+    let provider = Provider::load(std::env::var_os("PKCS11_TEST_KDF_MODULE").unwrap()).unwrap();
+    let token = "pkcs11:token=kdf-test".parse().unwrap();
+    let pin = SecretString::from("12345678");
+    let mut session = provider
+        .management(
+            &token,
+            SessionMode::ReadWrite,
+            Authentication::User(Pin::Value(&pin)),
+        )
+        .unwrap();
+    for (mode_index, mode) in [KbkdfMode::Counter, KbkdfMode::Feedback]
+        .into_iter()
+        .enumerate()
+    {
+        for (index, prf) in [
+            KbkdfPrf::HmacSha224,
+            KbkdfPrf::HmacSha3_224,
+            KbkdfPrf::HmacSha3_256,
+            KbkdfPrf::HmacSha3_384,
+            KbkdfPrf::HmacSha3_512,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let base = key(&[0xFA, 0xA7, index as u8, 1]);
+            let caps = session.kbkdf_prf_capabilities(&base, prf, mode).unwrap();
+            assert_eq!(caps.input_length, prf.output_len());
+            let iv = if mode == KbkdfMode::Feedback {
+                vec![0xA5; prf.output_len()]
+            } else {
+                vec![]
+            };
+            let id = [0xFA, 0xAB, mode_index as u8, index as u8];
+            let request = KbkdfPrfRequest {
+                prf,
+                kdf_label: b"application",
+                context: b"v1 context",
+                output: KbkdfOutput::Aes256,
+                id: &id,
+                label: b"client HMAC KDF",
+            };
+            let mut ro = provider
+                .management(&token, SessionMode::ReadOnly, Authentication::None)
+                .unwrap();
+            assert_eq!(ro.kbkdf_prf_capabilities(&base, prf, mode).unwrap(), caps);
+            assert_eq!(
+                ro.derive_kbkdf_prf(&base, &request, mode, &iv)
+                    .unwrap_err()
+                    .kind(),
+                ErrorKind::Policy
+            );
+            ro.close().unwrap();
+            assert_eq!(
+                session
+                    .derive_kbkdf_prf(&base, &request, mode, &[0; 1])
+                    .unwrap_err()
+                    .kind(),
+                ErrorKind::Input
+            );
+            session
+                .derive_kbkdf_prf(&base, &request, mode, &iv)
+                .unwrap();
+            assert_eq!(
+                session
+                    .derive_kbkdf_prf(&base, &request, mode, &iv)
+                    .unwrap_err()
+                    .kind(),
+                ErrorKind::Input
+            );
+            let derived = key(&id);
+            assert!(session.export_public(&derived).is_err());
+            let nonce = [index as u8; 12];
+            let encrypted = session
+                .encrypt_aes_gcm(
+                    &derived,
+                    &AesGcmEncryptRequest {
+                        nonce: &nonce,
+                        aad: b"KDF proof",
+                        plaintext: b"client HMAC KDF agreement",
+                    },
+                )
+                .unwrap();
+            let reference = key(&[0xFA, 0xA8 + mode_index as u8, index as u8]);
+            let plaintext = session
+                .decrypt_aes_gcm(
+                    &reference,
+                    &AesGcmDecryptRequest {
+                        nonce: &nonce,
+                        aad: b"KDF proof",
+                        ciphertext: &encrypted,
+                    },
+                )
+                .unwrap();
+            assert_eq!(plaintext.expose_secret(), b"client HMAC KDF agreement");
+            session.delete(&derived).unwrap();
+        }
+    }
+    session.close().unwrap();
+    provider.finalize().unwrap();
+}

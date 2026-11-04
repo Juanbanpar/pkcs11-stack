@@ -96,6 +96,8 @@ impl KbkdfOutput {
     }
 }
 /// Explicit SP 800-108 PRF. AES-CMAC requires a 16/24/32-byte AES base key.
+/// The legacy DigestAlgorithm conversion accepts SHA-256/384/512 only;
+/// select additional HMAC variants directly with KbkdfPrfRequest.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum KbkdfPrf {
     /// HMAC-SHA-256, with a generic or matching typed HMAC base.
@@ -104,6 +106,16 @@ pub enum KbkdfPrf {
     HmacSha384,
     /// HMAC-SHA-512, with a generic or matching typed HMAC base.
     HmacSha512,
+    /// HMAC-SHA-224, with a generic or matching typed HMAC base.
+    HmacSha224,
+    /// HMAC-SHA3-224, with a generic or matching typed HMAC base.
+    HmacSha3_224,
+    /// HMAC-SHA3-256, with a generic or matching typed HMAC base.
+    HmacSha3_256,
+    /// HMAC-SHA3-384, with a generic or matching typed HMAC base.
+    HmacSha3_384,
+    /// HMAC-SHA3-512, with a generic or matching typed HMAC base.
+    HmacSha3_512,
     /// Full-block AES-CMAC; standalone MAC permission is not required.
     AesCmac,
 }
@@ -111,9 +123,10 @@ impl KbkdfPrf {
     /// PRF output block length, also the nonempty Feedback IV length, in bytes.
     pub fn output_len(self) -> usize {
         match self {
-            Self::HmacSha256 => 32,
-            Self::HmacSha384 => 48,
-            Self::HmacSha512 => 64,
+            Self::HmacSha224 | Self::HmacSha3_224 => 28,
+            Self::HmacSha256 | Self::HmacSha3_256 => 32,
+            Self::HmacSha384 | Self::HmacSha3_384 => 48,
+            Self::HmacSha512 | Self::HmacSha3_512 => 64,
             Self::AesCmac => 16,
         }
     }
@@ -122,6 +135,11 @@ impl KbkdfPrf {
             Self::HmacSha256 => MechanismType::SHA256_HMAC,
             Self::HmacSha384 => MechanismType::SHA384_HMAC,
             Self::HmacSha512 => MechanismType::SHA512_HMAC,
+            Self::HmacSha224 => MechanismType::SHA224_HMAC,
+            Self::HmacSha3_224 => MechanismType::SHA3_224_HMAC,
+            Self::HmacSha3_256 => MechanismType::SHA3_256_HMAC,
+            Self::HmacSha3_384 => MechanismType::SHA3_384_HMAC,
+            Self::HmacSha3_512 => MechanismType::SHA3_512_HMAC,
             Self::AesCmac => MechanismType::AES_CMAC,
         }
     }
@@ -131,6 +149,11 @@ impl KbkdfPrf {
             Self::HmacSha256 => kind == KeyType::GENERIC_SECRET || kind == KeyType::SHA256_HMAC,
             Self::HmacSha384 => kind == KeyType::GENERIC_SECRET || kind == KeyType::SHA384_HMAC,
             Self::HmacSha512 => kind == KeyType::GENERIC_SECRET || kind == KeyType::SHA512_HMAC,
+            Self::HmacSha224 => kind == KeyType::GENERIC_SECRET || kind == KeyType::SHA224_HMAC,
+            Self::HmacSha3_224 => kind == KeyType::GENERIC_SECRET || kind == KeyType::SHA3_224_HMAC,
+            Self::HmacSha3_256 => kind == KeyType::GENERIC_SECRET || kind == KeyType::SHA3_256_HMAC,
+            Self::HmacSha3_384 => kind == KeyType::GENERIC_SECRET || kind == KeyType::SHA3_384_HMAC,
+            Self::HmacSha3_512 => kind == KeyType::GENERIC_SECRET || kind == KeyType::SHA3_512_HMAC,
         }
     }
 }

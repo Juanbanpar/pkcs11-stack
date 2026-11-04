@@ -880,3 +880,226 @@ fn kbkdf_aes_cmac_modes_outputs_permissions_and_independent_references() {
         prove_outputs(&path, &pin, proofs, canonical);
     }
 }
+
+#[test]
+#[ignore = "requires tools/test-kem-hkdf.sh disposable Kryoptic store"]
+fn kbkdf_hmac_profiles_openssl_agreement_and_protected_outputs() {
+    assert_eq!(
+        std::env::var("PKCS11_TEST_KDF_ISOLATED").as_deref(),
+        Ok("1")
+    );
+    let path = std::env::var_os("PKCS11_TEST_KDF_MODULE").unwrap();
+    let pin = SecretString::from("12345678");
+    let profiles = [
+        (
+            KbkdfPrf::HmacSha224,
+            DigestAlgorithm::Sha224,
+            KeyType::SHA224_HMAC,
+        ),
+        (
+            KbkdfPrf::HmacSha3_224,
+            DigestAlgorithm::Sha3_224,
+            KeyType::SHA3_224_HMAC,
+        ),
+        (
+            KbkdfPrf::HmacSha3_256,
+            DigestAlgorithm::Sha3_256,
+            KeyType::SHA3_256_HMAC,
+        ),
+        (
+            KbkdfPrf::HmacSha3_384,
+            DigestAlgorithm::Sha3_384,
+            KeyType::SHA3_384_HMAC,
+        ),
+        (
+            KbkdfPrf::HmacSha3_512,
+            DigestAlgorithm::Sha3_512,
+            KeyType::SHA3_512_HMAC,
+        ),
+    ];
+    {
+        let module = Module::load(&path).unwrap();
+        let token = module
+            .resolve_token_uri(&"pkcs11:token=kdf-test".parse().unwrap())
+            .unwrap();
+        let mut session = token.open_session(SessionMode::ReadWrite).unwrap();
+        session
+            .authenticate(Authentication::User(Pin::Value(&pin)))
+            .unwrap();
+        for (index, (prf, _, typed)) in profiles.iter().enumerate() {
+            for (is_typed, kind) in [(false, KeyType::GENERIC_SECRET), (true, *typed)] {
+                session
+                    .create_object(&base(
+                        &[0xFA, 0xA7, index as u8, u8::from(is_typed)],
+                        kind,
+                        if is_typed { prf.output_len() } else { 31 },
+                    ))
+                    .unwrap_or_else(|e| panic!("base profile {index}, typed={is_typed}: {e:?}"));
+            }
+        }
+        session.close().unwrap();
+        drop(token);
+        module.finalize().unwrap();
+    }
+    for (mode_index, mode) in [KbkdfMode::Counter, KbkdfMode::Feedback]
+        .into_iter()
+        .enumerate()
+    {
+        let canonical = 0xA8 + mode_index as u8;
+        let module = Module::load(&path).unwrap();
+        let token = module
+            .resolve_token_uri(&"pkcs11:token=kdf-test".parse().unwrap())
+            .unwrap();
+        let mut session = token.open_session(SessionMode::ReadWrite).unwrap();
+        session
+            .authenticate(Authentication::User(Pin::Value(&pin)))
+            .unwrap();
+        let mut proofs = vec![];
+        for (index, (prf, digest, _)) in profiles.into_iter().enumerate() {
+            for typed in [false, true] {
+                let key = reference(&[0xFA, 0xA7, index as u8, u8::from(typed)]);
+                let caps = session.kbkdf_prf_capabilities(&key, prf, mode).unwrap();
+                let key_length = if typed { prf.output_len() } else { 31 };
+                assert_eq!(caps.input_length, key_length);
+                assert_eq!(caps.prf, prf);
+                assert!(matches!(
+                    session.kbkdf_prf_capabilities(&key, prf, KbkdfMode::DoublePipeline),
+                    Err(Error::UnsupportedKeyOperation)
+                ));
+                if typed {
+                    for (other, ..) in profiles {
+                        if other != prf {
+                            assert!(matches!(
+                                session.kbkdf_prf_capabilities(&key, other, mode),
+                                Err(Error::UnsupportedKeyOperation)
+                            ));
+                        }
+                    }
+                }
+                for (case, output) in [
+                    KbkdfOutput::Aes128,
+                    KbkdfOutput::Aes192,
+                    KbkdfOutput::Aes256,
+                    KbkdfOutput::DerivationSecret { length: 1 },
+                    KbkdfOutput::DerivationSecret {
+                        length: prf.output_len() + 1,
+                    },
+                    KbkdfOutput::DerivationSecret { length: 4096 },
+                ]
+                .into_iter()
+                .enumerate()
+                {
+                    let id = [
+                        0xFA,
+                        0xAA,
+                        mode_index as u8,
+                        index as u8,
+                        u8::from(typed),
+                        case as u8,
+                    ];
+                    let long = [0xA5; 4096];
+                    let (label, context) = match case % 3 {
+                        0 => (&[][..], &[][..]),
+                        1 => (b"label\0binary".as_slice(), b"\xFFcontext\0".as_slice()),
+                        _ => (long.as_slice(), long.as_slice()),
+                    };
+                    let iv = if mode == KbkdfMode::Feedback && case % 2 == 0 {
+                        vec![0xA5; prf.output_len()]
+                    } else {
+                        vec![]
+                    };
+                    let request = KbkdfPrfRequest {
+                        prf,
+                        kdf_label: label,
+                        context,
+                        output,
+                        id: &id,
+                        label: b"HMAC KDF output",
+                    };
+                    session.derive_kbkdf_prf(&key, &request, mode, &iv).unwrap();
+                    assert!(matches!(
+                        session.derive_kbkdf_prf(&key, &request, mode, &iv),
+                        Err(Error::InvalidParameters(_))
+                    ));
+                    let object = session.resolve(&reference(&id)).unwrap();
+                    let attrs = object
+                        .read_attributes(&[
+                            AttributeType::Sensitive,
+                            AttributeType::Extractable,
+                            AttributeType::Private,
+                            AttributeType::Sign,
+                            AttributeType::Verify,
+                            AttributeType::Derive,
+                            AttributeType::Encrypt,
+                            AttributeType::Decrypt,
+                            AttributeType::Wrap,
+                            AttributeType::Unwrap,
+                            AttributeType::ValueLen,
+                        ])
+                        .unwrap();
+                    let generic = matches!(output, KbkdfOutput::DerivationSecret { .. });
+                    for expected in [
+                        Attribute::Sensitive(true),
+                        Attribute::Extractable(false),
+                        Attribute::Private(true),
+                        Attribute::Sign(false),
+                        Attribute::Verify(false),
+                        Attribute::Derive(generic),
+                        Attribute::Encrypt(!generic),
+                        Attribute::Decrypt(!generic),
+                        Attribute::Wrap(false),
+                        Attribute::Unwrap(false),
+                        Attribute::ValueLen(output.length().try_into().unwrap()),
+                    ] {
+                        assert!(attrs.expose_values().contains(&expected));
+                    }
+                    assert!(matches!(
+                        object
+                            .attribute_info(&[AttributeType::Value])
+                            .unwrap()
+                            .as_slice(),
+                        [pkcs11_runtime::AttributeInfo::Sensitive]
+                    ));
+                    proofs.push((
+                        id.to_vec(),
+                        output,
+                        expected(mode, &iv, digest, key_length, output, label, context),
+                    ));
+                }
+            }
+            let id = [0xFA, canonical, index as u8];
+            let key = reference(&[0xFA, 0xA7, index as u8, 1]);
+            let iv = if mode == KbkdfMode::Feedback {
+                vec![0xA5; prf.output_len()]
+            } else {
+                vec![]
+            };
+            let request = KbkdfPrfRequest {
+                prf,
+                kdf_label: b"application",
+                context: b"v1 context",
+                output: KbkdfOutput::Aes256,
+                id: &id,
+                label: b"HMAC KDF reference",
+            };
+            session.derive_kbkdf_prf(&key, &request, mode, &iv).unwrap();
+            proofs.push((
+                id.to_vec(),
+                request.output,
+                expected(
+                    mode,
+                    &iv,
+                    digest,
+                    prf.output_len(),
+                    request.output,
+                    request.kdf_label,
+                    request.context,
+                ),
+            ));
+        }
+        session.close().unwrap();
+        drop(token);
+        module.finalize().unwrap();
+        prove_outputs(&path, &pin, proofs, canonical);
+    }
+}

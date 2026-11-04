@@ -807,8 +807,9 @@ HKDF does not authenticate ML-KEM ciphertexts or combine classical/PQC secrets.
 
 ## SP 800-108 KDF
 
-`KbkdfPrfRequest` selects an explicit `KbkdfPrf`: HMAC-SHA-256/384/512 or
-AES-CMAC. `kbkdf_prf_capabilities(base, prf, mode)` inspects one PRF/mode;
+`KbkdfPrfRequest` selects an explicit `KbkdfPrf`: HMAC-SHA-224/256/384/512,
+HMAC-SHA3-224/256/384/512 or AES-CMAC.
+`kbkdf_prf_capabilities(base, prf, mode)` inspects one PRF/mode;
 `derive_kbkdf_prf(base, request, mode, iv)` executes it without substitution.
 AES-CMAC requires a sensitive, nonextractable AES base of exactly 16, 24 or 32
 bytes with derivation permission and the selected KDF mechanism allowed.
@@ -818,7 +819,11 @@ AES-CMAC Feedback accepts an omitted IV or exactly 16 public bytes; Counter
 and Double Pipeline reject external IVs. All modes keep the encoding, one-output
 policy, output bounds and checked lifecycle below, replacing HMAC with the selected
 PRF. The existing `KbkdfRequest`, capability/options types and derivation methods
-retain their HMAC-only behavior and counter default.
+retain their HMAC-SHA-256/384/512 behavior and counter default. Additional HMAC
+PRFs use `KbkdfPrfRequest` with a generic or exactly matching typed HMAC key.
+The 16–4096-byte base policy remains; provider-specific key restrictions are
+checked by the provider without substitution. Feedback IVs are omitted or
+exactly the selected PRF output length (28/32/48/64 bytes for HMAC).
 
 `Session::kbkdf_capabilities` inspects a generic or matching SHA-256/384/512 HMAC
 secret. This application requires a 16–4096-byte sensitive, nonextractable base

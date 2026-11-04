@@ -286,7 +286,7 @@ require adding the corresponding `DigestAlgorithm` to `SigningPolicy::digests`.
 The default policy stays SHA-256/384/512. Certificate verification accepts
 messages and exact-length prehashes; software PSS verification requires matching
 message/MGF digests. Binding probes try SHA-224 and then SHA-3 after the existing
-SHA-2 choices when policy permits them. OAEP, HKDF, SP800-108 and ECDH KDF profiles
+SHA-2 choices when policy permits them. OAEP, HKDF and ECDH KDF profiles
 remain SHA-256/384/512.
 
 `Client::signing_options` offers common SHA-2/SHA-3 message-signing choices under current
@@ -1010,14 +1010,17 @@ An altered ML-KEM ciphertext can produce a different derived key without an erro
 
 `ManagementSession::derive_kbkdf_prf` takes `KbkdfPrfRequest`, an explicit mode
 and a public Feedback IV. `KbkdfPrf::AesCmac` requires a sensitive, nonextractable
-AES-128/192/256 derivation base; `HmacSha256`, `HmacSha384` and `HmacSha512` use
-generic or matching HMAC bases. `kbkdf_prf_capabilities` checks one PRF/mode,
+AES-128/192/256 derivation base. HMAC-SHA-224/256/384/512 and
+HMAC-SHA3-224/256/384/512 use generic or matching typed HMAC bases.
+`kbkdf_prf_capabilities` checks one PRF/mode,
 including the selected KDF's allowed mechanism, derive flag and bit-based bounds.
 Standalone MAC signing permission is not required. AES-CMAC Feedback accepts an
-empty or 16-byte IV; other modes require an empty IV. Execution rediscovers the
+empty or 16-byte IV; HMAC Feedback accepts an empty or 28/32/48/64-byte IV matching
+the selected hash output. Other modes require an empty IV. Execution rediscovers the
 key and creates one protected AES or generic output under the same bounds below.
 Check session closure before reporting success. Existing HMAC requests, capability
-snapshots, mode options and default calls keep their original contracts.
+snapshots, mode options and default calls retain their SHA-256/384/512 contracts.
+Additional HMAC PRFs use `KbkdfPrfRequest`; they do not broaden HKDF or ECDH policy.
 
 `ManagementSession::kbkdf_capabilities` inspects native counter-mode support for a
 selected generic or matching SHA-256/384/512 HMAC secret. Bases must be sensitive,

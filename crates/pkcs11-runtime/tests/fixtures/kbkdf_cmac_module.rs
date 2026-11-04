@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Disposable AES-CMAC KBKDF module compiled with the requested official headers.
+//! Disposable KBKDF module compiled with the requested official headers.
 use std::{
     path::PathBuf,
     process::Command,
@@ -10,7 +10,35 @@ use std::{
 pub struct KbkdfCmacModule(PathBuf);
 impl KbkdfCmacModule {
     /// Compile the exact table layout and selected failure path.
+    #[allow(dead_code)]
     pub fn new(major: u8, minor: u8, fault: u8, key_length: usize) -> Self {
+        Self::build(major, minor, fault, key_length, None)
+    }
+    /// Select independent native HMAC identifiers, with a 31-byte base key.
+    #[allow(dead_code)]
+    pub fn hmac(
+        major: u8,
+        minor: u8,
+        fault: u8,
+        mechanism: &str,
+        key_type: &str,
+        block_length: usize,
+    ) -> Self {
+        Self::build(
+            major,
+            minor,
+            fault,
+            31,
+            Some((mechanism, key_type, block_length)),
+        )
+    }
+    fn build(
+        major: u8,
+        minor: u8,
+        fault: u8,
+        key_length: usize,
+        hmac: Option<(&str, &str, usize)>,
+    ) -> Self {
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let dir = std::env::temp_dir().join(format!(
             "pkcs11-kbkdf-cmac-{}-{}",
@@ -21,7 +49,14 @@ impl KbkdfCmacModule {
         let fixture = Self(dir);
         let root =
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../pkcs11-runtime/tests/fixtures");
-        let output = Command::new("cc")
+        let mut command = Command::new("cc");
+        if let Some((mechanism, key_type, block_length)) = hmac {
+            command
+                .arg(format!("-DKDF_PRF={mechanism}"))
+                .arg(format!("-DKDF_KEY_TYPE={key_type}"))
+                .arg(format!("-DKDF_BLOCK_LENGTH={block_length}"));
+        }
+        let output = command
             .args([
                 "-std=c99",
                 "-Wall",
