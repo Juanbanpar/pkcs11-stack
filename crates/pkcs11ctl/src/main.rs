@@ -15,6 +15,7 @@ mod kbkdf;
 mod key_establishment;
 mod ml_dsa;
 mod operations;
+mod pbkdf2;
 mod stream_input;
 mod support;
 use secrecy::ExposeSecret;

@@ -148,6 +148,10 @@ Explicit HMAC-SHA-224 and SHA3-224/256/384/512 PRFs are available through
 `KbkdfPrfRequest` and CLI `--digest`, with generic or matching typed HMAC bases.
 Kryoptic/OpenSSL comparisons cover Counter/Feedback; Double Pipeline for these
 additional hashes has native fixture coverage only.
+PKCS #5 PBKDF2 generates protected token-held AES or derivation-only keys through
+the libraries and CLI. It uses the corrected PARAMS2 layout through 2.40–3.2,
+explicit SHA-2 PRFs, exact binary passwords and caller-selected salts/iterations,
+with bounded inputs and computation. Generated key values are never exported.
 Private-key import is not implemented. Certificate parsing and binding do not validate
 certificate trust; applications configure trust separately.
 

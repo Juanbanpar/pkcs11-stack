@@ -750,6 +750,17 @@ pub(crate) fn command() -> Command {
                     "Raw tag file of the selected length; no stdin",
                 )),
         )),
+        auth(token(Command::new("pbkdf2-capabilities")
+            .about("Inspect advertised native PBKDF2 key generation support"))),
+        mutation(auth(named(token(Command::new("generate-pbkdf2")
+            .about("Generate one protected token key from exact password and salt bytes")
+            .arg(required("digest", "Explicit PBKDF2 HMAC hash").value_parser(["sha224", "sha256", "sha384", "sha512", "sha512-224", "sha512-256"]))
+            .arg(required("password-file", "Raw password file, 0–4096 bytes; preserves NULs/newlines; no stdin"))
+            .arg(required("salt-file", "Public salt file, 1–4096 bytes; no stdin"))
+            .arg(required("iterations", "Positive protocol iteration count; bounded by iterations times output PRF blocks <= 10000000"))
+            .arg(required("kind", "Output type and permissions").value_parser(["aes128", "aes192", "aes256", "derivation-secret"]))
+            .arg(value("length", "Derivation-secret length, 1–4096 bytes").required_if_eq("kind", "derivation-secret"))
+        )))),
         auth(object(
             Command::new("kbkdf-capabilities")
                 .about("Inspect native SP800-108 PRF choices for an explicit mode")

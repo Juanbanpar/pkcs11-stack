@@ -25,6 +25,7 @@ command -v "$PKCS11_TEST_KDF_OPENSSL" >/dev/null
 cargo test -p pkcs11-runtime --test hkdf_persistent --locked -- --ignored --test-threads=1
 cargo test -p pkcs11-runtime --test pbkdf2_provider --locked -- --ignored --test-threads=1
 cargo test -p pkcs11-client --test pbkdf2_provider --locked -- --ignored --test-threads=1
+cargo test -p pkcs11ctl --test pbkdf2_provider --locked -- --ignored --test-threads=1
 cargo test -p pkcs11-runtime --test hash_ml_dsa_provider --locked -- --ignored --test-threads=1
 cargo test -p pkcs11-client --test hash_ml_dsa_provider --locked -- --ignored --test-threads=1
 cargo test -p pkcs11ctl --test hash_ml_dsa_provider --locked -- --ignored --test-threads=1

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use crate::{
     aes_cmac, aes_gcm, aes_key_wrap, eddsa, eddsa_named, generation, hash_ml_dsa, hmac, inspect,
-    kbkdf, key_establishment, ml_dsa, stream_input::MultipartInput, support::*,
+    kbkdf, key_establishment, ml_dsa, pbkdf2, stream_input::MultipartInput, support::*,
 };
 use clap::ArgMatches;
 use pkcs11_client::{
@@ -119,6 +119,7 @@ pub(crate) struct Inputs {
     pub so: bool,
     pub establishment: key_establishment::Inputs,
     pub kbkdf: kbkdf::Inputs,
+    pub pbkdf2: pbkdf2::Inputs,
 }
 impl Inputs {
     pub fn load(name: &str, m: &ArgMatches) -> Result<Self> {
@@ -157,7 +158,8 @@ impl Inputs {
         let context = Credential::load(m, "context-pin-file", "context-protected-path")?;
         let so = get(m, "role") == Some("so");
         if so
-            && (kbkdf::selected(name)
+            && (pbkdf2::selected(name)
+                || kbkdf::selected(name)
                 || hmac::selected(name)
                 || aes_cmac::selected(name)
                 || aes_gcm::selected(name)
@@ -431,6 +433,7 @@ impl Inputs {
         hash_ml_dsa::validate(name, m, &bytes, &domain_context, &signature)?;
         let establishment = key_establishment::Inputs::load(name, m, &bytes)?;
         let kbkdf = kbkdf::Inputs::load(name, m)?;
+        let pbkdf2 = pbkdf2::Inputs::load(name, m)?;
         if aes_key_wrap::selected(name) {
             aes_key_wrap::validate(name, m, &bytes)?;
         }
@@ -442,6 +445,7 @@ impl Inputs {
             digest_file,
             establishment,
             kbkdf,
+            pbkdf2,
             credential,
             context,
             new_pin,
@@ -751,7 +755,8 @@ fn management_command(
             json!({"capacity":diagnostic.capacity,"exhaustion_verified":diagnostic.exhaustion_verified,"reuse_verified":diagnostic.reuse_verified,"session_state":format!("{:?}",diagnostic.session_state)}),
         ));
     }
-    let mutation = name == "derive-kbkdf"
+    let mutation = name == "generate-pbkdf2"
+        || name == "derive-kbkdf"
         || key_establishment::mutation(name)
         || matches!(
             name,
@@ -789,6 +794,9 @@ fn management_operation(
     }
     if eddsa_named::selected(name) {
         return eddsa_named::operation(session, name, m, inputs);
+    }
+    if pbkdf2::selected(name) {
+        return pbkdf2::operation(session, name, m, &inputs.pbkdf2);
     }
     if kbkdf::selected(name) {
         return kbkdf::operation(session, name, m, &inputs.kbkdf);

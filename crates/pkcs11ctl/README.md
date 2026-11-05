@@ -188,6 +188,37 @@ pkcs11ctl --module "$MODULE" derive-kbkdf --object "$BASE_SECRET_URI" \
   --id 0900 --label "Double Pipeline AES" --pin-file user.pin --confirm
 ```
 
+## PKCS #5 PBKDF2
+
+`pbkdf2-capabilities --token URI` reports advisory native generation support.
+`generate-pbkdf2` uses `C_GenerateKey` with the corrected PARAMS2 layout. Select
+`--digest sha224|sha256|sha384|sha512|sha512-224|sha512-256` and a positive
+`--iterations` explicitly. SHA-512/224 and /256 are distinct hashes, not truncated
+SHA-512 results. SHA-1, GOST and SHA-3 PBKDF2 profiles are not exposed.
+
+```sh
+pkcs11ctl --module "$MODULE" generate-pbkdf2 --token "$TOKEN_URI" \
+  --password-file password.bin --salt-file protocol-salt.bin \
+  --digest sha256 --iterations "$PROTOCOL_ITERATIONS" --kind aes256 \
+  --id 1000 --label 'password-derived AES' --pin-file user.pin --confirm
+```
+
+Password files contain raw bytes, including NULs and final newlines, with no
+normalization; 0–4096 bytes are accepted into zeroizing storage. Salt files are
+public, nonempty and at most 4096 bytes. Neither accepts stdin. The password is
+separate from the token PIN or protected authentication path. Only USER role is
+accepted; normal token authentication requirements apply.
+
+Outputs use `--kind aes128|aes192|aes256|derivation-secret`; only the last takes
+`--length 1..4096`. Iterations times ceiling(output bytes / PRF bytes) must be
+at most 10,000,000. This resource limit does not select a password policy; callers
+choose appropriate protocol parameters. Inputs are validated before module loading.
+Keys remain persistent, private, sensitive and nonextractable. AES keys permit
+encryption/decryption; generic secrets permit derivation only. Native generation
+is not retried and may leave effects on failure. Success metadata is withheld
+until checked session closure and provider finalization; no password or salt
+bytes are included in the response.
+
 ## Authentication
 
 Commands that support authentication accept either `--pin-file PATH` or
