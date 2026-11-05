@@ -798,6 +798,16 @@ exit code 6 with redacted I/O diagnostics; authentication/provider/cleanup failu
 use exit code 5. Input-limit violations use exit code 2. A cleanup failure takes
 precedence over an earlier input or I/O error.
 
+Add `--message-api` to encrypt/decrypt through PKCS#11 3.x whole-message calls.
+It is mutually exclusive with `--multipart`. Input is buffered within the same
+limits, and output remains ciphertext followed by a full tag. Each invocation
+initializes, completes one message and finalizes the message process. Decryption
+returns zeroizing plaintext only after authentication; output is withheld through
+message finalization and checked session/module cleanup. Add `--message-api` to
+`aes-gcm-capabilities` to check message flags and pointers; the JSON `message_api`
+field identifies this selection. Missing support is an error without fallback.
+The client library also supports multiple messages in one initialized process.
+
 Callers ensure nonce uniqueness per key across applications, restarts and copies
 of key material. No nonce is generated or tracked; an encryption error does not
 authorize reusing it. There is no retry or software fallback. Authenticated

@@ -128,13 +128,16 @@ pub(crate) fn operation(
             AesGcmOperation::Decrypt
         };
         let multipart = flag(m, "multipart");
-        let caps = if multipart {
+        let message_api = flag(m, "message-api");
+        let caps = if message_api {
+            session.aes_gcm_message_capabilities(&key, operation)?
+        } else if multipart {
             session.aes_gcm_streaming_capabilities(&key, operation)?
         } else {
             session.aes_gcm_capabilities(&key, operation)?
         };
         return Ok(Output::Structured(
-            json!({"advisory":true,"multipart":multipart,"key_bits":caps.key_size.length()*8,"nonce_length":12,"tag_length":16,"maximum_plaintext":AES_GCM_MAXIMUM_PLAINTEXT,"maximum_aad":AES_GCM_MAXIMUM_AAD}),
+            json!({"advisory":true,"multipart":multipart,"message_api":message_api,"key_bits":caps.key_size.length()*8,"nonce_length":12,"tag_length":16,"maximum_plaintext":AES_GCM_MAXIMUM_PLAINTEXT,"maximum_aad":AES_GCM_MAXIMUM_AAD}),
         ));
     }
     let inputs = inputs.ok_or_else(|| usage("missing AES GCM input"))?;
@@ -164,22 +167,36 @@ pub(crate) fn operation(
             }
         }
         Input::Buffered(input) if name == "encrypt-aes-gcm" => {
-            Ok(Output::Binary(session.encrypt_aes_gcm(
-                &key,
-                &AesGcmEncryptRequest {
-                    nonce: &inputs.nonce,
-                    aad: &inputs.aad,
-                    plaintext: input.expose_secret(),
-                },
-            )?))
+            let request = AesGcmEncryptRequest {
+                nonce: &inputs.nonce,
+                aad: &inputs.aad,
+                plaintext: input.expose_secret(),
+            };
+            let output = if flag(m, "message-api") {
+                let mut process = session.start_aes_gcm_message_encryption(&key)?;
+                let output = process.encrypt(&request)?;
+                process.finish()?;
+                output
+            } else {
+                session.encrypt_aes_gcm(&key, &request)?
+            };
+            Ok(Output::Binary(output))
         }
-        Input::Buffered(input) => Ok(Output::SecretBinary(session.decrypt_aes_gcm(
-            &key,
-            &AesGcmDecryptRequest {
+        Input::Buffered(input) => {
+            let request = AesGcmDecryptRequest {
                 nonce: &inputs.nonce,
                 aad: &inputs.aad,
                 ciphertext: input.expose_secret(),
-            },
-        )?)),
+            };
+            let output = if flag(m, "message-api") {
+                let mut process = session.start_aes_gcm_message_decryption(&key)?;
+                let output = process.decrypt(&request)?;
+                process.finish()?;
+                output
+            } else {
+                session.decrypt_aes_gcm(&key, &request)?
+            };
+            Ok(Output::SecretBinary(output))
+        }
     }
 }
