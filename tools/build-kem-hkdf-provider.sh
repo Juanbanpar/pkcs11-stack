@@ -8,6 +8,7 @@ fi
 prefix=$1
 provider_patch=$(realpath "$(dirname "$0")/patches/kryoptic-x25519-bounds.patch")
 eddsa_patch=$(realpath "$(dirname "$0")/patches/kryoptic-eddsa-bounds.patch")
+generic_patch=$(realpath "$(dirname "$0")/patches/kryoptic-generic-secret-bounds.patch")
 mkdir -p "$prefix"
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/pkcs11-kdf-build.XXXXXXXX")
 trap 'rm -rf -- "$scratch"' EXIT
@@ -29,6 +30,8 @@ git apply "$provider_patch"
 # Edwards mechanism bounds use field bits; retain the separate 32/57-byte
 # storage widths used by the provider for raw public keys and private seeds.
 git apply "$eddsa_patch"
+# Generic-secret generation advertises supported key sizes in bits, not 0/0.
+git apply "$generic_patch"
 # Upstream has no Cargo.lock. Resolve its dependencies before the locked build.
 cargo generate-lockfile
 KRYOPTIC_OPENSSL_SOURCES="$scratch/openssl" \
@@ -38,4 +41,5 @@ install -m 755 "$scratch/target/release/libkryoptic_pkcs11.so" "$prefix/libkryop
 install -m 644 LICENSE.txt "$prefix/LICENSE-kryoptic"
 install -m 644 "$provider_patch" "$prefix/kryoptic-x25519-bounds.patch"
 install -m 644 "$eddsa_patch" "$prefix/kryoptic-eddsa-bounds.patch"
+install -m 644 "$generic_patch" "$prefix/kryoptic-generic-secret-bounds.patch"
 install -m 644 "$scratch/openssl/LICENSE.txt" "$prefix/LICENSE-openssl"

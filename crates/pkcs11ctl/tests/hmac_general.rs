@@ -18,13 +18,28 @@ fn general_hmac_cli_native_tags_lengths_and_file_contracts() {
     let message = root.join("message");
     std::fs::write(&message, b"general CLI HMAC").unwrap();
     let run = |args: &[&str]| {
-        Command::new(env!("CARGO_BIN_EXE_pkcs11ctl"))
+        let mut command = Command::new(env!("CARGO_BIN_EXE_pkcs11ctl"));
+        command
             .args(["--module", &module, "--format", "json"])
-            .args(args)
-            .args(["--pin-file", pin.to_str().unwrap()])
-            .output()
-            .unwrap()
+            .args(args);
+        if args[0] != "generation-options" {
+            command.args(["--pin-file", pin.to_str().unwrap()]);
+        }
+        command.output().unwrap()
     };
+    let proof = root.join("generated-message");
+    std::fs::write(&proof, b"generated general HMAC\0\xff").unwrap();
+    let options = run(&["generation-options", "--token", "pkcs11:token=kdf-test"]);
+    assert!(
+        options.status.success(),
+        "{}",
+        String::from_utf8_lossy(&options.stderr)
+    );
+    let options: Value = serde_json::from_slice(&options.stdout).unwrap();
+    assert_eq!(
+        options["result"]["hmac_general"].as_array().unwrap().len(),
+        10
+    );
     for (index, (algorithm, full)) in [
         ("hmac-sha256", 32),
         ("hmac-sha384", 48),
@@ -124,8 +139,9 @@ fn general_hmac_cli_native_tags_lengths_and_file_contracts() {
             assert!(out.status.success());
             assert_eq!(out.stdout, expected.stdout[..length]);
         }
-        // Provider execution support does not override missing generation bounds.
-        let out = run(&[
+        let id = format!("fa12{index:02x}");
+        let label = format!("cli-hmac-generated-general-{index}");
+        let create = [
             "generate",
             "--token",
             "pkcs11:token=kdf-test",
@@ -133,12 +149,106 @@ fn general_hmac_cli_native_tags_lengths_and_file_contracts() {
             algorithm,
             "--general-tag",
             "--id",
-            &format!("fa12{index:02x}"),
+            &id,
             "--label",
-            "general-hmac",
+            &label,
             "--confirm",
-        ]);
-        assert_eq!(out.status.code(), Some(4));
-        assert!(out.stdout.is_empty());
+        ];
+        let out = run(&create);
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let generated: Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert_eq!(generated["result"]["generated"], true);
+        assert_eq!(generated["result"]["key"]["general_tag"], true);
+        assert_eq!(generated["result"]["extractable"], false);
+        assert_eq!(run(&create).status.code(), Some(2));
+        let own = format!("pkcs11:token=kdf-test;object={label};type=secret-key");
+        let canonical =
+            format!("pkcs11:token=kdf-test;object=hmac-generated-general-{index};type=secret-key");
+        for (case, key) in [&own, &canonical].into_iter().enumerate() {
+            let caps = run(&[
+                "hmac-capabilities",
+                "--object",
+                key,
+                "--operation",
+                "generate",
+                "--general-tag",
+            ]);
+            assert!(caps.status.success());
+            let caps: Value = serde_json::from_slice(&caps.stdout).unwrap();
+            assert_eq!(caps["result"]["algorithms"], serde_json::json!([algorithm]));
+            let length = (full / 2).to_string();
+            let mac = [
+                "mac-hmac",
+                "--object",
+                key,
+                "--algorithm",
+                algorithm,
+                "--tag-length",
+                &length,
+                "--input",
+                proof.to_str().unwrap(),
+                "--output",
+                "-",
+            ];
+            let tag = run(&mac);
+            assert!(tag.status.success());
+            assert_eq!(tag.stdout.len(), full / 2);
+            if case == 1 {
+                let reference = root
+                    .parent()
+                    .unwrap()
+                    .join(format!("hmac-generated-general-{index}.tag"));
+                assert_eq!(tag.stdout, std::fs::read(reference).unwrap());
+            }
+            let mut stream = mac.to_vec();
+            stream.push("--multipart");
+            let streamed = run(&stream);
+            assert!(streamed.status.success());
+            assert_eq!(streamed.stdout, tag.stdout);
+            let tag_file = root.join(format!("generated-{index}-{case}.tag"));
+            std::fs::write(&tag_file, &tag.stdout).unwrap();
+            let verify = [
+                "verify-hmac",
+                "--object",
+                key,
+                "--algorithm",
+                algorithm,
+                "--tag-length",
+                &length,
+                "--input",
+                proof.to_str().unwrap(),
+                "--tag-file",
+                tag_file.to_str().unwrap(),
+            ];
+            assert!(run(&verify).status.success());
+            let mut bad = tag.stdout;
+            bad[0] ^= 1;
+            std::fs::write(&tag_file, bad).unwrap();
+            let mismatch = run(&verify);
+            assert_eq!(mismatch.status.code(), Some(4));
+            assert!(mismatch.stdout.is_empty());
+            let blocked = run(&[
+                "mac-hmac",
+                "--object",
+                key,
+                "--algorithm",
+                algorithm,
+                "--input",
+                proof.to_str().unwrap(),
+                "--output",
+                "-",
+            ]);
+            assert_eq!(blocked.status.code(), Some(4));
+            assert!(blocked.stdout.is_empty());
+        }
+        assert!(
+            run(&["delete", "--object", &own, "--confirm"])
+                .status
+                .success()
+        );
     }
 }

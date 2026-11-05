@@ -853,3 +853,43 @@ fn validation_vendor_uri_decodes_through_legacy_tables_without_losing_availabili
         module.finalize().unwrap();
     }
 }
+
+#[test]
+fn general_hmac_generation_keeps_native_bit_bounds_and_entry_point_gates() {
+    use pkcs11_runtime::{Error, HmacAlgorithm, HmacKeyRequest, SessionMode};
+    for version in [V::V2_40, V::V3_0, V::V3_1, V::V3_2] {
+        for fault in 1..=8 {
+            let fixture =
+                Fixture::from_source("hmac_general_generation.c", version, fault + 9, false);
+            let module = fixture.load(InterfaceSelection::Auto).unwrap();
+            let token = module
+                .resolve_token_uri(&"pkcs11:token=cmac".parse().unwrap())
+                .unwrap();
+            let options = token.hmac_general_generation_options().unwrap();
+            assert_eq!(
+                options,
+                if fault == 4 {
+                    vec![HmacAlgorithm::Sha256]
+                } else {
+                    vec![]
+                }
+            );
+            let mut session = token.open_session(SessionMode::ReadWrite).unwrap();
+            let result = session
+                .generate_hmac_general_key(&HmacKeyRequest {
+                    algorithm: HmacAlgorithm::Sha256,
+                    id: b"new",
+                    label: b"new",
+                })
+                .map(|_| ());
+            if fault == 4 {
+                result.unwrap();
+            } else {
+                assert!(matches!(result, Err(Error::UnsupportedMac)));
+            }
+            session.info().unwrap();
+            session.close().unwrap();
+            module.finalize().unwrap();
+        }
+    }
+}

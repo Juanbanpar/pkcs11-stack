@@ -85,13 +85,7 @@ fn hmac_openssl_key_types_lengths_permissions_and_generated_keys() {
             assert!(!generation.contains(&algorithm));
             continue;
         }
-        if kdf {
-            // This pinned Kryoptic reports 0/0 generic-generation bounds. Keep
-            // that metadata failure distinct from HMAC execution support.
-            assert!(generation.is_empty());
-        } else {
-            assert!(generation.contains(&algorithm));
-        }
+        assert!(generation.contains(&algorithm));
         for (typed, kind) in [(false, KeyType::GENERIC_SECRET), (true, kind)] {
             for length in if kdf && typed {
                 vec![algorithm.tag_length()]
@@ -295,19 +289,6 @@ fn hmac_openssl_key_types_lengths_permissions_and_generated_keys() {
             id: label.as_bytes(),
             label: label.as_bytes(),
         };
-        if kdf {
-            assert!(matches!(
-                setup.generate_hmac_key(&request),
-                Err(Error::UnsupportedMac)
-            ));
-            assert!(token.hmac_general_generation_options().unwrap().is_empty());
-            assert!(matches!(
-                setup.generate_hmac_general_key(&request),
-                Err(Error::UnsupportedMac)
-            ));
-            setup.info().unwrap();
-            continue;
-        }
         {
             let key = setup.generate_hmac_key(&request).unwrap();
             let attrs = key
@@ -371,5 +352,181 @@ fn hmac_openssl_key_types_lengths_permissions_and_generated_keys() {
     }
     setup.close().unwrap();
     drop(token);
+    module.finalize().unwrap();
+}
+
+#[test]
+#[ignore = "requires corrected disposable Kryoptic runner"]
+fn generated_general_hmac_keys_permissions_profiles_and_reuse() {
+    use pkcs11_runtime::{AttributeInfo, HmacTagProfile};
+    assert_eq!(
+        std::env::var("PKCS11_TEST_KDF_ISOLATED").as_deref(),
+        Ok("1")
+    );
+    let module = Module::load(std::env::var_os("PKCS11_TEST_KDF_MODULE").unwrap()).unwrap();
+    let token = module
+        .resolve_token_uri(&"pkcs11:token=kdf-test".parse().unwrap())
+        .unwrap();
+    let info = token
+        .mechanism_info(MechanismType::GENERIC_SECRET_KEY_GEN)
+        .unwrap();
+    assert_eq!(info.min_key_size(), 0);
+    assert!(info.max_key_size() >= 4096 * 8);
+    assert_eq!(
+        token.hmac_general_generation_options().unwrap(),
+        HmacAlgorithm::ALL
+    );
+    let pin = SecretString::from("12345678");
+    let mut setup = token.open_session(SessionMode::ReadWrite).unwrap();
+    setup
+        .authenticate(Authentication::User(Pin::Value(&pin)))
+        .unwrap();
+    for (index, algorithm) in HmacAlgorithm::ALL.into_iter().enumerate() {
+        let label = format!("hmac-generated-general-{index}");
+        let request = HmacKeyRequest {
+            algorithm,
+            id: label.as_bytes(),
+            label: label.as_bytes(),
+        };
+        {
+            let key = setup.generate_hmac_general_key(&request).unwrap();
+            let attrs = key
+                .read_attributes(&[
+                    AttributeType::Class,
+                    AttributeType::KeyType,
+                    AttributeType::ValueLen,
+                    AttributeType::Token,
+                    AttributeType::Private,
+                    AttributeType::Sensitive,
+                    AttributeType::Extractable,
+                    AttributeType::AlwaysSensitive,
+                    AttributeType::NeverExtractable,
+                    AttributeType::Local,
+                    AttributeType::KeyGenMechanism,
+                    AttributeType::Sign,
+                    AttributeType::Verify,
+                    AttributeType::Encrypt,
+                    AttributeType::Decrypt,
+                    AttributeType::Wrap,
+                    AttributeType::Unwrap,
+                    AttributeType::Derive,
+                    AttributeType::AllowedMechanisms,
+                ])
+                .unwrap();
+            for expected in [
+                Attribute::Class(ObjectClass::SECRET_KEY),
+                Attribute::KeyType(KeyType::GENERIC_SECRET),
+                Attribute::ValueLen(algorithm.tag_length().try_into().unwrap()),
+                Attribute::Token(true),
+                Attribute::Private(true),
+                Attribute::Sensitive(true),
+                Attribute::Extractable(false),
+                Attribute::AlwaysSensitive(true),
+                Attribute::NeverExtractable(true),
+                Attribute::Local(true),
+                Attribute::KeyGenMechanism(MechanismType::GENERIC_SECRET_KEY_GEN),
+                Attribute::Sign(true),
+                Attribute::Verify(true),
+                Attribute::Encrypt(false),
+                Attribute::Decrypt(false),
+                Attribute::Wrap(false),
+                Attribute::Unwrap(false),
+                Attribute::Derive(false),
+                Attribute::AllowedMechanisms(vec![algorithm.general_mechanism()]),
+            ] {
+                assert!(attrs.expose_values().contains(&expected), "{expected:?}");
+            }
+            assert!(matches!(
+                key.attribute_info(&[AttributeType::Value])
+                    .unwrap()
+                    .as_slice(),
+                [AttributeInfo::Sensitive]
+            ));
+        }
+        assert!(matches!(
+            setup.generate_hmac_general_key(&request),
+            Err(Error::InvalidParameters(_))
+        ));
+        let key = reference("kdf-test", &label);
+        let mut ro = token.open_session(SessionMode::ReadOnly).unwrap();
+        assert!(matches!(
+            ro.generate_hmac_general_key(&request),
+            Err(Error::ReadWriteRequired)
+        ));
+        for operation in [MacOperation::Generate, MacOperation::Verify] {
+            let options = ro.hmac_options(&key, operation).unwrap();
+            assert!(options.full.is_none());
+            let caps = options.general.unwrap();
+            assert_eq!(caps.key_length, algorithm.tag_length());
+            for a in HmacAlgorithm::ALL {
+                assert_eq!(caps.supports(a), a == algorithm);
+            }
+        }
+        assert!(matches!(
+            ro.mac_hmac(&key, algorithm, b"message"),
+            Err(Error::UnsupportedMac)
+        ));
+        for wrong in HmacAlgorithm::ALL.into_iter().filter(|a| *a != algorithm) {
+            assert!(matches!(
+                ro.mac_hmac_with_profile(
+                    &key,
+                    wrong,
+                    b"message",
+                    HmacTagProfile::General {
+                        tag_length: wrong.tag_length()
+                    }
+                ),
+                Err(Error::UnsupportedMac)
+            ));
+        }
+        for message in [
+            &[][..],
+            &b"generated general HMAC\0\xff"[..],
+            &vec![0xA5; 4097][..],
+        ] {
+            let full_profile = HmacTagProfile::General {
+                tag_length: algorithm.tag_length(),
+            };
+            let full = ro
+                .mac_hmac_with_profile(&key, algorithm, message, full_profile)
+                .unwrap();
+            for profile in HmacTagProfile::choices(algorithm).into_iter().skip(1) {
+                let tag = ro
+                    .mac_hmac_with_profile(&key, algorithm, message, profile)
+                    .unwrap();
+                assert_eq!(tag, &full[..profile.tag_length(algorithm)]);
+                let mut stream = ro.start_hmac(&key, algorithm, profile).unwrap();
+                for chunk in message.chunks(31) {
+                    stream.update(chunk).unwrap();
+                }
+                assert_eq!(stream.finish().unwrap(), tag);
+                ro.verify_hmac_with_profile(&key, algorithm, message, &tag, profile)
+                    .unwrap();
+                let mut bad = tag.clone();
+                bad[0] ^= 1;
+                for bad in [&bad[..], &tag[..tag.len() - 1]] {
+                    assert!(matches!(
+                        ro.verify_hmac_with_profile(&key, algorithm, message, bad, profile),
+                        Err(Error::MacMismatch)
+                    ));
+                    ro.info().unwrap();
+                }
+            }
+        }
+        let profile = HmacTagProfile::General {
+            tag_length: algorithm.tag_length() / 2,
+        };
+        let tag = ro
+            .mac_hmac_with_profile(&key, algorithm, b"generated general HMAC\0\xff", profile)
+            .unwrap();
+        std::fs::write(
+            std::path::PathBuf::from(std::env::var_os("PKCS11_TEST_KDF_DIR").unwrap())
+                .join(format!("hmac-generated-general-{index}.tag")),
+            tag,
+        )
+        .unwrap();
+        ro.close().unwrap();
+    }
+    setup.close().unwrap();
     module.finalize().unwrap();
 }
