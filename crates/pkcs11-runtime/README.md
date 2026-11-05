@@ -817,6 +817,29 @@ persistent effects, and session closure must be checked when cleanup matters.
 Applications authenticate the peer and define salt/context within their protocol.
 HKDF does not authenticate ML-KEM ciphertexts or combine classical/PQC secrets.
 
+## PKCS #5 PBKDF2
+
+`Session::pbkdf2_supported` checks advertised `CKM_PKCS5_PBKD2`, `CKF_GENERATE`
+and `C_GenerateKey`. Individual PRF/template acceptance remains advisory. The
+corrected `CK_PKCS5_PBKD2_PARAMS2` layout works through the supported 2.40–3.2
+interfaces; standalone HMAC and `C_DeriveKey` entry points are unnecessary.
+
+`generate_pbkdf2` takes a `Pbkdf2Request` with a borrowed `SecretSlice<u8>`,
+explicit salt, `Pbkdf2Prf`, iteration count and `Pbkdf2Output`. The six SHA-2
+PRFs are SHA-224/256/384/512 and SHA-512/224 and SHA-512/256; the latter two
+are distinct hash algorithms, not truncated SHA-512 results. Passwords are
+0–4096 bytes; salts are 1–4096 bytes. Both pass verbatim, including NULs and
+newlines. Iterations must be positive, with iterations times ceiling(output
+bytes / PRF bytes) at most 10,000,000. This is a resource bound; callers choose
+salts and iteration counts appropriate to their protocol and password policy.
+
+Outputs are AES-128/192/256 encryption/decryption keys or 1–4096-byte generic
+secrets with derivation permission only. They are persistent, private, sensitive
+and nonextractable. RW mode and a new secret ID are required. Native generation
+is attempted once, without software fallback, retry or rollback; errors can
+leave persistent effects and invalidate the session. Check closure before
+reporting success. Password bytes enter the provider; output values are never read.
+
 ## SP 800-108 KDF
 
 `KbkdfPrfRequest` selects an explicit `KbkdfPrf`: HMAC-SHA-224/256/384/512,

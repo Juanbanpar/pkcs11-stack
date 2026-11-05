@@ -9,6 +9,11 @@ Published crate SHA-256:
 
 Local changes:
 
+- `src/mechanism/{mod,pbkdf2}.rs`: expose PKCS #5 PBKDF2 generation with the
+  corrected `CK_PKCS5_PBKD2_PARAMS2` layout, borrowed password/salt lifetimes,
+  by-value password length, explicit SHA-2 PRFs and redacted Debug. Independent
+  runtime fixtures check all six PRFs against the 2.40/3.0/3.1/3.2 headers.
+
 - `src/session/encryption.rs`: complete initialized single-part encryption into
   caller-bounded storage without a size query or retry; reject oversized returned
   lengths. Runtime AES-GCM supplies its exact plaintext-plus-tag bound.

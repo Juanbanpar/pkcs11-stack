@@ -1015,6 +1015,41 @@ Peer authentication and protocol context selection remain application concerns.
 An altered ML-KEM ciphertext can produce a different derived key without an error.
 `derive_hkdf` accepts one input; the hybrid combiner below accepts two.
 
+## PKCS #5 PBKDF2
+
+`ManagementSession::pbkdf2_supported` inspects native generation support;
+individual PRF/template acceptance remains advisory. `generate_pbkdf2` requires
+RW access and a new ID. The request borrows exact binary password bytes from
+`secrecy::SecretSlice<u8>` and specifies salt, SHA-2 PRF, iterations and output.
+No PRF or iteration default is selected.
+
+```rust,no_run
+use pkcs11_client::{Pbkdf2Output, Pbkdf2Prf, Pbkdf2Request};
+use secrecy::SecretSlice;
+# fn example(session: &mut pkcs11_client::ManagementSession<'_>,
+#     password: &SecretSlice<u8>, salt: &[u8], protocol_iterations: u32)
+#     -> Result<(), pkcs11_client::Error> {
+session.generate_pbkdf2(&Pbkdf2Request {
+    password, salt, iterations: protocol_iterations,
+    prf: Pbkdf2Prf::HmacSha256,
+    output: Pbkdf2Output::Aes256,
+    id: &[0x10], label: b"password-derived encryption key",
+})?;
+# Ok(())
+# }
+```
+
+Supported PRFs are HMAC-SHA-224/256/384/512 and HMAC-SHA-512/224 and /256.
+Passwords are 0–4096 bytes and salts 1–4096, without normalization. Positive
+iterations times ceiling(output bytes / PRF bytes) must not exceed 10,000,000;
+this resource bound does not choose a password-strength policy. Callers supply
+protocol-appropriate salts and iterations.
+Outputs are AES-128/192/256 encryption keys or 1–4096-byte derivation-only
+secrets, always persistent, private, sensitive and nonextractable. No generated
+values leave the token. Native failures can leave effects; no fallback, retry
+or rollback occurs. Check session closure and provider finalization before
+reporting success. Generic outputs must meet a later KDF's separate input policy.
+
 ## SP 800-108 KDF
 
 `ManagementSession::derive_kbkdf_prf` takes `KbkdfPrfRequest`, an explicit mode

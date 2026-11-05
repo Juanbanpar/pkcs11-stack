@@ -60,9 +60,13 @@ pub use generation::{
 };
 mod hkdf;
 mod kbkdf;
+mod pbkdf2;
 pub use pkcs11_runtime::{
     KbkdfCapabilities, KbkdfMode, KbkdfOptions, KbkdfOutput, KbkdfPrf, KbkdfPrfCapabilities,
     KbkdfPrfRequest, KbkdfRequest,
+};
+pub use pkcs11_runtime::{
+    PBKDF2_MAXIMUM_LENGTH, PBKDF2_MAXIMUM_WORK, Pbkdf2Output, Pbkdf2Prf, Pbkdf2Request,
 };
 mod hmac;
 mod mac;

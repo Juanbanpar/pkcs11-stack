@@ -11,6 +11,7 @@ pub mod hkdf;
 pub mod kbkdf;
 mod mechanism_info;
 pub mod misc;
+pub mod pbkdf2;
 pub mod rsa;
 pub mod vendor_defined;
 
@@ -468,7 +469,11 @@ impl MechanismType {
     pub const HKDF_KEY_GEN: MechanismType = MechanismType {
         val: CKM_HKDF_KEY_GEN,
     };
-    /// HKDF-DERIVE mechanism
+    /// PKCS #5 PBKDF2 key generation using the corrected PARAMS2 layout.
+    pub const PKCS5_PBKD2: MechanismType = MechanismType {
+        val: CKM_PKCS5_PBKD2,
+    };
+    /// HKDF key derivation.
     pub const HKDF_DERIVE: MechanismType = MechanismType {
         val: CKM_HKDF_DERIVE,
     };
@@ -1182,6 +1187,7 @@ impl TryFrom<CK_MECHANISM_TYPE> for MechanismType {
             CKM_SHA512_KEY_GEN => Ok(MechanismType::SHA512_KEY_GEN),
             CKM_GENERIC_SECRET_KEY_GEN => Ok(MechanismType::GENERIC_SECRET_KEY_GEN),
             CKM_HKDF_KEY_GEN => Ok(MechanismType::HKDF_KEY_GEN),
+            CKM_PKCS5_PBKD2 => Ok(MechanismType::PKCS5_PBKD2),
             CKM_HKDF_DERIVE => Ok(MechanismType::HKDF_DERIVE),
             CKM_HKDF_DATA => Ok(MechanismType::HKDF_DATA),
             CKM_SP800_108_COUNTER_KDF => Ok(MechanismType::SP800_108_COUNTER_KDF),
@@ -1510,6 +1516,8 @@ pub enum Mechanism<'a> {
     HkdfKeyGen,
     /// HKDF-DERIVE mechanism
     HkdfDerive(hkdf::HkdfParams<'a>),
+    /// PKCS #5 PBKDF2 key generation using the corrected PARAMS2 layout.
+    Pbkdf2(pbkdf2::Pbkdf2Params<'a>),
     /// HKDF-DATA mechanism
     HkdfData(hkdf::HkdfParams<'a>),
 
@@ -1711,6 +1719,7 @@ impl Mechanism<'_> {
             Mechanism::GenericSecretKeyGen => MechanismType::GENERIC_SECRET_KEY_GEN,
 
             Mechanism::HkdfKeyGen => MechanismType::HKDF_KEY_GEN,
+            Mechanism::Pbkdf2(_) => MechanismType::PKCS5_PBKD2,
             Mechanism::HkdfDerive(_) => MechanismType::HKDF_DERIVE,
             Mechanism::HkdfData(_) => MechanismType::HKDF_DATA,
 
@@ -1803,6 +1812,7 @@ impl From<&Mechanism<'_>> for CK_MECHANISM {
             Mechanism::KbkdfCounter(params) | Mechanism::KbkdfDoublePipeline(params) => {
                 make_mechanism(mechanism, params.inner())
             }
+            Mechanism::Pbkdf2(params) => make_mechanism(mechanism, params.inner()),
             Mechanism::KbkdfFeedback(params) => make_mechanism(mechanism, params.inner()),
             Mechanism::ConcatenateBaseAndKey(params) => make_mechanism(mechanism, params),
             Mechanism::ConcatenateBaseAndData(params)

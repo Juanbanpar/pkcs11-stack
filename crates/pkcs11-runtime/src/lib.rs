@@ -42,9 +42,13 @@ pub use generation::{
 };
 mod hkdf;
 mod kbkdf;
+mod pbkdf2;
 pub use kbkdf::{
     KbkdfCapabilities, KbkdfMode, KbkdfOptions, KbkdfOutput, KbkdfPrf, KbkdfPrfCapabilities,
     KbkdfPrfRequest, KbkdfRequest,
+};
+pub use pbkdf2::{
+    PBKDF2_MAXIMUM_LENGTH, PBKDF2_MAXIMUM_WORK, Pbkdf2Output, Pbkdf2Prf, Pbkdf2Request,
 };
 mod hmac;
 mod mac;
