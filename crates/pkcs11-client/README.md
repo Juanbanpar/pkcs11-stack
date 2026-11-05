@@ -606,6 +606,17 @@ writing returned results to a destination. CLI AES-GCM commands support explicit
 `--multipart` file/stdin input with output held through checked closure/finalization;
 single-part execution remains the default. Desktop file workflows remain single-part.
 
+`aes_gcm_message_capabilities` checks PKCS#11 3.x message flags and pointers.
+`start_aes_gcm_message_encryption` and `start_aes_gcm_message_decryption` return
+exclusive processes accepting multiple complete messages, each with its own
+nonce/AAD. They use the same bounded requests and ciphertext || tag format.
+Each decryption authenticates before returning zeroizing plaintext. Call `finish`
+to confirm process termination before session reuse, then check session closure
+before publishing a batch. Native failures, unwind or drop discard the session;
+local request validation leaves the process active. Whole-message completions use
+exact-capacity output without a size query or retry. Message Begin/Next streaming
+is not exposed.
+
 Callers manage nonce uniqueness per key across writers, restarts and copies of key
 material. No nonce generation/tracking, retry, software fallback or file format
 is provided. Keep the nonce, AAD and protocol context with the ciphertext;
