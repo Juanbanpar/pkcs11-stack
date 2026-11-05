@@ -22,9 +22,9 @@ pub const AES_GCM_MAXIMUM_AAD: usize = 1024 * 1024;
 /// Direction of an AES-GCM operation on a secret AES key.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AesGcmOperation {
-    /// Requires CKA_ENCRYPT and the requested single-part or multipart entry points.
+    /// Requires CKA_ENCRYPT and the requested API entry points.
     Encrypt,
-    /// Requires CKA_DECRYPT and the requested single-part or multipart entry points.
+    /// Requires CKA_DECRYPT and the requested API entry points.
     Decrypt,
 }
 /// Current key size after permission, mechanism, bounds and entry-point checks.
@@ -97,10 +97,16 @@ impl std::fmt::Debug for AesGcmDecryptRequest<'_> {
         f.write_str("AesGcmDecryptRequest([REDACTED])")
     }
 }
+#[derive(Clone, Copy)]
+pub(crate) enum Api {
+    Single,
+    Multipart,
+    Message,
+}
 pub(crate) fn capabilities(
     object: &crate::Object<'_, '_>,
     operation: AesGcmOperation,
-    multipart: bool,
+    api: Api,
 ) -> Result<AesGcmCapabilities, Error> {
     if !matches!(
         attribute(object, AttributeType::Class, true)?,
@@ -111,16 +117,16 @@ pub(crate) fn capabilities(
     ) {
         return Err(Error::UnsupportedAesGcm);
     }
-    let (permission, functions): (_, &[Function]) = match (operation, multipart) {
-        (AesGcmOperation::Encrypt, false) => (
+    let (permission, functions): (_, &[Function]) = match (operation, api) {
+        (AesGcmOperation::Encrypt, Api::Single) => (
             AttributeType::Encrypt,
             &[Function::EncryptInit, Function::Encrypt],
         ),
-        (AesGcmOperation::Decrypt, false) => (
+        (AesGcmOperation::Decrypt, Api::Single) => (
             AttributeType::Decrypt,
             &[Function::DecryptInit, Function::Decrypt],
         ),
-        (AesGcmOperation::Encrypt, true) => (
+        (AesGcmOperation::Encrypt, Api::Multipart) => (
             AttributeType::Encrypt,
             &[
                 Function::EncryptInit,
@@ -128,12 +134,28 @@ pub(crate) fn capabilities(
                 Function::EncryptFinal,
             ],
         ),
-        (AesGcmOperation::Decrypt, true) => (
+        (AesGcmOperation::Decrypt, Api::Multipart) => (
             AttributeType::Decrypt,
             &[
                 Function::DecryptInit,
                 Function::DecryptUpdate,
                 Function::DecryptFinal,
+            ],
+        ),
+        (AesGcmOperation::Encrypt, Api::Message) => (
+            AttributeType::Encrypt,
+            &[
+                Function::MessageEncryptInit,
+                Function::EncryptMessage,
+                Function::MessageEncryptFinal,
+            ],
+        ),
+        (AesGcmOperation::Decrypt, Api::Message) => (
+            AttributeType::Decrypt,
+            &[
+                Function::MessageDecryptInit,
+                Function::DecryptMessage,
+                Function::MessageDecryptFinal,
             ],
         ),
     };
@@ -170,8 +192,20 @@ pub(crate) fn capabilities(
     let info = token.mechanism_info(MechanismType::AES_GCM)?;
     if !(info.min_key_size()..=info.max_key_size()).contains(&length)
         || !match operation {
-            AesGcmOperation::Encrypt => info.encrypt(),
-            AesGcmOperation::Decrypt => info.decrypt(),
+            AesGcmOperation::Encrypt => {
+                if matches!(api, Api::Message) {
+                    info.message_encrypt()
+                } else {
+                    info.encrypt()
+                }
+            }
+            AesGcmOperation::Decrypt => {
+                if matches!(api, Api::Message) {
+                    info.message_decrypt()
+                } else {
+                    info.decrypt()
+                }
+            }
         }
     {
         return Err(Error::UnsupportedAesGcm);
@@ -186,7 +220,7 @@ impl Session<'_> {
         key: &ObjectRef,
         operation: AesGcmOperation,
     ) -> Result<AesGcmCapabilities, Error> {
-        capabilities(&self.resolve(key)?, operation, false)
+        capabilities(&self.resolve(key)?, operation, Api::Single)
     }
     /// Encrypt once with CKM_AES_GCM, a 12-byte supplied nonce and 128-bit tag.
     /// Returns ciphertext || tag; nonce and AAD remain with the caller. The caller
@@ -202,7 +236,7 @@ impl Session<'_> {
     ) -> Result<Vec<u8>, Error> {
         request.validate()?;
         let object = self.resolve(key)?;
-        capabilities(&object, AesGcmOperation::Encrypt, false)?;
+        capabilities(&object, AesGcmOperation::Encrypt, Api::Single)?;
         let mut nonce = *request.nonce;
         let params = GcmParams::new(&mut nonce, request.aad, 128.into())
             .map_err(|e| backend("AES GCM parameters", e))?;
@@ -232,7 +266,7 @@ impl Session<'_> {
     ) -> Result<SecretBox<Vec<u8>>, Error> {
         request.validate()?;
         let object = self.resolve(key)?;
-        capabilities(&object, AesGcmOperation::Decrypt, false)?;
+        capabilities(&object, AesGcmOperation::Decrypt, Api::Single)?;
         let mut nonce = *request.nonce;
         let params = GcmParams::new(&mut nonce, request.aad, 128.into())
             .map_err(|e| backend("AES GCM parameters", e))?;

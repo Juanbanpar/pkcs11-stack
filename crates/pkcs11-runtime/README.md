@@ -346,6 +346,22 @@ validation and policy rejection precede crypto. Native decryption buffers are
 bounded and zeroize on failure or drop. Check explicit session closure before
 releasing output. Testing does not establish formal algorithm validation.
 
+`start_aes_gcm_message_encryption` and `start_aes_gcm_message_decryption`
+initialize exclusive PKCS#11 3.x processes for multiple complete messages. Each
+message uses the same bounded request types, explicit nonce/AAD and ciphertext ||
+tag format. The runtime separates the native message tag, makes one completion
+call into exact-capacity storage and returns zeroizing plaintext only after
+successful authentication and length/input checks. Nonce uniqueness remains the
+caller's responsibility. `aes_gcm_message_capabilities` checks message flags and
+selected-table pointers independently of ordinary encryption support.
+
+Call each process's `finish` to confirm native termination before reusing the
+session. Native failures, malformed outputs, unwind or drop discard the session;
+local request validation leaves the process active. No nonce generator, message
+Begin/Next streaming, retry or fallback is exposed. Ordinary 2.40 single-part and
+multipart AES-GCM APIs retain their existing contracts. Disposable NSS tests cover
+NIST vectors, multiple messages, tampering and protected generated AES keys.
+
 ## RSA encryption key generation
 
 `RsaEncryptionKeyPairRequest` and `generate_rsa_encryption_key_pair` create

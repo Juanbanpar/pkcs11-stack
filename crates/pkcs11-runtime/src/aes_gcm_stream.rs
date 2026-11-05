@@ -241,7 +241,11 @@ impl Session<'_> {
         key: &ObjectRef,
         operation: AesGcmOperation,
     ) -> Result<AesGcmCapabilities, Error> {
-        crate::aes_gcm::capabilities(&self.resolve(key)?, operation, true)
+        crate::aes_gcm::capabilities(
+            &self.resolve(key)?,
+            operation,
+            crate::aes_gcm::Api::Multipart,
+        )
     }
     fn start_aes_gcm(
         &mut self,
@@ -251,7 +255,8 @@ impl Session<'_> {
     ) -> Result<State<'_>, Error> {
         parameters.validate()?;
         let object = self.resolve(key)?;
-        let capabilities = crate::aes_gcm::capabilities(&object, operation, true)?;
+        let capabilities =
+            crate::aes_gcm::capabilities(&object, operation, crate::aes_gcm::Api::Multipart)?;
         let mut nonce = *parameters.nonce;
         let params = GcmParams::new(&mut nonce, parameters.aad, 128.into())
             .map_err(|e| backend("AES GCM stream parameters", e))?;
