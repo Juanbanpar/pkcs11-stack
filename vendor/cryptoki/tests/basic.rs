@@ -2556,22 +2556,22 @@ fn encrypt_decrypt_gcm_message_no_aad() -> TestResult {
     let key_handle = session.create_object(&template)?;
 
     let param = GcmMessageParams::new(&mut iv, 96.into(), GeneratorFunction::NoGenerate, &mut tag)?;
-    let mechanism = Mechanism::AesGcmMessage(param);
+    let mechanism = Mechanism::AesGcmMessageInit;
     session.message_encrypt_init(&mechanism, key_handle)?;
 
-    let param2 = MessageParam::AesGcmMessage(param);
-    let cipher = session.encrypt_message(&param2, &aad, &plain)?;
+    let mut param2 = MessageParam::AesGcmMessage(param);
+    let cipher = session.encrypt_message(&mut param2, &aad, &plain)?;
     assert_eq!(expected_cipher[..], cipher[..]);
     assert_eq!(expected_tag[..], tag[..]);
     session.message_encrypt_final()?;
 
     /* Do also decryption */
     let param = GcmMessageParams::new(&mut iv, 96.into(), GeneratorFunction::NoGenerate, &mut tag)?;
-    let mechanism = Mechanism::AesGcmMessage(param);
+    let mechanism = Mechanism::AesGcmMessageInit;
     session.message_decrypt_init(&mechanism, key_handle)?;
 
-    let param2 = MessageParam::AesGcmMessage(param);
-    let plain_decrypted = session.decrypt_message(&param2, &aad, &cipher)?;
+    let mut param2 = MessageParam::AesGcmMessage(param);
+    let plain_decrypted = session.decrypt_message(&mut param2, &aad, &cipher)?;
     assert_eq!(plain_decrypted[..], plain[..]);
     session.message_decrypt_final()?;
     session.close()?;
@@ -2619,22 +2619,22 @@ fn encrypt_decrypt_gcm_message_with_aad() -> TestResult {
     let key_handle = session.create_object(&template)?;
 
     let param = GcmMessageParams::new(&mut iv, 96.into(), GeneratorFunction::NoGenerate, &mut tag)?;
-    let mechanism = Mechanism::AesGcmMessage(param);
+    let mechanism = Mechanism::AesGcmMessageInit;
     session.message_encrypt_init(&mechanism, key_handle)?;
 
-    let param2 = MessageParam::AesGcmMessage(param);
-    let cipher = session.encrypt_message(&param2, &aad, &plain)?;
+    let mut param2 = MessageParam::AesGcmMessage(param);
+    let cipher = session.encrypt_message(&mut param2, &aad, &plain)?;
     assert_eq!(expected_cipher[..], cipher[..]);
     assert_eq!(expected_tag[..], tag[..]);
     session.message_encrypt_final()?;
 
     /* Do also decryption */
     let param = GcmMessageParams::new(&mut iv, 96.into(), GeneratorFunction::NoGenerate, &mut tag)?;
-    let mechanism = Mechanism::AesGcmMessage(param);
+    let mechanism = Mechanism::AesGcmMessageInit;
     session.message_decrypt_init(&mechanism, key_handle)?;
 
-    let param2 = MessageParam::AesGcmMessage(param);
-    let plain_decrypted = session.decrypt_message(&param2, &aad, &cipher)?;
+    let mut param2 = MessageParam::AesGcmMessage(param);
+    let plain_decrypted = session.decrypt_message(&mut param2, &aad, &cipher)?;
     assert_eq!(plain_decrypted[..], plain[..]);
     session.message_decrypt_final()?;
     session.close()?;

@@ -22,6 +22,7 @@ export NSS_LIB_PARAMS="configdir='sql:$scratch' certPrefix='' keyPrefix='' secmo
 export PKCS11_TEST_KDF_MODULE="$module" PKCS11_TEST_KDF_DIR="$scratch" PKCS11_TEST_KDF_ISOLATED=1 PKCS11_TEST_NSS_ISOLATED=1
 export PKCS11_TEST_KDF_OPENSSL=${PKCS11_TEST_KDF_OPENSSL:-openssl}
 command -v "$PKCS11_TEST_KDF_OPENSSL" >/dev/null
+cargo test -p pkcs11-runtime --test aes_gcm_message_provider --locked -- --ignored --test-threads=1
 cargo test -p pkcs11-runtime --test kbkdf_provider --locked -- double_pipeline_nss --ignored --test-threads=1
 cargo test -p pkcs11-client --test kbkdf_provider --locked -- double_pipeline_nss --ignored --test-threads=1
 cargo test -p pkcs11ctl --test kbkdf --locked -- double_pipeline_nss --ignored --test-threads=1

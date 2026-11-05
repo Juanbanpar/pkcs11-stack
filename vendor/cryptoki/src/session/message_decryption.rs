@@ -30,7 +30,7 @@ impl Session {
     /// Decrypts a message in single part
     pub fn decrypt_message(
         &self,
-        param: &MessageParam,
+        param: &mut MessageParam,
         aad: &[u8],
         encrypted_data: &[u8],
     ) -> Result<Vec<u8>> {
@@ -71,6 +71,37 @@ impl Session {
         data.truncate(data_len.try_into()?);
 
         Ok(data)
+    }
+
+    /// Complete one message into caller-bounded storage without a length query,
+    /// allocation or retry. The caller must zeroize plaintext storage on failure.
+    pub fn decrypt_message_into(
+        &self,
+        param: &mut MessageParam,
+        aad: &[u8],
+        data: &[u8],
+        output: &mut [u8],
+    ) -> Result<usize> {
+        let mut written = output.len().try_into()?;
+        unsafe {
+            Rv::from(get_pkcs11!(self.client(), C_DecryptMessage)(
+                self.handle(),
+                param.as_ptr(),
+                param.len(),
+                aad.as_ptr() as *mut u8,
+                aad.len().try_into()?,
+                data.as_ptr() as *mut u8,
+                data.len().try_into()?,
+                output.as_mut_ptr(),
+                &mut written,
+            ))
+            .into_result(Function::DecryptMessage)?;
+        }
+        let written: usize = written.try_into()?;
+        if written > output.len() {
+            return Err(crate::error::Error::InvalidValue);
+        }
+        Ok(written)
     }
 
     /// Begin multi-part message decryption operation

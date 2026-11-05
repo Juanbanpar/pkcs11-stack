@@ -107,7 +107,7 @@ pub enum GeneratorFunction {
 }
 
 /// Parameters for message based AES-GCM operations.
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug)]
 #[repr(transparent)]
 pub struct GcmMessageParams<'a> {
     inner: CK_GCM_MESSAGE_PARAMS,
@@ -186,7 +186,7 @@ impl<'a> GcmMessageParams<'a> {
     }
 
     /// The authentication tag.
-    pub fn tag(&self) -> &'a [u8] {
+    pub fn tag(&self) -> &[u8] {
         // SAFETY: In the constructor, the tag always comes from a &'a [u8]
         unsafe { slice::from_raw_parts(self.inner.pTag, (self.inner.ulTagBits / 8) as _) }
     }

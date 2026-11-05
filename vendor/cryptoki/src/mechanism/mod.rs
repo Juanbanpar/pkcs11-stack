@@ -1264,6 +1264,9 @@ pub enum Mechanism<'a> {
     AesKeyWrapKwp,
     /// AES-GCM mechanism
     AesGcm(aead::GcmParams<'a>),
+    /// Parameterless AES-GCM initializer for the message API. Per-message
+    /// parameters belong to `MessageParam`, not `C_MessageEncryptInit`.
+    AesGcmMessageInit,
     /// AES-GCM mechanism with message based API and parameters
     // TODO Should we reuse the AesGcm and use Option<> to select parameter?
     AesGcmMessage(aead::GcmMessageParams<'a>),
@@ -1619,7 +1622,7 @@ impl Mechanism<'_> {
             Mechanism::AesKeyWrapPad => MechanismType::AES_KEY_WRAP_PAD,
             Mechanism::AesKeyWrapKwp => MechanismType::AES_KEY_WRAP_KWP,
             Mechanism::AesGcm(_) => MechanismType::AES_GCM,
-            Mechanism::AesGcmMessage(_) => MechanismType::AES_GCM,
+            Mechanism::AesGcmMessageInit | Mechanism::AesGcmMessage(_) => MechanismType::AES_GCM,
             Mechanism::AesCbcEncryptData(_) => MechanismType::AES_CBC_ENCRYPT_DATA,
             Mechanism::AesCMac => MechanismType::AES_CMAC,
             Mechanism::AesCMacGeneral(_) => MechanismType::AES_CMAC_GENERAL,
@@ -1871,6 +1874,7 @@ impl From<&Mechanism<'_>> for CK_MECHANISM {
             // Mechanisms without parameters
             Mechanism::AesKeyGen
             | Mechanism::AesEcb
+            | Mechanism::AesGcmMessageInit
             | Mechanism::AesKeyWrap
             | Mechanism::AesKeyWrapPad
             | Mechanism::AesKeyWrapKwp

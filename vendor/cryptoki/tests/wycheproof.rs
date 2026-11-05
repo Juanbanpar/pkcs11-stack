@@ -353,11 +353,11 @@ fn aes_gcm_message_wycheproof() -> TestResult {
             };
 
             // Test encryption with message-based API
-            let mechanism = Mechanism::AesGcmMessage(gcm_params);
+            let mechanism = Mechanism::AesGcmMessageInit;
             let encrypt_result = (|| -> Result<Vec<u8>, cryptoki::error::Error> {
                 session.message_encrypt_init(&mechanism, key)?;
-                let param = MessageParam::AesGcmMessage(gcm_params);
-                let ciphertext = session.encrypt_message(&param, &test.aad, &test.pt)?;
+                let mut param = MessageParam::AesGcmMessage(gcm_params);
+                let ciphertext = session.encrypt_message(&mut param, &test.aad, &test.pt)?;
                 session.message_encrypt_final()?;
                 Ok(ciphertext)
             })();

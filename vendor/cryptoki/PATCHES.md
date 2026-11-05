@@ -9,6 +9,12 @@ Published crate SHA-256:
 
 Local changes:
 
+- `src/mechanism/{mod,aead}.rs` and message encryption/decryption bindings:
+  add a parameterless AES-GCM message initializer and caller-bounded whole-message
+  completions without size queries or retries. Message parameters are non-copyable,
+  tag borrows cannot outlive their owner, and completion takes an exclusive parameter
+  borrow. A disposable NSS probe checks all twelve NIST AES-GCM vectors.
+
 - `src/mechanism/{mod,pbkdf2}.rs`: expose PKCS #5 PBKDF2 generation with the
   corrected `CK_PKCS5_PBKD2_PARAMS2` layout, borrowed password/salt lifetimes,
   by-value password length, explicit SHA-2 PRFs and redacted Debug. Independent
