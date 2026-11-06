@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Pure SLH-DSA native ABI, bounds and authentication fixture.
+//! SLH-DSA native ABI, bounds and authentication fixture.
 use std::{
     path::PathBuf,
     process::Command,
@@ -10,6 +10,7 @@ use std::{
 pub struct SlhDsaModule(PathBuf);
 impl SlhDsaModule {
     /// Compile the exact table layout and selected failure path.
+    #[allow(dead_code)]
     pub fn new(
         table: (u8, u8),
         parameter: usize,
@@ -18,7 +19,37 @@ impl SlhDsaModule {
         hedge: usize,
         context_length: usize,
     ) -> Self {
+        Self::compile(table, parameter, fault, auth, (hedge, context_length), None)
+    }
+    /// Compile a HashSLH-DSA profile: hash index 0..8 and explicit digest/message input.
+    #[allow(dead_code)]
+    pub fn hash(
+        table: (u8, u8),
+        parameter: usize,
+        fault: usize,
+        auth: bool,
+        hedge_context: (usize, usize),
+        hash_input: (usize, bool),
+    ) -> Self {
+        Self::compile(
+            table,
+            parameter,
+            fault,
+            auth,
+            hedge_context,
+            Some(hash_input),
+        )
+    }
+    fn compile(
+        table: (u8, u8),
+        parameter: usize,
+        fault: usize,
+        auth: bool,
+        hedge_context: (usize, usize),
+        hash: Option<(usize, bool)>,
+    ) -> Self {
         let (major, minor) = table;
+        let (hedge, context_length) = hedge_context;
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let dir = std::env::temp_dir().join(format!(
             "pkcs11-slh-{}-{}",
@@ -49,6 +80,9 @@ impl SlhDsaModule {
             .arg(format!("-DAUTH={}", u8::from(auth)))
             .arg(format!("-DHEDGE={hedge}"))
             .arg(format!("-DCONTEXT_LENGTH={context_length}"))
+            .arg(format!("-DHASH_PROFILE={}", usize::from(hash.is_some())))
+            .arg(format!("-DHASH_INDEX={}", hash.map_or(0, |h| h.0)))
+            .arg(format!("-DPREHASH={}", u8::from(hash.is_some_and(|h| h.1))))
             .arg("-I")
             .arg(root.join("headers/3.2"))
             .arg(root.join("slh_dsa.c"))

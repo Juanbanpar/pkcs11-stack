@@ -14,7 +14,7 @@ use cryptoki::{
     session::UserType,
 };
 
-/// FIPS 205 pure SLH-DSA parameter sets. Mechanism bounds use public-key bytes.
+/// FIPS 205 SLH-DSA parameter sets. Mechanism bounds use public-key bytes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SlhDsaParameterSet {
     /// SLH-DSA-SHA2-128s.
@@ -43,7 +43,7 @@ pub enum SlhDsaParameterSet {
     Shake256F,
 }
 impl SlhDsaParameterSet {
-    /// All twelve standardized pure parameter sets. Provider support is advisory.
+    /// All twelve standardized parameter sets. Provider support is advisory.
     pub const ALL: [Self; 12] = [
         Self::Sha2_128S,
         Self::Sha2_128F,
@@ -156,7 +156,7 @@ pub enum SlhDsaHedging {
     Deterministic,
 }
 impl SlhDsaHedging {
-    fn mechanism(self) -> HedgeType {
+    pub(crate) fn mechanism(self) -> HedgeType {
         match self {
             Self::Required => HedgeType::Required,
             Self::Preferred => HedgeType::Preferred,
@@ -293,7 +293,10 @@ impl SlhDsaPublicKey {
     }
 }
 
-fn parameter_set(object: &Object<'_, '_>, class: ObjectClass) -> Result<SlhDsaParameterSet, Error> {
+pub(crate) fn parameter_set(
+    object: &Object<'_, '_>,
+    class: ObjectClass,
+) -> Result<SlhDsaParameterSet, Error> {
     if !matches!(attribute(object, AttributeType::Class, true)?, Some(Attribute::Class(value)) if value == class)
         || !matches!(
             attribute(object, AttributeType::KeyType, true)?,
@@ -308,7 +311,7 @@ fn parameter_set(object: &Object<'_, '_>, class: ObjectClass) -> Result<SlhDsaPa
     }
 }
 
-fn permission(object: &Object<'_, '_>, kind: AttributeType) -> Result<bool, Error> {
+pub(crate) fn permission(object: &Object<'_, '_>, kind: AttributeType) -> Result<bool, Error> {
     match (kind, attribute(object, kind, true)?) {
         (AttributeType::Sign, Some(Attribute::Sign(value)))
         | (AttributeType::Verify, Some(Attribute::Verify(value)))
@@ -323,7 +326,10 @@ fn allowed(object: &Object<'_, '_>) -> Result<bool, Error> {
     allowed_mechanism(object, MechanismType::SLH_DSA)
 }
 
-fn allowed_mechanism(object: &Object<'_, '_>, mechanism: MechanismType) -> Result<bool, Error> {
+pub(crate) fn allowed_mechanism(
+    object: &Object<'_, '_>,
+    mechanism: MechanismType,
+) -> Result<bool, Error> {
     match attribute(object, AttributeType::AllowedMechanisms, false)? {
         None => Ok(true),
         Some(Attribute::AllowedMechanisms(value)) => {
@@ -333,7 +339,7 @@ fn allowed_mechanism(object: &Object<'_, '_>, mechanism: MechanismType) -> Resul
     }
 }
 
-fn mechanism_support(
+pub(crate) fn mechanism_support(
     token: &Token<'_>,
     parameter: SlhDsaParameterSet,
     mechanism: MechanismType,
@@ -414,6 +420,14 @@ impl<'m> Session<'m> {
         &mut self,
         request: &SlhDsaKeyPairRequest<'_>,
     ) -> Result<(Object<'_, 'm>, Object<'_, 'm>), Error> {
+        self.generate_slh_dsa_pair(request, &[MechanismType::SLH_DSA])
+    }
+
+    pub(crate) fn generate_slh_dsa_pair(
+        &mut self,
+        request: &SlhDsaKeyPairRequest<'_>,
+        mechanisms: &[MechanismType],
+    ) -> Result<(Object<'_, 'm>, Object<'_, 'm>), Error> {
         request.validate()?;
         self.validate()?;
         if self.mode != SessionMode::ReadWrite {
@@ -454,7 +468,7 @@ impl<'m> Session<'m> {
             Attribute::Wrap(false),
             Attribute::Derive(false),
             Attribute::VerifyRecover(false),
-            Attribute::AllowedMechanisms(vec![MechanismType::SLH_DSA]),
+            Attribute::AllowedMechanisms(mechanisms.to_vec()),
             Attribute::ParameterSet(parameter.attribute()),
         ];
         let private = [
@@ -467,7 +481,7 @@ impl<'m> Session<'m> {
             Attribute::Unwrap(false),
             Attribute::Derive(false),
             Attribute::SignRecover(false),
-            Attribute::AllowedMechanisms(vec![MechanismType::SLH_DSA]),
+            Attribute::AllowedMechanisms(mechanisms.to_vec()),
             Attribute::Sensitive(true),
             Attribute::Extractable(false),
             Attribute::AlwaysAuthenticate(always_authenticate),
@@ -496,10 +510,16 @@ impl<'m> Session<'m> {
     }
 
     /// Read CKA_VALUE only from an explicitly public, non-private SLH-DSA public key.
+    /// Requires that CKA_ALLOWED_MECHANISMS permit pure SLH-DSA, for pure SPKI export.
     /// Never reads private-key CKA_VALUE or CKA_SEED.
     pub fn slh_dsa_public_key(&mut self, key: &PublicKeyRef) -> Result<SlhDsaPublicKey, Error> {
         let object = self.resolve(key.as_object_ref())?;
         let parameter = parameter_set(&object, ObjectClass::PUBLIC_KEY)?;
+        if !allowed(&object)? {
+            return Err(Error::UnsupportedSigning(
+                "public key excludes pure SLH-DSA",
+            ));
+        }
         if !matches!(
             attribute(&object, AttributeType::Private, true)?,
             Some(Attribute::Private(false))

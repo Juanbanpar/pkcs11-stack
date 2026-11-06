@@ -702,10 +702,44 @@ Native failures, unwinds and malformed signature lengths invalidate the session.
 
 `verify_slh_dsa` verifies on the token; completed signature mismatches leave the
 session usable. `slh_dsa_public_key` reads a bounded value only from a public,
-non-private SLH-DSA object. The client encodes that material as
+non-private SLH-DSA object whose allowed mechanisms permit pure signing. The client encodes that material as
 [RFC 9909 SPKI](https://www.rfc-editor.org/rfc/rfc9909.html) with absent parameters.
-This profile does not expose HashSLH-DSA, streaming or certificate/TLS operations.
+Streaming and certificate/TLS operations remain separate.
 Check session closure before releasing results.
+
+## HashSLH-DSA
+
+`HashSlhDsaRequest` selects an expected SLH-DSA parameter set, explicit
+`HashSlhDsaInput::Message { hash, message }` or `Digest { hash, bytes }`, context
+and hedging. SHA-224/256/384/512 and SHA3-224/256/384/512 are supported. Message
+mode passes the original bytes to the corresponding native combined mechanism;
+digest mode passes exactly `hash.output_len()` bytes to CKM_HASH_SLH_DSA with
+CK_HASH_SIGN_ADDITIONAL_CONTEXT. There is no software hashing or fallback.
+Message/context limits remain 64 MiB/255 bytes. SHAKE prehash and streaming are
+not exposed by these methods.
+
+`HashSlhDsaSigningPolicy` independently restricts parameter sets and hashes.
+By default, the prehash must preserve the parameter set's claimed strength:
+its output must be at least the public-key length (2n bytes), as described in
+[FIPS 205 section 10.2](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.205.pdf).
+SHA-224/SHA3-224 always reduce that strength; SHA-256/SHA3-256 are appropriate
+only for 128-bit parameter sets, and SHA-384/SHA3-384 for 128/192-bit sets.
+Applications can explicitly set `allow_reduced_strength` for compatibility.
+Verification has no signing-policy requirement and accepts these profiles.
+
+`generate_hash_slh_dsa_key_pair` accepts the same `SlhDsaKeyPairRequest` but
+restricts both keys to CKM_HASH_SLH_DSA and the eight fixed-output combined
+mechanisms. Pure generation still permits only CKM_SLH_DSA. The raw mechanism's
+hash parameter is enforced by application policy, not by the native mechanism
+allowlist. Identity checks, persistent protected templates and RW requirements
+are shared; existing pure keys are not modified.
+
+`hash_slh_dsa_capabilities`, `sign_hash_slh_dsa` and `verify_hash_slh_dsa` use the
+same current-metadata, exact-output, context-authentication and failure-lifecycle
+contracts as pure signing. Discovery checks each hash/input mode independently;
+a provider can reject parameters despite advertising its mechanism. This does
+not provide FIPS validation or certificate/TLS support. Pure public export rejects
+HashSLH-only objects rather than giving them a pure-signature OID.
 
 ## ML-DSA
 

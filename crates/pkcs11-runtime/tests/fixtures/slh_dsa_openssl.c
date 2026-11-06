@@ -17,7 +17,7 @@ static unsigned char *read_file(const char *path, size_t maximum, size_t *length
     *length=(size_t)size; return bytes;
 }
 int main(int argc, char **argv) {
-    if(argc!=5) return 2;
+    if(argc!=5 && argc!=6) return 2;
     size_t der_len,sig_len,msg_len,ctx_len;
     unsigned char *der=read_file(argv[1],256,&der_len);
     unsigned char *sig=read_file(argv[2],49856,&sig_len);
@@ -26,7 +26,8 @@ int main(int argc, char **argv) {
     const unsigned char *cursor=der;
     EVP_PKEY *key=d2i_PUBKEY(NULL,&cursor,(long)der_len);
     EVP_MD_CTX *md=EVP_MD_CTX_new();
-    OSSL_PARAM params[]={OSSL_PARAM_construct_octet_string(OSSL_SIGNATURE_PARAM_CONTEXT_STRING,ctx,ctx_len),OSSL_PARAM_construct_end()};
+    int encoding=argc==6 ? 0 : 1;
+    OSSL_PARAM params[]={OSSL_PARAM_construct_int(OSSL_SIGNATURE_PARAM_MESSAGE_ENCODING,&encoding),OSSL_PARAM_construct_octet_string(OSSL_SIGNATURE_PARAM_CONTEXT_STRING,ctx,ctx_len),OSSL_PARAM_construct_end()};
     if(!key || cursor!=der+der_len || !md || EVP_DigestVerifyInit_ex(md,NULL,NULL,NULL,NULL,key,params)!=1) {
         ERR_print_errors_fp(stderr); return 3;
     }

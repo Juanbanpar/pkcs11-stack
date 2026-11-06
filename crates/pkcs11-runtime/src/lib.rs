@@ -59,6 +59,11 @@ pub use hmac::{
     HmacTagProfile,
 };
 pub use mac::{MacGeneration, MacVerification};
+mod hash_slh_dsa;
+pub use hash_slh_dsa::{
+    HashSlhDsaCapabilities, HashSlhDsaInput, HashSlhDsaMode, HashSlhDsaRequest,
+    HashSlhDsaSigningPolicy,
+};
 mod hash_ml_dsa;
 mod hash_ml_dsa_stream;
 pub use hash_ml_dsa_stream::{
