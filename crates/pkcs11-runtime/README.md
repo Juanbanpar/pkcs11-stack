@@ -362,6 +362,33 @@ Begin/Next streaming, retry or fallback is exposed. Ordinary 2.40 single-part an
 multipart AES-GCM APIs retain their existing contracts. Disposable NSS tests cover
 NIST vectors, multiple messages, tampering and protected generated AES keys.
 
+## AES-CCM encryption
+
+`Session::aes_ccm_capabilities`, `encrypt_aes_ccm` and `decrypt_aes_ccm`
+support a single-part CKM_AES_CCM profile with AES-128/192/256 keys, a supplied
+12-byte nonce and a full 16-byte tag. `AesCcmEncryptRequest` and
+`AesCcmDecryptRequest` borrow their inputs and redact all buffers in Debug.
+The format is ciphertext followed by the tag; nonce and AAD are separate.
+Plaintext is bounded to 16,777,215 bytes (2^24 − 1) and AAD to 1 MiB.
+Empty plaintext/AAD are supported. The declared native data length excludes the
+MAC in both directions, and `ulMACLen` is in bytes, as specified by
+[OASIS CCM parameters](https://docs.oasis-open.org/pkcs11/pkcs11-spec/v3.2/pkcs11-spec-v3.2.html).
+
+Callers ensure nonce uniqueness per key across writers, copies and restarts;
+an error does not authorize nonce reuse. No nonce generation or tracking occurs.
+Capabilities check class/type, key size, direction permission, allowed mechanisms,
+provider flags, byte-sized key bounds and native entry points. Execution rechecks
+these constraints and permits RO sessions. Existing encryption-purpose AES keys
+can be used; wrapping-only keys and generic secrets are rejected.
+
+Completion makes one native call into exact-capacity storage, without a size query,
+retry or fallback. Decryption releases zeroizing plaintext only after authentication,
+exact-length validation and verification that the provider preserved the nonce.
+Native errors, malformed results, nonce mutation and unwinds invalidate the session;
+request/policy rejection precedes initialization. Check session closure before
+releasing results. Multipart/message CCM and authenticated wrapping are outside
+this profile. Provider and NIST-vector tests do not establish formal validation.
+
 ## RSA encryption key generation
 
 `RsaEncryptionKeyPairRequest` and `generate_rsa_encryption_key_pair` create

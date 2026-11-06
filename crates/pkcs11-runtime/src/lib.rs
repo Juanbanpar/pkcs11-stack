@@ -10,6 +10,11 @@ pub use aes_cmac::{
     AES_CMAC_MAXIMUM_MESSAGE, AES_CMAC_TAG_LENGTH, AesCmacCapabilities, AesCmacOptions,
     AesCmacProfile, MacOperation,
 };
+mod aes_ccm;
+pub use aes_ccm::{
+    AES_CCM_MAXIMUM_AAD, AES_CCM_MAXIMUM_PLAINTEXT, AES_CCM_NONCE_LENGTH, AES_CCM_TAG_LENGTH,
+    AesCcmCapabilities, AesCcmDecryptRequest, AesCcmEncryptRequest, AesCcmOperation,
+};
 mod aes_gcm;
 mod aes_gcm_message;
 mod aes_gcm_stream;

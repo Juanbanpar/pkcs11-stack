@@ -9,6 +9,60 @@ use std::convert::TryInto;
 use std::marker::PhantomData;
 use std::slice;
 
+/// Borrowed parameters for single-part AES-CCM. The MAC length is in bytes.
+/// `data_length` excludes the appended MAC during both encryption and decryption.
+#[repr(transparent)]
+pub struct CcmParams<'a> {
+    inner: CK_CCM_PARAMS,
+    _marker: PhantomData<&'a mut [u8]>,
+}
+impl std::fmt::Debug for CcmParams<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("CcmParams([REDACTED])")
+    }
+}
+impl<'a> CcmParams<'a> {
+    /// Construct CCM parameters, borrowing nonce and AAD until the native call.
+    /// Nonce length must be 7..=13, MAC length 4/6/8/10/12/14/16 bytes, and
+    /// data length strictly less than 2^(8*(15-nonce.len())). AAD length must
+    /// fit both CK_ULONG and the standard's 32-bit limit. Empty data/AAD are valid.
+    /// This does not establish nonce uniqueness or provider support.
+    pub fn new(
+        data_length: Ulong,
+        nonce: &'a mut [u8],
+        aad: &'a [u8],
+        mac_length: Ulong,
+    ) -> Result<Self, Error> {
+        let data_length: CK_ULONG = data_length.into();
+        let mac_length: CK_ULONG = mac_length.into();
+        if !(7..=13).contains(&nonce.len())
+            || ![4, 6, 8, 10, 12, 14, 16].contains(&mac_length)
+            || aad.len() > u32::MAX as usize
+        {
+            return Err(Error::InvalidValue);
+        }
+        let length_bytes = 15 - nonce.len();
+        if u128::from(data_length) >= (1u128 << (8 * length_bytes)) {
+            return Err(Error::InvalidValue);
+        }
+        Ok(Self {
+            inner: CK_CCM_PARAMS {
+                ulDataLen: data_length,
+                pNonce: nonce.as_mut_ptr(),
+                ulNonceLen: nonce.len().try_into()?,
+                pAAD: if aad.is_empty() {
+                    std::ptr::null_mut()
+                } else {
+                    aad.as_ptr() as *mut _
+                },
+                ulAADLen: aad.len().try_into()?,
+                ulMACLen: mac_length,
+            },
+            _marker: PhantomData,
+        })
+    }
+}
+
 /// Parameters for AES-GCM.
 #[derive(Debug)]
 #[repr(transparent)]

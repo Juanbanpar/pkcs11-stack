@@ -82,6 +82,8 @@ impl MechanismType {
     pub const AES_CTR: MechanismType = MechanismType { val: CKM_AES_CTR };
     /// AES-GCM mechanism
     pub const AES_GCM: MechanismType = MechanismType { val: CKM_AES_GCM };
+    /// AES-CCM authenticated encryption.
+    pub const AES_CCM: MechanismType = MechanismType { val: CKM_AES_CCM };
 
     /// Derivation via encryption
     pub const AES_CBC_ENCRYPT_DATA: MechanismType = MechanismType {
@@ -1110,6 +1112,7 @@ impl TryFrom<CK_MECHANISM_TYPE> for MechanismType {
             CKM_AES_KEY_WRAP_KWP => Ok(MechanismType::AES_KEY_WRAP_KWP),
             CKM_AES_CTR => Ok(MechanismType::AES_CTR),
             CKM_AES_GCM => Ok(MechanismType::AES_GCM),
+            CKM_AES_CCM => Ok(MechanismType::AES_CCM),
             CKM_AES_CBC_ENCRYPT_DATA => Ok(MechanismType::AES_CBC_ENCRYPT_DATA),
             CKM_AES_CMAC => Ok(MechanismType::AES_CMAC),
             CKM_AES_CMAC_GENERAL => Ok(MechanismType::AES_CMAC_GENERAL),
@@ -1264,6 +1267,8 @@ pub enum Mechanism<'a> {
     AesKeyWrapKwp,
     /// AES-GCM mechanism
     AesGcm(aead::GcmParams<'a>),
+    /// AES-CCM authenticated encryption/decryption, with an appended MAC.
+    AesCcm(aead::CcmParams<'a>),
     /// Parameterless AES-GCM initializer for the message API. Per-message
     /// parameters belong to `MessageParam`, not `C_MessageEncryptInit`.
     AesGcmMessageInit,
@@ -1622,6 +1627,7 @@ impl Mechanism<'_> {
             Mechanism::AesKeyWrapPad => MechanismType::AES_KEY_WRAP_PAD,
             Mechanism::AesKeyWrapKwp => MechanismType::AES_KEY_WRAP_KWP,
             Mechanism::AesGcm(_) => MechanismType::AES_GCM,
+            Mechanism::AesCcm(_) => MechanismType::AES_CCM,
             Mechanism::AesGcmMessageInit | Mechanism::AesGcmMessage(_) => MechanismType::AES_GCM,
             Mechanism::AesCbcEncryptData(_) => MechanismType::AES_CBC_ENCRYPT_DATA,
             Mechanism::AesCMac => MechanismType::AES_CMAC,
@@ -1788,6 +1794,7 @@ impl From<&Mechanism<'_>> for CK_MECHANISM {
             | Mechanism::DesCbcPad(params)
             | Mechanism::Des3CbcPad(params) => make_mechanism(mechanism, params),
             Mechanism::AesGcm(params) => make_mechanism(mechanism, params),
+            Mechanism::AesCcm(params) => make_mechanism(mechanism, params),
             Mechanism::AesGcmMessage(params) => make_mechanism(mechanism, params),
             Mechanism::RsaPkcsPss(params)
             | Mechanism::Sha3_224RsaPkcsPss(params)
@@ -1963,6 +1970,7 @@ fn make_mechanism<T>(mechanism: CK_MECHANISM_TYPE, param: &T) -> CK_MECHANISM {
          * Otherwise, we should generally not expect the backend to mutate the
          * parameters, so this cast is fine.
          * The list of such mutable parameter types so far:
+         * - aead::CcmParams
          * - aead::GcmParams
          * - aead::GcmMessageParams
          * - kbkdf::KbkdfParams

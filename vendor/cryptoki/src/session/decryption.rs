@@ -61,6 +61,36 @@ impl Session {
         Ok(data)
     }
 
+    /// Complete one initialized decryption into an exact-size zeroizing buffer.
+    /// Makes one C_Decrypt call, without a size query, retry or reinitialization.
+    /// Native errors and unexpected output lengths wipe the entire allocation.
+    /// The caller must supply the expected authenticated plaintext length and
+    /// discard or terminate the operation after any failure.
+    pub fn decrypt_initialized_exact(
+        &self,
+        encrypted_data: &[u8],
+        output_length: usize,
+    ) -> Result<secrecy::SecretBox<Vec<u8>>> {
+        use secrecy::{ExposeSecretMut, SecretBox};
+        let input_length = encrypted_data.len().try_into()?;
+        let mut written = output_length.try_into()?;
+        let mut output = SecretBox::new(Box::new(vec![0; output_length]));
+        unsafe {
+            Rv::from(get_pkcs11!(self.client(), C_Decrypt)(
+                self.handle(),
+                encrypted_data.as_ptr() as *mut u8,
+                input_length,
+                output.expose_secret_mut().as_mut_ptr(),
+                &mut written,
+            ))
+            .into_result(Function::Decrypt)?;
+        }
+        if usize::try_from(written)? != output_length {
+            return Err(crate::error::Error::InvalidValue);
+        }
+        Ok(output)
+    }
+
     /// Complete a single-part operation after `decrypt_init` and any required
     /// context login, without reinitialization. Allocation is bounded by the
     /// caller and the entire plaintext buffer zeroizes on failure or drop.

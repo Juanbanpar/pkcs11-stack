@@ -43,6 +43,9 @@ pub enum Error {
     /// Key class, length, permissions or provider disallows this AES-GCM profile.
     #[error("AES GCM operation unsupported for this key or provider")]
     UnsupportedAesGcm,
+    /// Key, token mechanism or entry points do not support this AES-CCM profile.
+    #[error("unsupported AES-CCM profile or key")]
+    UnsupportedAesCcm,
     /// The token does not advertise its own random generator.
     #[error("token random generator unavailable")]
     RandomUnavailable,
