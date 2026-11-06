@@ -75,7 +75,8 @@ or formal conformance. Coverage is recorded per capability below.
 | AES-KW/KWP key transfer | Implemented | Runtime/client/CLI/desktop; explicit selection and default IVs. Kryoptic/OpenSSL comparisons cover all AES wrapping/target sizes, output permissions, trust/extractability rejection, RO/duplicate-ID rejection, mismatches and tampering. SoftHSM retains the KW workflow. No deprecated PAD alias or fallback. |
 | SHA-512 HashML-DSA | Implemented | Runtime/client/CLI single-part original-message and typed 64-byte prehash profiles, plus native original-message signing and verification streams. Independent 3.2-header fixtures exercise both parameter layouts on selected 2.40/3.0/3.1/3.2 tables, independent single-part/multipart pointer gates, permissions, context authentication, exact output bounds, completed mismatches, cancellation and discarded errors. Reader tests cover interrupted reads, bounds, input errors and unwinding. Required Kryoptic tests cover all three parameter sets and hedge choices, empty/large messages, empty/ASCII/255-byte binary contexts, independent RustCrypto verification, deterministic agreement between input modes and cancellation followed by same-session reuse. CLI file/stdin signatures match the independently verified client results and are withheld through native/cleanup failures; external digests cannot select multipart. |
 | Fixed-output SHA-2/SHA-3 HashML-DSA expansion | Implemented | Runtime/client/CLI select SHA-224/256/384/512 and SHA3-224/256/384/512 for original messages, exact-length caller digests and native original-message streams. SHA-512 APIs, parameters and defaults remain supported. Independent 3.2-header fixtures on selected 2.40/3.0/3.1/3.2 tables check mechanism/hash identifiers, layouts, context authentication, independent pointer gates, length validation, hash separation and failed-session handling. Kryoptic covers all eight hashes, all parameter sets, hedging choices and contexts with empty/large readers. RustCrypto verifies FIPS 204 prehash domain separation and each hash OID independently; deterministic signatures agree between single-part message, digest and streaming inputs. Equal-length wrong-hash verification fails and preserves completed-mismatch session reuse. CLI file/stdin outputs match the independent references; invalid digest lengths, multipart caller digests and native/cleanup errors release no output. |
-| Additional HashML-DSA profiles, SLH-DSA and TLS signatures | Pending | SHAKE prehash functions and certificate/TLS integration remain separate work. Existing pure ML-DSA and ML-KEM profiles remain supported. |
+| Pure SLH-DSA | Implemented | Runtime/client/CLI single-part FIPS 205 signatures for all twelve SHA2/SHAKE 128s/128f, 192s/192f and 256s/256f profiles. Typed protected key generation, bounded public export as RFC 9909 SPKI, explicit hedging/context and current permission/pointer/byte-bound checks. Official 3.2 parameters are exercised on selected 2.40/3.0/3.1/3.2 tables, including context authentication, exact signature capacities, malformed outputs, reusable mismatches and discarded failures. Kryoptic covers every profile, empty/binary/255-byte contexts and deterministic agreement across runtime/client/CLI; a separate OpenSSL EVP adapter verifies all runtime reference signatures, including empty messages. CLI handles large signatures, file/stdin input, public export, duplicate IDs and output withholding through native/cleanup failures. Streaming, HashSLH-DSA and certificate/TLS integration remain separate work. |
+| Additional HashML-DSA/HashSLH-DSA and TLS signatures | Pending | SHAKE prehash functions and certificate/TLS integration remain separate work. Existing pure ML-DSA and ML-KEM profiles remain supported. |
 | Legacy algorithm execution | Pending | No legacy opt-in or algorithms are enabled yet. |
 
 The native fixtures require a C99 compiler (`cc`) on Unix and run with the normal
@@ -247,7 +248,7 @@ workflows remain planned. O2 implements bounded AES-GCM multipart workflows and
 client readers. CLI `--multipart` supports files/stdin with checked output commit;
 larger-file staging and desktop multipart integration remain open.
 Keep unconfirmed operations discarded on legacy providers. GMAC,
-additional HashML-DSA profiles, SLH-DSA and TLS extensions remain separate
+additional HashML-DSA/HashSLH-DSA profiles and TLS extensions remain separate
 backlog items in the coverage table. Provider gaps do not justify implicit software
 fallback or weakening existing metadata/permission checks.
 
@@ -420,11 +421,15 @@ generation implementation are unchanged. Uncorrected 0/0 bounds remain rejected.
 The required runtime/client/CLI HMAC suites exercise generated general-only keys
 for all ten hashes, alongside the existing independent OpenSSL known-key tests.
 
-`PKCS11_TEST_KDF_OPENSSL` selects the independent OpenSSL HKDF/KBKDF/PBKDF2 reference command.
+`PKCS11_TEST_KDF_OPENSSL` selects the independent OpenSSL HKDF/KBKDF/PBKDF2 reference command. The
+SLH-DSA verifier compiles against the sibling `openssl` headers and static library
+installed by the builder. It verifies public SPKI, signatures, original messages
+and contexts through EVP in a separate process, without token verification or
+private-key extraction. Runtime/client/CLI SLH-DSA tests are required by the runner.
 
 The runner creates a temporary Kryoptic SQLite store and removes it on exit.
 Use it only with Kryoptic. No existing token store is opened or reset.
-The helper enables SP 800-108 alongside ML-KEM, HKDF and the other tested mechanisms.
+The helper enables SLH-DSA and SP 800-108 alongside ML-KEM, HKDF and the other tested mechanisms.
 The `kryoptic-integration` CI job requires these mechanisms without skipping missing
 support. It compares SHA-256/384/512 results against OpenSSL using public
 hash-length inputs, including empty salt/context and maximum SHA-256 output.

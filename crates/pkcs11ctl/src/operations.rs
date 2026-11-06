@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use crate::{
     aes_cmac, aes_gcm, aes_key_wrap, eddsa, eddsa_named, generation, hash_ml_dsa, hmac, inspect,
-    kbkdf, key_establishment, ml_dsa, pbkdf2, stream_input::MultipartInput, support::*,
+    kbkdf, key_establishment, ml_dsa, pbkdf2, slh_dsa, stream_input::MultipartInput, support::*,
 };
 use clap::ArgMatches;
 use pkcs11_client::{
@@ -142,6 +142,7 @@ impl Inputs {
             ml_dsa::validate_options(m)?;
         } else if !eddsa_named::selected(name)
             && !hash_ml_dsa::selected(name)
+            && !slh_dsa::selected(name)
             && (get(m, "context-file").is_some() || get(m, "hedging").is_some())
         {
             return Err(usage(
@@ -158,7 +159,8 @@ impl Inputs {
         let context = Credential::load(m, "context-pin-file", "context-protected-path")?;
         let so = get(m, "role") == Some("so");
         if so
-            && (pbkdf2::selected(name)
+            && (slh_dsa::selected(name)
+                || pbkdf2::selected(name)
                 || kbkdf::selected(name)
                 || hmac::selected(name)
                 || aes_cmac::selected(name)
@@ -201,7 +203,11 @@ impl Inputs {
         };
         if matches!(
             name,
-            "verify" | "verify-token" | "verify-eddsa-named" | "verify-hash-ml-dsa"
+            "verify"
+                | "verify-token"
+                | "verify-eddsa-named"
+                | "verify-hash-ml-dsa"
+                | "verify-slh-dsa"
         ) && get(m, "input") == Some("-")
             && get(m, "signature") == Some("-")
         {
@@ -228,7 +234,9 @@ impl Inputs {
         let bytes = if aes_gcm::selected(name) || name == "digest" || stream_input.is_some() {
             vec![]
         } else if let Some(path) = get(m, "input") {
-            if hash_ml_dsa::selected(name) {
+            if slh_dsa::selected(name) {
+                bounded_input(path, pkcs11_client::SLH_DSA_MAXIMUM_MESSAGE)?
+            } else if hash_ml_dsa::selected(name) {
                 bounded_input(
                     path,
                     if hash_ml_dsa::mode(m).is_prehashed() {
@@ -275,9 +283,20 @@ impl Inputs {
         }
         let signature = if matches!(
             name,
-            "verify" | "verify-token" | "verify-eddsa-named" | "verify-hash-ml-dsa"
+            "verify"
+                | "verify-token"
+                | "verify-eddsa-named"
+                | "verify-hash-ml-dsa"
+                | "verify-slh-dsa"
         ) {
-            bounded_input(need(m, "signature")?, 16 * 1024)?
+            bounded_input(
+                need(m, "signature")?,
+                if name == "verify-slh-dsa" {
+                    slh_dsa::signature_limit(m)?
+                } else {
+                    16 * 1024
+                },
+            )?
         } else {
             vec![]
         };
@@ -431,6 +450,7 @@ impl Inputs {
         }
         eddsa_named::validate(name, m, &bytes, &domain_context, &signature)?;
         hash_ml_dsa::validate(name, m, &bytes, &domain_context, &signature)?;
+        slh_dsa::validate(name, m, &bytes, &domain_context, &signature)?;
         let establishment = key_establishment::Inputs::load(name, m, &bytes)?;
         let kbkdf = kbkdf::Inputs::load(name, m)?;
         let pbkdf2 = pbkdf2::Inputs::load(name, m)?;
@@ -727,6 +747,11 @@ fn management_command(
     } else {
         token_uri(uri(m, "object")?)?
     };
+    if name == "slh-dsa-generation-options" {
+        return Ok(Output::Structured(
+            json!({"advisory":true,"parameter_sets":module.slh_dsa_generation_options(&location)?.into_iter().map(slh_dsa::name).collect::<Vec<_>>()}),
+        ));
+    }
     if name == "generation-options" {
         return generation::options(module, m).map(Output::Structured);
     }
@@ -755,7 +780,8 @@ fn management_command(
             json!({"capacity":diagnostic.capacity,"exhaustion_verified":diagnostic.exhaustion_verified,"reuse_verified":diagnostic.reuse_verified,"session_state":format!("{:?}",diagnostic.session_state)}),
         ));
     }
-    let mutation = name == "generate-pbkdf2"
+    let mutation = name == "generate-slh-dsa"
+        || name == "generate-pbkdf2"
         || name == "derive-kbkdf"
         || key_establishment::mutation(name)
         || matches!(
@@ -789,6 +815,9 @@ fn management_operation(
     m: &ArgMatches,
     inputs: &Inputs,
 ) -> Result<Output> {
+    if slh_dsa::selected(name) {
+        return slh_dsa::operation(session, name, m, inputs);
+    }
     if hash_ml_dsa::selected(name) {
         return hash_ml_dsa::operation(session, name, m, inputs);
     }

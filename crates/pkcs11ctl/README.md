@@ -301,6 +301,44 @@ loading the module. Incomplete new files are removed on failure. An output or
 finalization error after signing does not undo the token operation: do not assume
 an error means no signature or mutation occurred.
 
+## Pure SLH-DSA
+
+Use the dedicated commands for FIPS 205 original-message signatures. The twelve
+`--parameter-set` choices are `slh-dsa-sha2-{128,192,256}{s,f}` and
+`slh-dsa-shake-{128,192,256}{s,f}`. `slh-dsa-generation-options --token URI` reports
+advisory generation support without login. `slh-dsa-capabilities --object URI`
+checks a private key's current signing permissions and parameter set.
+
+```sh
+pkcs11ctl --module /path/to/module.so generate-slh-dsa \
+  --token 'pkcs11:serial=123' --parameter-set slh-dsa-shake-128f \
+  --id 31 --label 'SLH signing' --pin-file user.pin --confirm
+pkcs11ctl --module /path/to/module.so sign-slh-dsa \
+  --object 'pkcs11:serial=123;id=%31;type=private' \
+  --parameter-set slh-dsa-shake-128f --input message.bin \
+  --context-file context.bin --output signature.bin --pin-file user.pin
+pkcs11ctl --module /path/to/module.so verify-slh-dsa \
+  --object 'pkcs11:serial=123;id=%31;type=public' \
+  --parameter-set slh-dsa-shake-128f --input message.bin \
+  --context-file context.bin --signature signature.bin --pin-file user.pin
+pkcs11ctl --module /path/to/module.so export-slh-dsa-public \
+  --object 'pkcs11:serial=123;id=%31;type=public' \
+  --output public.der --pin-file user.pin
+```
+
+Messages are bounded to 64 MiB and contexts to 255 bytes; omitting `--context-file`
+selects the empty context. `--input -` or `--signature -` reads stdin, with only one
+verification input allowed to do so. Signatures are raw FIPS 205 bytes and may be
+49,856 bytes; public export uses RFC 9909 SPKI DER. `--output -` writes binary stdout.
+Digest/prehash, multipart, certificate and TLS choices are not accepted here.
+
+Signing defaults to `--hedging required`; `preferred` and `deterministic` require
+explicit selection. Generation supports `--always-authenticate`; subsequent
+signatures then require `--context-pin-file` or `--context-protected-path` in addition
+to ordinary USER authentication. Existing IDs and output files are not overwritten.
+Results are emitted only after checked session closure and module finalization.
+No private values/seeds, automatic retries or software fallback are exposed.
+
 ## ML-DSA
 
 `generate --kind ml-dsa-44|ml-dsa-65|ml-dsa-87` generates a persistent,

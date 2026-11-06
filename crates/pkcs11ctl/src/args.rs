@@ -409,7 +409,37 @@ pub(crate) fn command() -> Command {
                 "FIPS 204 context file, at most 255 bytes; no stdin",
             ))
     };
+    let slh_parameter = |c: Command| {
+        c.arg(
+            required("parameter-set", "Expected pure SLH-DSA parameter set")
+                .value_parser(crate::slh_dsa::NAMES),
+        )
+    };
+    let slh_input = |c: Command| {
+        slh_parameter(c)
+            .arg(required(
+                "input",
+                "Original message file; - reads stdin; at most 64 MiB",
+            ))
+            .arg(value(
+                "context-file",
+                "FIPS 205 context file, at most 255 bytes; no stdin",
+            ))
+    };
     let commands = [
+        token(Command::new("slh-dsa-generation-options").about("List advisory SLH-DSA generation profiles")),
+        mutation(auth(token(slh_parameter(Command::new("generate-slh-dsa").about("Generate a protected signing/verification-only SLH-DSA pair"))
+            .arg(required("id", "Shared ID as 1-128 bytes of hexadecimal"))
+            .arg(required("label", "Shared nonempty label, at most 128 UTF-8 bytes"))
+            .arg(flag("always-authenticate", "Require context authentication for every signature"))))),
+        auth(object(Command::new("slh-dsa-capabilities").about("Inspect SLH-DSA signing support for a private key"))),
+        context(auth(object(slh_input(Command::new("sign-slh-dsa").about("Sign an original message with pure SLH-DSA"))
+            .arg(value("hedging", "Randomness requirement; defaults to required").value_parser(["required", "preferred", "deterministic"]))
+            .arg(required("output", "New signature file, or - for binary stdout"))))),
+        auth(object(slh_input(Command::new("verify-slh-dsa").about("Verify pure SLH-DSA on the token with a public key"))
+            .arg(required("signature", "Raw signature file; - reads stdin")))),
+        auth(object(Command::new("export-slh-dsa-public").about("Export a non-private SLH-DSA public object as SPKI DER")
+            .arg(required("output", "New DER file, or - for binary stdout")))),
         auth(object(hash_mode(Command::new("hash-ml-dsa-capabilities").about("Inspect HashML-DSA signing support for one hash and input mode")))),
         context(auth(object(hash_input(Command::new("sign-hash-ml-dsa").about("Sign using native HashML-DSA; no implicit hashing fallback")
             .arg(value("hedging", "Randomness requirement; defaults to required").value_parser(["required", "preferred", "deterministic"]))
