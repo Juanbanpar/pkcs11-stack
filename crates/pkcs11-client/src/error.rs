@@ -107,7 +107,8 @@ impl Error {
                 Runtime::UnsupportedMac
                 | Runtime::UnsupportedCipher
                 | Runtime::UnsupportedKeyOperation
-                | Runtime::UnsupportedAesGcm => ErrorKind::Policy,
+                | Runtime::UnsupportedAesGcm
+                | Runtime::UnsupportedAesCcm => ErrorKind::Policy,
                 _ => ErrorKind::Runtime,
             },
             _ => ErrorKind::Client,

@@ -606,6 +606,27 @@ rollback or software fallback; failures may leave persistent objects. A wrapping
 key does not make nonextractable targets exportable. Existing signing-generation
 APIs retain their signing-only behavior.
 
+## AES-CCM encryption
+
+`ManagementSession` and pooled `Client` expose `aes_ccm_capabilities`,
+`encrypt_aes_ccm` and `decrypt_aes_ccm`. They accept `AesCcmEncryptRequest` or
+`AesCcmDecryptRequest` with a caller-supplied 12-byte nonce, AAD and borrowed input.
+Ciphertext includes the full 16-byte appended tag; nonce/AAD remain separate.
+The fixed single-part profile accepts AES-128/192/256 encryption keys, plaintext
+through 16,777,215 bytes and AAD through 1 MiB, including empty inputs.
+
+Pooled operations validate input lengths before acquiring a lease, then resolve
+the key and recheck permissions and native support. Authentication is explicit;
+native failures discard the leased session. Management callers check session
+closure before publishing results. Decryption returns redacted, zeroizing plaintext
+only after successful authentication and exact-length checks. Failed native output
+buffers zeroize. Each completion uses exact-capacity storage without a size query.
+
+Callers ensure nonce uniqueness per key across writers, copies and restarts,
+including after errors. These APIs do not generate or track nonces, retry, fall
+back to software, stream multipart plaintext or wrap keys. Existing encryption-only
+AES generation and protected AES derivation outputs can supply keys.
+
 ## AES-GCM encryption
 
 `ManagementSession::aes_gcm_capabilities` checks an AES secret key's current size,
