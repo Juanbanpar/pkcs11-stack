@@ -47,6 +47,8 @@ for current discovery and explicit initialization.
 | `random --token URI --length N --output PATH` | Token-generated random bytes |
 | `aes-gcm-capabilities --object URI --operation encrypt\|decrypt [--multipart]` | Current AES key permissions and support for the requested execution mode |
 | `encrypt-aes-gcm`, `decrypt-aes-gcm` | Bounded authenticated encryption/decryption; explicit nonce and optional AAD file |
+| `aes-ccm-capabilities --object URI --operation encrypt\|decrypt` | Advisory AES-CCM key permissions and fixed profile limits |
+| `encrypt-aes-ccm`, `decrypt-aes-ccm` | Single-part AES-CCM; supplied 12-byte nonce and full 16-byte tag |
 | `key-wrap-capabilities --object URI --operation wrap\|unwrap` | Advisory AES-KW/KWP choices for a secret key |
 | `wrap-aes-key --object URI --target URI --algorithm kw\|kwp --output PATH` | Wrap one extractable AES key |
 | `unwrap-aes-key --object URI --algorithm kw\|kwp --input PATH --id HEX --label LABEL --confirm` | Create a sensitive nonextractable AES encryption/decryption key |
@@ -830,6 +832,39 @@ attributes use the explicit status/value contract above; no private object handl
 is exposed. `diagnose` opens up to 64 simultaneous exclusive leases, verifies pool
 exhaustion, releases them and verifies reuse. It is not a performance benchmark or
 hardware fault-injection test.
+
+## AES-CCM files
+
+`encrypt-aes-ccm` and `decrypt-aes-ccm` require an AES `--object` URI with
+`type=secret-key`, a `--nonce` of exactly 24 hexadecimal digits, `--input` and
+`--output`. Optional `--aad-file` accepts a file, with empty AAD as the default.
+`--input -` reads stdin; `--output -` writes raw binary stdout even with JSON
+formatting. `aes-ccm-capabilities --object URI --operation encrypt|decrypt`
+reports advisory key and profile limits without performing encryption.
+
+```sh
+# Use an encryption-purpose AES key from generate --kind aes256 --purpose encryption or an AES derivation.
+# NONCE_HEX must not have been used with this key, including after an error.
+pkcs11ctl --module /path/to/module.so encrypt-aes-ccm \
+  --object 'pkcs11:serial=123;id=%31;type=secret-key' --nonce "$NONCE_HEX" \
+  --aad-file context.bin --input message.bin --output ciphertext.bin --pin-file user.pin
+pkcs11ctl --module /path/to/module.so decrypt-aes-ccm \
+  --object 'pkcs11:serial=123;id=%31;type=secret-key' --nonce "$NONCE_HEX" \
+  --aad-file context.bin --input ciphertext.bin --output recovered.bin --pin-file user.pin
+```
+
+The fixed single-part profile supports AES-128/192/256, a full 16-byte tag and
+plaintext through 16,777,215 bytes (one byte below 16 MiB). AAD is limited to
+1 MiB; empty plaintext/AAD are supported. The file contains ciphertext followed
+by the tag, without nonce, AAD or a header. Retain those parameters for decryption.
+Nonce uniqueness per key across writers, copies and restarts is the caller's
+responsibility. There is no nonce generator, retry or software fallback.
+
+Input bounds and nonce syntax are checked before loading the provider. Plaintext
+buffers zeroize, and decryption releases no output until authentication, exact
+length checks, session closure and module finalization succeed. Output files are
+created with mode 0600 on Unix and never overwritten. These commands do not accept
+`--multipart`, `--message-api`, AAD from stdin or SO authentication.
 
 ## AES-GCM files
 

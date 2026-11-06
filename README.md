@@ -129,6 +129,10 @@ expose multipart guards and readers with explicit budgets up to that limit.
 Native update plaintext stays in zeroizing quarantine until final authentication;
 The CLI selects native multipart file/stdin execution with `--multipart`;
 single-part execution remains its default. Desktop file workflows remain single-part.
+AES-CCM is available through the runtime, client and CLI with the same explicit
+12-byte nonce and 16-byte appended-tag format. Its single-part profile permits
+16,777,215 plaintext bytes and 1 MiB of AAD, with authenticated, zeroizing plaintext
+and checked CLI cleanup before output.
 Full/general AES-CMAC and SHA-2/SHA-3 HMAC generation and native verification use
 dedicated sensitive, nonextractable authentication keys through the libraries,
 CLI and desktop. HMAC keys use the generic-secret generator available in 2.40.

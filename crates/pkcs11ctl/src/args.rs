@@ -365,6 +365,13 @@ pub(crate) fn command() -> Command {
         .arg(required("input", "Input file; - reads stdin; ciphertext includes the full 16-byte tag"))
         .arg(required("output", "New output file, or - for binary stdout; nonce/AAD are not included"))))
     };
+    let ccm = |name, help| {
+        auth(object(Command::new(name).about(help)
+            .arg(required("nonce","Exactly 24 hex digits; encryption requires a unique nonce per key, including after errors"))
+            .arg(value("aad-file","Additional authenticated data, at most 1 MiB; no stdin"))
+            .arg(required("input","File or - for stdin; plaintext at most 16 MiB minus one byte; ciphertext includes the 16-byte tag"))
+            .arg(required("output","New file, or - for binary stdout; nonce/AAD are separate"))))
+    };
     let hash_mode = |command: Command| {
         command
             .arg(flag(
@@ -613,6 +620,10 @@ pub(crate) fn command() -> Command {
                 .arg(required("id", "New secret-key ID in hexadecimal"))
                 .arg(required("label", "New secret-key label")),
         ))),
+        ccm("encrypt-aes-ccm","Encrypt one bounded AES-CCM message, with a full 16-byte tag"),
+        ccm("decrypt-aes-ccm","Authenticate/decrypt AES-CCM before releasing plaintext and checking cleanup"),
+        auth(object(Command::new("aes-ccm-capabilities").about("Inspect AES-CCM key permissions and native support")
+            .arg(required("operation","Requested direction").value_parser(["encrypt","decrypt"])))),
         gcm(
             "encrypt-aes-gcm",
             "Encrypt at most 16 MiB; output is ciphertext followed by a full tag",

@@ -6,7 +6,7 @@ use pkcs11_client::{
     AesGcmEncryptRequest, AesGcmOperation, AesGcmStreamParameters, ManagementSession, Plaintext,
     object_reference,
 };
-use secrecy::{ExposeSecret, ExposeSecretMut, SecretBox};
+use secrecy::ExposeSecret;
 use serde_json::json;
 use std::{fs::File, io::Read};
 
@@ -24,28 +24,6 @@ pub(crate) struct Inputs {
 enum Input {
     Buffered(Plaintext),
     Multipart(Option<File>),
-}
-fn secret_input(path: &str, maximum: usize) -> Result<Plaintext> {
-    let mut reader: Box<dyn Read> = if path == "-" {
-        Box::new(std::io::stdin())
-    } else {
-        Box::new(File::open(path)?)
-    };
-    // Allocate once so plaintext is never left in an abandoned growth buffer.
-    let mut input = SecretBox::new(Box::new(vec![0; maximum + 1]));
-    let mut length = 0;
-    loop {
-        let read = reader.read(&mut input.expose_secret_mut()[length..])?;
-        if read == 0 {
-            break;
-        }
-        length += read;
-        if length > maximum {
-            return Err(usage("AES GCM input exceeds the size limit"));
-        }
-    }
-    input.expose_secret_mut().truncate(length);
-    Ok(input)
 }
 impl Inputs {
     pub fn load(name: &str, m: &ArgMatches) -> Result<Option<Self>> {

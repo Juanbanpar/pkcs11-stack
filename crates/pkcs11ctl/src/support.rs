@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use clap::ArgMatches;
-use pkcs11_client::{Authentication, Pin};
+use pkcs11_client::{Authentication, Pin, Plaintext};
 use pkcs11_locator::Pkcs11Uri;
-use secrecy::SecretString;
+use secrecy::{ExposeSecretMut, SecretBox, SecretString};
 use serde_json::{Value, json};
 use std::{
     fs::{File, OpenOptions},
@@ -289,6 +289,32 @@ fn render(out: &mut impl Write, prefix: &str, value: &Value) -> std::io::Result<
         _ => writeln!(out, "{prefix}{value}")?,
     }
     Ok(())
+}
+
+pub(crate) fn secret_input(path: &str, maximum: usize) -> Result<Plaintext> {
+    let mut reader: Box<dyn Read> = if path == "-" {
+        Box::new(std::io::stdin())
+    } else {
+        Box::new(File::open(path)?)
+    };
+    // Allocate once so plaintext is never left in an abandoned growth buffer.
+    let mut input = SecretBox::new(Box::new(vec![0; maximum + 1]));
+    let mut length = 0;
+    loop {
+        let read = match reader.read(&mut input.expose_secret_mut()[length..]) {
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            result => result?,
+        };
+        if read == 0 {
+            break;
+        }
+        length += read;
+        if length > maximum {
+            return Err(usage("cipher input exceeds the size limit"));
+        }
+    }
+    input.expose_secret_mut().truncate(length);
+    Ok(input)
 }
 
 #[cfg(test)]

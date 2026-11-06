@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use crate::{
-    aes_cmac, aes_gcm, aes_key_wrap, eddsa, eddsa_named, generation, hash_ml_dsa, hmac, inspect,
-    kbkdf, key_establishment, ml_dsa, pbkdf2, slh_dsa, stream_input::MultipartInput, support::*,
+    aes_ccm, aes_cmac, aes_gcm, aes_key_wrap, eddsa, eddsa_named, generation, hash_ml_dsa, hmac,
+    inspect, kbkdf, key_establishment, ml_dsa, pbkdf2, slh_dsa, stream_input::MultipartInput,
+    support::*,
 };
 use clap::ArgMatches;
 use pkcs11_client::{
@@ -98,6 +99,7 @@ pub(crate) enum VerificationCertificate {
 // Validate non-provider inputs and load files before initializing a library or logging in.
 pub(crate) struct Inputs {
     pub aes_gcm: Option<aes_gcm::Inputs>,
+    pub aes_ccm: Option<aes_ccm::Inputs>,
     pub hmac_tag: Option<Vec<u8>>,
     pub cmac_tag: Option<Vec<u8>>,
     pub stream_input: Option<MultipartInput>,
@@ -165,6 +167,7 @@ impl Inputs {
                 || hmac::selected(name)
                 || aes_cmac::selected(name)
                 || aes_gcm::selected(name)
+                || aes_ccm::selected(name)
                 || aes_key_wrap::selected(name)
                 || key_establishment::selected(name)
                 || eddsa_named::selected(name)
@@ -218,6 +221,7 @@ impl Inputs {
         let cmac_tag = aes_cmac::load(name, m)?;
         let stream_input = MultipartInput::load(name, m)?;
         let aes_gcm = aes_gcm::Inputs::load(name, m)?;
+        let aes_ccm = aes_ccm::Inputs::load(name, m)?;
         let oaep_label = match get(m, "label-hex") {
             Some(value) if value.len() > 8192 => {
                 return Err(usage("OAEP label exceeds 4096 bytes"));
@@ -232,7 +236,11 @@ impl Inputs {
         } else {
             None
         };
-        let bytes = if aes_gcm::selected(name) || name == "digest" || stream_input.is_some() {
+        let bytes = if aes_ccm::selected(name)
+            || aes_gcm::selected(name)
+            || name == "digest"
+            || stream_input.is_some()
+        {
             vec![]
         } else if let Some(path) = get(m, "input") {
             if slh_dsa::selected(name) {
@@ -461,6 +469,7 @@ impl Inputs {
         }
         Ok(Self {
             aes_gcm,
+            aes_ccm,
             cmac_tag,
             stream_input,
             hmac_tag,
@@ -851,6 +860,9 @@ fn management_operation(
             inputs.cmac_tag.as_deref(),
             inputs.stream_input.as_ref(),
         );
+    }
+    if aes_ccm::selected(name) {
+        return aes_ccm::operation(session, name, m, inputs.aes_ccm.as_ref());
     }
     if aes_gcm::selected(name) {
         return aes_gcm::operation(session, name, m, inputs.aes_gcm.as_ref());
