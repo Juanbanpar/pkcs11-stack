@@ -84,6 +84,11 @@ pub use hash_ml_dsa_stream::{
     HashMlDsaVerificationOperation,
 };
 mod management;
+mod slh_dsa;
+pub use pkcs11_runtime::{
+    SLH_DSA_MAXIMUM_MESSAGE, SlhDsaCapabilities, SlhDsaHedging, SlhDsaKeyPairRequest,
+    SlhDsaParameterSet, SlhDsaPublicKey, SlhDsaRequest, SlhDsaSigningPolicy,
+};
 mod ml_dsa;
 pub use hash_ml_dsa::{HashMlDsaCapabilities, HashMlDsaInput, HashMlDsaMode, HashMlDsaRequest};
 mod ml_dsa_stream;

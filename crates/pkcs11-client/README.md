@@ -84,6 +84,42 @@ do not guarantee provider multipart support. Packaged SoftHSM 2.7.0 rc1 rejects
 combined ECDSA updates; choose software hashing explicitly or use a provider with
 multipart support. No failed native operation triggers a software retry.
 
+## Pure SLH-DSA
+
+`Provider::slh_dsa_generation_options` discovers advisory support for all twelve
+FIPS 205 parameter sets. `ManagementSession::generate_slh_dsa_key_pair` accepts a
+`SlhDsaKeyPairRequest` and creates persistent signing/verification-only keys with a
+sensitive, nonextractable private key. ID/label bounds and existing IDs are checked
+before generation; concurrent writers and partial provider effects are not rolled
+back. Generation requires an RW session.
+
+Management and pooled clients expose `slh_dsa_capabilities`, `sign_slh_dsa`,
+`verify_slh_dsa` and `export_slh_dsa_public_key`. Requests contain the expected
+parameter set, original message (at most 64 MiB), binary context (at most 255 bytes)
+and explicit hedging choice. Signing uses its own `SlhDsaSigningPolicy`; classical
+and ML-DSA policies do not enable or configure this profile. Native errors discard
+the session; completed verification mismatches permit reuse. Public export returns
+RFC 9909 SPKI DER with absent parameters and never reads a private value or seed.
+HashSLH-DSA, streaming, certificate binding and TLS are separate profiles.
+
+```no_run
+use pkcs11_client::{Authentication, Error, Pin, Pkcs11Uri, PrivateKeyRef,
+    Provider, SessionMode, SlhDsaRequest, SlhDsaSigningPolicy};
+fn sign(provider: &Provider, token: &Pkcs11Uri, key: &PrivateKeyRef,
+    request: &SlhDsaRequest<'_>, auth: Authentication<'_>,
+    context_pin: Option<Pin<'_>>) -> Result<Vec<u8>, Error> {
+    let mut session = provider.management(token, SessionMode::ReadOnly, auth)?;
+    let result = session.sign_slh_dsa(key, request,
+        &SlhDsaSigningPolicy::default(), context_pin);
+    session.close()?;
+    result
+}
+```
+
+Always-authenticate keys require a separate context PIN after signing init. No
+input, key handle or PIN is cached by these methods. Check session/pool closure
+and module finalization before publishing results when checked cleanup is required.
+
 ## ML-DSA
 
 The client exposes pure ML-DSA-44/65/87 with a separate `MlDsaRequest` and explicit
