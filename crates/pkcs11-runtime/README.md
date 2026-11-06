@@ -677,6 +677,36 @@ session can be used after such a failure. Caller templates may contain secrets a
 are never logged. `validate_token_uri` provides the same pure constraint validation
 used by module resolution, so callers can reject unsupported input before loading.
 
+## Pure SLH-DSA
+
+`SlhDsaParameterSet` covers FIPS 205's twelve SHA2/SHAKE 128s/128f, 192s/192f
+and 256s/256f profiles. Public keys contain 32, 48 or 64 raw bytes; signatures
+contain 7,856–49,856 bytes according to the parameter set. Mechanism key-size
+bounds use public-key bytes. `slh_dsa_generation_options` checks the generation
+pointer, flags and bounds; advertised choices do not guarantee template acceptance.
+
+`SlhDsaKeyPairRequest` generates one persistent signing/verification-only pair.
+ID and label must be nonempty and at most 128 bytes; existing public/private IDs
+are rejected without an atomic uniqueness guarantee against concurrent writers.
+The private key is private, sensitive and nonextractable, with only CKM_SLH_DSA
+allowed. Generation requires RW mode. No private value or seed is imported or
+exported; failures may leave partial objects and are not retried or rolled back.
+
+`SlhDsaRequest` borrows an original message up to 64 MiB and a binary context up
+to 255 bytes. Signing selects required hedging, preferred hedging or deterministic
+output explicitly, under `SlhDsaSigningPolicy`. Current parameter set, permissions,
+allowed mechanisms, native pointers and mechanism bounds are checked before each
+signature. Always-authenticate keys require a separate context PIN after init.
+Signing makes one bounded completion call without an output-size query or retry.
+Native failures, unwinds and malformed signature lengths invalidate the session.
+
+`verify_slh_dsa` verifies on the token; completed signature mismatches leave the
+session usable. `slh_dsa_public_key` reads a bounded value only from a public,
+non-private SLH-DSA object. The client encodes that material as
+[RFC 9909 SPKI](https://www.rfc-editor.org/rfc/rfc9909.html) with absent parameters.
+This profile does not expose HashSLH-DSA, streaming or certificate/TLS operations.
+Check session closure before releasing results.
+
 ## ML-DSA
 
 Pure ML-DSA uses `MlDsaRequest` with an expected parameter set, the original message,

@@ -67,6 +67,11 @@ pub use hash_ml_dsa_stream::{
 };
 mod hybrid;
 mod key_operations;
+mod slh_dsa;
+pub use slh_dsa::{
+    SLH_DSA_MAXIMUM_MESSAGE, SlhDsaCapabilities, SlhDsaHedging, SlhDsaKeyPairRequest,
+    SlhDsaParameterSet, SlhDsaPublicKey, SlhDsaRequest, SlhDsaSigningPolicy,
+};
 mod ml_dsa;
 pub use hash_ml_dsa::{HashMlDsaCapabilities, HashMlDsaInput, HashMlDsaMode, HashMlDsaRequest};
 mod ml_dsa_verify;
