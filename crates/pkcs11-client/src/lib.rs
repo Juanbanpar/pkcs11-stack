@@ -77,6 +77,11 @@ pub use pkcs11_runtime::{
     HMAC_MAXIMUM_MESSAGE, HmacAlgorithm, HmacCapabilities, HmacKeyRequest, HmacOptions,
     HmacTagProfile,
 };
+mod hash_slh_dsa;
+pub use hash_slh_dsa::{
+    HashSlhDsaCapabilities, HashSlhDsaInput, HashSlhDsaMode, HashSlhDsaRequest,
+};
+pub use pkcs11_runtime::HashSlhDsaSigningPolicy;
 mod hash_ml_dsa;
 mod hash_ml_dsa_stream;
 pub use hash_ml_dsa_stream::{

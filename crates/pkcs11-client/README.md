@@ -100,7 +100,8 @@ and explicit hedging choice. Signing uses its own `SlhDsaSigningPolicy`; classic
 and ML-DSA policies do not enable or configure this profile. Native errors discard
 the session; completed verification mismatches permit reuse. Public export returns
 RFC 9909 SPKI DER with absent parameters and never reads a private value or seed.
-HashSLH-DSA, streaming, certificate binding and TLS are separate profiles.
+Streaming, certificate binding and TLS are separate profiles. Pure public export
+rejects objects whose allowed mechanisms exclude pure SLH-DSA.
 
 ```no_run
 use pkcs11_client::{Authentication, Error, Pin, Pkcs11Uri, PrivateKeyRef,
@@ -119,6 +120,28 @@ fn sign(provider: &Provider, token: &Pkcs11Uri, key: &PrivateKeyRef,
 Always-authenticate keys require a separate context PIN after signing init. No
 input, key handle or PIN is cached by these methods. Check session/pool closure
 and module finalization before publishing results when checked cleanup is required.
+
+## HashSLH-DSA
+
+Management and pooled clients expose `hash_slh_dsa_capabilities`,
+`sign_hash_slh_dsa` and `verify_hash_slh_dsa`. `HashSlhDsaRequest` explicitly
+selects original-message or exact-length digest input, one of the eight
+fixed-output SHA-2/SHA-3 prehashes, the expected parameter set, context and hedging.
+Messages are hashed on the token; caller digests are passed unchanged. No input,
+PIN, policy or key handle is cached, and no software fallback or retry is used.
+
+`HashSlhDsaSigningPolicy` restricts hashes and parameter sets before pool checkout.
+It preserves the parameter set's strength by default, requiring a prehash output
+of at least 2n bytes. An application must explicitly set `allow_reduced_strength`
+to sign weaker combinations, including SHA-224/SHA3-224. Verification accepts
+these combinations without enabling them for signing.
+
+`ManagementSession::generate_hash_slh_dsa_key_pair` accepts a
+`SlhDsaKeyPairRequest` in an RW session and creates protected HashSLH-only keys.
+Pure generation and existing keys retain their allowed mechanisms. HashSLH SPKI
+encoding, certificate binding, TLS, SHAKE prehash and streaming remain separate;
+the pure SPKI exporter refuses HashSLH-only objects. Check session/pool closure
+and module finalization before releasing results when cleanup must be checked.
 
 ## ML-DSA
 
