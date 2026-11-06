@@ -339,6 +339,41 @@ to ordinary USER authentication. Existing IDs and output files are not overwritt
 Results are emitted only after checked session closure and module finalization.
 No private values/seeds, automatic retries or software fallback are exposed.
 
+## HashSLH-DSA
+
+Use `generate-hash-slh-dsa` with the same generation arguments as pure SLH-DSA
+to create a protected pair restricted to the raw HashSLH-DSA mechanism and all
+eight fixed-output SHA-2/SHA-3 combined mechanisms. Pure generation and existing
+keys keep their restrictions. `hash-slh-dsa-capabilities --object PRIVATE_URI
+--digest HASH --input-kind message|digest` reports advisory native support for
+that exact mode.
+
+```sh
+pkcs11ctl --module /path/to/module.so sign-hash-slh-dsa \
+  --object 'pkcs11:serial=123;id=%32;type=private' \
+  --parameter-set slh-dsa-sha2-128f --digest sha256 --input-kind message \
+  --input message.bin --context-file context.bin --output signature.bin \
+  --pin-file user.pin
+pkcs11ctl --module /path/to/module.so verify-hash-slh-dsa \
+  --object 'pkcs11:serial=123;id=%32;type=public' \
+  --parameter-set slh-dsa-sha2-128f --digest sha256 --input-kind digest \
+  --input message.sha256 --context-file context.bin --signature signature.bin \
+  --pin-file user.pin
+```
+
+`--digest` is required: `sha224`, `sha256`, `sha384`, `sha512`, `sha3-224`,
+`sha3-256`, `sha3-384` or `sha3-512`. The default `--input-kind message` hashes
+original bytes on the token; `digest` passes exactly the selected hash's output
+length without hashing again. Signature/context/message bounds, stdin rules,
+hedging, context authentication and checked output release match pure SLH-DSA.
+
+Signing preserves the parameter set's security strength by default: prehash
+output must be at least 2n bytes (32, 48 or 64). `--allow-reduced-strength` explicitly
+permits weaker combinations for compatibility; it is always needed for SHA-224
+or SHA3-224. Verification does not require this signing opt-in. SHAKE prehash,
+multipart and certificate/TLS options are not exposed. Pure public export refuses
+HashSLH-only keys; this profile has no HashSLH SPKI exporter.
+
 ## ML-DSA
 
 `generate --kind ml-dsa-44|ml-dsa-65|ml-dsa-87` generates a persistent,

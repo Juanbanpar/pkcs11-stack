@@ -208,6 +208,7 @@ impl Inputs {
                 | "verify-eddsa-named"
                 | "verify-hash-ml-dsa"
                 | "verify-slh-dsa"
+                | "verify-hash-slh-dsa"
         ) && get(m, "input") == Some("-")
             && get(m, "signature") == Some("-")
         {
@@ -235,7 +236,7 @@ impl Inputs {
             vec![]
         } else if let Some(path) = get(m, "input") {
             if slh_dsa::selected(name) {
-                bounded_input(path, pkcs11_client::SLH_DSA_MAXIMUM_MESSAGE)?
+                bounded_input(path, slh_dsa::input_limit(m)?)?
             } else if hash_ml_dsa::selected(name) {
                 bounded_input(
                     path,
@@ -288,10 +289,11 @@ impl Inputs {
                 | "verify-eddsa-named"
                 | "verify-hash-ml-dsa"
                 | "verify-slh-dsa"
+                | "verify-hash-slh-dsa"
         ) {
             bounded_input(
                 need(m, "signature")?,
-                if name == "verify-slh-dsa" {
+                if matches!(name, "verify-slh-dsa" | "verify-hash-slh-dsa") {
                     slh_dsa::signature_limit(m)?
                 } else {
                     16 * 1024
@@ -780,7 +782,7 @@ fn management_command(
             json!({"capacity":diagnostic.capacity,"exhaustion_verified":diagnostic.exhaustion_verified,"reuse_verified":diagnostic.reuse_verified,"session_state":format!("{:?}",diagnostic.session_state)}),
         ));
     }
-    let mutation = name == "generate-slh-dsa"
+    let mutation = matches!(name, "generate-slh-dsa" | "generate-hash-slh-dsa")
         || name == "generate-pbkdf2"
         || name == "derive-kbkdf"
         || key_establishment::mutation(name)

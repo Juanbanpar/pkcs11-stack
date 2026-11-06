@@ -411,7 +411,7 @@ pub(crate) fn command() -> Command {
     };
     let slh_parameter = |c: Command| {
         c.arg(
-            required("parameter-set", "Expected pure SLH-DSA parameter set")
+            required("parameter-set", "Expected SLH-DSA parameter set")
                 .value_parser(crate::slh_dsa::NAMES),
         )
     };
@@ -419,14 +419,41 @@ pub(crate) fn command() -> Command {
         slh_parameter(c)
             .arg(required(
                 "input",
-                "Original message file; - reads stdin; at most 64 MiB",
+                "Input file; - reads stdin; at most 64 MiB for original messages",
             ))
             .arg(value(
                 "context-file",
                 "FIPS 205 context file, at most 255 bytes; no stdin",
             ))
     };
+    let slh_hash_mode = |c: Command| {
+        c.arg(
+            required("digest", "HashSLH-DSA fixed-output prehash algorithm").value_parser([
+                "sha224", "sha256", "sha384", "sha512", "sha3-224", "sha3-256", "sha3-384",
+                "sha3-512",
+            ]),
+        )
+        .arg(
+            value(
+                "input-kind",
+                "Original message hashed on token, or an exact-length caller digest",
+            )
+            .value_parser(["message", "digest"])
+            .default_value("message"),
+        )
+    };
     let commands = [
+        mutation(auth(token(slh_parameter(Command::new("generate-hash-slh-dsa").about("Generate a protected HashSLH-DSA-only pair; permits fixed-output SHA2/SHA3 prehash mechanisms"))
+            .arg(required("id", "Shared ID as 1-128 bytes of hexadecimal"))
+            .arg(required("label", "Shared nonempty label, at most 128 UTF-8 bytes"))
+            .arg(flag("always-authenticate", "Require context authentication for every signature"))))),
+        auth(object(slh_hash_mode(Command::new("hash-slh-dsa-capabilities").about("Inspect HashSLH-DSA support for one explicit hash and input mode")))),
+        context(auth(object(slh_hash_mode(slh_input(Command::new("sign-hash-slh-dsa").about("Sign with native HashSLH-DSA; no implicit hashing fallback")))
+            .arg(flag("allow-reduced-strength", "Explicitly permit a prehash that reduces the parameter set's security strength"))
+            .arg(value("hedging", "Randomness requirement; defaults to required").value_parser(["required","preferred","deterministic"]))
+            .arg(required("output", "New signature file, or - for binary stdout"))))),
+        auth(object(slh_hash_mode(slh_input(Command::new("verify-hash-slh-dsa").about("Verify HashSLH-DSA on the token with a public key")))
+            .arg(required("signature", "Raw signature file; - reads stdin")))),
         token(Command::new("slh-dsa-generation-options").about("List advisory SLH-DSA generation profiles")),
         mutation(auth(token(slh_parameter(Command::new("generate-slh-dsa").about("Generate a protected signing/verification-only SLH-DSA pair"))
             .arg(required("id", "Shared ID as 1-128 bytes of hexadecimal"))

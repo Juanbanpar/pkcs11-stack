@@ -224,7 +224,7 @@ jobs:
 
   kryoptic-integration:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - name: Install stable Rust and provider build dependencies
@@ -233,7 +233,7 @@ jobs:
           rustup default stable
           sudo apt-get update
           sudo apt-get install --yes clang libclang-dev pkg-config libsqlite3-dev g++ make perl openssl opensc libnss3-tools libxkbcommon-dev libwayland-dev libegl1-mesa-dev
-      - name: Build pinned Kryoptic and OpenSSL with ML-KEM, ML-DSA, ECDH, X25519/X448 and HKDF
+      - name: Build pinned Kryoptic and OpenSSL with ML-KEM, ML-DSA, SLH-DSA, ECDH, X25519/X448 and HKDF
         run: ./tools/build-kem-hkdf-provider.sh "$RUNNER_TEMP/kdf-provider"
       - name: Require library, CLI and desktop provider workflows on the same token
         env:
