@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use crate::{
-    aes_ccm, aes_cmac, aes_gcm, aes_key_wrap, eddsa, eddsa_named, generation, hash_ml_dsa, hmac,
-    inspect, kbkdf, key_establishment, ml_dsa, pbkdf2, slh_dsa, stream_input::MultipartInput,
-    support::*,
+    aes_ccm, aes_cmac, aes_gcm, aes_key_wrap, chacha20_poly1305, eddsa, eddsa_named, generation,
+    hash_ml_dsa, hmac, inspect, kbkdf, key_establishment, ml_dsa, pbkdf2, slh_dsa,
+    stream_input::MultipartInput, support::*,
 };
 use clap::ArgMatches;
 use pkcs11_client::{
@@ -100,6 +100,7 @@ pub(crate) enum VerificationCertificate {
 pub(crate) struct Inputs {
     pub aes_gcm: Option<aes_gcm::Inputs>,
     pub aes_ccm: Option<aes_ccm::Inputs>,
+    pub chacha20_poly1305: Option<chacha20_poly1305::Inputs>,
     pub hmac_tag: Option<Vec<u8>>,
     pub cmac_tag: Option<Vec<u8>>,
     pub stream_input: Option<MultipartInput>,
@@ -168,6 +169,7 @@ impl Inputs {
                 || aes_cmac::selected(name)
                 || aes_gcm::selected(name)
                 || aes_ccm::selected(name)
+                || chacha20_poly1305::selected(name)
                 || aes_key_wrap::selected(name)
                 || key_establishment::selected(name)
                 || eddsa_named::selected(name)
@@ -222,6 +224,7 @@ impl Inputs {
         let stream_input = MultipartInput::load(name, m)?;
         let aes_gcm = aes_gcm::Inputs::load(name, m)?;
         let aes_ccm = aes_ccm::Inputs::load(name, m)?;
+        let chacha20_poly1305 = chacha20_poly1305::Inputs::load(name, m)?;
         let oaep_label = match get(m, "label-hex") {
             Some(value) if value.len() > 8192 => {
                 return Err(usage("OAEP label exceeds 4096 bytes"));
@@ -236,7 +239,8 @@ impl Inputs {
         } else {
             None
         };
-        let bytes = if aes_ccm::selected(name)
+        let bytes = if chacha20_poly1305::selected(name)
+            || aes_ccm::selected(name)
             || aes_gcm::selected(name)
             || name == "digest"
             || stream_input.is_some()
@@ -470,6 +474,7 @@ impl Inputs {
         Ok(Self {
             aes_gcm,
             aes_ccm,
+            chacha20_poly1305,
             cmac_tag,
             stream_input,
             hmac_tag,
@@ -860,6 +865,9 @@ fn management_operation(
             inputs.cmac_tag.as_deref(),
             inputs.stream_input.as_ref(),
         );
+    }
+    if chacha20_poly1305::selected(name) {
+        return chacha20_poly1305::operation(session, name, m, inputs.chacha20_poly1305.as_ref());
     }
     if aes_ccm::selected(name) {
         return aes_ccm::operation(session, name, m, inputs.aes_ccm.as_ref());

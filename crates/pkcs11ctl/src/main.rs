@@ -6,6 +6,7 @@ mod aes_cmac;
 mod aes_gcm;
 mod aes_key_wrap;
 mod args;
+mod chacha20_poly1305;
 mod eddsa;
 mod eddsa_named;
 mod generation;

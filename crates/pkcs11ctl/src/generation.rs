@@ -2,9 +2,9 @@
 use crate::{eddsa, eddsa_named, inspect, key_establishment, ml_dsa, support::*};
 use clap::ArgMatches;
 use pkcs11_client::{
-    AesKeyPurpose, AesKeyRequest, AesKeySize, EcdhKeyPairRequest, HmacAlgorithm, HmacKeyRequest,
-    KeyKind, ManagementSession, NamedCurve, Provider, RsaEncryptionKeyPairRequest,
-    X448KeyPairRequest, X25519KeyPairRequest,
+    AesKeyPurpose, AesKeyRequest, AesKeySize, ChaCha20Poly1305KeyRequest, EcdhKeyPairRequest,
+    HmacAlgorithm, HmacKeyRequest, KeyKind, ManagementSession, NamedCurve, Provider,
+    RsaEncryptionKeyPairRequest, X448KeyPairRequest, X25519KeyPairRequest,
 };
 use serde_json::{Value, json};
 
@@ -69,7 +69,7 @@ pub(crate) fn validate(m: &ArgMatches) -> Result<()> {
     let id = unhex(need(m, "id")?)?;
     let label = need(m, "label")?.as_bytes();
     let non_signing = hmac(kind).is_some()
-        || matches!(kind, "x25519" | "x448")
+        || matches!(kind, "x25519" | "x448" | "chacha20-poly1305")
         || key_establishment::named_curve(Some(kind)).is_some()
         || curve(kind).is_some()
         || aes(kind).is_some()
@@ -90,7 +90,11 @@ pub(crate) fn validate(m: &ArgMatches) -> Result<()> {
     {
         return Err(usage("EdDSA ID and label must each contain 1..=128 bytes"));
     }
-    if let Some(curve) = key_establishment::named_curve(Some(kind)) {
+    if kind == "chacha20-poly1305" {
+        ChaCha20Poly1305KeyRequest { id: &id, label }
+            .validate()
+            .map_err(pkcs11_client::Error::from)?;
+    } else if let Some(curve) = key_establishment::named_curve(Some(kind)) {
         pkcs11_client::MontgomeryNamedKeyPairRequest {
             curve,
             id: &id,
@@ -156,7 +160,10 @@ pub(crate) fn generate(session: &mut ManagementSession<'_>, m: &ArgMatches) -> R
     let kind = need(m, "kind")?;
     let id = unhex(need(m, "id")?)?;
     let label = need(m, "label")?.as_bytes();
-    let key = if let Some(curve) = eddsa_named::curve(Some(kind)) {
+    let key = if kind == "chacha20-poly1305" {
+        session.generate_chacha20_poly1305_key(&ChaCha20Poly1305KeyRequest { id: &id, label })?;
+        json!({"algorithm":"chacha20-poly1305","bits":256,"purpose":"encryption"})
+    } else if let Some(curve) = eddsa_named::curve(Some(kind)) {
         session.generate_named_eddsa_key_pair(curve, &id, label, flag(m, "always-authenticate"))?;
         eddsa_named::key_info(curve)
     } else if let Some(curve) = key_establishment::named_curve(Some(kind)) {
@@ -243,6 +250,7 @@ pub(crate) fn options(provider: &Provider, m: &ArgMatches) -> Result<Value> {
     let options = provider.generation_capabilities(&uri(m, "token")?)?;
     Ok(json!({
         "advisory":true,
+        "chacha20_poly1305":options.chacha20_poly1305,
         "signing":options.signing.into_iter().map(inspect::key_kind).collect::<Vec<_>>(),
         "rsa_encryption":options.rsa_encryption,
         "x25519":options.x25519,

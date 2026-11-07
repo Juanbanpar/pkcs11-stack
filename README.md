@@ -133,6 +133,10 @@ AES-CCM is available through the runtime, client and CLI with the same explicit
 12-byte nonce and 16-byte appended-tag format. Its single-part profile permits
 16,777,215 plaintext bytes and 1 MiB of AAD, with authenticated, zeroizing plaintext
 and checked CLI cleanup before output.
+IETF ChaCha20-Poly1305 is available through the runtime, client and CLI with
+protected AEAD-only key generation, caller-managed 12-byte nonces and full
+16-byte appended tags. Its single-part profile permits 16 MiB plaintext and
+1 MiB AAD, with authenticated, zeroizing plaintext and checked CLI cleanup.
 Full/general AES-CMAC and SHA-2/SHA-3 HMAC generation and native verification use
 dedicated sensitive, nonextractable authentication keys through the libraries,
 CLI and desktop. HMAC keys use the generic-secret generator available in 2.40.

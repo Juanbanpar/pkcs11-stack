@@ -47,6 +47,8 @@ for current discovery and explicit initialization.
 | `random --token URI --length N --output PATH` | Token-generated random bytes |
 | `aes-gcm-capabilities --object URI --operation encrypt\|decrypt [--multipart]` | Current AES key permissions and support for the requested execution mode |
 | `encrypt-aes-gcm`, `decrypt-aes-gcm` | Bounded authenticated encryption/decryption; explicit nonce and optional AAD file |
+| `chacha20-poly1305-capabilities --object URI --operation encrypt\|decrypt` | Advisory IETF ChaCha20-Poly1305 support |
+| `encrypt-chacha20-poly1305`, `decrypt-chacha20-poly1305` | Single-part authenticated encryption/decryption with a 12-byte nonce and full tag |
 | `aes-ccm-capabilities --object URI --operation encrypt\|decrypt` | Advisory AES-CCM key permissions and fixed profile limits |
 | `encrypt-aes-ccm`, `decrypt-aes-ccm` | Single-part AES-CCM; supplied 12-byte nonce and full 16-byte tag |
 | `key-wrap-capabilities --object URI --operation wrap\|unwrap` | Advisory AES-KW/KWP choices for a secret key |
@@ -832,6 +834,41 @@ attributes use the explicit status/value contract above; no private object handl
 is exposed. `diagnose` opens up to 64 simultaneous exclusive leases, verifies pool
 exhaustion, releases them and verifies reuse. It is not a performance benchmark or
 hardware fault-injection test.
+
+## IETF ChaCha20-Poly1305 files
+
+Generate a protected AEAD-only 256-bit key with `generate --kind chacha20-poly1305`.
+`generation-options` reports the advisory `chacha20_poly1305` generator field.
+This kind has a fixed encryption/decryption purpose; AES/RSA purpose flags,
+explicit bit sizes and authentication-key options are rejected.
+
+```sh
+pkcs11ctl --module /path/to/module.so generate --token 'pkcs11:serial=123' \
+  --kind chacha20-poly1305 --id 71 --label file-aead --pin-file user.pin --confirm
+# NONCE_HEX must not have been used with this key, including after an error.
+pkcs11ctl --module /path/to/module.so encrypt-chacha20-poly1305 \
+  --object 'pkcs11:serial=123;id=%71;type=secret-key' --nonce "$NONCE_HEX" \
+  --aad-file context.bin --input message.bin --output ciphertext.bin --pin-file user.pin
+pkcs11ctl --module /path/to/module.so decrypt-chacha20-poly1305 \
+  --object 'pkcs11:serial=123;id=%71;type=secret-key' --nonce "$NONCE_HEX" \
+  --aad-file context.bin --input ciphertext.bin --output recovered.bin --pin-file user.pin
+```
+
+Use exactly 24 hexadecimal nonce digits and a secret-key object URI. Plaintext is
+limited to 16 MiB and optional `--aad-file` to 1 MiB, including empty inputs.
+The file contains ciphertext followed by the full 16-byte tag, without a nonce,
+AAD or header. Retain those parameters for decryption. `--input -` reads stdin;
+`--output -` emits raw binary stdout even with JSON formatting. AAD requires a
+file. `chacha20-poly1305-capabilities --object URI --operation encrypt|decrypt`
+checks advisory key permissions and native support without encryption.
+
+Callers ensure nonce uniqueness per key across writers, copies and restarts.
+There is no nonce generation/tracking, retry or software fallback. Input lengths
+and nonce syntax are checked before loading the provider. Plaintext buffers
+zeroize, and decryption output is withheld through authentication, exact-length
+checks, session closure and module finalization. Existing output files are never
+overwritten; new files have mode 0600 on Unix. Multipart/message flags and SO
+credentials are rejected by these commands.
 
 ## AES-CCM files
 

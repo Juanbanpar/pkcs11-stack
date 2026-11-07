@@ -284,6 +284,7 @@ pub(crate) fn command() -> Command {
             "ecdh-p256",
             "ecdh-p384",
             "ecdh-p521",
+            "chacha20-poly1305",
             "aes128",
             "aes192",
             "aes256",
@@ -370,6 +371,13 @@ pub(crate) fn command() -> Command {
             .arg(required("nonce","Exactly 24 hex digits; encryption requires a unique nonce per key, including after errors"))
             .arg(value("aad-file","Additional authenticated data, at most 1 MiB; no stdin"))
             .arg(required("input","File or - for stdin; plaintext at most 16 MiB minus one byte; ciphertext includes the 16-byte tag"))
+            .arg(required("output","New file, or - for binary stdout; nonce/AAD are separate"))))
+    };
+    let chacha = |name, help| {
+        auth(object(Command::new(name).about(help)
+            .arg(required("nonce","Exactly 24 hex digits; encryption requires a unique nonce per key, including after errors"))
+            .arg(value("aad-file","Additional authenticated data, at most 1 MiB; no stdin"))
+            .arg(required("input","File or - for stdin; plaintext at most 16 MiB; ciphertext includes the 16-byte tag"))
             .arg(required("output","New file, or - for binary stdout; nonce/AAD are separate"))))
     };
     let hash_mode = |command: Command| {
@@ -620,6 +628,10 @@ pub(crate) fn command() -> Command {
                 .arg(required("id", "New secret-key ID in hexadecimal"))
                 .arg(required("label", "New secret-key label")),
         ))),
+        chacha("encrypt-chacha20-poly1305", "Encrypt a bounded IETF ChaCha20-Poly1305 message"),
+        chacha("decrypt-chacha20-poly1305", "Authenticate/decrypt IETF ChaCha20-Poly1305 before output"),
+        auth(object(Command::new("chacha20-poly1305-capabilities").about("Inspect IETF ChaCha20-Poly1305 key permissions and native support")
+            .arg(required("operation", "Requested direction").value_parser(["encrypt", "decrypt"])))),
         ccm("encrypt-aes-ccm","Encrypt one bounded AES-CCM message, with a full 16-byte tag"),
         ccm("decrypt-aes-ccm","Authenticate/decrypt AES-CCM before releasing plaintext and checking cleanup"),
         auth(object(Command::new("aes-ccm-capabilities").about("Inspect AES-CCM key permissions and native support")
