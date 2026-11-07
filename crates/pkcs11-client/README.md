@@ -606,6 +606,31 @@ rollback or software fallback; failures may leave persistent objects. A wrapping
 key does not make nonextractable targets exportable. Existing signing-generation
 APIs retain their signing-only behavior.
 
+## IETF ChaCha20-Poly1305
+
+Managed sessions and pooled `Client` expose `chacha20_poly1305_capabilities`,
+`encrypt_chacha20_poly1305` and `decrypt_chacha20_poly1305`. Typed requests
+require a 12-byte caller-managed nonce, with at most 16 MiB plaintext and 1 MiB
+AAD. Ciphertext includes the full 16-byte appended tag; nonce/AAD remain separate.
+Empty input/AAD are supported. Pooled requests validate lengths before acquiring
+a lease and recheck the resolved key's type, length, permissions and provider
+support on execution. Authentication is explicit.
+
+Decryption releases redacted, zeroizing plaintext only after authentication and
+exact-length checks. Failed native output buffers zeroize, and native failures
+discard the pooled session. Management callers check session closure before
+publishing results. There is no nonce generation/tracking, retry, software
+fallback or multipart plaintext release. Nonce uniqueness per key across writers,
+copies and restarts remains the caller's responsibility, including after errors.
+
+`ManagementSession::generate_chacha20_poly1305_key` takes a
+`ChaCha20Poly1305KeyRequest` and requires RW mode. The generated 256-bit key is
+persistent, private, sensitive, nonextractable and restricted to this AEAD
+mechanism, with encrypt/decrypt permissions only. Bounded identity and existing
+secret IDs are checked without concurrency guarantees or retry/rollback.
+`GenerationCapabilities::chacha20_poly1305` reports advisory generator support;
+execution still checks live support and duplicate IDs.
+
 ## AES-CCM encryption
 
 `ManagementSession` and pooled `Client` expose `aes_ccm_capabilities`,

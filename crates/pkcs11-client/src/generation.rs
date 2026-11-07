@@ -23,6 +23,8 @@ pub struct GenerationCapabilities {
     pub montgomery_named: Vec<crate::MontgomeryNamedCurve>,
     /// AES sizes for encryption, wrapping or CMAC authentication key templates.
     pub aes: Vec<AesKeySize>,
+    /// Fixed 256-bit ChaCha20 AEAD-only key generation; byte-based generator bounds.
+    pub chacha20_poly1305: bool,
     /// AES sizes with native general-CMAC support for authentication-only templates.
     pub aes_cmac_general: Vec<AesKeySize>,
     /// Algorithms for hash-length HMAC-only generic secret generation.
@@ -64,6 +66,7 @@ impl Provider {
             x448: selected.x448_generation_supported()?,
             montgomery_named,
             aes: selected.aes_generation_options()?,
+            chacha20_poly1305: selected.chacha20_poly1305_generation_supported()?,
             aes_cmac_general: selected.aes_cmac_general_generation_options()?,
             hmac: selected.hmac_generation_options()?,
             hmac_general: selected.hmac_general_generation_options()?,

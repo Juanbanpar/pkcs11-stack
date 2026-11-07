@@ -108,7 +108,8 @@ impl Error {
                 | Runtime::UnsupportedCipher
                 | Runtime::UnsupportedKeyOperation
                 | Runtime::UnsupportedAesGcm
-                | Runtime::UnsupportedAesCcm => ErrorKind::Policy,
+                | Runtime::UnsupportedAesCcm
+                | Runtime::UnsupportedChaCha20Poly1305 => ErrorKind::Policy,
                 _ => ErrorKind::Runtime,
             },
             _ => ErrorKind::Client,
