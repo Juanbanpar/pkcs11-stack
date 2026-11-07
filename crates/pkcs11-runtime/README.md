@@ -362,6 +362,43 @@ Begin/Next streaming, retry or fallback is exposed. Ordinary 2.40 single-part an
 multipart AES-GCM APIs retain their existing contracts. Disposable NSS tests cover
 NIST vectors, multiple messages, tampering and protected generated AES keys.
 
+## IETF ChaCha20-Poly1305
+
+`Session::chacha20_poly1305_capabilities`, `encrypt_chacha20_poly1305` and
+`decrypt_chacha20_poly1305` use CKM_CHACHA20_POLY1305 with a 32-byte ChaCha20
+secret key, supplied 12-byte nonce and full 16-byte appended tag. The typed
+requests borrow inputs and redact all buffers in Debug. Plaintext is limited to
+16 MiB and AAD to 1 MiB; empty inputs are permitted. Nonce/AAD remain separate
+from the ciphertext. The binding encodes the native nonce length as **96 bits**,
+as specified in [OASIS section 6.61](https://docs.oasis-open.org/pkcs11/pkcs11-spec/v3.2/pkcs11-spec-v3.2.html)
+and the 3.0/3.1 specifications.
+
+Callers ensure nonce uniqueness per key across writers, copies and restarts,
+including after errors. There is no nonce generation/tracking, retry or software
+fallback. Execution rechecks key class/type, 32-byte value length, direction
+permission, allowed mechanisms, provider flags and native entry points. Section
+6.61 does not define units for AEAD mechanism key-size bounds; these are not
+reinterpreted as either bytes or bits. CKA_VALUE_LEN supplies the fixed key length.
+Both RO and RW sessions are supported.
+
+Each completion uses one exact-capacity native call without a size query.
+Decryption releases redacted, zeroizing plaintext only after authentication,
+exact-length validation and verification that the provider preserved the nonce.
+Native failures, malformed results and unwinds invalidate the session; local
+request and policy rejection precede initialization. Check explicit session closure
+before publishing output. Multipart/message execution remains separate work.
+
+`ChaCha20Poly1305KeyRequest` and `generate_chacha20_poly1305_key` create one
+persistent private, sensitive, nonextractable key in RW mode. Generation uses
+CKM_CHACHA20_KEY_GEN with 32-byte CKA_VALUE_LEN and allows only
+CKM_CHACHA20_POLY1305. Encrypt/decrypt are enabled; signing, verification,
+wrapping, unwrapping and derivation are disabled. Bounded nonempty ID/label and
+existing secret IDs are checked before generation. Checks are not atomic with
+other writers; failures may leave persistent effects, with no retry/rollback.
+`Token::chacha20_poly1305_generation_supported` checks generator pointers, flags
+and byte-based bounds (§6.58.4); it does not guarantee template or AEAD acceptance.
+Key values are never read.
+
 ## AES-CCM encryption
 
 `Session::aes_ccm_capabilities`, `encrypt_aes_ccm` and `decrypt_aes_ccm`

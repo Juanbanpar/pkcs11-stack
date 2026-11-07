@@ -10,6 +10,13 @@ pub use aes_cmac::{
     AES_CMAC_MAXIMUM_MESSAGE, AES_CMAC_TAG_LENGTH, AesCmacCapabilities, AesCmacOptions,
     AesCmacProfile, MacOperation,
 };
+mod chacha20_poly1305;
+pub use chacha20_poly1305::{
+    CHACHA20_POLY1305_MAXIMUM_AAD, CHACHA20_POLY1305_MAXIMUM_PLAINTEXT,
+    CHACHA20_POLY1305_NONCE_LENGTH, CHACHA20_POLY1305_TAG_LENGTH, ChaCha20Poly1305Capabilities,
+    ChaCha20Poly1305DecryptRequest, ChaCha20Poly1305EncryptRequest, ChaCha20Poly1305KeyRequest,
+    ChaCha20Poly1305Operation,
+};
 mod aes_ccm;
 pub use aes_ccm::{
     AES_CCM_MAXIMUM_AAD, AES_CCM_MAXIMUM_PLAINTEXT, AES_CCM_NONCE_LENGTH, AES_CCM_TAG_LENGTH,

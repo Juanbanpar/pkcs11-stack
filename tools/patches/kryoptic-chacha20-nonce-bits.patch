@@ -1,0 +1,11 @@
+--- a/src/ossl/chacha20.rs
++++ b/src/ossl/chacha20.rs
+@@ -96,7 +96,7 @@
+             let params =
+                 mech.get_parameters::<CK_SALSA20_CHACHA20_POLY1305_PARAMS>()?;
+             if params.pNonce.is_null()
+-                || usize::try_from(params.ulNonceLen)? != CHACHA20_NONCE_SIZE
++                || params.ulNonceLen != 96
+             {
+                 return Err(CKR_MECHANISM_PARAM_INVALID)?;
+             }

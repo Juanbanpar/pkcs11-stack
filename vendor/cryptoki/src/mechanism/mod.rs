@@ -82,6 +82,14 @@ impl MechanismType {
     pub const AES_CTR: MechanismType = MechanismType { val: CKM_AES_CTR };
     /// AES-GCM mechanism
     pub const AES_GCM: MechanismType = MechanismType { val: CKM_AES_GCM };
+    /// ChaCha20 key generation.
+    pub const CHACHA20_KEY_GEN: MechanismType = MechanismType {
+        val: CKM_CHACHA20_KEY_GEN,
+    };
+    /// ChaCha20-Poly1305 authenticated encryption.
+    pub const CHACHA20_POLY1305: MechanismType = MechanismType {
+        val: CKM_CHACHA20_POLY1305,
+    };
     /// AES-CCM authenticated encryption.
     pub const AES_CCM: MechanismType = MechanismType { val: CKM_AES_CCM };
 
@@ -963,6 +971,8 @@ impl MechanismType {
             CKM_AES_CBC_PAD => String::from(stringify!(CKM_AES_CBC_PAD)),
             CKM_AES_CTR => String::from(stringify!(CKM_AES_CTR)),
             CKM_AES_GCM => String::from(stringify!(CKM_AES_GCM)),
+            CKM_CHACHA20_KEY_GEN => String::from(stringify!(CKM_CHACHA20_KEY_GEN)),
+            CKM_CHACHA20_POLY1305 => String::from(stringify!(CKM_CHACHA20_POLY1305)),
             CKM_AES_CCM => String::from(stringify!(CKM_AES_CCM)),
             CKM_AES_CTS => String::from(stringify!(CKM_AES_CTS)),
             CKM_AES_CMAC => String::from(stringify!(CKM_AES_CMAC)),
@@ -1112,6 +1122,8 @@ impl TryFrom<CK_MECHANISM_TYPE> for MechanismType {
             CKM_AES_KEY_WRAP_KWP => Ok(MechanismType::AES_KEY_WRAP_KWP),
             CKM_AES_CTR => Ok(MechanismType::AES_CTR),
             CKM_AES_GCM => Ok(MechanismType::AES_GCM),
+            CKM_CHACHA20_KEY_GEN => Ok(MechanismType::CHACHA20_KEY_GEN),
+            CKM_CHACHA20_POLY1305 => Ok(MechanismType::CHACHA20_POLY1305),
             CKM_AES_CCM => Ok(MechanismType::AES_CCM),
             CKM_AES_CBC_ENCRYPT_DATA => Ok(MechanismType::AES_CBC_ENCRYPT_DATA),
             CKM_AES_CMAC => Ok(MechanismType::AES_CMAC),
@@ -1269,6 +1281,10 @@ pub enum Mechanism<'a> {
     AesGcm(aead::GcmParams<'a>),
     /// AES-CCM authenticated encryption/decryption, with an appended MAC.
     AesCcm(aead::CcmParams<'a>),
+    /// ChaCha20 key generation, without parameters.
+    ChaCha20KeyGen,
+    /// IETF ChaCha20-Poly1305 authenticated encryption/decryption.
+    ChaCha20Poly1305(aead::ChaCha20Poly1305Params<'a>),
     /// Parameterless AES-GCM initializer for the message API. Per-message
     /// parameters belong to `MessageParam`, not `C_MessageEncryptInit`.
     AesGcmMessageInit,
@@ -1627,6 +1643,8 @@ impl Mechanism<'_> {
             Mechanism::AesKeyWrapPad => MechanismType::AES_KEY_WRAP_PAD,
             Mechanism::AesKeyWrapKwp => MechanismType::AES_KEY_WRAP_KWP,
             Mechanism::AesGcm(_) => MechanismType::AES_GCM,
+            Mechanism::ChaCha20KeyGen => MechanismType::CHACHA20_KEY_GEN,
+            Mechanism::ChaCha20Poly1305(_) => MechanismType::CHACHA20_POLY1305,
             Mechanism::AesCcm(_) => MechanismType::AES_CCM,
             Mechanism::AesGcmMessageInit | Mechanism::AesGcmMessage(_) => MechanismType::AES_GCM,
             Mechanism::AesCbcEncryptData(_) => MechanismType::AES_CBC_ENCRYPT_DATA,
@@ -1794,6 +1812,7 @@ impl From<&Mechanism<'_>> for CK_MECHANISM {
             | Mechanism::DesCbcPad(params)
             | Mechanism::Des3CbcPad(params) => make_mechanism(mechanism, params),
             Mechanism::AesGcm(params) => make_mechanism(mechanism, params),
+            Mechanism::ChaCha20Poly1305(params) => make_mechanism(mechanism, params),
             Mechanism::AesCcm(params) => make_mechanism(mechanism, params),
             Mechanism::AesGcmMessage(params) => make_mechanism(mechanism, params),
             Mechanism::RsaPkcsPss(params)
@@ -1880,6 +1899,7 @@ impl From<&Mechanism<'_>> for CK_MECHANISM {
             },
             // Mechanisms without parameters
             Mechanism::AesKeyGen
+            | Mechanism::ChaCha20KeyGen
             | Mechanism::AesEcb
             | Mechanism::AesGcmMessageInit
             | Mechanism::AesKeyWrap
@@ -1970,6 +1990,7 @@ fn make_mechanism<T>(mechanism: CK_MECHANISM_TYPE, param: &T) -> CK_MECHANISM {
          * Otherwise, we should generally not expect the backend to mutate the
          * parameters, so this cast is fine.
          * The list of such mutable parameter types so far:
+         * - aead::ChaCha20Poly1305Params
          * - aead::CcmParams
          * - aead::GcmParams
          * - aead::GcmMessageParams

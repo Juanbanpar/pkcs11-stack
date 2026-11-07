@@ -9,6 +9,37 @@ use std::convert::TryInto;
 use std::marker::PhantomData;
 use std::slice;
 
+/// Borrowed IETF ChaCha20-Poly1305 parameters. The native nonce length is in bits.
+#[repr(transparent)]
+pub struct ChaCha20Poly1305Params<'a> {
+    inner: CK_SALSA20_CHACHA20_POLY1305_PARAMS,
+    _marker: PhantomData<&'a mut [u8]>,
+}
+impl std::fmt::Debug for ChaCha20Poly1305Params<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ChaCha20Poly1305Params([REDACTED])")
+    }
+}
+impl<'a> ChaCha20Poly1305Params<'a> {
+    /// Construct the IETF profile with a 12-byte nonce, encoded as 96 bits.
+    /// AAD length must fit CK_ULONG. Nonce uniqueness remains the caller's responsibility.
+    pub fn new(nonce: &'a mut [u8; 12], aad: &'a [u8]) -> Result<Self, Error> {
+        Ok(Self {
+            inner: CK_SALSA20_CHACHA20_POLY1305_PARAMS {
+                pNonce: nonce.as_mut_ptr(),
+                ulNonceLen: 96,
+                pAAD: if aad.is_empty() {
+                    std::ptr::null_mut()
+                } else {
+                    aad.as_ptr() as *mut _
+                },
+                ulAADLen: aad.len().try_into()?,
+            },
+            _marker: PhantomData,
+        })
+    }
+}
+
 /// Borrowed parameters for single-part AES-CCM. The MAC length is in bytes.
 /// `data_length` excludes the appended MAC during both encryption and decryption.
 #[repr(transparent)]

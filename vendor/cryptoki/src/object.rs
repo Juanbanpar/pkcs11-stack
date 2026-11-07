@@ -1862,7 +1862,9 @@ impl KeyType {
     pub const JUNIPER: KeyType = KeyType { val: CKK_JUNIPER };
     /// CDMF key
     pub const CDMF: KeyType = KeyType { val: CKK_CDMF };
-    /// AES key
+    /// ChaCha20 256-bit secret key.
+    pub const CHACHA20: KeyType = KeyType { val: CKK_CHACHA20 };
+    /// AES secret key.
     pub const AES: KeyType = KeyType { val: CKK_AES };
     /// BLOWFISH key
     pub const BLOWFISH: KeyType = KeyType { val: CKK_BLOWFISH };
@@ -2021,6 +2023,7 @@ impl KeyType {
             CKK_BATON => String::from(stringify!(CKK_BATON)),
             CKK_JUNIPER => String::from(stringify!(CKK_JUNIPER)),
             CKK_CDMF => String::from(stringify!(CKK_CDMF)),
+            CKK_CHACHA20 => String::from(stringify!(CKK_CHACHA20)),
             CKK_AES => String::from(stringify!(CKK_AES)),
             CKK_BLOWFISH => String::from(stringify!(CKK_BLOWFISH)),
             CKK_TWOFISH => String::from(stringify!(CKK_TWOFISH)),
@@ -2104,6 +2107,7 @@ impl TryFrom<CK_KEY_TYPE> for KeyType {
             CKK_BATON => Ok(KeyType::BATON),
             CKK_JUNIPER => Ok(KeyType::JUNIPER),
             CKK_CDMF => Ok(KeyType::CDMF),
+            CKK_CHACHA20 => Ok(KeyType::CHACHA20),
             CKK_AES => Ok(KeyType::AES),
             CKK_BLOWFISH => Ok(KeyType::BLOWFISH),
             CKK_TWOFISH => Ok(KeyType::TWOFISH),

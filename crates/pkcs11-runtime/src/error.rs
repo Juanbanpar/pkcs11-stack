@@ -46,6 +46,9 @@ pub enum Error {
     /// Key, token mechanism or entry points do not support this AES-CCM profile.
     #[error("unsupported AES-CCM profile or key")]
     UnsupportedAesCcm,
+    /// The key or provider does not support the IETF ChaCha20-Poly1305 profile.
+    #[error("unsupported ChaCha20-Poly1305 profile or key")]
+    UnsupportedChaCha20Poly1305,
     /// The token does not advertise its own random generator.
     #[error("token random generator unavailable")]
     RandomUnavailable,
