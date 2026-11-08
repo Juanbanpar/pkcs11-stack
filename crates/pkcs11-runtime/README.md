@@ -518,3 +518,8 @@ HMAC/AES-CMAC key generation (`generate_mac_key`) are also available. The
 signature-first path is gated by the selected interface; providers that expose
 only a `CKR_FUNCTION_NOT_SUPPORTED` stub return a typed `UnsupportedVerification`
 error and leave the session usable.
+
+`DigestAlgorithm::Sha224` is available for RSA PKCS#1, ECDSA and RSA-PSS raw
+profiles, but it is not part of `SigningPolicy::default()`. Add it to
+`policy.digests` explicitly. SHA-224 PSS has no combined upstream mechanism;
+use software/caller hashing with the raw PSS mechanism.

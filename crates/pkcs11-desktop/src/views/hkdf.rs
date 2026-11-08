@@ -20,6 +20,7 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
     let mut content = column![text("Derive an HKDF key").size(22).font(EMPHASIS)].spacing(10);
     if let Some(KeyProfile::Hkdf(profile)) = form.profile {
         let digest = match profile.digest {
+            pkcs11_client::DigestAlgorithm::Sha224 => "SHA-224",
             pkcs11_client::DigestAlgorithm::Sha256 => "SHA-256",
             pkcs11_client::DigestAlgorithm::Sha384 => "SHA-384",
             pkcs11_client::DigestAlgorithm::Sha512 => "SHA-512",

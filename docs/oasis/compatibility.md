@@ -44,8 +44,8 @@ coverage. Provider support is separate.
 
 | Family | Implemented operations | Notes |
 |---|---|---|
-| RSA | key generation, PKCS#1 v1.5 and PSS sign/verify, OAEP encrypt/decrypt | SHA-1/224/256/384/512 combined mechanisms where upstream exposes them |
-| ECDSA | key generation, sign/verify | P-256/P-384/P-521 |
+| RSA | key generation, PKCS#1 v1.5 and PSS sign/verify, OAEP encrypt/decrypt | SHA-224/256/384/512 combined mechanisms; SHA-224 is opt-in |
+| ECDSA | key generation, sign/verify | P-256/P-384/P-521; SHA-224 opt-in |
 | ECDH | key-pair generation, raw derivation, SHA-2 KDF profiles | token-held secrets only |
 | EdDSA | upstream types available | not yet exposed by this branch |
 | Montgomery | upstream key-generation types available | not yet exposed by this branch |

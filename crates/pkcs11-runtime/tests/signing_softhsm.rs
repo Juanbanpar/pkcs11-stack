@@ -9,7 +9,7 @@ use cryptoki::{
 use pkcs11_locator::Pkcs11Uri;
 use pkcs11_runtime::*;
 use secrecy::SecretString;
-use sha2::{Digest, Sha256, Sha384, Sha512};
+use sha2::{Digest, Sha224, Sha256, Sha384, Sha512};
 use std::{
     num::NonZeroUsize,
     path::Path,
@@ -164,6 +164,7 @@ fn verify(root: &Path, key: &[u8], request: &SignRequest<'_>, message: &[u8], si
     std::fs::write(dir.join("signature"), signature).unwrap();
     std::fs::write(dir.join("message"), message).unwrap();
     let digest = match request.digest {
+        DigestAlgorithm::Sha224 => "-sha224",
         DigestAlgorithm::Sha256 => "-sha256",
         DigestAlgorithm::Sha384 => "-sha384",
         DigestAlgorithm::Sha512 => "-sha512",
@@ -181,6 +182,7 @@ fn verify(root: &Path, key: &[u8], request: &SignRequest<'_>, message: &[u8], si
     ]);
     if let Some(pss) = request.pss {
         let mgf = match pss.mgf_digest {
+            DigestAlgorithm::Sha224 => "sha224",
             DigestAlgorithm::Sha256 => "sha256",
             DigestAlgorithm::Sha384 => "sha384",
             DigestAlgorithm::Sha512 => "sha512",
@@ -375,11 +377,13 @@ fn pooled_signing_and_recovery() {
         .try_acquire(Authentication::User(Pin::Value(&user)))
         .unwrap();
     for digest in [
+        DigestAlgorithm::Sha224,
         DigestAlgorithm::Sha256,
         DigestAlgorithm::Sha384,
         DigestAlgorithm::Sha512,
     ] {
         let hashed = match digest {
+            DigestAlgorithm::Sha224 => Sha224::digest(b"signing fixture").to_vec(),
             DigestAlgorithm::Sha256 => Sha256::digest(b"signing fixture").to_vec(),
             DigestAlgorithm::Sha384 => Sha384::digest(b"signing fixture").to_vec(),
             DigestAlgorithm::Sha512 => Sha512::digest(b"signing fixture").to_vec(),
@@ -423,6 +427,7 @@ fn pooled_signing_and_recovery() {
                 };
                 let policy = SigningPolicy {
                     hashing,
+                    digests: vec![digest],
                     ..Default::default()
                 };
                 let signature = lease.session().sign(&key, &req, &policy, None).unwrap();

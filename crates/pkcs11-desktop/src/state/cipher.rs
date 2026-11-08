@@ -13,6 +13,7 @@ impl std::fmt::Display for CipherChoice {
             CipherParameters::Oaep(choice) => choice,
         };
         f.write_str(match choice.digest {
+            DigestAlgorithm::Sha224 => "RSA-OAEP / SHA-224",
             DigestAlgorithm::Sha256 => "RSA-OAEP / SHA-256",
             DigestAlgorithm::Sha384 => "RSA-OAEP / SHA-384",
             DigestAlgorithm::Sha512 => "RSA-OAEP / SHA-512",

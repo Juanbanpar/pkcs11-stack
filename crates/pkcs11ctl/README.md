@@ -450,3 +450,11 @@ pkcs11ctl import --module /path/lib.so --token 'pkcs11:token=test' \
 `digest`, `mac`, `verify-mac`, `encrypt-aes` and `decrypt-aes` accept
 `--multipart` to process the bounded input through the runtime's multipart
 native calls. Single-part remains the default.
+
+SHA-224 signatures are disabled by default. Opt in explicitly:
+
+```sh
+pkcs11ctl sign --module /path/lib.so   --key 'pkcs11:token=test;object=rsa;type=private' \
+  --algorithm rsa-pkcs1 --digest sha224 --allow-sha224 \
+  --input message.bin --output signature.bin --pin-file user.pin
+```

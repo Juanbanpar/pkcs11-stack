@@ -16,20 +16,25 @@ pub(crate) enum Output {
 }
 pub(crate) fn digest(value: &str) -> DigestAlgorithm {
     match value {
+        "sha224" => DigestAlgorithm::Sha224,
         "sha256" => DigestAlgorithm::Sha256,
         "sha384" => DigestAlgorithm::Sha384,
         _ => DigestAlgorithm::Sha512,
     }
 }
 fn policy(m: &ArgMatches) -> SigningPolicy {
-    SigningPolicy {
+    let mut policy = SigningPolicy {
         hashing: match get(m, "hashing").unwrap_or("token") {
             "software" => HashingPolicy::SoftwareOnly,
             "allow-software" => HashingPolicy::AllowSoftware,
             _ => HashingPolicy::TokenOnly,
         },
         ..SigningPolicy::default()
+    };
+    if flag(m, "allow-sha224") {
+        policy.digests.push(DigestAlgorithm::Sha224);
     }
+    policy
 }
 fn request<'a>(m: &ArgMatches, bytes: &'a [u8]) -> Result<SignRequest<'a>> {
     let algorithm = match need(m, "algorithm")? {
@@ -145,6 +150,11 @@ impl Inputs {
         }
         if name == "verify-mac" && get(m, "input") == Some("-") && get(m, "tag") == Some("-") {
             return Err(usage("only one MAC verification input may read stdin"));
+        }
+        if !flag(m, "allow-sha224")
+            && (get(m, "digest") == Some("sha224") || get(m, "mgf-digest") == Some("sha224"))
+        {
+            return Err(usage("SHA-224 requires --allow-sha224"));
         }
         oasis::validate(name, m)?;
         let aes_gcm = aes_gcm::Inputs::load(name, m)?;

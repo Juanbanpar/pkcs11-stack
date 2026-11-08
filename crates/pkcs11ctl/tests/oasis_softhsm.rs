@@ -367,6 +367,60 @@ fn digest_mac_and_aes_block_workflows() {
     ]);
     assert!(output.status.success());
 
+    // SHA-224 is opt-in and works for RSA PKCS#1 and ECDSA.
+    let sha224_message = scratch.file("sha224-message", b"SHA-224 signing fixture");
+    for (algorithm, key_object) in [("rsa-pkcs1", "rsa"), ("ecdsa", "p256")] {
+        let signature = scratch.0.join(format!("{algorithm}-sha224.sig"));
+        let output = run(&[
+            "--module",
+            &module,
+            "sign",
+            "--key",
+            &format!("pkcs11:token=client-test;object={key_object};type=private"),
+            "--pin-file",
+            path(&pin),
+            "--algorithm",
+            algorithm,
+            "--digest",
+            "sha224",
+            "--allow-sha224",
+            "--hashing",
+            "software",
+            "--input",
+            path(&sha224_message),
+            "--output",
+            path(&signature),
+        ]);
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let output = run(&[
+            "--module",
+            &module,
+            "verify",
+            "--certificate",
+            &format!("pkcs11:token=client-test;object={key_object};type=cert"),
+            "--pin-file",
+            path(&pin),
+            "--algorithm",
+            algorithm,
+            "--digest",
+            "sha224",
+            "--allow-sha224",
+            "--input",
+            path(&sha224_message),
+            "--signature",
+            path(&signature),
+        ]);
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
     // Multipart calls must match the single-part results.
     let multipart_digest = scratch.0.join("digest-multipart");
     let single_digest = scratch.0.join("digest-single-multipart");
