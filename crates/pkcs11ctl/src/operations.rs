@@ -158,6 +158,8 @@ impl Inputs {
                 bounded_input(path, 64 * 1024 * 1024)?
             } else if matches!(name, "encrypt-aes" | "decrypt-aes") {
                 bounded_input(path, 16 * 1024 * 1024)?
+            } else if name == "import" && get(m, "kind") == Some("public-key") {
+                bounded_input(path, 4096)?
             } else {
                 input(path)?
             }
@@ -256,6 +258,12 @@ impl Inputs {
         }
         if name == "generate" {
             generation::validate(m)?;
+        }
+        if name == "import"
+            && get(m, "kind") != Some("public-key")
+            && get(m, "purpose") != Some("verification")
+        {
+            return Err(usage("--purpose applies only to public-key import"));
         }
         if name == "diagnose" && !(1..=64).contains(&number(m, "pool-size")?) {
             return Err(usage("pool size must be 1..=64"));
@@ -655,7 +663,20 @@ fn management_operation(
         "generate" => generation::generate(session, m)?,
         "import" => {
             let id = unhex(need(m, "id")?)?;
-            if need(m, "kind")? == "ml-kem" {
+            if need(m, "kind")? == "public-key" {
+                let key = pkcs11_client::ClassicalPublicKey::from_spki_der(&inputs.bytes)?;
+                let purpose = match need(m, "purpose")? {
+                    "verification" => pkcs11_client::ClassicalPublicKeyPurpose::Verification,
+                    "encryption" => pkcs11_client::ClassicalPublicKeyPurpose::Encryption,
+                    _ => return Err(usage("invalid public-key purpose")),
+                };
+                session.import_public_key(&pkcs11_client::PublicKeyImportRequest {
+                    key: &key,
+                    purpose,
+                    id: &id,
+                    label: need(m, "label")?.as_bytes(),
+                })?;
+            } else if need(m, "kind")? == "ml-kem" {
                 session.import_ml_kem_public_key(
                     inputs
                         .establishment

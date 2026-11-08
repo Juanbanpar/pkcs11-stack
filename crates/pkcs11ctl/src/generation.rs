@@ -2,8 +2,8 @@
 use crate::{inspect, key_establishment, ml_dsa, oasis, support::*};
 use clap::ArgMatches;
 use pkcs11_client::{
-    AesKeyPurpose, AesKeyRequest, AesKeySize, EcdhKeyPairRequest, KeyKind, ManagementSession,
-    NamedCurve, Provider, SlhDsaKeyPairRequest,
+    AesKeyPurpose, AesKeyRequest, AesKeySize, EcdhKeyPairRequest, KeyKind, MacAlgorithm,
+    MacKeyRequest, ManagementSession, NamedCurve, Provider, SlhDsaKeyPairRequest,
 };
 use serde_json::{Value, json};
 
@@ -27,8 +27,19 @@ fn purpose(m: &ArgMatches) -> Result<AesKeyPurpose> {
     match need(m, "purpose")? {
         "encryption" => Ok(AesKeyPurpose::Encryption),
         "wrapping" => Ok(AesKeyPurpose::Wrapping),
+        "authentication" => Ok(AesKeyPurpose::Authentication),
         _ => Err(usage("invalid AES purpose")),
     }
+}
+fn hmac(kind: &str) -> Option<MacAlgorithm> {
+    Some(match kind {
+        "hmac-sha1" => MacAlgorithm::HmacSha1,
+        "hmac-sha224" => MacAlgorithm::HmacSha224,
+        "hmac-sha256" => MacAlgorithm::HmacSha256,
+        "hmac-sha384" => MacAlgorithm::HmacSha384,
+        "hmac-sha512" => MacAlgorithm::HmacSha512,
+        _ => return None,
+    })
 }
 fn signing(m: &ArgMatches) -> Result<KeyKind> {
     Ok(match need(m, "kind")? {
@@ -59,6 +70,7 @@ pub(crate) fn validate(m: &ArgMatches) -> Result<()> {
     let label = need(m, "label")?.as_bytes();
     let non_signing = curve(kind).is_some()
         || aes(kind).is_some()
+        || hmac(kind).is_some()
         || key_establishment::parameter(Some(kind)).is_some()
         || oasis::slh_parameter(kind).is_some();
     if non_signing && flag(m, "always-authenticate") {
@@ -84,6 +96,15 @@ pub(crate) fn validate(m: &ArgMatches) -> Result<()> {
         }
         .validate()
         .map_err(|_| usage("AES ID and label must each contain 1..=128 bytes"))?;
+    } else if let Some(algorithm) = hmac(kind) {
+        MacKeyRequest {
+            algorithm,
+            length: algorithm.output_length(),
+            id: &id,
+            label,
+        }
+        .validate()
+        .map_err(|_| usage("MAC key ID and label must each contain 1..=128 bytes"))?;
     } else if key_establishment::parameter(Some(kind)).is_none()
         && ml_dsa::parameter(Some(kind)).is_none()
         && oasis::slh_parameter(kind).is_none()
@@ -113,6 +134,14 @@ pub(crate) fn generate(session: &mut ManagementSession<'_>, m: &ArgMatches) -> R
             label,
         })?;
         json!({"algorithm":"aes","bits":size.length()*8,"purpose":need(m,"purpose")?})
+    } else if let Some(algorithm) = hmac(kind) {
+        session.generate_mac_key(&MacKeyRequest {
+            algorithm,
+            length: algorithm.output_length(),
+            id: &id,
+            label,
+        })?;
+        json!({"algorithm":algorithm.to_string(),"bits":algorithm.output_length()*8,"purpose":"authentication"})
     } else if let Some(parameter) = key_establishment::parameter(Some(kind)) {
         session.generate_ml_kem_key_pair(parameter, &id, label)?;
         key_establishment::key_info(parameter)

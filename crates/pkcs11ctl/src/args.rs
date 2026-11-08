@@ -287,6 +287,11 @@ pub(crate) fn command() -> Command {
             "aes128",
             "aes192",
             "aes256",
+            "hmac-sha1",
+            "hmac-sha224",
+            "hmac-sha256",
+            "hmac-sha384",
+            "hmac-sha512",
             "p256",
             "p384",
             "p521",
@@ -312,7 +317,7 @@ pub(crate) fn command() -> Command {
         .arg(value("bits", "RSA modulus size; RSA only"))
         .arg(
             value("purpose", "Required AES permissions")
-                .value_parser(["encryption", "wrapping"])
+                .value_parser(["encryption", "wrapping", "authentication"])
                 .required_if_eq_any([("kind", "aes128"), ("kind", "aes192"), ("kind", "aes256")]),
         )
         .arg(flag(
@@ -321,7 +326,12 @@ pub(crate) fn command() -> Command {
         ));
     let import = Command::new("import")
         .about("Import public certificate DER, ML-KEM SPKI DER or data bytes")
-        .arg(required("kind", "Object kind").value_parser(["cert", "data", "ml-kem"]))
+        .arg(required("kind", "Object kind").value_parser(["cert", "data", "ml-kem", "public-key"]))
+        .arg(
+            value("purpose", "Public-key purpose")
+                .value_parser(["verification", "encryption"])
+                .default_value("verification"),
+        )
         .arg(required("input", "Input file; - reads stdin"));
     let set_label = Command::new("set-label")
         .about("Relabel exactly one object")

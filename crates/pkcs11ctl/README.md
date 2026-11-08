@@ -434,3 +434,15 @@ pkcs11ctl sign --module /path/lib.so \
   --key 'pkcs11:token=test;object=slh;type=private' \
   --algorithm slh-dsa-sha2-128s --input message.bin --output signature.bin
 ```
+
+MAC keys and public keys can be provisioned directly:
+
+```sh
+pkcs11ctl generate --module /path/lib.so --token 'pkcs11:token=test' \
+  --kind hmac-sha256 --id 50 --label hmac --confirm
+pkcs11ctl generate --module /path/lib.so --token 'pkcs11:token=test' \
+  --kind aes128 --purpose authentication --id 51 --label cmac --confirm
+pkcs11ctl import --module /path/lib.so --token 'pkcs11:token=test' \
+  --kind public-key --purpose verification --id 90 --label imported \
+  --input public.der --confirm
+```
