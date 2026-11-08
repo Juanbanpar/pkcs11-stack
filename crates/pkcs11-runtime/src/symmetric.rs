@@ -312,8 +312,14 @@ impl Session<'_> {
             let mut output = Vec::new();
             for chunk in chunks {
                 output.extend_from_slice(&raw.encrypt_update(chunk)?);
+                if output.len() > AES_MAXIMUM_INPUT + AES_BLOCK_SIZE {
+                    return Err(cryptoki::error::Error::InvalidValue);
+                }
             }
             output.extend_from_slice(&raw.encrypt_final()?);
+            if output.len() > AES_MAXIMUM_INPUT + AES_BLOCK_SIZE {
+                return Err(cryptoki::error::Error::InvalidValue);
+            }
             Ok(output)
         })
     }
@@ -340,8 +346,14 @@ impl Session<'_> {
             let mut output = Vec::new();
             for chunk in chunks {
                 output.extend_from_slice(&raw.decrypt_update(chunk)?);
+                if output.len() > AES_MAXIMUM_INPUT {
+                    return Err(cryptoki::error::Error::InvalidValue);
+                }
             }
             output.extend_from_slice(&raw.decrypt_final()?);
+            if output.len() > AES_MAXIMUM_INPUT {
+                return Err(cryptoki::error::Error::InvalidValue);
+            }
             Ok(output)
         })?;
         Ok(SecretBox::new(Box::new(plaintext)))

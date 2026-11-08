@@ -25,6 +25,7 @@ impl<'m> Session<'m> {
         operation: &'static str,
         action: impl FnOnce(&cryptoki::session::Session) -> Result<T, cryptoki::error::Error>,
     ) -> Result<T, Error> {
+        self.validate()?;
         if self.mode != SessionMode::ReadWrite {
             return Err(Error::ReadWriteRequired);
         }

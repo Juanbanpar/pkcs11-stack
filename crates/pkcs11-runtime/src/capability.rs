@@ -204,7 +204,6 @@ pub fn mechanism_family(mechanism: MechanismType) -> MechanismFamily {
         | M::AES_CBC_PAD
         | M::AES_CTR
         | M::AES_GCM
-        | M::AES_CMAC
         | M::AES_KEY_WRAP
         | M::AES_KEY_WRAP_PAD
         | M::AES_CBC_ENCRYPT_DATA => MechanismFamily::Aes,
@@ -218,9 +217,12 @@ pub fn mechanism_family(mechanism: MechanismType) -> MechanismFamily {
         | M::DES_CBC_PAD
         | M::DES3_CBC_PAD => MechanismFamily::LegacyCipher,
         M::SHA1 | M::SHA224 | M::SHA256 | M::SHA384 | M::SHA512 => MechanismFamily::Hash,
-        M::SHA1_HMAC | M::SHA224_HMAC | M::SHA256_HMAC | M::SHA384_HMAC | M::SHA512_HMAC => {
-            MechanismFamily::Mac
-        }
+        M::SHA1_HMAC
+        | M::SHA224_HMAC
+        | M::SHA256_HMAC
+        | M::SHA384_HMAC
+        | M::SHA512_HMAC
+        | M::AES_CMAC => MechanismFamily::Mac,
         M::HKDF_KEY_GEN
         | M::HKDF_DERIVE
         | M::HKDF_DATA
@@ -277,46 +279,25 @@ pub fn is_runtime_supported(mechanism: MechanismType) -> bool {
             | M::RSA_PKCS
             | M::RSA_PKCS_PSS
             | M::RSA_PKCS_OAEP
-            | M::RSA_X_509
-            | M::SHA1_RSA_PKCS
-            | M::SHA224_RSA_PKCS
             | M::SHA256_RSA_PKCS
             | M::SHA384_RSA_PKCS
             | M::SHA512_RSA_PKCS
-            | M::SHA1_RSA_PKCS_PSS
             | M::SHA256_RSA_PKCS_PSS
             | M::SHA384_RSA_PKCS_PSS
             | M::SHA512_RSA_PKCS_PSS
             | M::ECDSA
-            | M::ECDSA_SHA1
-            | M::ECDSA_SHA224
             | M::ECDSA_SHA256
             | M::ECDSA_SHA384
             | M::ECDSA_SHA512
             | M::ECDH1_DERIVE
             | M::ECC_KEY_PAIR_GEN
-            | M::ECC_EDWARDS_KEY_PAIR_GEN
-            | M::ECC_MONTGOMERY_KEY_PAIR_GEN
-            | M::EDDSA
             | M::AES_KEY_GEN
             | M::AES_ECB
             | M::AES_CBC
             | M::AES_CBC_PAD
-            | M::AES_CTR
             | M::AES_GCM
             | M::AES_CMAC
             | M::AES_KEY_WRAP
-            | M::AES_KEY_WRAP_PAD
-            | M::AES_CBC_ENCRYPT_DATA
-            | M::DES_KEY_GEN
-            | M::DES2_KEY_GEN
-            | M::DES3_KEY_GEN
-            | M::DES_ECB
-            | M::DES3_ECB
-            | M::DES_CBC
-            | M::DES3_CBC
-            | M::DES_CBC_PAD
-            | M::DES3_CBC_PAD
             | M::SHA1
             | M::SHA224
             | M::SHA256
@@ -327,45 +308,17 @@ pub fn is_runtime_supported(mechanism: MechanismType) -> bool {
             | M::SHA256_HMAC
             | M::SHA384_HMAC
             | M::SHA512_HMAC
-            | M::HKDF_KEY_GEN
             | M::HKDF_DERIVE
-            | M::HKDF_DATA
             | M::SP800_108_COUNTER_KDF
             | M::SP800_108_FEEDBACK_KDF
             | M::SP800_108_DOUBLE_PIPELINE_KDF
             | M::CONCATENATE_BASE_AND_KEY
-            | M::CONCATENATE_BASE_AND_DATA
-            | M::CONCATENATE_DATA_AND_BASE
-            | M::XOR_BASE_AND_DATA
-            | M::EXTRACT_KEY_FROM_KEY
             | M::ML_KEM_KEY_PAIR_GEN
             | M::ML_KEM
             | M::ML_DSA_KEY_PAIR_GEN
             | M::ML_DSA
-            | M::HASH_ML_DSA
-            | M::HASH_ML_DSA_SHA224
-            | M::HASH_ML_DSA_SHA256
-            | M::HASH_ML_DSA_SHA384
-            | M::HASH_ML_DSA_SHA512
-            | M::HASH_ML_DSA_SHA3_224
-            | M::HASH_ML_DSA_SHA3_256
-            | M::HASH_ML_DSA_SHA3_384
-            | M::HASH_ML_DSA_SHA3_512
-            | M::HASH_ML_DSA_SHAKE128
-            | M::HASH_ML_DSA_SHAKE256
             | M::SLH_DSA_KEY_PAIR_GEN
             | M::SLH_DSA
-            | M::HASH_SLH_DSA
-            | M::HASH_SLH_DSA_SHA224
-            | M::HASH_SLH_DSA_SHA256
-            | M::HASH_SLH_DSA_SHA384
-            | M::HASH_SLH_DSA_SHA512
-            | M::HASH_SLH_DSA_SHA3_224
-            | M::HASH_SLH_DSA_SHA3_256
-            | M::HASH_SLH_DSA_SHA3_384
-            | M::HASH_SLH_DSA_SHA3_512
-            | M::HASH_SLH_DSA_SHAKE128
-            | M::HASH_SLH_DSA_SHAKE256
     )
 }
 
@@ -543,12 +496,15 @@ mod tests {
             MechanismType::SHA256,
             MechanismType::SHA256_HMAC,
             MechanismType::SP800_108_COUNTER_KDF,
-            MechanismType::HASH_SLH_DSA_SHA256,
+            MechanismType::SLH_DSA,
             MechanismType::ML_DSA,
         ] {
             assert!(is_runtime_supported(mechanism), "{mechanism}");
         }
-        // No published typed variant or TryFrom entry exists for these.
+        // Typed upstream variants that this runtime has not exposed yet.
+        assert!(!is_runtime_supported(MechanismType::HASH_SLH_DSA_SHA256));
+        assert!(!is_runtime_supported(MechanismType::AES_CTR));
+        assert!(!is_runtime_supported(MechanismType::EDDSA));
         // A vendor-defined identifier is representable but not executable here.
         let vendor = MechanismType::new_vendor_defined(
             cryptoki::mechanism::vendor_defined::CKM_VENDOR_DEFINED | 1,
