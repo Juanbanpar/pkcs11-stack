@@ -58,6 +58,9 @@ pub struct MechanismEntry {
     pub id: MechanismType,
     pub name: String,
     pub identifier: String,
+    pub family: &'static str,
+    pub operations: Vec<&'static str>,
+    pub executable: bool,
     pub minimum: usize,
     pub maximum: usize,
     pub flags: Vec<&'static str>,
@@ -67,6 +70,11 @@ impl MechanismEntry {
         let query = query.trim().to_lowercase();
         self.name.to_lowercase().contains(&query)
             || self.identifier.to_lowercase().contains(&query)
+            || self.family.contains(&query)
+            || self
+                .operations
+                .iter()
+                .any(|operation| operation.contains(&query))
             || self
                 .flags
                 .iter()
@@ -367,10 +375,18 @@ impl Registry {
             .provider
             .mechanisms(&uri)
             .map_err(|e| BackendError::from(&e))?;
+        let capabilities = self.modules[index]
+            .provider
+            .mechanism_capabilities(&uri)
+            .map_err(|e| BackendError::from(&e))?
+            .into_iter()
+            .map(|capability| (*capability.mechanism, capability))
+            .collect::<std::collections::HashMap<_, _>>();
         let mut mechanisms = entries
             .into_iter()
             .map(|entry| {
                 let info = entry.info;
+                let capability = capabilities.get(&*entry.mechanism);
                 let flags = [
                     ("Hardware", info.hardware()),
                     ("Encrypt", info.encrypt()),
@@ -405,6 +421,17 @@ impl Registry {
                     id: entry.mechanism,
                     name: entry.mechanism.to_string(),
                     identifier: format!("{:#x}", *entry.mechanism),
+                    family: capability.map_or("other", |capability| capability.family.as_str()),
+                    operations: capability
+                        .map(|capability| {
+                            capability
+                                .operations
+                                .iter()
+                                .map(|operation| operation.as_str())
+                                .collect()
+                        })
+                        .unwrap_or_default(),
+                    executable: capability.is_some_and(|capability| capability.executable),
                     minimum: info.min_key_size(),
                     maximum: info.max_key_size(),
                     flags,

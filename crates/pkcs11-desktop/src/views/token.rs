@@ -507,7 +507,40 @@ fn mechanisms(state: &UiState) -> Element<'_, Message> {
                 .spacing(4),
             )
             .push(
+                column![
+                    muted("Family").size(12),
+                    text(entry.family).size(14)
+                ]
+                .spacing(4),
+            )
+            .push(
+                column![
+                    muted("Executable by this application").size(12),
+                    badge(
+                        if entry.executable { "yes" } else { "no" },
+                        if entry.executable { Tone::Success } else { Tone::Warning },
+                    )
+                ]
+                .spacing(4),
+            )
+            .push(
+                column![
+                    muted("Typed operations").size(12),
+                    text(if entry.operations.is_empty() {
+                        "none".to_owned()
+                    } else {
+                        entry.operations.join(", ")
+                    })
+                    .size(14)
+                ]
+                .spacing(4),
+            )
+            .push(
                 text("Bounds are provider values; units and meaning depend on the mechanism.")
+                    .size(14),
+            )
+            .push(
+                text("Executable means a typed path exists through the published binding; it does not promise this token accepts the parameters.")
                     .size(14),
             )
             .push(text("Advertised flags").size(18));
