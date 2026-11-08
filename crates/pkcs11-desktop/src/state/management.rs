@@ -49,6 +49,7 @@ impl std::fmt::Display for KeyChoice {
                 match purpose {
                     AesKeyPurpose::Encryption => "encryption/decryption",
                     AesKeyPurpose::Wrapping => "wrapping/unwrapping",
+                    AesKeyPurpose::Authentication => "AES-CMAC signing/verification",
                 }
             ),
         }

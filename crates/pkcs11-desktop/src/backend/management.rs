@@ -118,8 +118,12 @@ impl Registry {
             .chain(choices.ml_kem.into_iter().map(GenerationKind::MlKem))
             .chain(choices.ecdh.into_iter().map(GenerationKind::Ecdh))
             .chain(choices.aes.into_iter().flat_map(|size| {
-                [AesKeyPurpose::Encryption, AesKeyPurpose::Wrapping]
-                    .map(|purpose| GenerationKind::Aes(size, purpose))
+                [
+                    AesKeyPurpose::Encryption,
+                    AesKeyPurpose::Wrapping,
+                    AesKeyPurpose::Authentication,
+                ]
+                .map(|purpose| GenerationKind::Aes(size, purpose))
             }))
             .collect())
     }
