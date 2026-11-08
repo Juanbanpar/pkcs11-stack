@@ -104,7 +104,10 @@ The following runs were executed for this branch:
 | Provider | Build | Tests | Result |
 |---|---|---|---|
 | SoftHSM | 2.7.0 (unmodified) | `tools/test-softhsm.sh`, including new digest/HMAC/AES-CMAC/AES-CBC known answers | pass |
+| SoftHSM PQC | pinned OpenSSL 3.5.9 + SoftHSM build (unmodified) | `tools/test-ml-dsa.sh` (runtime, client, CLI, TLS, desktop) | pass |
 | Kryoptic | pinned SP 800-108 build (unmodified) | `tools/test-kem-hkdf.sh`, including new KBKDF determinism/usable-output test | pass |
+| Kryoptic | pinned build (unmodified) | `tools/test-ml-kem.sh` (runtime, client, desktop) | pass |
+| All above | pinned provider builds | `./tools/test.sh` with the provider environment | pass |
 
 The SoftHSM run covers RSA/EC signing, OAEP, AES-GCM, RFC 3394 wrap, HKDF, ML-DSA,
 ML-KEM, TLS and the new digest/MAC/AES block operations. The Kryoptic run covers
