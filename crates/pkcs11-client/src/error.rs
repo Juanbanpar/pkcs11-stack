@@ -84,6 +84,15 @@ impl Error {
                 Runtime::UnsupportedCipher
                 | Runtime::UnsupportedKeyOperation
                 | Runtime::UnsupportedAesGcm => ErrorKind::Policy,
+                Runtime::UnsupportedDigest
+                | Runtime::UnsupportedMac
+                | Runtime::UnsupportedCipherMode
+                | Runtime::UnsupportedDerivation
+                | Runtime::UnsupportedVerification(_)
+                | Runtime::UnsupportedPostQuantum => ErrorKind::Policy,
+                Runtime::InvalidDigest | Runtime::InvalidMac | Runtime::InvalidCipherOutput => {
+                    ErrorKind::Runtime
+                }
                 _ => ErrorKind::Runtime,
             },
             _ => ErrorKind::Client,

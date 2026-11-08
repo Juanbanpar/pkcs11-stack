@@ -26,6 +26,7 @@ pub use generation::{
 };
 mod hkdf;
 mod management;
+mod mechanisms;
 mod ml_dsa;
 mod ml_dsa_certificate;
 mod ml_kem;
@@ -51,6 +52,14 @@ pub use management::{
 };
 pub use object_locator::object_locator;
 pub use pkcs11_locator::Pkcs11Uri;
+pub use pkcs11_runtime::{
+    AES_BLOCK_SIZE, AES_MAXIMUM_INPUT, AesCipherCapabilities, AesDecryptRequest, AesDirection,
+    AesEncryptRequest, AesMode, FunctionAvailability, HashAlgorithm, KbkdfCapabilities, KbkdfMode,
+    KbkdfOutput, KbkdfPrf, KbkdfRequest, MacAlgorithm, MacCapabilities, MechanismCapability,
+    MechanismFamily, MechanismOperation, SlhDsaCapabilities, SlhDsaHedging, SlhDsaKeyPairRequest,
+    SlhDsaParameterSet, SlhDsaPublicKey, SlhDsaRequest, SlhDsaSigningPolicy,
+    VerificationCapabilities, VerifyRequest,
+};
 pub use pkcs11_runtime::{
     Attribute, AttributeInfo, AttributeType, AttributeValues, Authentication, CertificateRef,
     DigestAlgorithm, HashLocation, HashingPolicy, KeyCapabilities, KeyKind, KeyType, LibraryInfo,
