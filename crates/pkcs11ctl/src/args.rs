@@ -77,6 +77,18 @@ fn signature(command: Command) -> Command {
             "ml-dsa-44",
             "ml-dsa-65",
             "ml-dsa-87",
+            "slh-dsa-sha2-128s",
+            "slh-dsa-sha2-128f",
+            "slh-dsa-sha2-192s",
+            "slh-dsa-sha2-192f",
+            "slh-dsa-sha2-256s",
+            "slh-dsa-sha2-256f",
+            "slh-dsa-shake-128s",
+            "slh-dsa-shake-128f",
+            "slh-dsa-shake-192s",
+            "slh-dsa-shake-192f",
+            "slh-dsa-shake-256s",
+            "slh-dsa-shake-256f",
         ]))
         .arg(
             value("digest", "Required for RSA/ECDSA; forbidden for ML-DSA")

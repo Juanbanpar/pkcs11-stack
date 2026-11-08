@@ -9,6 +9,7 @@ mod key_establishment;
 mod ml_dsa;
 mod oasis;
 mod operations;
+mod slh_dsa;
 mod support;
 use secrecy::ExposeSecret;
 use std::process::ExitCode;

@@ -215,22 +215,7 @@ pub(crate) fn operation(
 
 /// Map a CLI key kind to an SLH-DSA parameter set.
 pub(crate) fn slh_parameter(value: &str) -> Option<pkcs11_client::SlhDsaParameterSet> {
-    use pkcs11_client::SlhDsaParameterSet as P;
-    Some(match value {
-        "slh-dsa-sha2-128s" => P::Sha2_128S,
-        "slh-dsa-sha2-128f" => P::Sha2_128F,
-        "slh-dsa-sha2-192s" => P::Sha2_192S,
-        "slh-dsa-sha2-192f" => P::Sha2_192F,
-        "slh-dsa-sha2-256s" => P::Sha2_256S,
-        "slh-dsa-sha2-256f" => P::Sha2_256F,
-        "slh-dsa-shake-128s" => P::Shake128S,
-        "slh-dsa-shake-128f" => P::Shake128F,
-        "slh-dsa-shake-192s" => P::Shake192S,
-        "slh-dsa-shake-192f" => P::Shake192F,
-        "slh-dsa-shake-256s" => P::Shake256S,
-        "slh-dsa-shake-256f" => P::Shake256F,
-        _ => return None,
-    })
+    crate::slh_dsa::parameter(Some(value))
 }
 
 /// Stable JSON description of an SLH-DSA parameter set.

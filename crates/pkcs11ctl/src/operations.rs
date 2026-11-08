@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-use crate::{aes_gcm, generation, inspect, key_establishment, ml_dsa, oasis, support::*};
+use crate::{aes_gcm, generation, inspect, key_establishment, ml_dsa, oasis, slh_dsa, support::*};
 use clap::ArgMatches;
 use pkcs11_client::{
     AttributeType, DigestAlgorithm, HashingPolicy, Provider, PssParameters, RandomRequest,
@@ -91,8 +91,11 @@ pub(crate) struct Inputs {
 impl Inputs {
     pub fn load(name: &str, m: &ArgMatches) -> Result<Self> {
         let ml_dsa = ml_dsa::selected(m);
+        let slh_dsa = slh_dsa::selected(m);
         if ml_dsa {
             ml_dsa::validate_options(m)?;
+        } else if slh_dsa {
+            slh_dsa::validate_options(m)?;
         } else if get(m, "context-file").is_some() || get(m, "hedging").is_some() {
             return Err(usage(
                 "context-file and hedging require an ML-DSA algorithm",
@@ -169,6 +172,8 @@ impl Inputs {
         if matches!(name, "sign" | "plan" | "verify") {
             if ml_dsa {
                 ml_dsa::request(m, &bytes, &domain_context)?;
+            } else if slh_dsa {
+                slh_dsa::request(m, &bytes, &domain_context)?;
             } else {
                 request(m, &bytes)?;
             }
@@ -214,6 +219,11 @@ impl Inputs {
                 return Err(usage("certificate-file requires a file path"));
             }
             let der = bounded_input(path, 1024 * 1024)?;
+            if slh_dsa {
+                return Err(usage(
+                    "SLH-DSA certificate verification is not exposed by this CLI",
+                ));
+            }
             let certificate = if ml_dsa {
                 let certificate = pkcs11_client::MlDsaCertificate::from_der(der)?;
                 certificate.validate_signing_request(&ml_dsa::request(
@@ -417,6 +427,9 @@ fn client_operation(
     m: &ArgMatches,
     inputs: &Inputs,
 ) -> Result<Output> {
+    if slh_dsa::selected(m) {
+        return slh_dsa::client_operation(client, name, m, inputs);
+    }
     if ml_dsa::selected(m) {
         return ml_dsa::client_operation(client, name, m, inputs);
     }

@@ -389,3 +389,48 @@ verification, random generation and administration commands. The required PQC
 provider lane also tests ML-DSA CLI workflows and OpenSSL interoperability.
 `tools/test-kem-hkdf.sh` tests ML-KEM, HKDF and hybrid CLI workflows on a disposable
 Kryoptic token; see the [test guide](../../tests/README.md#persistent-ml-kem-and-hkdf).
+
+## OASIS mechanism commands
+
+New commands reuse `pkcs11-client`:
+
+```sh
+pkcs11ctl mechanisms --module /path/lib.so --token 'pkcs11:token=test'
+pkcs11ctl function-support --module /path/lib.so --token 'pkcs11:token=test'
+pkcs11ctl digest --module /path/lib.so --token 'pkcs11:token=test' \
+  --algorithm sha256 --input message.bin --output digest.bin
+pkcs11ctl mac --module /path/lib.so \
+  --object 'pkcs11:token=test;object=hmac;type=secret-key' \
+  --algorithm hmac-sha256 --input message.bin --output tag.bin
+pkcs11ctl verify-mac --module /path/lib.so \
+  --object 'pkcs11:token=test;object=hmac;type=secret-key' \
+  --algorithm hmac-sha256 --input message.bin --tag tag.bin
+pkcs11ctl encrypt-aes --module /path/lib.so \
+  --object 'pkcs11:token=test;object=aes;type=secret-key' \
+  --mode cbc --iv 000102030405060708090a0b0c0d0e0f \
+  --input plaintext.bin --output ciphertext.bin
+pkcs11ctl decrypt-aes --module /path/lib.so \
+  --object 'pkcs11:token=test;object=aes;type=secret-key' \
+  --mode cbc --iv 000102030405060708090a0b0c0d0e0f \
+  --input ciphertext.bin --output plaintext.bin
+pkcs11ctl derive-kbkdf --module /path/lib.so \
+  --object 'pkcs11:token=test;object=base;type=secret-key' \
+  --prf hmac-sha256 --mode counter --kind aes256 \
+  --kdf-label-file label.bin --kdf-context-file context.bin \
+  --id 30 --label derived --confirm
+```
+
+`mechanisms` distinguishes provider advertisement from application execution.
+`function-support` reports the selected interface's function list. Parameter
+combinations are rejected before a provider is loaded. Decrypted output is
+written only after checked completion, and existing files are not overwritten.
+
+SLH-DSA generation and signing use the same `generate` and `sign` commands:
+
+```sh
+pkcs11ctl generate --module /path/lib.so --token 'pkcs11:token=test' \
+  --kind slh-dsa-sha2-128s --id 40 --label slh --confirm
+pkcs11ctl sign --module /path/lib.so \
+  --key 'pkcs11:token=test;object=slh;type=private' \
+  --algorithm slh-dsa-sha2-128s --input message.bin --output signature.bin
+```

@@ -176,6 +176,29 @@ fn oasis_commands_reject_invalid_parameters_before_loading_a_module() {
 }
 
 #[test]
+fn slh_dsa_rejects_classical_options_before_loading_a_module() {
+    let out = run(&[
+        "sign",
+        "--module",
+        "/must-not-load",
+        "--key",
+        "pkcs11:token=test;object=slh;type=private",
+        "--algorithm",
+        "slh-dsa-sha2-128s",
+        "--digest",
+        "sha256",
+        "--input",
+        "-",
+        "--output",
+        "-",
+    ]);
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("SLH-DSA") || stderr.contains("invalid command line"));
+    assert!(!stderr.contains("must-not-load"));
+}
+
+#[test]
 fn verifies_independent_fixtures_without_loading_a_module() {
     use der::{Decode, Sequence, asn1::UintRef};
     #[derive(Sequence)]
