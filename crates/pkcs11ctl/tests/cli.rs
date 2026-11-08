@@ -64,6 +64,14 @@ fn help_and_version_need_no_module() {
         "import",
         "set-label",
         "delete",
+        "digest",
+        "mac",
+        "verify-mac",
+        "encrypt-aes",
+        "decrypt-aes",
+        "derive-kbkdf",
+        "aes-cipher-capabilities",
+        "function-support",
     ] {
         let out = run(&[name, "--help"]);
         assert!(
@@ -74,6 +82,97 @@ fn help_and_version_need_no_module() {
         assert!(out.stderr.is_empty());
     }
     assert!(run(&["--version"]).status.success());
+}
+
+#[test]
+fn oasis_commands_reject_invalid_parameters_before_loading_a_module() {
+    let token = "pkcs11:token=test";
+    let object = "pkcs11:token=test;object=key;type=secret-key";
+    for args in [
+        vec![
+            "digest",
+            "--module",
+            "/must-not-load",
+            "--token",
+            token,
+            "--algorithm",
+            "md5",
+            "--input",
+            "-",
+            "--output",
+            "-",
+        ],
+        vec![
+            "encrypt-aes",
+            "--module",
+            "/must-not-load",
+            "--object",
+            object,
+            "--mode",
+            "ecb",
+            "--iv",
+            "00000000000000000000000000000000",
+            "--input",
+            "-",
+            "--output",
+            "-",
+        ],
+        vec![
+            "decrypt-aes",
+            "--module",
+            "/must-not-load",
+            "--object",
+            object,
+            "--mode",
+            "cbc",
+            "--input",
+            "-",
+            "--output",
+            "-",
+        ],
+        vec![
+            "derive-kbkdf",
+            "--module",
+            "/must-not-load",
+            "--object",
+            object,
+            "--prf",
+            "hmac-sha256",
+            "--mode",
+            "counter",
+            "--kind",
+            "derivation-secret",
+            "--label",
+            "derived",
+            "--id",
+            "01",
+            "--confirm",
+        ],
+        vec![
+            "verify-mac",
+            "--module",
+            "/must-not-load",
+            "--object",
+            object,
+            "--algorithm",
+            "aes-cmac",
+            "--input",
+            "-",
+            "--tag",
+            "-",
+        ],
+    ] {
+        let out = run(&args);
+        assert!(!out.status.success(), "{args:?}");
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            stderr.contains("input")
+                || stderr.contains("size limit")
+                || stderr.contains("invalid command line"),
+            "{args:?}: {stderr}"
+        );
+        assert!(!stderr.contains("must-not-load"));
+    }
 }
 
 #[test]

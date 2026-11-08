@@ -7,6 +7,7 @@ mod generation;
 mod inspect;
 mod key_establishment;
 mod ml_dsa;
+mod oasis;
 mod operations;
 mod support;
 use secrecy::ExposeSecret;

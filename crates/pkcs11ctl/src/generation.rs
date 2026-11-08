@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-use crate::{inspect, key_establishment, ml_dsa, support::*};
+use crate::{inspect, key_establishment, ml_dsa, oasis, support::*};
 use clap::ArgMatches;
 use pkcs11_client::{
     AesKeyPurpose, AesKeyRequest, AesKeySize, EcdhKeyPairRequest, KeyKind, ManagementSession,
-    NamedCurve, Provider,
+    NamedCurve, Provider, SlhDsaKeyPairRequest,
 };
 use serde_json::{Value, json};
 
@@ -59,7 +59,8 @@ pub(crate) fn validate(m: &ArgMatches) -> Result<()> {
     let label = need(m, "label")?.as_bytes();
     let non_signing = curve(kind).is_some()
         || aes(kind).is_some()
-        || key_establishment::parameter(Some(kind)).is_some();
+        || key_establishment::parameter(Some(kind)).is_some()
+        || oasis::slh_parameter(kind).is_some();
     if non_signing && flag(m, "always-authenticate") {
         return Err(usage("always-authenticate applies only to signing keys"));
     }
@@ -85,6 +86,7 @@ pub(crate) fn validate(m: &ArgMatches) -> Result<()> {
         .map_err(|_| usage("AES ID and label must each contain 1..=128 bytes"))?;
     } else if key_establishment::parameter(Some(kind)).is_none()
         && ml_dsa::parameter(Some(kind)).is_none()
+        && oasis::slh_parameter(kind).is_none()
     {
         signing(m)?;
     }
@@ -117,6 +119,14 @@ pub(crate) fn generate(session: &mut ManagementSession<'_>, m: &ArgMatches) -> R
     } else if let Some(parameter) = ml_dsa::parameter(Some(kind)) {
         session.generate_ml_dsa_key_pair(parameter, &id, label, flag(m, "always-authenticate"))?;
         ml_dsa::key_info(parameter)
+    } else if let Some(parameter) = oasis::slh_parameter(kind) {
+        session.generate_slh_dsa_key_pair(&SlhDsaKeyPairRequest {
+            parameter_set: parameter,
+            id: &id,
+            label,
+            always_authenticate: flag(m, "always-authenticate"),
+        })?;
+        oasis::slh_key_info(parameter)
     } else {
         let kind = signing(m)?;
         session.generate_signing_key_pair(kind, &id, label, flag(m, "always-authenticate"))?;

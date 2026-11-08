@@ -284,6 +284,18 @@ pub(crate) fn command() -> Command {
             "ml-kem-512",
             "ml-kem-768",
             "ml-kem-1024",
+            "slh-dsa-sha2-128s",
+            "slh-dsa-sha2-128f",
+            "slh-dsa-sha2-192s",
+            "slh-dsa-sha2-192f",
+            "slh-dsa-sha2-256s",
+            "slh-dsa-sha2-256f",
+            "slh-dsa-shake-128s",
+            "slh-dsa-shake-128f",
+            "slh-dsa-shake-192s",
+            "slh-dsa-shake-192f",
+            "slh-dsa-shake-256s",
+            "slh-dsa-shake-256f",
         ]))
         .arg(value("bits", "RSA modulus size; RSA only"))
         .arg(
@@ -309,6 +321,100 @@ pub(crate) fn command() -> Command {
         .arg(required("input", "Input file; - reads stdin; ciphertext includes the full 16-byte tag"))
         .arg(required("output", "New output file, or - for binary stdout; nonce/AAD are not included"))))
     };
+    let digest = Command::new("digest")
+        .about("Digest a file or stdin on the token")
+        .arg(
+            required("algorithm", "Digest algorithm")
+                .value_parser(["sha1", "sha224", "sha256", "sha384", "sha512"]),
+        )
+        .arg(required("input", "Input file; - reads stdin"))
+        .arg(required(
+            "output",
+            "New output file, or - for binary stdout",
+        ));
+    let mac = Command::new("mac")
+        .about("Compute a full-tag MAC with a token secret key")
+        .arg(required("algorithm", "MAC algorithm").value_parser([
+            "hmac-sha1",
+            "hmac-sha224",
+            "hmac-sha256",
+            "hmac-sha384",
+            "hmac-sha512",
+            "aes-cmac",
+        ]))
+        .arg(required("input", "Input file; - reads stdin"))
+        .arg(required(
+            "output",
+            "New output file, or - for binary stdout",
+        ));
+    let verify_mac = Command::new("verify-mac")
+        .about("Verify a full-tag MAC with a token secret key")
+        .arg(required("algorithm", "MAC algorithm").value_parser([
+            "hmac-sha1",
+            "hmac-sha224",
+            "hmac-sha256",
+            "hmac-sha384",
+            "hmac-sha512",
+            "aes-cmac",
+        ]))
+        .arg(required("input", "Input file; - reads stdin"))
+        .arg(required(
+            "tag",
+            "Expected full-tag file; - reads stdin only if input is a file",
+        ));
+    let aes_cipher = |name: &'static str, help: &'static str| {
+        object(
+            Command::new(name)
+                .about(help)
+                .arg(required("mode", "AES mode").value_parser(["ecb", "cbc", "cbc-pad"]))
+                .arg(value(
+                    "iv",
+                    "Exactly 32 hex digits for CBC/CBC-PAD; forbidden for ECB",
+                ))
+                .arg(required("input", "Input file; - reads stdin"))
+                .arg(required(
+                    "output",
+                    "New output file, or - for binary stdout",
+                )),
+        )
+    };
+    let derive_kbkdf = Command::new("derive-kbkdf")
+        .about("Derive a persistent token key with NIST SP 800-108")
+        .arg(required("prf", "PRF").value_parser([
+            "hmac-sha1",
+            "hmac-sha224",
+            "hmac-sha256",
+            "hmac-sha384",
+            "hmac-sha512",
+            "aes-cmac",
+        ]))
+        .arg(required("mode", "SP 800-108 mode").value_parser([
+            "counter",
+            "feedback",
+            "double-pipeline",
+        ]))
+        .arg(required("kind", "Output key type").value_parser([
+            "aes128",
+            "aes192",
+            "aes256",
+            "derivation-secret",
+        ]))
+        .arg(value("length", "Generic derivation-secret length in bytes"))
+        .arg(value(
+            "kdf-label-file",
+            "Public KDF label file, at most 4096 bytes",
+        ))
+        .arg(value(
+            "kdf-context-file",
+            "Public KDF context file, at most 4096 bytes",
+        ))
+        .arg(value("iv", "Feedback IV in hex; omitted means none"));
+    let aes_cipher_capabilities = Command::new("aes-cipher-capabilities")
+        .about("Inspect AES mode permissions and provider support")
+        .arg(required("mode", "AES mode").value_parser(["ecb", "cbc", "cbc-pad"]))
+        .arg(required("operation", "Requested direction").value_parser(["encrypt", "decrypt"]));
+    let function_support = Command::new("function-support")
+        .about("Report which standard functions the selected interface provides");
     let commands = [
         Command::new("info").about("Inspect the loaded library"),
         Command::new("slots").about("List diagnostic slot IDs"),
@@ -399,6 +505,14 @@ pub(crate) fn command() -> Command {
         mutation(auth(object(
             Command::new("delete").about("Delete exactly one object"),
         ))),
+        auth(token(digest)),
+        auth(object(mac)),
+        auth(object(verify_mac)),
+        auth(aes_cipher("encrypt-aes", "Encrypt with a token AES key")),
+        auth(aes_cipher("decrypt-aes", "Decrypt with a token AES key")),
+        mutation(auth(named(object(derive_kbkdf)))),
+        auth(object(aes_cipher_capabilities)),
+        token(function_support),
     ];
     Command::new("pkcs11ctl")
         .version(env!("CARGO_PKG_VERSION"))

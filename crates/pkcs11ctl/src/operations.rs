@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-use crate::{aes_gcm, generation, inspect, key_establishment, ml_dsa, support::*};
+use crate::{aes_gcm, generation, inspect, key_establishment, ml_dsa, oasis, support::*};
 use clap::ArgMatches;
 use pkcs11_client::{
     AttributeType, DigestAlgorithm, HashingPolicy, Provider, PssParameters, RandomRequest,
@@ -80,6 +80,10 @@ pub(crate) struct Inputs {
     pub verification_certificate: Option<VerificationCertificate>,
     pub domain_context: Vec<u8>,
     pub signature: Vec<u8>,
+    pub tag: Vec<u8>,
+    pub kdf_label: Vec<u8>,
+    pub kdf_context: Vec<u8>,
+    pub kdf_iv: Vec<u8>,
     pub random: Option<RandomRequest>,
     pub so: bool,
     pub establishment: key_establishment::Inputs,
@@ -136,14 +140,21 @@ impl Inputs {
         if name == "verify" && get(m, "input") == Some("-") && get(m, "signature") == Some("-") {
             return Err(usage("only one verification input may read stdin"));
         }
+        if name == "verify-mac" && get(m, "input") == Some("-") && get(m, "tag") == Some("-") {
+            return Err(usage("only one MAC verification input may read stdin"));
+        }
+        oasis::validate(name, m)?;
         let aes_gcm = aes_gcm::Inputs::load(name, m)?;
         let bytes = if aes_gcm::selected(name) {
             vec![]
         } else if let Some(path) = get(m, "input") {
             if let Some(limit) = key_establishment::input_limit(name, m)? {
                 bounded_input(path, limit)?
-            } else if name == "verify" || ml_dsa {
+            } else if name == "verify" || ml_dsa || matches!(name, "digest" | "mac" | "verify-mac")
+            {
                 bounded_input(path, 64 * 1024 * 1024)?
+            } else if matches!(name, "encrypt-aes" | "decrypt-aes") {
+                bounded_input(path, 16 * 1024 * 1024)?
             } else {
                 input(path)?
             }
@@ -164,6 +175,37 @@ impl Inputs {
         }
         let signature = if name == "verify" {
             bounded_input(need(m, "signature")?, 16 * 1024)?
+        } else {
+            vec![]
+        };
+        let tag = if name == "verify-mac" {
+            bounded_input(need(m, "tag")?, 16 * 1024)?
+        } else {
+            vec![]
+        };
+        let kdf_label = if name == "derive-kbkdf" {
+            match get(m, "kdf-label-file") {
+                Some("-") => return Err(usage("kdf-label-file requires a file path")),
+                Some(path) => bounded_input(path, 4096)?,
+                None => vec![],
+            }
+        } else {
+            vec![]
+        };
+        let kdf_context = if name == "derive-kbkdf" {
+            match get(m, "kdf-context-file") {
+                Some("-") => return Err(usage("kdf-context-file requires a file path")),
+                Some(path) => bounded_input(path, 4096)?,
+                None => vec![],
+            }
+        } else {
+            vec![]
+        };
+        let kdf_iv = if name == "derive-kbkdf" {
+            match get(m, "iv") {
+                Some(value) => unhex(value)?,
+                None => vec![],
+            }
         } else {
             vec![]
         };
@@ -252,6 +294,10 @@ impl Inputs {
             verification_certificate,
             domain_context,
             signature,
+            tag,
+            kdf_label,
+            kdf_context,
+            kdf_iv,
             random,
             so,
         })
@@ -440,12 +486,31 @@ fn management_command(
     if name == "generation-options" {
         return generation::options(module, m).map(Output::Structured);
     }
+    if name == "function-support" {
+        return Ok(Output::Structured(json!(
+            module
+                .function_availability()?
+                .into_iter()
+                .map(|entry| json!({
+                    "function": format!("{:?}", entry.function),
+                    "supported": entry.supported,
+                }))
+                .collect::<Vec<_>>()
+        )));
+    }
     if name == "mechanisms" {
         let mut items = vec![];
-        for entry in module.mechanisms(&location)? {
-            let mechanism = entry.mechanism;
-            let info = entry.info;
-            items.push(json!({"name":format!("{mechanism:?}"),"min_key_size":info.min_key_size(),"max_key_size":info.max_key_size(),"sign":info.sign(),"verify":info.verify(),"encrypt":info.encrypt(),"decrypt":info.decrypt(),"generate":info.generate(),"generate_key_pair":info.generate_key_pair(),"wrap":info.wrap(),"unwrap":info.unwrap(),"derive":info.derive(),"encapsulate":info.encapsulate(),"decapsulate":info.decapsulate(),"hardware":info.hardware()}));
+        for entry in module.mechanism_capabilities(&location)? {
+            items.push(json!({
+                "name": entry.name,
+                "identifier": *entry.mechanism,
+                "family": entry.family.as_str(),
+                "operations": entry.operations.iter().map(|operation| operation.as_str()).collect::<Vec<_>>(),
+                "executable": entry.executable,
+                "min_key_size": entry.minimum_key_size,
+                "max_key_size": entry.maximum_key_size,
+                "hardware": entry.hardware,
+            }));
         }
         return Ok(Output::Structured(json!(items)));
     }
@@ -466,6 +531,7 @@ fn management_command(
         ));
     }
     let mutation = key_establishment::mutation(name)
+        || oasis::mutation(name)
         || matches!(
             name,
             "init-pin" | "set-pin" | "generate" | "import" | "delete" | "set-label"
@@ -496,6 +562,9 @@ fn management_operation(
     }
     if key_establishment::selected(name) {
         return key_establishment::operation(session, name, m, inputs);
+    }
+    if oasis::selected(name) {
+        return oasis::operation(session, name, m, inputs);
     }
     let value = match name {
         "random" => {
