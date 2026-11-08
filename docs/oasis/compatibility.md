@@ -59,7 +59,7 @@ coverage. Provider support is separate.
 | ML-DSA | key generation, sign/verify, public export | already existed |
 | SLH-DSA | key generation, sign/verify, public export, CLI generation/signing | added here; provider verification is pending |
 | Objects | create, read, update, destroy, discover, copy (upstream), generate, wrap/unwrap, import certificate/data/public key | RSA/EC public-key import added here |
-| Sessions | authentication, protected path, multipart operations, signature-first verification, cancellation (upstream types absent) | cancellation is upstream-blocked |
+| Sessions | authentication, protected path, multipart digest/MAC/AES and signature-first verification, cancellation (upstream types absent) | CLI exposes multipart digest/MAC/AES; cancellation is upstream-blocked |
 
 ## Known upstream blockers
 

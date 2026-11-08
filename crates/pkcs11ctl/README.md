@@ -446,3 +446,7 @@ pkcs11ctl import --module /path/lib.so --token 'pkcs11:token=test' \
   --kind public-key --purpose verification --id 90 --label imported \
   --input public.der --confirm
 ```
+
+`digest`, `mac`, `verify-mac`, `encrypt-aes` and `decrypt-aes` accept
+`--multipart` to process the bounded input through the runtime's multipart
+native calls. Single-part remains the default.

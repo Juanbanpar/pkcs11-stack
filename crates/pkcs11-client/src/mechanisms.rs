@@ -6,10 +6,10 @@
 
 use crate::{Authentication, Client, Error, ManagementSession, ObjectRef, Pkcs11Uri, Provider};
 use pkcs11_runtime::{
-    AesDecryptRequest, AesDirection, AesEncryptRequest, AesMode, FunctionAvailability,
-    HashAlgorithm, KbkdfCapabilities, KbkdfMode, KbkdfPrf, KbkdfRequest, MacAlgorithm,
-    MacKeyRequest, MechanismCapability, SlhDsaCapabilities, SlhDsaKeyPairRequest, SlhDsaRequest,
-    SlhDsaSigningPolicy, VerifyRequest,
+    AES_BLOCK_SIZE, AesDecryptRequest, AesDirection, AesEncryptRequest, AesMode,
+    FunctionAvailability, HashAlgorithm, KbkdfCapabilities, KbkdfMode, KbkdfPrf, KbkdfRequest,
+    MacAlgorithm, MacKeyRequest, MechanismCapability, SlhDsaCapabilities, SlhDsaKeyPairRequest,
+    SlhDsaRequest, SlhDsaSigningPolicy, VerifyRequest,
 };
 use secrecy::SecretBox;
 use x509_cert::{
@@ -282,6 +282,15 @@ impl ManagementSession<'_> {
         Ok(self.session.digest(algorithm, input)?)
     }
 
+    /// Stream chunks through a multipart token digest.
+    pub fn digest_chunks<'a>(
+        &mut self,
+        algorithm: HashAlgorithm,
+        chunks: impl IntoIterator<Item = &'a [u8]>,
+    ) -> Result<Vec<u8>, Error> {
+        Ok(self.session.digest_chunks(algorithm, chunks)?)
+    }
+
     /// Compute one full-tag MAC with a selected secret key.
     pub fn mac(
         &mut self,
@@ -290,6 +299,16 @@ impl ManagementSession<'_> {
         input: &[u8],
     ) -> Result<Vec<u8>, Error> {
         Ok(self.session.mac(key, algorithm, input)?)
+    }
+
+    /// Stream a MAC over chunks.
+    pub fn mac_chunks<'a>(
+        &mut self,
+        key: &ObjectRef,
+        algorithm: MacAlgorithm,
+        chunks: impl IntoIterator<Item = &'a [u8]>,
+    ) -> Result<Vec<u8>, Error> {
+        Ok(self.session.mac_chunks(key, algorithm, chunks)?)
     }
 
     /// Verify one full-tag MAC with a selected secret key.
@@ -303,6 +322,19 @@ impl ManagementSession<'_> {
         Ok(self.session.verify_mac(key, algorithm, input, tag)?)
     }
 
+    /// Verify a MAC over chunks.
+    pub fn verify_mac_chunks<'a>(
+        &mut self,
+        key: &ObjectRef,
+        algorithm: MacAlgorithm,
+        chunks: impl IntoIterator<Item = &'a [u8]>,
+        tag: &[u8],
+    ) -> Result<(), Error> {
+        Ok(self
+            .session
+            .verify_mac_chunks(key, algorithm, chunks, tag)?)
+    }
+
     /// Encrypt one bounded buffer with an AES key.
     pub fn encrypt_aes(
         &mut self,
@@ -310,6 +342,17 @@ impl ManagementSession<'_> {
         request: &AesEncryptRequest<'_>,
     ) -> Result<Vec<u8>, Error> {
         Ok(self.session.encrypt_aes(key, request)?)
+    }
+
+    /// Stream AES encryption over chunks.
+    pub fn encrypt_aes_chunks<'a>(
+        &mut self,
+        key: &ObjectRef,
+        mode: AesMode,
+        iv: Option<&[u8; AES_BLOCK_SIZE]>,
+        chunks: impl IntoIterator<Item = &'a [u8]>,
+    ) -> Result<Vec<u8>, Error> {
+        Ok(self.session.encrypt_aes_chunks(key, mode, iv, chunks)?)
     }
 
     /// Decrypt one bounded buffer with an AES key, returning redacted plaintext.
@@ -320,6 +363,18 @@ impl ManagementSession<'_> {
     ) -> Result<SecretBox<Vec<u8>>, Error> {
         Ok(self.session.decrypt_aes(key, request)?)
     }
+
+    /// Stream AES decryption over chunks.
+    pub fn decrypt_aes_chunks<'a>(
+        &mut self,
+        key: &ObjectRef,
+        mode: AesMode,
+        iv: Option<&[u8; AES_BLOCK_SIZE]>,
+        chunks: impl IntoIterator<Item = &'a [u8]>,
+    ) -> Result<SecretBox<Vec<u8>>, Error> {
+        Ok(self.session.decrypt_aes_chunks(key, mode, iv, chunks)?)
+    }
+
     /// Inspect AES mode support for a selected key on this session.
     pub fn aes_capabilities(
         &mut self,

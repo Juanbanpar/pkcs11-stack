@@ -367,6 +367,118 @@ fn digest_mac_and_aes_block_workflows() {
     ]);
     assert!(output.status.success());
 
+    // Multipart calls must match the single-part results.
+    let multipart_digest = scratch.0.join("digest-multipart");
+    let single_digest = scratch.0.join("digest-single-multipart");
+    for (extra, destination) in [(true, &multipart_digest), (false, &single_digest)] {
+        let mut args = vec![
+            "--module",
+            &module,
+            "digest",
+            "--token",
+            token,
+            "--algorithm",
+            "sha256",
+        ];
+        if extra {
+            args.push("--multipart");
+        }
+        args.extend(["--input", path(&message), "--output", path(destination)]);
+        let output = run(&args);
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    assert_eq!(
+        std::fs::read(&multipart_digest).unwrap(),
+        std::fs::read(&single_digest).unwrap()
+    );
+    let multipart_message = scratch.file("multipart-message", b"multipart message");
+    let multipart_tag = scratch.0.join("multipart-tag");
+    let output = run(&[
+        "--module",
+        &module,
+        "mac",
+        "--object",
+        hmac,
+        "--pin-file",
+        path(&pin),
+        "--algorithm",
+        "hmac-sha256",
+        "--multipart",
+        "--input",
+        path(&multipart_message),
+        "--output",
+        path(&multipart_tag),
+    ]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let multipart_plaintext = scratch.file(
+        "multipart-plaintext",
+        &hex_bytes("6bc1bee22e409f96e93d7e117393172a"),
+    );
+    let multipart_ciphertext = scratch.0.join("multipart-ciphertext");
+    let output = run(&[
+        "--module",
+        &module,
+        "encrypt-aes",
+        "--object",
+        aes,
+        "--pin-file",
+        path(&pin),
+        "--mode",
+        "cbc",
+        "--iv",
+        "000102030405060708090a0b0c0d0e0f",
+        "--multipart",
+        "--input",
+        path(&multipart_plaintext),
+        "--output",
+        path(&multipart_ciphertext),
+    ]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        std::fs::read(&multipart_ciphertext).unwrap(),
+        hex_bytes("7649abac8119b246cee98e9b12e9197d")
+    );
+    let multipart_recovered = scratch.0.join("multipart-recovered");
+    let output = run(&[
+        "--module",
+        &module,
+        "decrypt-aes",
+        "--object",
+        aes,
+        "--pin-file",
+        path(&pin),
+        "--mode",
+        "cbc",
+        "--iv",
+        "000102030405060708090a0b0c0d0e0f",
+        "--multipart",
+        "--input",
+        path(&multipart_ciphertext),
+        "--output",
+        path(&multipart_recovered),
+    ]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        std::fs::read(&multipart_recovered).unwrap(),
+        hex_bytes("6bc1bee22e409f96e93d7e117393172a")
+    );
+
     // Export a public key, import it under a new identity, and compare SPKI.
     for (source, id, label) in [
         ("rsa", "90", "imported-rsa"),

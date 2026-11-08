@@ -93,6 +93,10 @@ fn output(kind: &str, length: Option<usize>) -> Result<KbkdfOutput> {
     })
 }
 
+fn chunks(bytes: &[u8]) -> std::slice::Chunks<'_, u8> {
+    bytes.chunks(64 * 1024)
+}
+
 fn iv(m: &ArgMatches) -> Result<Option<[u8; 16]>> {
     let Some(value) = get(m, "iv") else {
         return Ok(None);
@@ -148,48 +152,80 @@ pub(crate) fn operation(
     inputs: &Inputs,
 ) -> Result<Output> {
     match name {
-        "digest" => Ok(Output::Binary(
-            session.digest(hash(need(m, "algorithm")?)?, &inputs.bytes)?,
-        )),
+        "digest" => {
+            let algorithm = hash(need(m, "algorithm")?)?;
+            let output = if flag(m, "multipart") {
+                session.digest_chunks(algorithm, chunks(&inputs.bytes))?
+            } else {
+                session.digest(algorithm, &inputs.bytes)?
+            };
+            Ok(Output::Binary(output))
+        }
         "mac" => {
             let key = object_reference(uri(m, "object")?)?;
-            Ok(Output::Binary(session.mac(
-                &key,
-                mac(need(m, "algorithm")?)?,
-                &inputs.bytes,
-            )?))
+            let algorithm = mac(need(m, "algorithm")?)?;
+            let output = if flag(m, "multipart") {
+                session.mac_chunks(&key, algorithm, chunks(&inputs.bytes))?
+            } else {
+                session.mac(&key, algorithm, &inputs.bytes)?
+            };
+            Ok(Output::Binary(output))
         }
         "verify-mac" => {
             let key = object_reference(uri(m, "object")?)?;
-            session.verify_mac(
-                &key,
-                mac(need(m, "algorithm")?)?,
-                &inputs.bytes,
-                &inputs.tag,
-            )?;
+            let algorithm = mac(need(m, "algorithm")?)?;
+            if flag(m, "multipart") {
+                session.verify_mac_chunks(&key, algorithm, chunks(&inputs.bytes), &inputs.tag)?;
+            } else {
+                session.verify_mac(&key, algorithm, &inputs.bytes, &inputs.tag)?;
+            }
             Ok(Output::Structured(json!({"verified":true})))
         }
         "encrypt-aes" => {
             let key = object_reference(uri(m, "object")?)?;
             let mode = mode(need(m, "mode")?)?;
             let iv = iv(m)?;
-            let request = AesEncryptRequest {
-                mode,
-                iv: iv.as_ref(),
-                plaintext: &inputs.bytes,
-            };
-            Ok(Output::Binary(session.encrypt_aes(&key, &request)?))
+            if flag(m, "multipart") {
+                if !matches!(mode, AesMode::CbcPad) && inputs.bytes.len() % 16 != 0 {
+                    return Err(usage("AES input is not block aligned"));
+                }
+                Ok(Output::Binary(session.encrypt_aes_chunks(
+                    &key,
+                    mode,
+                    iv.as_ref(),
+                    chunks(&inputs.bytes),
+                )?))
+            } else {
+                let request = AesEncryptRequest {
+                    mode,
+                    iv: iv.as_ref(),
+                    plaintext: &inputs.bytes,
+                };
+                Ok(Output::Binary(session.encrypt_aes(&key, &request)?))
+            }
         }
         "decrypt-aes" => {
             let key = object_reference(uri(m, "object")?)?;
             let mode = mode(need(m, "mode")?)?;
             let iv = iv(m)?;
-            let request = AesDecryptRequest {
-                mode,
-                iv: iv.as_ref(),
-                ciphertext: &inputs.bytes,
-            };
-            Ok(Output::SecretBinary(session.decrypt_aes(&key, &request)?))
+            if flag(m, "multipart") {
+                if !matches!(mode, AesMode::CbcPad) && inputs.bytes.len() % 16 != 0 {
+                    return Err(usage("AES input is not block aligned"));
+                }
+                Ok(Output::SecretBinary(session.decrypt_aes_chunks(
+                    &key,
+                    mode,
+                    iv.as_ref(),
+                    chunks(&inputs.bytes),
+                )?))
+            } else {
+                let request = AesDecryptRequest {
+                    mode,
+                    iv: iv.as_ref(),
+                    ciphertext: &inputs.bytes,
+                };
+                Ok(Output::SecretBinary(session.decrypt_aes(&key, &request)?))
+            }
         }
         "aes-cipher-capabilities" => aes_capabilities(session, m).map(Output::Structured),
         "derive-kbkdf" => {

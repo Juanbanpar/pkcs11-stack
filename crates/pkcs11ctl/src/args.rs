@@ -349,6 +349,10 @@ pub(crate) fn command() -> Command {
             required("algorithm", "Digest algorithm")
                 .value_parser(["sha1", "sha224", "sha256", "sha384", "sha512"]),
         )
+        .arg(flag(
+            "multipart",
+            "Process the input through multipart digest calls",
+        ))
         .arg(required("input", "Input file; - reads stdin"))
         .arg(required(
             "output",
@@ -364,6 +368,10 @@ pub(crate) fn command() -> Command {
             "hmac-sha512",
             "aes-cmac",
         ]))
+        .arg(flag(
+            "multipart",
+            "Process the input through multipart MAC calls",
+        ))
         .arg(required("input", "Input file; - reads stdin"))
         .arg(required(
             "output",
@@ -379,6 +387,10 @@ pub(crate) fn command() -> Command {
             "hmac-sha512",
             "aes-cmac",
         ]))
+        .arg(flag(
+            "multipart",
+            "Process the input through multipart MAC calls",
+        ))
         .arg(required("input", "Input file; - reads stdin"))
         .arg(required(
             "tag",
@@ -392,6 +404,10 @@ pub(crate) fn command() -> Command {
                 .arg(value(
                     "iv",
                     "Exactly 32 hex digits for CBC/CBC-PAD; forbidden for ECB",
+                ))
+                .arg(flag(
+                    "multipart",
+                    "Process the input through multipart AES calls",
                 ))
                 .arg(required("input", "Input file; - reads stdin"))
                 .arg(required(
