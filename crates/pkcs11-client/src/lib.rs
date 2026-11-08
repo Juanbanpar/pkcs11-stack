@@ -40,6 +40,8 @@ pub use pkcs11_runtime::{
 pub use pkcs11_runtime::{MlKemCapabilities, MlKemOperation, MlKemParameterSet, MlKemRequest};
 mod object_locator;
 mod public_export;
+mod public_import;
+pub use public_import::{ClassicalPublicKey, ClassicalPublicKeyPurpose, PublicKeyImportRequest};
 mod random;
 mod signature_options;
 
@@ -55,9 +57,9 @@ pub use pkcs11_locator::Pkcs11Uri;
 pub use pkcs11_runtime::{
     AES_BLOCK_SIZE, AES_MAXIMUM_INPUT, AesCipherCapabilities, AesDecryptRequest, AesDirection,
     AesEncryptRequest, AesMode, FunctionAvailability, HashAlgorithm, KbkdfCapabilities, KbkdfMode,
-    KbkdfOutput, KbkdfPrf, KbkdfRequest, MacAlgorithm, MacCapabilities, MechanismCapability,
-    MechanismFamily, MechanismOperation, SlhDsaCapabilities, SlhDsaHedging, SlhDsaKeyPairRequest,
-    SlhDsaParameterSet, SlhDsaPublicKey, SlhDsaRequest, SlhDsaSigningPolicy,
+    KbkdfOutput, KbkdfPrf, KbkdfRequest, MacAlgorithm, MacCapabilities, MacKeyRequest,
+    MechanismCapability, MechanismFamily, MechanismOperation, SlhDsaCapabilities, SlhDsaHedging,
+    SlhDsaKeyPairRequest, SlhDsaParameterSet, SlhDsaPublicKey, SlhDsaRequest, SlhDsaSigningPolicy,
     VerificationCapabilities, VerifyRequest,
 };
 pub use pkcs11_runtime::{

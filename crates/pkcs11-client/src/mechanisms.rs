@@ -8,7 +8,7 @@ use crate::{Authentication, Client, Error, ManagementSession, ObjectRef, Pkcs11U
 use pkcs11_runtime::{
     AesDecryptRequest, AesDirection, AesEncryptRequest, AesMode, FunctionAvailability,
     HashAlgorithm, KbkdfCapabilities, KbkdfMode, KbkdfPrf, KbkdfRequest, MacAlgorithm,
-    MechanismCapability, SlhDsaCapabilities, SlhDsaKeyPairRequest, SlhDsaRequest,
+    MacKeyRequest, MechanismCapability, SlhDsaCapabilities, SlhDsaKeyPairRequest, SlhDsaRequest,
     SlhDsaSigningPolicy, VerifyRequest,
 };
 use secrecy::SecretBox;
@@ -362,6 +362,12 @@ impl ManagementSession<'_> {
         mode: KbkdfMode,
     ) -> Result<KbkdfCapabilities, Error> {
         Ok(self.session.kbkdf_capabilities(base, prf, mode)?)
+    }
+
+    /// Generate a persistent HMAC or AES-CMAC key.
+    pub fn generate_mac_key(&mut self, request: &MacKeyRequest<'_>) -> Result<(), Error> {
+        self.session.generate_mac_key(request)?;
+        Ok(())
     }
 
     /// Generate a persistent SLH-DSA signing pair.
