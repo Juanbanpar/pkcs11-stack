@@ -58,6 +58,33 @@ pub enum Error {
     /// Signature output is inconsistent with the selected algorithm.
     #[error("invalid signature length")]
     InvalidSignature,
+    /// The key, mechanism or provider disallows the requested digest.
+    #[error("digest unsupported for this key or provider")]
+    UnsupportedDigest,
+    /// Provider returned a digest with an unexpected length.
+    #[error("invalid digest length")]
+    InvalidDigest,
+    /// The key, mechanism or provider disallows the requested MAC.
+    #[error("MAC unsupported for this key or provider")]
+    UnsupportedMac,
+    /// Provider returned a MAC with an unexpected length.
+    #[error("invalid MAC length")]
+    InvalidMac,
+    /// The key, mechanism or provider disallows the requested symmetric cipher.
+    #[error("symmetric cipher unsupported for this key or provider")]
+    UnsupportedCipherMode,
+    /// Provider returned ciphertext or plaintext with an unexpected length.
+    #[error("invalid symmetric cipher output length")]
+    InvalidCipherOutput,
+    /// The key, mechanism or provider disallows the requested KDF.
+    #[error("key derivation unsupported for this key or provider")]
+    UnsupportedDerivation,
+    /// The key, mechanism or provider disallows the requested verification.
+    #[error("verification unsupported for this key or provider: {0}")]
+    UnsupportedVerification(&'static str),
+    /// The key, mechanism or provider disallows the requested PQC operation.
+    #[error("post-quantum operation unsupported for this key or provider")]
+    UnsupportedPostQuantum,
     /// An upstream PKCS#11 call or library-loading operation failed.
     #[error("{operation}: {source}")]
     Backend {

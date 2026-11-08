@@ -4,20 +4,31 @@ use cryptoki::mechanism::Mechanism;
 use secrecy::SecretString;
 
 impl<'m> Session<'m> {
-    pub(crate) fn write_operation<T>(
+    /// Run one read-only native operation with session health tracking.
+    ///
+    /// The session is marked unhealthy before the native call so a panic or
+    /// error can never return an active operation to a pool.
+    pub(crate) fn operation<T>(
         &self,
         operation: &'static str,
         action: impl FnOnce(&cryptoki::session::Session) -> Result<T, cryptoki::error::Error>,
     ) -> Result<T, Error> {
         self.validate()?;
-        if self.mode != SessionMode::ReadWrite {
-            return Err(Error::ReadWriteRequired);
-        }
         let raw = self.raw()?;
         self.healthy.set(false);
         let result = action(raw).map_err(|e| backend(operation, e))?;
         self.healthy.set(true);
         Ok(result)
+    }
+    pub(crate) fn write_operation<T>(
+        &self,
+        operation: &'static str,
+        action: impl FnOnce(&cryptoki::session::Session) -> Result<T, cryptoki::error::Error>,
+    ) -> Result<T, Error> {
+        if self.mode != SessionMode::ReadWrite {
+            return Err(Error::ReadWriteRequired);
+        }
+        self.operation(operation, action)
     }
     /// Initialize/reset the USER PIN. Requires an RW session logged in as SO.
     /// Uses a host PIN; the upstream API does not support a null/protected-path PIN.

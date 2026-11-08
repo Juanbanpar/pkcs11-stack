@@ -84,7 +84,7 @@ impl DigestAlgorithm {
             Self::Sha512 => PkcsMgfType::MGF1_SHA512,
         }
     }
-    fn hash(self, data: &[u8]) -> Vec<u8> {
+    pub(crate) fn hash(self, data: &[u8]) -> Vec<u8> {
         match self {
             Self::Sha256 => Sha256::digest(data).to_vec(),
             Self::Sha384 => Sha384::digest(data).to_vec(),
@@ -378,7 +378,10 @@ impl KeyCapabilities {
         })
     }
 }
-fn mechanism(request: &SignRequest<'_>, combined: bool) -> Result<Mechanism<'static>, Error> {
+pub(crate) fn mechanism(
+    request: &SignRequest<'_>,
+    combined: bool,
+) -> Result<Mechanism<'static>, Error> {
     use DigestAlgorithm::*;
     Ok(match request.algorithm {
         SignatureAlgorithm::RsaPkcs1 => {
@@ -457,6 +460,22 @@ fn digest_info(digest: DigestAlgorithm, data: &[u8]) -> Vec<u8> {
     ];
     encoded.extend_from_slice(data);
     encoded
+}
+
+pub(crate) fn signature_input<'a>(
+    request: &SignRequest<'a>,
+    hashing: HashLocation,
+) -> Cow<'a, [u8]> {
+    let mut data = match request.input {
+        SignInput::Message(value) if hashing == HashLocation::Software => {
+            Cow::Owned(request.digest.hash(value))
+        }
+        SignInput::Message(value) | SignInput::Digest(value) => Cow::Borrowed(value),
+    };
+    if hashing != HashLocation::Token && request.algorithm == SignatureAlgorithm::RsaPkcs1 {
+        data = Cow::Owned(digest_info(request.digest, &data));
+    }
+    data
 }
 
 pub(crate) fn attribute(
@@ -541,7 +560,7 @@ fn capabilities(object: &Object<'_, '_>) -> Result<KeyCapabilities, Error> {
         mechanisms,
     })
 }
-fn supported_mechanism(m: MechanismType) -> bool {
+pub(crate) fn supported_mechanism(m: MechanismType) -> bool {
     [
         MechanismType::RSA_PKCS,
         MechanismType::RSA_PKCS_PSS,
