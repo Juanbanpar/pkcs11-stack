@@ -222,7 +222,8 @@ pub fn mechanism_family(mechanism: MechanismType) -> MechanismFamily {
         | M::SHA256_HMAC
         | M::SHA384_HMAC
         | M::SHA512_HMAC
-        | M::AES_CMAC => MechanismFamily::Mac,
+        | M::AES_CMAC
+        | M::GENERIC_SECRET_KEY_GEN => MechanismFamily::Mac,
         M::HKDF_KEY_GEN
         | M::HKDF_DERIVE
         | M::HKDF_DATA
@@ -308,6 +309,7 @@ pub fn is_runtime_supported(mechanism: MechanismType) -> bool {
             | M::SHA256_HMAC
             | M::SHA384_HMAC
             | M::SHA512_HMAC
+            | M::GENERIC_SECRET_KEY_GEN
             | M::HKDF_DERIVE
             | M::SP800_108_COUNTER_KDF
             | M::SP800_108_FEEDBACK_KDF

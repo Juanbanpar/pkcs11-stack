@@ -17,7 +17,7 @@ mod digest;
 mod encryption;
 pub use digest::{DIGEST_MAXIMUM_INPUT, HashAlgorithm};
 mod mac;
-pub use mac::{MAC_MAXIMUM_INPUT, MacAlgorithm, MacCapabilities};
+pub use mac::{MAC_MAXIMUM_INPUT, MacAlgorithm, MacCapabilities, MacKeyRequest};
 mod symmetric;
 pub use symmetric::{
     AES_BLOCK_SIZE, AES_MAXIMUM_INPUT, AesCipherCapabilities, AesDecryptRequest, AesDirection,

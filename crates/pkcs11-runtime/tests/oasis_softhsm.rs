@@ -57,7 +57,7 @@ fn digest_mac_and_aes_block_known_answers() {
             false,
         ),
         (
-            "aes-cbc",
+            "runtime-aes-cbc",
             KeyType::AES,
             hex("2b7e151628aed2a6abf7158809cf4f3c"),
             false,
@@ -117,7 +117,7 @@ fn digest_mac_and_aes_block_known_answers() {
         .verify_mac(&cmac, MacAlgorithm::AesCmac, &message, &tag)
         .unwrap();
 
-    let aes = reference("client-test", "aes-cbc");
+    let aes = reference("client-test", "runtime-aes-cbc");
     let iv: [u8; 16] = hex("000102030405060708090a0b0c0d0e0f").try_into().unwrap();
     let plaintext = hex("6bc1bee22e409f96e93d7e117393172a");
     let request = AesEncryptRequest {

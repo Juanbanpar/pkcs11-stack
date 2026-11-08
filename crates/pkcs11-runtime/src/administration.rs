@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-use crate::{Attribute, Error, KeyKind, Object, Session, SessionMode, error::backend};
+use crate::{
+    Attribute, Error, KeyKind, Object, Session, SessionMode,
+    error::{backend, function_not_supported},
+};
 use cryptoki::mechanism::Mechanism;
 use secrecy::SecretString;
 
@@ -16,9 +19,20 @@ impl<'m> Session<'m> {
         self.validate()?;
         let raw = self.raw()?;
         self.healthy.set(false);
-        let result = action(raw).map_err(|e| backend(operation, e))?;
-        self.healthy.set(true);
-        Ok(result)
+        match action(raw) {
+            Ok(value) => {
+                self.healthy.set(true);
+                Ok(value)
+            }
+            Err(source) => {
+                // A stub that reports CKR_FUNCTION_NOT_SUPPORTED did not start
+                // an operation, so the session remains usable.
+                if function_not_supported(&source) {
+                    self.healthy.set(true);
+                }
+                Err(backend(operation, source))
+            }
+        }
     }
     pub(crate) fn write_operation<T>(
         &self,

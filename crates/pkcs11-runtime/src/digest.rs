@@ -5,7 +5,7 @@
 //! SHA-3, SHA-512/224 and SHA-512/256 have no typed upstream mechanism in
 //! `cryptoki` 0.12.1 and are therefore not executable here.
 
-use crate::{Error, MechanismType, Session, Token};
+use crate::{Error, MechanismType, Session, Token, error::map_function_not_supported};
 use cryptoki::{context::Function, mechanism::Mechanism};
 
 /// Maximum single-part digest input, in bytes (64 MiB).
@@ -123,7 +123,9 @@ impl Session<'_> {
             return Err(Error::InvalidParameters("digest input exceeds bound"));
         }
         let mechanism = self.digest_mechanism(algorithm)?;
-        let output = self.operation("digest", |raw| raw.digest(&mechanism, input))?;
+        let output = self
+            .operation("digest", |raw| raw.digest(&mechanism, input))
+            .map_err(|e| map_function_not_supported(e, Error::UnsupportedDigest))?;
         if output.len() != algorithm.output_length() {
             return Err(Error::InvalidDigest);
         }
@@ -147,13 +149,15 @@ impl Session<'_> {
         {
             return Err(Error::UnsupportedDigest);
         }
-        let output = self.operation("multipart digest", |raw| {
-            raw.digest_init(&mechanism)?;
-            for chunk in chunks {
-                raw.digest_update(chunk)?;
-            }
-            raw.digest_final()
-        })?;
+        let output = self
+            .operation("multipart digest", |raw| {
+                raw.digest_init(&mechanism)?;
+                for chunk in chunks {
+                    raw.digest_update(chunk)?;
+                }
+                raw.digest_final()
+            })
+            .map_err(|e| map_function_not_supported(e, Error::UnsupportedDigest))?;
         if output.len() != algorithm.output_length() {
             return Err(Error::InvalidDigest);
         }

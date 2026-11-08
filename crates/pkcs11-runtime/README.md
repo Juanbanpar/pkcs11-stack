@@ -512,3 +512,9 @@ AES-CCM, ChaCha20-Poly1305, AES-XTS, PBKDF2, AES-KWP, SHA-3, general-length MACs
 and session cancellation are `UPSTREAM_BLOCKED`: published `cryptoki` 0.12.1
 cannot represent them without a fork or raw FFI. See
 [`docs/oasis/coverage.md`](../../docs/oasis/coverage.md).
+
+Token RSA/ECDSA verification (`verify`, `verify_signature`) and persistent
+HMAC/AES-CMAC key generation (`generate_mac_key`) are also available. The
+signature-first path is gated by the selected interface; providers that expose
+only a `CKR_FUNCTION_NOT_SUPPORTED` stub return a typed `UnsupportedVerification`
+error and leave the session usable.

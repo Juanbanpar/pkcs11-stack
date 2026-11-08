@@ -32,6 +32,8 @@ pub enum AesKeyPurpose {
     Encryption,
     /// Wrapping/unwrapping only; mechanism support is checked by the consuming operation.
     Wrapping,
+    /// AES-CMAC signing/verification only.
+    Authentication,
 }
 /// Generate a persistent EC pair for derivation, with no signing permission.
 #[derive(Clone, Copy)]
@@ -242,11 +244,17 @@ impl<'m> Session<'m> {
             return Err(Error::UnsupportedKeyOperation);
         }
         let mut template = self.new_secret_template(request.id, request.label, true)?;
-        let encryption = request.purpose == AesKeyPurpose::Encryption;
         for attr in &mut template {
             match attr {
-                Attribute::Encrypt(value) | Attribute::Decrypt(value) => *value = encryption,
-                Attribute::Wrap(value) | Attribute::Unwrap(value) => *value = !encryption,
+                Attribute::Encrypt(value) | Attribute::Decrypt(value) => {
+                    *value = request.purpose == AesKeyPurpose::Encryption;
+                }
+                Attribute::Wrap(value) | Attribute::Unwrap(value) => {
+                    *value = request.purpose == AesKeyPurpose::Wrapping;
+                }
+                Attribute::Sign(value) | Attribute::Verify(value) => {
+                    *value = request.purpose == AesKeyPurpose::Authentication;
+                }
                 _ => {}
             }
         }

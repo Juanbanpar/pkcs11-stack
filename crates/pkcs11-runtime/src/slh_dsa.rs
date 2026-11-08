@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use crate::{
     Attribute, AttributeType, Error, MechanismType, Object, ObjectClass, Pin, PrivateKeyRef,
-    PublicKeyRef, Session, SessionMode, Token, error::backend, signing::attribute,
+    PublicKeyRef, Session, SessionMode, Token,
+    error::{backend, function_not_supported, map_function_not_supported},
+    signing::attribute,
 };
 use cryptoki::{
     context::Function,
@@ -550,7 +552,21 @@ impl<'m> Session<'m> {
         policy: &SlhDsaSigningPolicy,
         context_pin: Option<Pin<'_>>,
     ) -> Result<Vec<u8>, Error> {
-        let result = self.sign_slh_dsa_once(key, request, policy, context_pin);
+        let result = self
+            .sign_slh_dsa_once(key, request, policy, context_pin)
+            .map_err(|e| {
+                let unsupported = matches!(
+                    &e,
+                    Error::Backend { source, .. } if function_not_supported(source)
+                );
+                if unsupported {
+                    self.healthy.set(true);
+                }
+                map_function_not_supported(
+                    e,
+                    Error::UnsupportedSigning("SLH-DSA signing unavailable"),
+                )
+            });
         if matches!(
             &result,
             Err(Error::Backend { .. } | Error::TokenChanged | Error::InvalidSignature)
@@ -614,7 +630,21 @@ impl<'m> Session<'m> {
         request: &SlhDsaRequest<'_>,
         signature: &[u8],
     ) -> Result<(), Error> {
-        let result = self.verify_slh_dsa_once(key, request, signature);
+        let result = self
+            .verify_slh_dsa_once(key, request, signature)
+            .map_err(|e| {
+                let unsupported = matches!(
+                    &e,
+                    Error::Backend { source, .. } if function_not_supported(source)
+                );
+                if unsupported {
+                    self.healthy.set(true);
+                }
+                map_function_not_supported(
+                    e,
+                    Error::UnsupportedVerification("SLH-DSA verification unavailable"),
+                )
+            });
         if matches!(&result, Err(Error::Backend { .. } | Error::TokenChanged)) {
             self.healthy.set(false);
         }

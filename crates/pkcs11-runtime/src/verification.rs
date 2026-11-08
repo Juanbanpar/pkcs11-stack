@@ -5,7 +5,7 @@
 use crate::{
     Attribute, AttributeType, Error, KeyCapabilities, KeyKind, Object, ObjectClass, PublicKeyRef,
     Session, SignInput, SignPlan, SignRequest, SigningMechanism, SigningPolicy,
-    error::backend,
+    error::{backend, function_not_supported, map_function_not_supported},
     signing::{attribute, key_kind, mechanism, signature_input, supported_mechanism},
 };
 use cryptoki::{
@@ -161,7 +161,15 @@ impl Session<'_> {
                 object.session.healthy.set(true);
                 Err(Error::SignatureMismatch)
             }
-            Err(error) => Err(backend("verify", error)),
+            Err(error) => {
+                if function_not_supported(&error) {
+                    object.session.healthy.set(true);
+                }
+                Err(map_function_not_supported(
+                    backend("verify", error),
+                    Error::UnsupportedVerification("verification unavailable"),
+                ))
+            }
         }
     }
 
@@ -217,7 +225,15 @@ impl Session<'_> {
                 object.session.healthy.set(true);
                 Err(Error::SignatureMismatch)
             }
-            Err(error) => Err(backend("signature-first verify", error)),
+            Err(error) => {
+                if function_not_supported(&error) {
+                    object.session.healthy.set(true);
+                }
+                Err(map_function_not_supported(
+                    backend("signature-first verify", error),
+                    Error::UnsupportedVerification("signature-first verification unavailable"),
+                ))
+            }
         }
     }
 }

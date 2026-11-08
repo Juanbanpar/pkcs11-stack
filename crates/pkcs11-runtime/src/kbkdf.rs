@@ -7,7 +7,8 @@
 
 use crate::{
     Attribute, AttributeType, Error, MacAlgorithm, MechanismType, Object, ObjectClass, ObjectRef,
-    Session, SessionMode, key_operations::validate_secret_identity, signing::attribute,
+    Session, SessionMode, error::map_function_not_supported,
+    key_operations::validate_secret_identity, signing::attribute,
 };
 use cryptoki::{
     context::Function,
@@ -390,7 +391,8 @@ impl Session<'_> {
             .session
             .write_operation("derive SP800-108 key", |raw| {
                 raw.derive_key(&mechanism, object.handle, &template)
-            })?;
+            })
+            .map_err(|e| map_function_not_supported(e, Error::UnsupportedDerivation))?;
         Ok(())
     }
 }

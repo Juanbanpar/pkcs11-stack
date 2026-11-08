@@ -7,7 +7,7 @@
 
 use crate::{
     AesKeySize, Attribute, AttributeType, Error, MechanismType, Object, ObjectClass, ObjectRef,
-    Session, Token, signing::attribute,
+    Session, Token, error::map_function_not_supported, signing::attribute,
 };
 use cryptoki::{context::Function, mechanism::Mechanism, object::KeyType};
 use secrecy::{ExposeSecret, SecretBox};
@@ -254,9 +254,12 @@ impl Session<'_> {
         capabilities(&object, request.mode, AesDirection::Encrypt)?;
         let iv = request.iv.copied();
         let mechanism = request.mode.parameters(iv)?;
-        let output = object.session.operation("AES encrypt", |raw| {
-            raw.encrypt(&mechanism, object.handle, request.plaintext)
-        })?;
+        let output = object
+            .session
+            .operation("AES encrypt", |raw| {
+                raw.encrypt(&mechanism, object.handle, request.plaintext)
+            })
+            .map_err(|e| map_function_not_supported(e, Error::UnsupportedCipherMode))?;
         let maximum = match request.mode {
             AesMode::CbcPad => request.plaintext.len() + AES_BLOCK_SIZE,
             AesMode::Ecb | AesMode::Cbc => request.plaintext.len(),
@@ -280,9 +283,12 @@ impl Session<'_> {
         let iv = request.iv.copied();
         let mechanism = request.mode.parameters(iv)?;
         let plaintext = SecretBox::new(Box::new(
-            object.session.operation("AES decrypt", |raw| {
-                raw.decrypt(&mechanism, object.handle, request.ciphertext)
-            })?,
+            object
+                .session
+                .operation("AES decrypt", |raw| {
+                    raw.decrypt(&mechanism, object.handle, request.ciphertext)
+                })
+                .map_err(|e| map_function_not_supported(e, Error::UnsupportedCipherMode))?,
         ));
         if plaintext.expose_secret().len() > request.ciphertext.len() {
             return Err(Error::InvalidCipherOutput);
@@ -307,21 +313,24 @@ impl Session<'_> {
         {
             return Err(Error::UnsupportedCipherMode);
         }
-        object.session.operation("multipart AES encrypt", |raw| {
-            raw.encrypt_init(&mechanism, object.handle)?;
-            let mut output = Vec::new();
-            for chunk in chunks {
-                output.extend_from_slice(&raw.encrypt_update(chunk)?);
+        object
+            .session
+            .operation("multipart AES encrypt", |raw| {
+                raw.encrypt_init(&mechanism, object.handle)?;
+                let mut output = Vec::new();
+                for chunk in chunks {
+                    output.extend_from_slice(&raw.encrypt_update(chunk)?);
+                    if output.len() > AES_MAXIMUM_INPUT + AES_BLOCK_SIZE {
+                        return Err(cryptoki::error::Error::InvalidValue);
+                    }
+                }
+                output.extend_from_slice(&raw.encrypt_final()?);
                 if output.len() > AES_MAXIMUM_INPUT + AES_BLOCK_SIZE {
                     return Err(cryptoki::error::Error::InvalidValue);
                 }
-            }
-            output.extend_from_slice(&raw.encrypt_final()?);
-            if output.len() > AES_MAXIMUM_INPUT + AES_BLOCK_SIZE {
-                return Err(cryptoki::error::Error::InvalidValue);
-            }
-            Ok(output)
-        })
+                Ok(output)
+            })
+            .map_err(|e| map_function_not_supported(e, Error::UnsupportedCipherMode))
     }
 
     /// Stream decryption through a multipart native operation.
@@ -341,21 +350,24 @@ impl Session<'_> {
         {
             return Err(Error::UnsupportedCipherMode);
         }
-        let plaintext = object.session.operation("multipart AES decrypt", |raw| {
-            raw.decrypt_init(&mechanism, object.handle)?;
-            let mut output = Vec::new();
-            for chunk in chunks {
-                output.extend_from_slice(&raw.decrypt_update(chunk)?);
+        let plaintext = object
+            .session
+            .operation("multipart AES decrypt", |raw| {
+                raw.decrypt_init(&mechanism, object.handle)?;
+                let mut output = Vec::new();
+                for chunk in chunks {
+                    output.extend_from_slice(&raw.decrypt_update(chunk)?);
+                    if output.len() > AES_MAXIMUM_INPUT {
+                        return Err(cryptoki::error::Error::InvalidValue);
+                    }
+                }
+                output.extend_from_slice(&raw.decrypt_final()?);
                 if output.len() > AES_MAXIMUM_INPUT {
                     return Err(cryptoki::error::Error::InvalidValue);
                 }
-            }
-            output.extend_from_slice(&raw.decrypt_final()?);
-            if output.len() > AES_MAXIMUM_INPUT {
-                return Err(cryptoki::error::Error::InvalidValue);
-            }
-            Ok(output)
-        })?;
+                Ok(output)
+            })
+            .map_err(|e| map_function_not_supported(e, Error::UnsupportedCipherMode))?;
         Ok(SecretBox::new(Box::new(plaintext)))
     }
 }

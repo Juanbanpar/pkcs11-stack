@@ -169,6 +169,33 @@ pub(crate) fn backend(operation: &'static str, source: cryptoki::error::Error) -
     Error::Backend { operation, source }
 }
 
+/// Some providers expose non-null stubs that return `CKR_FUNCTION_NOT_SUPPORTED`.
+/// Translate that response into the operation's typed "unsupported" error so it
+/// is distinguishable from a genuine backend failure.
+pub(crate) fn function_not_supported(source: &cryptoki::error::Error) -> bool {
+    matches!(
+        source,
+        cryptoki::error::Error::Pkcs11(cryptoki::error::RvError::FunctionNotSupported, _)
+    )
+}
+
+/// Some providers expose non-null stubs that return `CKR_FUNCTION_NOT_SUPPORTED`.
+/// Translate that response into the operation's typed "unsupported" error so it
+/// is distinguishable from a genuine backend failure.
+pub(crate) fn map_function_not_supported(error: Error, unsupported: Error) -> Error {
+    if matches!(
+        &error,
+        Error::Backend {
+            source,
+            ..
+        } if function_not_supported(source)
+    ) {
+        unsupported
+    } else {
+        error
+    }
+}
+
 pub(crate) fn unique<T>(mut matches: Vec<T>, kind: &'static str) -> Result<T, Error> {
     match matches.len() {
         0 => Err(Error::NotFound(kind)),

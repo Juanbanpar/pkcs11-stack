@@ -339,7 +339,7 @@ impl KeyCapabilities {
         {
             return Err(Error::InvalidParameters("DigestInfo does not fit modulus"));
         }
-        let combined = mechanism(request, true)?.mechanism_type();
+        let combined = mechanism(request, true).ok().map(|m| m.mechanism_type());
         let raw = mechanism(request, false)?.mechanism_type();
         let supports = |m| {
             self.mechanisms.iter().any(|v| {
@@ -355,9 +355,10 @@ impl KeyCapabilities {
         let (selected, hashing) = match request.input {
             SignInput::Digest(_) if supports(raw) => (raw, HashLocation::Caller),
             SignInput::Message(_)
-                if policy.hashing != HashingPolicy::SoftwareOnly && supports(combined) =>
+                if policy.hashing != HashingPolicy::SoftwareOnly
+                    && combined.is_some_and(supports) =>
             {
-                (combined, HashLocation::Token)
+                (combined.expect("checked above"), HashLocation::Token)
             }
             SignInput::Message(_)
                 if policy.hashing != HashingPolicy::TokenOnly && supports(raw) =>
