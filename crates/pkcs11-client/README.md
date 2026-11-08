@@ -643,3 +643,18 @@ cleanup fails. Inputs are not deleted and values never leave the token.
 This is an application combiner, not a complete hybrid KEM wire protocol, X-Wing
 or the TLS key schedule. See the [runtime contract](../pkcs11-runtime/README.md#application-hybrid-derivation)
 for construction and failure semantics.
+
+## OASIS mechanism operations
+
+`Provider::mechanism_capabilities` and `Provider::function_availability` expose
+the runtime capability model without leaking handles. `Client` adds
+`secret_key`, `digest`, `digest_chunks`, `mac`, `verify_mac`, `encrypt_aes`,
+`decrypt_aes`, `aes_capabilities`, `verify`, `verify_signature`,
+`slh_dsa_capabilities`, `sign_slh_dsa` and `verify_slh_dsa`.
+`ManagementSession` adds the read/write forms, including `kbkdf_options`,
+`kbkdf_capabilities`, `derive_kbkdf` and `generate_slh_dsa_key_pair`.
+
+All operations reuse the runtime's permission, mechanism, authentication and
+session-health checks. Unsupported families return typed errors rather than
+falling back to software or another algorithm. See
+[`docs/oasis/compatibility.md`](../../docs/oasis/compatibility.md).

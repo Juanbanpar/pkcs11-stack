@@ -195,3 +195,15 @@ policy rejection before credentials, classical-only peer rejection in both
 directions, trust failure, TLS 1.2 rejection, pool
 exhaustion and key replacement. Run it with the provider configuration in the
 [workspace test instructions](../../tests/README.md#pqc-provider-compatibility).
+
+## OASIS scope and TLS
+
+Only signature schemes that rustls, the configured crypto provider, the token
+and the application policy all accept are selected. The adapter reuses runtime
+signing for RSA-PSS, RSA PKCS#1, ECDSA and ML-DSA where the provider supports
+verification. It does not add AES-CCM, ChaCha20-Poly1305, SHA-3 signatures or
+other OASIS mechanisms to TLS merely because the standard defines them: TLS
+record protection and key exchange stay with rustls, and token delegation is
+limited to authentication signatures. EdDSA is not enabled because the runtime
+key-kind and certificate model does not yet represent Edwards keys across the
+client and adapter.

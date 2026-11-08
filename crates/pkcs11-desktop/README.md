@@ -379,3 +379,11 @@ PKCS11_TEST_KDF_MODULE=/path/to/libkryoptic_pkcs11.so ./tools/test-kem-hkdf.sh
 
 This application is available under either [MIT](../../LICENSE-MIT) or
 [Apache-2.0](../../LICENSE-APACHE), at your option.
+
+## Mechanism capabilities
+
+The token **Mechanisms** tab now shows each advertised mechanism's family,
+typed operations and whether this application has an executable path. It still
+shows the provider's raw flags and bounds, and it never presents an advertised
+mechanism as executable merely because the provider lists it. The mapping comes
+from the client capability model, not a GUI-specific table.

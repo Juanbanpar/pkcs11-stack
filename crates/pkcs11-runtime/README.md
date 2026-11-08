@@ -487,3 +487,28 @@ object destroyed before return. Cleanup failure invalidates the session and take
 precedence over derivation success/failure; a persistent output may already exist.
 No base is deleted, no value is read, and there is no retry or software fallback.
 This implementation does not establish formal algorithm validation.
+
+## OASIS mechanism coverage
+
+`Token::mechanism_capabilities()` returns one entry per advertised mechanism with
+its family, provider flags, bounds, typed operations and an `executable` flag.
+`executable` means this crate has a typed path through published `cryptoki`; it
+does not promise that a provider accepts the parameters. `Module::function_availability()`
+reports which standard functions the selected 2.40/3.0/3.2 interface provides.
+
+Newly exposed token operations in this branch:
+
+- `digest` / `digest_chunks` for SHA-1, SHA-224, SHA-256, SHA-384 and SHA-512;
+- `mac` / `mac_chunks` / `verify_mac` / `verify_mac_chunks` for full-tag HMAC-SHA-1/2
+  and AES-CMAC;
+- `encrypt_aes` / `decrypt_aes` and multipart variants for AES-ECB, AES-CBC and
+  AES-CBC-PAD;
+- `derive_kbkdf` for SP 800-108 counter, feedback and double-pipeline modes with
+  HMAC-SHA-1/2 or AES-CMAC PRFs;
+- `verify` and `verify_signature` for token-side RSA/ECDSA verification;
+- `generate_slh_dsa_key_pair`, `sign_slh_dsa` and `verify_slh_dsa`.
+
+AES-CCM, ChaCha20-Poly1305, AES-XTS, PBKDF2, AES-KWP, SHA-3, general-length MACs
+and session cancellation are `UPSTREAM_BLOCKED`: published `cryptoki` 0.12.1
+cannot represent them without a fork or raw FFI. See
+[`docs/oasis/coverage.md`](../../docs/oasis/coverage.md).
