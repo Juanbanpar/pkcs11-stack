@@ -58,7 +58,7 @@ coverage. Provider support is separate.
 | ML-KEM | key generation, encapsulation, decapsulation, public import/export | already existed |
 | ML-DSA | key generation, sign/verify, public export | already existed |
 | SLH-DSA | key generation, sign/verify, public export, CLI generation/signing | added here; provider verification is pending |
-| Objects | create, read, update, destroy, discover, copy (upstream), generate, wrap/unwrap, import certificate/data | public-key import is not yet exposed |
+| Objects | create, read, update, destroy, discover, copy (upstream), generate, wrap/unwrap, import certificate/data/public key | RSA/EC public-key import added here |
 | Sessions | authentication, protected path, multipart operations, signature-first verification, cancellation (upstream types absent) | cancellation is upstream-blocked |
 
 ## Known upstream blockers
@@ -93,8 +93,8 @@ no-fork/no-raw-FFI constraints", not "the standard omits it".
 | HashML-DSA / HashSLH-DSA | upstream representable, not exposed | prehash parameter plumbing and policy not added in this branch |
 | SLH-DSA CLI verification | client/runtime only | the CLI verification path is certificate-based; SLH-DSA certificates are not supported |
 | Message-based AES-GCM | upstream representable, not exposed | bounded message-process ownership needs a dedicated API |
-| Public-key import | runtime primitives exist, client surface not added | needs SPKI validation and purpose policy |
-| SLH-DSA provider verification | implemented, unverified on a provider | no unmodified provider build was available in the validation environment |
+| Public-key import | implemented for RSA/named EC | SPKI validation, purpose policy and duplicate-ID checks |
+| SLH-DSA provider verification | implemented, unverified on a provider | no unmodified provider build completed in the validation environment; an unmodified Kryoptic/OpenSSL build was attempted but failed at the OpenSSL link step |
 | DSA/DH/legacy ciphers | upstream representable in part, not exposed | security policy and lack of typed variants |
 
 ## Provider evidence
@@ -103,9 +103,9 @@ The following runs were executed for this branch:
 
 | Provider | Build | Tests | Result |
 |---|---|---|---|
-| SoftHSM | 2.7.0 (unmodified) | `tools/test-softhsm.sh`, including new digest/HMAC/AES-CMAC/AES-CBC known answers | pass |
+| SoftHSM | 2.7.0 (unmodified) | `tools/test-softhsm.sh`, including digest/HMAC/AES-CMAC/AES-CBC known answers, token RSA/ECDSA verification, CLI workflows, MAC key generation and public-key import | pass |
 | SoftHSM PQC | pinned OpenSSL 3.5.9 + SoftHSM build (unmodified) | `tools/test-ml-dsa.sh` (runtime, client, CLI, TLS, desktop) | pass |
-| Kryoptic | pinned SP 800-108 build (unmodified) | `tools/test-kem-hkdf.sh`, including new KBKDF determinism/usable-output test | pass |
+| Kryoptic | pinned SP 800-108 build (unmodified) | `tools/test-kem-hkdf.sh`, including KBKDF determinism/usable-output and CLI derivation tests | pass |
 | Kryoptic | pinned build (unmodified) | `tools/test-ml-kem.sh` (runtime, client, desktop) | pass |
 | All above | pinned provider builds | `./tools/test.sh` with the provider environment | pass |
 
