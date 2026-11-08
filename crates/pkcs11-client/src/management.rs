@@ -343,6 +343,7 @@ impl ManagementSession<'_> {
                     KeyType::RSA | KeyType::EC => self.export_classical_public_key(&key),
                     KeyType::ML_DSA => self.export_ml_dsa_public_key(&key),
                     KeyType::ML_KEM => self.export_ml_kem_public_key(&key),
+                    KeyType::SLH_DSA => self.export_slh_dsa_public_key(&key),
                     _ => Err(Error::UnsupportedExport),
                 }
             }

@@ -12,6 +12,44 @@ use pkcs11_runtime::{
     SlhDsaSigningPolicy, VerifyRequest,
 };
 use secrecy::SecretBox;
+use x509_cert::{
+    der::{
+        Encode,
+        asn1::{BitString, ObjectIdentifier},
+    },
+    spki::{AlgorithmIdentifierOwned, SubjectPublicKeyInfoOwned},
+};
+
+fn slh_parameter_set_oid(parameter: pkcs11_runtime::SlhDsaParameterSet) -> ObjectIdentifier {
+    use pkcs11_runtime::SlhDsaParameterSet as P;
+    ObjectIdentifier::new_unwrap(match parameter {
+        P::Sha2_128S => "2.16.840.1.101.3.4.3.20",
+        P::Sha2_128F => "2.16.840.1.101.3.4.3.21",
+        P::Sha2_192S => "2.16.840.1.101.3.4.3.22",
+        P::Sha2_192F => "2.16.840.1.101.3.4.3.23",
+        P::Sha2_256S => "2.16.840.1.101.3.4.3.24",
+        P::Sha2_256F => "2.16.840.1.101.3.4.3.25",
+        P::Shake128S => "2.16.840.1.101.3.4.3.26",
+        P::Shake128F => "2.16.840.1.101.3.4.3.27",
+        P::Shake192S => "2.16.840.1.101.3.4.3.28",
+        P::Shake192F => "2.16.840.1.101.3.4.3.29",
+        P::Shake256S => "2.16.840.1.101.3.4.3.30",
+        P::Shake256F => "2.16.840.1.101.3.4.3.31",
+    })
+}
+
+fn slh_public_key_der(key: &pkcs11_runtime::SlhDsaPublicKey) -> Result<Vec<u8>, Error> {
+    SubjectPublicKeyInfoOwned {
+        algorithm: AlgorithmIdentifierOwned {
+            oid: slh_parameter_set_oid(key.parameter_set()),
+            parameters: None,
+        },
+        subject_public_key: BitString::from_bytes(key.as_bytes())
+            .map_err(|_| Error::InvalidPublicKey)?,
+    }
+    .to_der()
+    .map_err(|_| Error::InvalidPublicKey)
+}
 
 impl Provider {
     /// Snapshot token mechanisms with family, operations, bounds and whether a
@@ -221,6 +259,21 @@ impl Client<'_> {
             .session()
             .verify_slh_dsa(key, request, signature)?)
     }
+
+    /// Export a public, non-private SLH-DSA object as SPKI DER.
+    pub fn export_slh_dsa_public_key(
+        &self,
+        key: &crate::PublicKeyRef,
+        authentication: Authentication<'_>,
+    ) -> Result<Vec<u8>, Error> {
+        slh_public_key_der(
+            &self
+                .pool()
+                .try_acquire(authentication)?
+                .session()
+                .slh_dsa_public_key(key)?,
+        )
+    }
 }
 
 impl ManagementSession<'_> {
@@ -277,6 +330,14 @@ impl ManagementSession<'_> {
         Ok(self.session.aes_cipher_capabilities(key, mode, direction)?)
     }
 
+    /// Export a public, non-private SLH-DSA object as SPKI DER.
+    pub fn export_slh_dsa_public_key(
+        &mut self,
+        key: &crate::PublicKeyRef,
+    ) -> Result<Vec<u8>, Error> {
+        slh_public_key_der(&self.session.slh_dsa_public_key(key)?)
+    }
+
     /// Inspect supported SP 800-108 PRF/mode combinations for a base key.
     pub fn kbkdf_options(&mut self, base: &ObjectRef) -> Result<Vec<KbkdfCapabilities>, Error> {
         Ok(self.session.kbkdf_options(base)?)
@@ -310,5 +371,38 @@ impl ManagementSession<'_> {
     ) -> Result<(), Error> {
         self.session.generate_slh_dsa_key_pair(request)?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pkcs11_runtime::{SlhDsaParameterSet, SlhDsaPublicKey};
+    use x509_cert::der::Decode;
+
+    #[test]
+    fn slh_dsa_spki_uses_the_standard_parameter_set_oids() {
+        for (parameter, oid) in [
+            (SlhDsaParameterSet::Sha2_128S, "2.16.840.1.101.3.4.3.20"),
+            (SlhDsaParameterSet::Sha2_128F, "2.16.840.1.101.3.4.3.21"),
+            (SlhDsaParameterSet::Sha2_192S, "2.16.840.1.101.3.4.3.22"),
+            (SlhDsaParameterSet::Sha2_192F, "2.16.840.1.101.3.4.3.23"),
+            (SlhDsaParameterSet::Sha2_256S, "2.16.840.1.101.3.4.3.24"),
+            (SlhDsaParameterSet::Sha2_256F, "2.16.840.1.101.3.4.3.25"),
+            (SlhDsaParameterSet::Shake128S, "2.16.840.1.101.3.4.3.26"),
+            (SlhDsaParameterSet::Shake128F, "2.16.840.1.101.3.4.3.27"),
+            (SlhDsaParameterSet::Shake192S, "2.16.840.1.101.3.4.3.28"),
+            (SlhDsaParameterSet::Shake192F, "2.16.840.1.101.3.4.3.29"),
+            (SlhDsaParameterSet::Shake256S, "2.16.840.1.101.3.4.3.30"),
+            (SlhDsaParameterSet::Shake256F, "2.16.840.1.101.3.4.3.31"),
+        ] {
+            let key =
+                SlhDsaPublicKey::from_bytes(parameter, vec![0; parameter.public_key_length()])
+                    .unwrap();
+            let der = slh_public_key_der(&key).unwrap();
+            let spki = SubjectPublicKeyInfoOwned::from_der(&der).unwrap();
+            assert_eq!(spki.algorithm.oid, ObjectIdentifier::new_unwrap(oid));
+            assert!(spki.algorithm.parameters.is_none());
+        }
     }
 }
