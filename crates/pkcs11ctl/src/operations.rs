@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-use crate::{aes_gcm, generation, inspect, key_establishment, ml_dsa, oasis, slh_dsa, support::*};
+use crate::{
+    aes_gcm, generation, hash_pqc, inspect, key_establishment, ml_dsa, oasis, slh_dsa, support::*,
+};
 use clap::ArgMatches;
 use pkcs11_client::{
     AttributeType, DigestAlgorithm, HashingPolicy, Provider, PssParameters, RandomRequest,
@@ -97,10 +99,13 @@ impl Inputs {
     pub fn load(name: &str, m: &ArgMatches) -> Result<Self> {
         let ml_dsa = ml_dsa::selected(m);
         let slh_dsa = slh_dsa::selected(m);
+        let hash_pqc = hash_pqc::selected(m);
         if ml_dsa {
             ml_dsa::validate_options(m)?;
         } else if slh_dsa {
             slh_dsa::validate_options(m)?;
+        } else if hash_pqc {
+            hash_pqc::validate_options(m)?;
         } else if get(m, "context-file").is_some() || get(m, "hedging").is_some() {
             return Err(usage(
                 "context-file and hedging require an ML-DSA algorithm",
@@ -186,6 +191,12 @@ impl Inputs {
                 ml_dsa::request(m, &bytes, &domain_context)?;
             } else if slh_dsa {
                 slh_dsa::request(m, &bytes, &domain_context)?;
+            } else if hash_pqc {
+                if get(m, "algorithm") == Some("hash-ml-dsa") {
+                    hash_pqc::request_ml(m, &bytes, &domain_context)?;
+                } else {
+                    hash_pqc::request_slh(m, &bytes, &domain_context)?;
+                }
             } else {
                 request(m, &bytes)?;
             }
@@ -234,6 +245,11 @@ impl Inputs {
             if slh_dsa {
                 return Err(usage(
                     "SLH-DSA certificate verification is not exposed by this CLI",
+                ));
+            }
+            if hash_pqc {
+                return Err(usage(
+                    "HashML-DSA/HashSLH-DSA certificate verification is not exposed by this CLI",
                 ));
             }
             let certificate = if ml_dsa {
@@ -445,6 +461,9 @@ fn client_operation(
     m: &ArgMatches,
     inputs: &Inputs,
 ) -> Result<Output> {
+    if hash_pqc::selected(m) {
+        return hash_pqc::client_operation(client, name, m, inputs);
+    }
     if slh_dsa::selected(m) {
         return slh_dsa::client_operation(client, name, m, inputs);
     }

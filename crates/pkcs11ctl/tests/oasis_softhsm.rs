@@ -367,6 +367,55 @@ fn digest_mac_and_aes_block_workflows() {
     ]);
     assert!(output.status.success());
 
+    // HashML-DSA is representable but this provider does not advertise it.
+    let output = run(&[
+        "--module",
+        &module,
+        "generate",
+        "--token",
+        token,
+        "--pin-file",
+        path(&pin),
+        "--kind",
+        "ml-dsa-44",
+        "--id",
+        "95",
+        "--label",
+        "hash-pqc-negative",
+        "--confirm",
+    ]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let hash_message = scratch.file("hash-pqc-message", b"HashML-DSA negative fixture");
+    let output = run(&[
+        "--module",
+        &module,
+        "sign",
+        "--key",
+        "pkcs11:token=client-test;object=hash-pqc-negative;type=private",
+        "--pin-file",
+        path(&pin),
+        "--algorithm",
+        "hash-ml-dsa",
+        "--parameter-set",
+        "ml-dsa-44",
+        "--digest",
+        "sha256",
+        "--input",
+        path(&hash_message),
+        "--output",
+        "-",
+    ]);
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("HashML-DSA") || stderr.contains("no permitted mechanism"),
+        "{stderr}"
+    );
+
     // SHA-224 is opt-in and works for RSA PKCS#1 and ECDSA.
     let sha224_message = scratch.file("sha224-message", b"SHA-224 signing fixture");
     for (algorithm, key_object) in [("rsa-pkcs1", "rsa"), ("ecdsa", "p256")] {

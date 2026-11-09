@@ -4,6 +4,7 @@
 mod aes_gcm;
 mod args;
 mod generation;
+mod hash_pqc;
 mod inspect;
 mod key_establishment;
 mod ml_dsa;

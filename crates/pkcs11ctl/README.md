@@ -458,3 +458,18 @@ pkcs11ctl sign --module /path/lib.so   --key 'pkcs11:token=test;object=rsa;type=
   --algorithm rsa-pkcs1 --digest sha224 --allow-sha224 \
   --input message.bin --output signature.bin --pin-file user.pin
 ```
+
+HashML-DSA and HashSLH-DSA use `--algorithm hash-ml-dsa|hash-slh-dsa`, an
+explicit `--parameter-set` and `--digest` prehash:
+
+```sh
+pkcs11ctl sign --module /path/lib.so \
+  --key 'pkcs11:token=test;object=mldsa;type=private' \
+  --algorithm hash-ml-dsa --parameter-set ml-dsa-65 --digest sha256 \
+  --input message.bin --output signature.bin --pin-file user.pin
+```
+
+`--input-kind digest` supplies a caller-computed SHA-2 digest. SHA-3 and SHAKE
+are available for token-hashed message profiles; SHA-3/SHAKE caller digests are
+upstream-blocked because published `cryptoki` has no standalone SHA-3/SHAKE
+digest mechanism.

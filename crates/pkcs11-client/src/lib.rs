@@ -56,9 +56,11 @@ pub use object_locator::object_locator;
 pub use pkcs11_locator::Pkcs11Uri;
 pub use pkcs11_runtime::{
     AES_BLOCK_SIZE, AES_MAXIMUM_INPUT, AesCipherCapabilities, AesDecryptRequest, AesDirection,
-    AesEncryptRequest, AesMode, FunctionAvailability, HashAlgorithm, KbkdfCapabilities, KbkdfMode,
-    KbkdfOutput, KbkdfPrf, KbkdfRequest, MacAlgorithm, MacCapabilities, MacKeyRequest,
-    MechanismCapability, MechanismFamily, MechanismOperation, SlhDsaCapabilities, SlhDsaHedging,
+    AesEncryptRequest, AesMode, FunctionAvailability, HashAlgorithm, HashInput,
+    HashMlDsaCapabilities, HashMlDsaRequest, HashMlDsaSigningPolicy, HashSlhDsaCapabilities,
+    HashSlhDsaRequest, HashSlhDsaSigningPolicy, KbkdfCapabilities, KbkdfMode, KbkdfOutput,
+    KbkdfPrf, KbkdfRequest, MacAlgorithm, MacCapabilities, MacKeyRequest, MechanismCapability,
+    MechanismFamily, MechanismOperation, PrehashAlgorithm, SlhDsaCapabilities, SlhDsaHedging,
     SlhDsaKeyPairRequest, SlhDsaParameterSet, SlhDsaPublicKey, SlhDsaRequest, SlhDsaSigningPolicy,
     VerificationCapabilities, VerifyRequest,
 };

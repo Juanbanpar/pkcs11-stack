@@ -42,6 +42,11 @@ pub use ml_dsa::{
 pub use ml_kem::{
     MlKemCapabilities, MlKemOperation, MlKemParameterSet, MlKemPublicKey, MlKemRequest,
 };
+mod pqc_hash;
+pub use pqc_hash::{
+    HashInput, HashMlDsaCapabilities, HashMlDsaRequest, HashMlDsaSigningPolicy,
+    HashSlhDsaCapabilities, HashSlhDsaRequest, HashSlhDsaSigningPolicy, PrehashAlgorithm,
+};
 mod slh_dsa;
 pub use slh_dsa::{
     SLH_DSA_MAXIMUM_MESSAGE, SlhDsaCapabilities, SlhDsaHedging, SlhDsaKeyPairRequest,

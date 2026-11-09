@@ -321,8 +321,30 @@ pub fn is_runtime_supported(mechanism: MechanismType) -> bool {
             | M::ML_KEM
             | M::ML_DSA_KEY_PAIR_GEN
             | M::ML_DSA
+            | M::HASH_ML_DSA
+            | M::HASH_ML_DSA_SHA224
+            | M::HASH_ML_DSA_SHA256
+            | M::HASH_ML_DSA_SHA384
+            | M::HASH_ML_DSA_SHA512
+            | M::HASH_ML_DSA_SHA3_224
+            | M::HASH_ML_DSA_SHA3_256
+            | M::HASH_ML_DSA_SHA3_384
+            | M::HASH_ML_DSA_SHA3_512
+            | M::HASH_ML_DSA_SHAKE128
+            | M::HASH_ML_DSA_SHAKE256
             | M::SLH_DSA_KEY_PAIR_GEN
             | M::SLH_DSA
+            | M::HASH_SLH_DSA
+            | M::HASH_SLH_DSA_SHA224
+            | M::HASH_SLH_DSA_SHA256
+            | M::HASH_SLH_DSA_SHA384
+            | M::HASH_SLH_DSA_SHA512
+            | M::HASH_SLH_DSA_SHA3_224
+            | M::HASH_SLH_DSA_SHA3_256
+            | M::HASH_SLH_DSA_SHA3_384
+            | M::HASH_SLH_DSA_SHA3_512
+            | M::HASH_SLH_DSA_SHAKE128
+            | M::HASH_SLH_DSA_SHAKE256
     )
 }
 
@@ -506,7 +528,6 @@ mod tests {
             assert!(is_runtime_supported(mechanism), "{mechanism}");
         }
         // Typed upstream variants that this runtime has not exposed yet.
-        assert!(!is_runtime_supported(MechanismType::HASH_SLH_DSA_SHA256));
         assert!(!is_runtime_supported(MechanismType::AES_CTR));
         assert!(!is_runtime_supported(MechanismType::EDDSA));
         // A vendor-defined identifier is representable but not executable here.

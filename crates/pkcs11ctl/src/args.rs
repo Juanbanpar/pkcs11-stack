@@ -77,6 +77,8 @@ fn signature(command: Command) -> Command {
             "ml-dsa-44",
             "ml-dsa-65",
             "ml-dsa-87",
+            "hash-ml-dsa",
+            "hash-slh-dsa",
             "slh-dsa-sha2-128s",
             "slh-dsa-sha2-128f",
             "slh-dsa-sha2-192s",
@@ -96,8 +98,13 @@ fn signature(command: Command) -> Command {
                     ("algorithm", "rsa-pkcs1"),
                     ("algorithm", "rsa-pss"),
                     ("algorithm", "ecdsa"),
+                    ("algorithm", "hash-ml-dsa"),
+                    ("algorithm", "hash-slh-dsa"),
                 ])
-                .value_parser(["sha224", "sha256", "sha384", "sha512"]),
+                .value_parser([
+                    "sha224", "sha256", "sha384", "sha512", "sha3-224", "sha3-256", "sha3-384",
+                    "sha3-512", "shake128", "shake256",
+                ]),
         )
         .arg(
             value("mgf-digest", "Required for PSS only")
@@ -108,6 +115,25 @@ fn signature(command: Command) -> Command {
             "Explicitly allow the legacy SHA-224 signature profile",
         ))
         .arg(value("salt-length", "Exact PSS salt length in bytes"))
+        .arg(
+            value("parameter-set", "Required for hash-ml-dsa/hash-slh-dsa").value_parser([
+                "ml-dsa-44",
+                "ml-dsa-65",
+                "ml-dsa-87",
+                "slh-dsa-sha2-128s",
+                "slh-dsa-sha2-128f",
+                "slh-dsa-sha2-192s",
+                "slh-dsa-sha2-192f",
+                "slh-dsa-sha2-256s",
+                "slh-dsa-sha2-256f",
+                "slh-dsa-shake-128s",
+                "slh-dsa-shake-128f",
+                "slh-dsa-shake-192s",
+                "slh-dsa-shake-192f",
+                "slh-dsa-shake-256s",
+                "slh-dsa-shake-256f",
+            ]),
+        )
         .arg(required("input", "Input file; - reads stdin"))
         .arg(value(
             "context-file",
@@ -302,6 +328,8 @@ pub(crate) fn command() -> Command {
             "ml-dsa-44",
             "ml-dsa-65",
             "ml-dsa-87",
+            "hash-ml-dsa",
+            "hash-slh-dsa",
             "ml-kem-512",
             "ml-kem-768",
             "ml-kem-1024",

@@ -523,3 +523,8 @@ error and leave the session usable.
 profiles, but it is not part of `SigningPolicy::default()`. Add it to
 `policy.digests` explicitly. SHA-224 PSS has no combined upstream mechanism;
 use software/caller hashing with the raw PSS mechanism.
+
+`sign_hash_ml_dsa` and `sign_hash_slh_dsa` expose the upstream HashML-DSA and
+HashSLH-DSA mechanisms with SHA-2/SHA-3/SHAKE message hashing and SHA-2 caller
+digests. SHA-3/SHAKE caller digests are not representable because published
+`cryptoki` exposes no standalone SHA-3/SHAKE digest mechanism.

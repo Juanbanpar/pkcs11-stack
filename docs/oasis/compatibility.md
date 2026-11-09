@@ -57,6 +57,8 @@ coverage. Provider support is separate.
 | HKDF | extract-and-expand, token-held salt | already existed |
 | ML-KEM | key generation, encapsulation, decapsulation, public import/export | already existed |
 | ML-DSA | key generation, sign/verify, public export | already existed |
+| HashML-DSA | sign/verify with SHA-2/SHA-3/SHAKE message profiles; SHA-2 caller digests | added here; provider verification pending |
+| HashSLH-DSA | sign/verify with SHA-2/SHA-3/SHAKE message profiles; SHA-2 caller digests | added here; provider verification pending |
 | SLH-DSA | key generation, sign/verify, public export, CLI generation/signing | added here; provider verification is pending |
 | Objects | create, read, update, destroy, discover, copy (upstream), generate, wrap/unwrap, import certificate/data/public key | RSA/EC public-key import added here |
 | Sessions | authentication, protected path, multipart digest/MAC/AES and signature-first verification, cancellation (upstream types absent) | CLI exposes multipart digest/MAC/AES; cancellation is upstream-blocked |
@@ -90,7 +92,7 @@ no-fork/no-raw-FFI constraints", not "the standard omits it".
 |---|---|---|
 | EdDSA (Ed25519/Ed448) | upstream representable, not exposed | needs explicit key-kind/certificate handling across runtime/client/rustls |
 | Montgomery (X25519/X448) | upstream representable, not exposed | same |
-| HashML-DSA / HashSLH-DSA | upstream representable, not exposed | prehash parameter plumbing and policy not added in this branch |
+| HashML-DSA / HashSLH-DSA provider verification | implemented, unverified on a provider | SoftHSM advertises ML-DSA but not HashML-DSA; no unmodified HashSLH-DSA provider was available |
 | SLH-DSA CLI verification | client/runtime only | the CLI verification path is certificate-based; SLH-DSA certificates are not supported |
 | Message-based AES-GCM | upstream representable, not exposed | bounded message-process ownership needs a dedicated API |
 | Public-key import | implemented for RSA/named EC | SPKI validation, purpose policy and duplicate-ID checks |

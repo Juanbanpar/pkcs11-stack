@@ -7,9 +7,11 @@
 use crate::{Authentication, Client, Error, ManagementSession, ObjectRef, Pkcs11Uri, Provider};
 use pkcs11_runtime::{
     AES_BLOCK_SIZE, AesDecryptRequest, AesDirection, AesEncryptRequest, AesMode,
-    FunctionAvailability, HashAlgorithm, KbkdfCapabilities, KbkdfMode, KbkdfPrf, KbkdfRequest,
-    MacAlgorithm, MacKeyRequest, MechanismCapability, SlhDsaCapabilities, SlhDsaKeyPairRequest,
-    SlhDsaRequest, SlhDsaSigningPolicy, VerifyRequest,
+    FunctionAvailability, HashAlgorithm, HashMlDsaCapabilities, HashMlDsaRequest,
+    HashMlDsaSigningPolicy, HashSlhDsaCapabilities, HashSlhDsaRequest, HashSlhDsaSigningPolicy,
+    KbkdfCapabilities, KbkdfMode, KbkdfPrf, KbkdfRequest, MacAlgorithm, MacKeyRequest,
+    MechanismCapability, SlhDsaCapabilities, SlhDsaKeyPairRequest, SlhDsaRequest,
+    SlhDsaSigningPolicy, VerifyRequest,
 };
 use secrecy::SecretBox;
 use x509_cert::{
@@ -258,6 +260,98 @@ impl Client<'_> {
             .try_acquire(authentication)?
             .session()
             .verify_slh_dsa(key, request, signature)?)
+    }
+
+    /// Inspect HashML-DSA signing support for one hash/mode.
+    pub fn hash_ml_dsa_capabilities(
+        &self,
+        key: &crate::PrivateKeyRef,
+        hash: pkcs11_runtime::PrehashAlgorithm,
+        prehashed: bool,
+        authentication: Authentication<'_>,
+    ) -> Result<HashMlDsaCapabilities, Error> {
+        Ok(self
+            .pool()
+            .try_acquire(authentication)?
+            .session()
+            .hash_ml_dsa_capabilities(key, hash, prehashed)?)
+    }
+
+    /// Sign one HashML-DSA message or digest.
+    pub fn sign_hash_ml_dsa(
+        &self,
+        key: &crate::PrivateKeyRef,
+        request: &HashMlDsaRequest<'_>,
+        policy: &HashMlDsaSigningPolicy,
+        authentication: Authentication<'_>,
+        context_pin: Option<crate::Pin<'_>>,
+    ) -> Result<Vec<u8>, Error> {
+        Ok(self
+            .pool()
+            .try_acquire(authentication)?
+            .session()
+            .sign_hash_ml_dsa(key, request, policy, context_pin)?)
+    }
+
+    /// Verify one HashML-DSA signature on the token.
+    pub fn verify_hash_ml_dsa(
+        &self,
+        key: &crate::PublicKeyRef,
+        request: &HashMlDsaRequest<'_>,
+        signature: &[u8],
+        authentication: Authentication<'_>,
+    ) -> Result<(), Error> {
+        Ok(self
+            .pool()
+            .try_acquire(authentication)?
+            .session()
+            .verify_hash_ml_dsa(key, request, signature)?)
+    }
+
+    /// Inspect HashSLH-DSA signing support for one hash/mode.
+    pub fn hash_slh_dsa_capabilities(
+        &self,
+        key: &crate::PrivateKeyRef,
+        hash: pkcs11_runtime::PrehashAlgorithm,
+        prehashed: bool,
+        authentication: Authentication<'_>,
+    ) -> Result<HashSlhDsaCapabilities, Error> {
+        Ok(self
+            .pool()
+            .try_acquire(authentication)?
+            .session()
+            .hash_slh_dsa_capabilities(key, hash, prehashed)?)
+    }
+
+    /// Sign one HashSLH-DSA message or digest.
+    pub fn sign_hash_slh_dsa(
+        &self,
+        key: &crate::PrivateKeyRef,
+        request: &HashSlhDsaRequest<'_>,
+        policy: &HashSlhDsaSigningPolicy,
+        authentication: Authentication<'_>,
+        context_pin: Option<crate::Pin<'_>>,
+    ) -> Result<Vec<u8>, Error> {
+        Ok(self
+            .pool()
+            .try_acquire(authentication)?
+            .session()
+            .sign_hash_slh_dsa(key, request, policy, context_pin)?)
+    }
+
+    /// Verify one HashSLH-DSA signature on the token.
+    pub fn verify_hash_slh_dsa(
+        &self,
+        key: &crate::PublicKeyRef,
+        request: &HashSlhDsaRequest<'_>,
+        signature: &[u8],
+        authentication: Authentication<'_>,
+    ) -> Result<(), Error> {
+        Ok(self
+            .pool()
+            .try_acquire(authentication)?
+            .session()
+            .verify_hash_slh_dsa(key, request, signature)?)
     }
 
     /// Export a public, non-private SLH-DSA object as SPKI DER.
