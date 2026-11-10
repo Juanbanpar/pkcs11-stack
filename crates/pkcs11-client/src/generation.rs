@@ -19,6 +19,8 @@ pub struct GenerationCapabilities {
     pub ml_kem: Vec<crate::MlKemParameterSet>,
     /// EdDSA curves.
     pub eddsa: Vec<crate::EdDsaCurve>,
+    /// Montgomery curves.
+    pub montgomery: Vec<crate::MontgomeryCurve>,
 }
 impl Provider {
     /// Collect classical, PQC, ECDH and AES generation choices without opening
@@ -36,6 +38,12 @@ impl Provider {
             ml_dsa: self.ml_dsa_generation_options(token)?,
             ml_kem: self.ml_kem_generation_options(token)?,
             eddsa: selected.eddsa_generation_options()?,
+            montgomery: selected
+                .montgomery_capabilities()?
+                .into_iter()
+                .filter(|capability| capability.can_generate)
+                .map(|capability| capability.curve)
+                .collect(),
         })
     }
 }

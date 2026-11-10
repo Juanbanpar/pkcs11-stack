@@ -89,6 +89,20 @@ impl ClassicalPublicKey {
                 metadata.modulus = Some(public.modulus.as_bytes().to_vec());
                 metadata.public_exponent = Some(public.public_exponent.as_bytes().to_vec());
             }
+            oid if oid == ObjectIdentifier::new_unwrap("1.3.101.110")
+                || oid == ObjectIdentifier::new_unwrap("1.3.101.111") =>
+            {
+                let curve = match oid {
+                    oid if oid == ObjectIdentifier::new_unwrap("1.3.101.110") => {
+                        crate::MontgomeryCurve::X25519
+                    }
+                    _ => crate::MontgomeryCurve::X448,
+                };
+                let key = crate::MontgomeryPublicKey::from_bytes(curve, encoded)?;
+                metadata.key = KeyKind::Montgomery(curve);
+                metadata.ec_params = Some(curve.ec_params().to_vec());
+                metadata.ec_point = Some(key.as_bytes().to_vec());
+            }
             oid if oid == ObjectIdentifier::new_unwrap("1.3.101.112")
                 || oid == ObjectIdentifier::new_unwrap("1.3.101.113") =>
             {
@@ -207,6 +221,11 @@ impl PublicKeyImportRequest<'_> {
             ]),
             KeyKind::Ec(_) => template.extend([
                 Attribute::KeyType(KeyType::EC),
+                Attribute::EcParams(metadata.ec_params.clone().ok_or(Error::InvalidPublicKey)?),
+                Attribute::EcPoint(metadata.ec_point.clone().ok_or(Error::InvalidPublicKey)?),
+            ]),
+            KeyKind::Montgomery(_) => template.extend([
+                Attribute::KeyType(KeyType::EC_MONTGOMERY),
                 Attribute::EcParams(metadata.ec_params.clone().ok_or(Error::InvalidPublicKey)?),
                 Attribute::EcPoint(metadata.ec_point.clone().ok_or(Error::InvalidPublicKey)?),
             ]),

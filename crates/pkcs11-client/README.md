@@ -668,3 +668,8 @@ EdDSA is exposed through `generate_eddsa_key_pair`, `sign_eddsa`,
 `import_eddsa_public_key`, `EdDsaVerifyingKey`, `EdDsaCertificate` and
 `EdDsaIdentity`. Certificate verification supports Ed25519 and Ed448 in software;
 TLS integration currently enables Ed25519 only.
+
+Montgomery workflows use `generate_montgomery_key_pair`,
+`montgomery_public_key`, `export_montgomery_public_key`,
+`import_montgomery_public_key` and `derive_montgomery`. Public keys are exposed
+as RFC 8410 SPKI and imported only after length/low-order validation.

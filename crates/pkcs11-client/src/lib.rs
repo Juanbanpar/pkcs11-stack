@@ -34,6 +34,7 @@ mod mechanisms;
 mod ml_dsa;
 mod ml_dsa_certificate;
 mod ml_kem;
+mod montgomery;
 pub use ml_dsa_certificate::{MlDsaCertificate, MlDsaIdentity, MlDsaVerifyingKey};
 pub use ml_kem::MlKemPublicKey;
 pub use pkcs11_runtime::{HkdfCapabilities, HkdfOutput, HkdfRequest};
@@ -64,9 +65,10 @@ pub use pkcs11_runtime::{
     HashMlDsaCapabilities, HashMlDsaRequest, HashMlDsaSigningPolicy, HashSlhDsaCapabilities,
     HashSlhDsaRequest, HashSlhDsaSigningPolicy, KbkdfCapabilities, KbkdfMode, KbkdfOutput,
     KbkdfPrf, KbkdfRequest, MacAlgorithm, MacCapabilities, MacKeyRequest, MechanismCapability,
-    MechanismFamily, MechanismOperation, PrehashAlgorithm, SlhDsaCapabilities, SlhDsaHedging,
-    SlhDsaKeyPairRequest, SlhDsaParameterSet, SlhDsaPublicKey, SlhDsaRequest, SlhDsaSigningPolicy,
-    VerificationCapabilities, VerifyRequest,
+    MechanismFamily, MechanismOperation, MontgomeryCapabilities, MontgomeryCurve,
+    MontgomeryDerivation, MontgomeryKdf, MontgomeryOutput, MontgomeryPublicKey, PrehashAlgorithm,
+    SlhDsaCapabilities, SlhDsaHedging, SlhDsaKeyPairRequest, SlhDsaParameterSet, SlhDsaPublicKey,
+    SlhDsaRequest, SlhDsaSigningPolicy, VerificationCapabilities, VerifyRequest,
 };
 pub use pkcs11_runtime::{
     Attribute, AttributeInfo, AttributeType, AttributeValues, Authentication, CertificateRef,

@@ -27,6 +27,30 @@ pub(crate) fn encode_public_key(metadata: PublicKeyMetadata) -> Result<Vec<u8>, 
                 .as_bytes()
                 .to_vec())
         }
+        KeyKind::Montgomery(curve) => {
+            let params = metadata.ec_params.ok_or_else(invalid)?;
+            let point = metadata.ec_point.ok_or_else(invalid)?;
+            if params != curve.ec_params() {
+                return Err(invalid());
+            }
+            let raw = match OctetString::from_der(&point) {
+                Ok(point) => point.as_bytes().to_vec(),
+                Err(_) => point,
+            };
+            let key = crate::MontgomeryPublicKey::from_bytes(curve, &raw)?;
+            SubjectPublicKeyInfoOwned {
+                algorithm: AlgorithmIdentifierOwned {
+                    oid: ObjectIdentifier::new_unwrap(match curve {
+                        crate::MontgomeryCurve::X25519 => "1.3.101.110",
+                        crate::MontgomeryCurve::X448 => "1.3.101.111",
+                    }),
+                    parameters: None,
+                },
+                subject_public_key: BitString::from_bytes(key.as_bytes()).map_err(|_| invalid())?,
+            }
+            .to_der()
+            .map_err(|_| invalid())
+        }
         KeyKind::Edwards(curve) => {
             let params = metadata.ec_params.ok_or_else(invalid)?;
             let point = metadata.ec_point.ok_or_else(invalid)?;
@@ -123,7 +147,7 @@ mod tests {
                             .unwrap(),
                     );
                 }
-                KeyKind::Edwards(_) => continue,
+                KeyKind::Edwards(_) | KeyKind::Montgomery(_) => continue,
             }
             assert_eq!(
                 encode_public_key(metadata.clone()).unwrap(),

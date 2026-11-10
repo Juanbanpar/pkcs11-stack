@@ -47,6 +47,7 @@ pub(crate) fn candidates(key: KeyKind) -> Vec<SignatureParameters> {
         KeyKind::Rsa { .. } => &[SignatureAlgorithm::RsaPkcs1, SignatureAlgorithm::RsaPss],
         KeyKind::Ec(_) => &[SignatureAlgorithm::Ecdsa],
         KeyKind::Edwards(_) => &[],
+        KeyKind::Montgomery(_) => &[],
     };
     algorithms
         .iter()
