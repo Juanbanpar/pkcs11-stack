@@ -18,15 +18,18 @@ pub enum GenerationKind {
     MlDsa(MlDsaParameterSet),
     MlKem(MlKemParameterSet),
     Ecdh(NamedCurve),
+    EdDsa(pkcs11_client::EdDsaCurve),
     Aes(AesKeySize, AesKeyPurpose),
 }
 impl GenerationKind {
     pub fn supports_context_authentication(self) -> bool {
-        matches!(self, Self::Signing(_) | Self::MlDsa(_))
+        matches!(self, Self::Signing(_) | Self::MlDsa(_) | Self::EdDsa(_))
     }
     pub fn validate(self, id: &[u8], label: &[u8], context: bool) -> Result<(), BackendError> {
         let valid = match self {
-            Self::Signing(_) | Self::MlDsa(_) => !id.is_empty() && !label.is_empty(),
+            Self::Signing(_) | Self::MlDsa(_) | Self::EdDsa(_) => {
+                !id.is_empty() && !label.is_empty()
+            }
             Self::MlKem(_) => !context && !id.is_empty() && !label.is_empty(),
             Self::Ecdh(curve) => {
                 !context && EcdhKeyPairRequest { curve, id, label }.validate().is_ok()
@@ -117,6 +120,7 @@ impl Registry {
             .chain(choices.ml_dsa.into_iter().map(GenerationKind::MlDsa))
             .chain(choices.ml_kem.into_iter().map(GenerationKind::MlKem))
             .chain(choices.ecdh.into_iter().map(GenerationKind::Ecdh))
+            .chain(choices.eddsa.into_iter().map(GenerationKind::EdDsa))
             .chain(choices.aes.into_iter().flat_map(|size| {
                 [
                     AesKeyPurpose::Encryption,
@@ -216,6 +220,9 @@ impl Registry {
                             &label,
                             always_authenticate,
                         ),
+                        GenerationKind::EdDsa(curve) => {
+                            session.generate_eddsa_key_pair(curve, &id, &label, always_authenticate)
+                        }
                         GenerationKind::MlKem(parameter) => {
                             session.generate_ml_kem_key_pair(parameter, &id, &label)
                         }

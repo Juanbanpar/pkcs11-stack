@@ -11,6 +11,10 @@ impl std::fmt::Display for KeyChoice {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.0 {
             GenerationKind::Signing(KeyKind::Rsa { bits }) => write!(f, "RSA {bits} — signing"),
+            GenerationKind::Signing(KeyKind::Edwards(curve)) => {
+                write!(f, "{} — signing", curve)
+            }
+            GenerationKind::EdDsa(curve) => write!(f, "{} — signing", curve),
             GenerationKind::MlDsa(parameter) => write!(
                 f,
                 "ML-DSA-{} — signing",
