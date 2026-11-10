@@ -294,6 +294,8 @@ pub fn is_runtime_supported(mechanism: MechanismType) -> bool {
             | M::ECDSA_SHA512
             | M::ECDH1_DERIVE
             | M::ECC_KEY_PAIR_GEN
+            | M::ECC_EDWARDS_KEY_PAIR_GEN
+            | M::EDDSA
             | M::AES_KEY_GEN
             | M::AES_ECB
             | M::AES_CBC
@@ -529,7 +531,7 @@ mod tests {
         }
         // Typed upstream variants that this runtime has not exposed yet.
         assert!(!is_runtime_supported(MechanismType::AES_CTR));
-        assert!(!is_runtime_supported(MechanismType::EDDSA));
+        assert!(is_runtime_supported(MechanismType::EDDSA));
         // A vendor-defined identifier is representable but not executable here.
         let vendor = MechanismType::new_vendor_defined(
             cryptoki::mechanism::vendor_defined::CKM_VENDOR_DEFINED | 1,

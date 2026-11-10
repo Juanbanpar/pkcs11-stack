@@ -95,6 +95,11 @@ impl<'m> Session<'m> {
             Attribute::AlwaysAuthenticate(always_authenticate),
         ];
         let mechanism = match kind {
+            KeyKind::Edwards(_) => {
+                return Err(Error::UnsupportedSigning(
+                    "use the EdDSA key-generation operation",
+                ));
+            }
             KeyKind::Rsa { bits } => {
                 if !(2048..=16384).contains(&bits) || bits % 8 != 0 {
                     return Err(Error::InvalidParameters("invalid RSA key size"));

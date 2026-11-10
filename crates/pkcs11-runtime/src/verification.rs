@@ -138,6 +138,7 @@ impl Session<'_> {
         let expected = match caps.key() {
             KeyKind::Rsa { bits } => bits.div_ceil(8),
             KeyKind::Ec(curve) => 2 * curve.bits().div_ceil(8),
+            KeyKind::Edwards(curve) => curve.signature_length(),
         };
         if request.signature.len() != expected {
             return Err(Error::SignatureMismatch);
@@ -197,6 +198,7 @@ impl Session<'_> {
         let expected = match caps.key() {
             KeyKind::Rsa { bits } => bits.div_ceil(8),
             KeyKind::Ec(curve) => 2 * curve.bits().div_ceil(8),
+            KeyKind::Edwards(curve) => curve.signature_length(),
         };
         if signature.len() != expected {
             return Err(Error::SignatureMismatch);

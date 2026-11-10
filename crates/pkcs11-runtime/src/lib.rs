@@ -14,6 +14,8 @@ pub use capability::{
     MechanismOperation, is_runtime_supported, mechanism_family,
 };
 mod digest;
+mod eddsa;
+pub use eddsa::{EdDsaCapabilities, EdDsaCurve, EdDsaPublicKey, EdDsaRequest};
 mod encryption;
 pub use digest::{DIGEST_MAXIMUM_INPUT, HashAlgorithm};
 mod mac;

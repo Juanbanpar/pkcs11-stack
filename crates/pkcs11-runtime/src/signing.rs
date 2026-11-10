@@ -225,12 +225,16 @@ pub enum KeyKind {
     },
     /// EC with a recognized named curve.
     Ec(NamedCurve),
+    /// Edwards curve used by EdDSA.
+    Edwards(crate::EdDsaCurve),
 }
 impl KeyKind {
-    fn bits(self) -> usize {
+    /// Key size or field size in bits.
+    pub fn bits(self) -> usize {
         match self {
             Self::Rsa { bits } => bits,
             Self::Ec(curve) => curve.bits(),
+            Self::Edwards(curve) => curve.bits(),
         }
     }
 }
@@ -534,6 +538,14 @@ pub(crate) fn key_kind(object: &Object<'_, '_>) -> Result<KeyKind, Error> {
                 _ => Err(Error::MissingMetadata("EC parameters")),
             }
         }
+        Some(Attribute::KeyType(KeyType::EC_EDWARDS)) => {
+            match attribute(object, AttributeType::EcParams, true)? {
+                Some(Attribute::EcParams(value)) => {
+                    Ok(KeyKind::Edwards(crate::EdDsaCurve::from_ec_params(&value)?))
+                }
+                _ => Err(Error::MissingMetadata("EdDSA curve parameters")),
+            }
+        }
         _ => Err(Error::UnsupportedSigning("key type")),
     }
 }
@@ -591,6 +603,7 @@ pub(crate) fn supported_mechanism(m: MechanismType) -> bool {
         MechanismType::ECDSA_SHA256,
         MechanismType::ECDSA_SHA384,
         MechanismType::ECDSA_SHA512,
+        MechanismType::EDDSA,
     ]
     .contains(&m)
 }
@@ -670,6 +683,7 @@ impl Session<'_> {
         let expected = match capabilities.key {
             KeyKind::Rsa { bits } => bits.div_ceil(8),
             KeyKind::Ec(curve) => 2 * curve.bits().div_ceil(8),
+            KeyKind::Edwards(curve) => curve.signature_length(),
         };
         if signature.len() != expected {
             return Err(Error::InvalidSignature);
@@ -720,7 +734,7 @@ fn public_metadata(object: &Object<'_, '_>) -> Result<PublicKeyMetadata, Error> 
                 result.public_exponent = Some(v);
             }
         }
-        KeyKind::Ec(_) => {
+        KeyKind::Ec(_) | KeyKind::Edwards(_) => {
             if let Some(Attribute::EcParams(v)) = attribute(object, AttributeType::EcParams, true)?
             {
                 result.ec_params = Some(v);
