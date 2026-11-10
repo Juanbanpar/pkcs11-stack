@@ -17,14 +17,14 @@ cargo test -p pkcs11-runtime --test softhsm --test signing_softhsm --locked -- -
 export PKCS11_CLIENT_TEST_DIR="$scratch/client"
 mkdir "$PKCS11_CLIENT_TEST_DIR"
 bash tools/provision-client-softhsm.sh
-cargo test -p pkcs11-runtime --test oasis_softhsm --test verification_softhsm --locked -- --ignored --test-threads=1
+cargo test -p pkcs11-runtime --test oasis_softhsm --test verification_softhsm --test eddsa_softhsm --locked -- --ignored --test-threads=1
 cargo test -p pkcs11ctl --test oasis_softhsm --locked -- --ignored --test-threads=1
 cargo test -p pkcs11-runtime --test key_operations_softhsm --test generation_softhsm --test aes_gcm_provider --locked -- --ignored --test-threads=1
 # PQC and persistent HKDF have dedicated required provider runners.
 cargo test -p pkcs11-desktop --locked -- --ignored --test-threads=1 --skip persistent_hkdf_desktop --skip ml_dsa --skip ml_kem
 bash tools/test-examples.sh client
-cargo test -p pkcs11-client --test softhsm --test administration_softhsm --test generation_softhsm --test aes_gcm_provider --locked -- --ignored --test-threads=1
-cargo test -p pkcs11ctl --test softhsm --test aes_gcm --locked -- --ignored --test-threads=1
+cargo test -p pkcs11-client --test softhsm --test administration_softhsm --test generation_softhsm --test aes_gcm_provider --test eddsa_softhsm --locked -- --ignored --test-threads=1
+cargo test -p pkcs11ctl --test softhsm --test aes_gcm --test eddsa_softhsm --locked -- --ignored --test-threads=1
 export PKCS11_TLS_TEST_DIR="$scratch/tls"
 mkdir "$PKCS11_TLS_TEST_DIR"
 bash tools/provision-tls-softhsm.sh
