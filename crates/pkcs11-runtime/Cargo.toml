@@ -13,6 +13,7 @@ pkcs11-locator.workspace = true
 cryptoki.workspace = true
 secrecy.workspace = true
 sha2.workspace = true
+sha1.workspace = true
 curve25519-dalek.workspace = true
 ed448-goldilocks-plus.workspace = true
 thiserror.workspace = true

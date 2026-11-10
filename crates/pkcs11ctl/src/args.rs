@@ -106,14 +106,18 @@ fn signature(command: Command) -> Command {
                     ("algorithm", "hash-slh-dsa"),
                 ])
                 .value_parser([
-                    "sha224", "sha256", "sha384", "sha512", "sha3-224", "sha3-256", "sha3-384",
-                    "sha3-512", "shake128", "shake256",
+                    "sha1", "sha224", "sha256", "sha384", "sha512", "sha3-224", "sha3-256",
+                    "sha3-384", "sha3-512", "shake128", "shake256",
                 ]),
         )
         .arg(
             value("mgf-digest", "Required for PSS only")
-                .value_parser(["sha224", "sha256", "sha384", "sha512"]),
+                .value_parser(["sha1", "sha224", "sha256", "sha384", "sha512"]),
         )
+        .arg(flag(
+            "allow-sha1",
+            "Explicitly allow the legacy SHA-1 signature profile",
+        ))
         .arg(flag(
             "allow-sha224",
             "Explicitly allow the legacy SHA-224 signature profile",

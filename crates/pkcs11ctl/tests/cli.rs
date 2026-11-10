@@ -70,6 +70,7 @@ fn help_and_version_need_no_module() {
         "encrypt-aes",
         "decrypt-aes",
         "derive-kbkdf",
+        "derive-montgomery",
         "aes-cipher-capabilities",
         "function-support",
     ] {
@@ -203,6 +204,29 @@ fn montgomery_rejects_invalid_output_before_loading_a_module() {
         stderr.contains("length") || stderr.contains("invalid command line"),
         "{stderr}"
     );
+    assert!(!stderr.contains("must-not-load"));
+}
+
+#[test]
+fn sha1_signatures_require_explicit_opt_in_before_loading_a_module() {
+    let out = run(&[
+        "sign",
+        "--module",
+        "/must-not-load",
+        "--key",
+        "pkcs11:token=test;object=key;type=private",
+        "--algorithm",
+        "rsa-pkcs1",
+        "--digest",
+        "sha1",
+        "--input",
+        "-",
+        "--output",
+        "-",
+    ]);
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("--allow-sha1"), "{stderr}");
     assert!(!stderr.contains("must-not-load"));
 }
 

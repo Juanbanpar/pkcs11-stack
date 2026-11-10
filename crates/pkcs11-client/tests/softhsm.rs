@@ -3,6 +3,7 @@
 use pkcs11_client::*;
 use pkcs11_runtime::Error as RuntimeError;
 use secrecy::SecretString;
+use sha1::Sha1;
 use sha2::{Digest, Sha224, Sha256, Sha384, Sha512};
 use std::{num::NonZeroUsize, path::PathBuf, process::Command};
 
@@ -164,6 +165,7 @@ fn application_workflows() {
             DigestAlgorithm::Sha512,
         ] {
             let hash = match digest {
+                DigestAlgorithm::Sha1 => Sha1::digest(message).to_vec(),
                 DigestAlgorithm::Sha224 => Sha224::digest(message).to_vec(),
                 DigestAlgorithm::Sha256 => Sha256::digest(message).to_vec(),
                 DigestAlgorithm::Sha384 => Sha384::digest(message).to_vec(),

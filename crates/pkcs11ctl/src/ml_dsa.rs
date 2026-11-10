@@ -24,6 +24,7 @@ pub(crate) fn validate_options(m: &ArgMatches) -> Result<()> {
         .any(|name| get(m, name).is_some())
         || get(m, "input-kind") == Some("digest")
         || flag(m, "allow-sha224")
+        || flag(m, "allow-sha1")
     {
         return Err(usage(
             "pure ML-DSA does not accept digests, prehash input, PSS parameters or hashing policies",

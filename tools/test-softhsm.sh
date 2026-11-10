@@ -6,6 +6,8 @@ cd "$(dirname "$0")/.."
 
 source tools/softhsm-store.sh
 command -v openssl >/dev/null
+# SHA-1 signature verification needs an OpenSSL build that permits SHA-1.
+export PKCS11_TEST_OPENSSL=${PKCS11_TEST_OPENSSL:-${PKCS11_TEST_PQC_OPENSSL:-openssl}}
 # Deliberately duplicated labels exercise ambiguity. PINs are public disposable
 # fixture values, not a model for production PIN input.
 for number in 1 2; do

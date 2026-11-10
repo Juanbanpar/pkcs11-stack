@@ -86,6 +86,11 @@ pub(crate) fn validate_options(m: &ArgMatches) -> Result<()> {
             "HashML-DSA/HashSLH-DSA use the explicit --digest prehash; --hashing is not accepted",
         ));
     }
+    if flag(m, "allow-sha1") || flag(m, "allow-sha224") {
+        return Err(usage(
+            "HashML-DSA/HashSLH-DSA select the prehash with --digest; legacy SHA opt-ins are not accepted",
+        ));
+    }
     let _ = input(m, b"")?;
     Ok(())
 }

@@ -280,14 +280,17 @@ pub fn is_runtime_supported(mechanism: MechanismType) -> bool {
             | M::RSA_PKCS
             | M::RSA_PKCS_PSS
             | M::RSA_PKCS_OAEP
+            | M::SHA1_RSA_PKCS
             | M::SHA224_RSA_PKCS
             | M::SHA256_RSA_PKCS
             | M::SHA384_RSA_PKCS
             | M::SHA512_RSA_PKCS
+            | M::SHA1_RSA_PKCS_PSS
             | M::SHA256_RSA_PKCS_PSS
             | M::SHA384_RSA_PKCS_PSS
             | M::SHA512_RSA_PKCS_PSS
             | M::ECDSA
+            | M::ECDSA_SHA1
             | M::ECDSA_SHA224
             | M::ECDSA_SHA256
             | M::ECDSA_SHA384

@@ -2585,6 +2585,7 @@ dependencies = [
  "pkcs11-runtime",
  "rsa",
  "secrecy",
+ "sha1",
  "sha2",
  "thiserror 2.0.20",
  "x509-cert",
@@ -2623,6 +2624,7 @@ dependencies = [
  "ed448-goldilocks-plus",
  "pkcs11-locator",
  "secrecy",
+ "sha1",
  "sha2",
  "thiserror 2.0.20",
 ]
@@ -3249,6 +3251,17 @@ checksum = "f42f67da2385b51a5f9652db9c93d78aeaf7610bf5ec366080b6de810604af53"
 dependencies = [
  "base16ct",
  "serde",
+]
+
+[[package]]
+name = "sha1"
+version = "0.10.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a978451301f4db1d02937a4ab3ccce137717b81826e79b7d49ffe3244a13c3b8"
+dependencies = [
+ "cfg-if",
+ "cpufeatures 0.2.17",
+ "digest 0.10.7",
 ]
 
 [[package]]

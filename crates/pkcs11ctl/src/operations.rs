@@ -19,6 +19,7 @@ pub(crate) enum Output {
 }
 pub(crate) fn digest(value: &str) -> DigestAlgorithm {
     match value {
+        "sha1" => DigestAlgorithm::Sha1,
         "sha224" => DigestAlgorithm::Sha224,
         "sha256" => DigestAlgorithm::Sha256,
         "sha384" => DigestAlgorithm::Sha384,
@@ -34,6 +35,9 @@ fn policy(m: &ArgMatches) -> SigningPolicy {
         },
         ..SigningPolicy::default()
     };
+    if flag(m, "allow-sha1") {
+        policy.digests.push(DigestAlgorithm::Sha1);
+    }
     if flag(m, "allow-sha224") {
         policy.digests.push(DigestAlgorithm::Sha224);
     }
@@ -161,6 +165,11 @@ impl Inputs {
         }
         if name == "verify-mac" && get(m, "input") == Some("-") && get(m, "tag") == Some("-") {
             return Err(usage("only one MAC verification input may read stdin"));
+        }
+        if !flag(m, "allow-sha1")
+            && (get(m, "digest") == Some("sha1") || get(m, "mgf-digest") == Some("sha1"))
+        {
+            return Err(usage("SHA-1 requires --allow-sha1"));
         }
         if !flag(m, "allow-sha224")
             && (get(m, "digest") == Some("sha224") || get(m, "mgf-digest") == Some("sha224"))

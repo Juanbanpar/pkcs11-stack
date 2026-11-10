@@ -117,6 +117,7 @@ fn capabilities(object: &Object<'_, '_>) -> Result<HkdfCapabilities, Error> {
     let input_length = secret_length(object)?;
     // PKCS#11 3.2 section 6.62.3 restricts secret-key input to the hash length.
     let digest = match input_length {
+        20 => DigestAlgorithm::Sha1,
         28 => DigestAlgorithm::Sha224,
         32 => DigestAlgorithm::Sha256,
         48 => DigestAlgorithm::Sha384,
@@ -200,6 +201,7 @@ impl Session<'_> {
             return Err(Error::UnsupportedKeyOperation);
         }
         let hash = match request.digest {
+            DigestAlgorithm::Sha1 => MechanismType::SHA1,
             DigestAlgorithm::Sha224 => MechanismType::SHA224,
             DigestAlgorithm::Sha256 => MechanismType::SHA256,
             DigestAlgorithm::Sha384 => MechanismType::SHA384,

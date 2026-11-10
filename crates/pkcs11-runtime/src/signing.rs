@@ -12,6 +12,7 @@ use cryptoki::{
     session::UserType,
 };
 use pkcs11_locator::Pkcs11Uri;
+use sha1::Sha1;
 use sha2::{Digest, Sha224, Sha256, Sha384, Sha512};
 use std::borrow::Cow;
 
@@ -51,9 +52,11 @@ reference!(
     "Persistent certificate selector; association with a key is an application decision."
 );
 
-/// Supported SHA-2 digests.
+/// Supported message digests.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DigestAlgorithm {
+    /// SHA-1. Disabled by default; legacy opt-in only.
+    Sha1,
     /// SHA-224. Disabled by default; opt in through an explicit policy.
     Sha224,
     /// SHA-256.
@@ -67,6 +70,7 @@ impl DigestAlgorithm {
     /// Digest length in bytes.
     pub fn output_len(self) -> usize {
         match self {
+            Self::Sha1 => 20,
             Self::Sha224 => 28,
             Self::Sha256 => 32,
             Self::Sha384 => 48,
@@ -75,6 +79,7 @@ impl DigestAlgorithm {
     }
     fn mechanism(self) -> MechanismType {
         match self {
+            Self::Sha1 => MechanismType::SHA1,
             Self::Sha224 => MechanismType::SHA224,
             Self::Sha256 => MechanismType::SHA256,
             Self::Sha384 => MechanismType::SHA384,
@@ -83,6 +88,7 @@ impl DigestAlgorithm {
     }
     fn mgf(self) -> PkcsMgfType {
         match self {
+            Self::Sha1 => PkcsMgfType::MGF1_SHA1,
             Self::Sha224 => PkcsMgfType::MGF1_SHA224,
             Self::Sha256 => PkcsMgfType::MGF1_SHA256,
             Self::Sha384 => PkcsMgfType::MGF1_SHA384,
@@ -91,6 +97,7 @@ impl DigestAlgorithm {
     }
     pub(crate) fn hash(self, data: &[u8]) -> Vec<u8> {
         match self {
+            Self::Sha1 => Sha1::digest(data).to_vec(),
             Self::Sha224 => Sha224::digest(data).to_vec(),
             Self::Sha256 => Sha256::digest(data).to_vec(),
             Self::Sha384 => Sha384::digest(data).to_vec(),
@@ -101,7 +108,7 @@ impl DigestAlgorithm {
 /// Generic signature family, independent of protocols.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SignatureAlgorithm {
-    /// RSASSA-PKCS1-v1_5, with a SHA-2 DigestInfo.
+    /// RSASSA-PKCS1-v1_5, with a DER DigestInfo for the selected digest.
     RsaPkcs1,
     /// RSASSA-PSS, requiring explicit MGF1 digest and salt length.
     RsaPss,
@@ -401,6 +408,7 @@ pub(crate) fn mechanism(
         SignatureAlgorithm::RsaPkcs1 => {
             if combined {
                 match request.digest {
+                    Sha1 => Mechanism::Sha1RsaPkcs,
                     Sha224 => Mechanism::Sha224RsaPkcs,
                     Sha256 => Mechanism::Sha256RsaPkcs,
                     Sha384 => Mechanism::Sha384RsaPkcs,
@@ -413,6 +421,7 @@ pub(crate) fn mechanism(
         SignatureAlgorithm::Ecdsa => {
             if combined {
                 match request.digest {
+                    Sha1 => Mechanism::EcdsaSha1,
                     Sha224 => Mechanism::EcdsaSha224,
                     Sha256 => Mechanism::EcdsaSha256,
                     Sha384 => Mechanism::EcdsaSha384,
@@ -436,6 +445,7 @@ pub(crate) fn mechanism(
             };
             if combined {
                 match request.digest {
+                    Sha1 => Mechanism::Sha1RsaPkcsPss(params),
                     Sha224 => {
                         return Err(Error::UnsupportedSigning(
                             "SHA-224 PSS combined mechanism unavailable",
@@ -452,34 +462,30 @@ pub(crate) fn mechanism(
     })
 }
 fn digest_info(digest: DigestAlgorithm, data: &[u8]) -> Vec<u8> {
-    // DER DigestInfo for the three fixed SHA-2 OIDs, with explicit NULL parameters.
-    let (len, oid) = match digest {
-        DigestAlgorithm::Sha224 => (0x2d, 4),
-        DigestAlgorithm::Sha256 => (0x31, 1),
-        DigestAlgorithm::Sha384 => (0x41, 2),
-        DigestAlgorithm::Sha512 => (0x51, 3),
+    // DER DigestInfo with explicit NULL parameters. SHA-1 uses its original
+    // 1.3.14.3.2.26 OID; SHA-2 uses the 2.16.840.1.101.3.4.2 arc.
+    let oid = match digest {
+        DigestAlgorithm::Sha1 => &[0x06, 0x05, 0x2b, 0x0e, 0x03, 0x02, 0x1a][..],
+        DigestAlgorithm::Sha224 => &[
+            0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x04,
+        ],
+        DigestAlgorithm::Sha256 => &[
+            0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01,
+        ],
+        DigestAlgorithm::Sha384 => &[
+            0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x02,
+        ],
+        DigestAlgorithm::Sha512 => &[
+            0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x03,
+        ],
     };
-    let mut encoded = vec![
-        0x30,
-        len,
-        0x30,
-        0x0d,
-        0x06,
-        0x09,
-        0x60,
-        0x86,
-        0x48,
-        0x01,
-        0x65,
-        0x03,
-        0x04,
-        0x02,
-        oid,
-        0x05,
-        0x00,
-        0x04,
-        digest.output_len() as u8,
-    ];
+    let algorithm_len = 2 + oid.len() + 2;
+    let content_len = algorithm_len + 2 + data.len();
+    let mut encoded = Vec::with_capacity(2 + content_len);
+    encoded.extend_from_slice(&[0x30, content_len as u8]);
+    encoded.extend_from_slice(&[0x30, (oid.len() + 2) as u8]);
+    encoded.extend_from_slice(oid);
+    encoded.extend_from_slice(&[0x05, 0x00, 0x04, data.len() as u8]);
     encoded.extend_from_slice(data);
     encoded
 }
@@ -596,13 +602,16 @@ pub(crate) fn supported_mechanism(m: MechanismType) -> bool {
         MechanismType::RSA_PKCS_PSS,
         MechanismType::ECDSA,
         MechanismType::SHA224_RSA_PKCS,
+        MechanismType::SHA1_RSA_PKCS,
         MechanismType::SHA256_RSA_PKCS,
         MechanismType::SHA384_RSA_PKCS,
         MechanismType::SHA512_RSA_PKCS,
+        MechanismType::SHA1_RSA_PKCS_PSS,
         MechanismType::SHA256_RSA_PKCS_PSS,
         MechanismType::SHA384_RSA_PKCS_PSS,
         MechanismType::SHA512_RSA_PKCS_PSS,
         MechanismType::ECDSA_SHA224,
+        MechanismType::ECDSA_SHA1,
         MechanismType::ECDSA_SHA256,
         MechanismType::ECDSA_SHA384,
         MechanismType::ECDSA_SHA512,
@@ -768,6 +777,37 @@ impl CertificateRef {
         match attribute(&session.resolve(&self.0)?, AttributeType::Value, true)? {
             Some(Attribute::Value(v)) => Ok(v),
             _ => Err(Error::MissingMetadata("certificate value")),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{DigestAlgorithm, digest_info};
+    use sha1::{Digest, Sha1};
+
+    #[test]
+    fn digest_info_uses_standard_algorithm_identifiers() {
+        let hash = Sha1::digest(b"message");
+        let mut expected = vec![
+            0x30, 0x21, 0x30, 0x09, 0x06, 0x05, 0x2b, 0x0e, 0x03, 0x02, 0x1a, 0x05, 0x00, 0x04,
+            0x14,
+        ];
+        expected.extend_from_slice(&hash);
+        assert_eq!(digest_info(DigestAlgorithm::Sha1, &hash), expected);
+
+        for digest in [
+            DigestAlgorithm::Sha1,
+            DigestAlgorithm::Sha224,
+            DigestAlgorithm::Sha256,
+            DigestAlgorithm::Sha384,
+            DigestAlgorithm::Sha512,
+        ] {
+            let hash = digest.hash(b"message");
+            let encoded = digest_info(digest, &hash);
+            assert_eq!(encoded[0], 0x30);
+            assert_eq!(encoded[1] as usize, encoded.len() - 2);
+            assert_eq!(encoded.last(), hash.last());
         }
     }
 }
