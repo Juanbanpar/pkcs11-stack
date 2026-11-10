@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use crate::{
-    aes_gcm, generation, hash_pqc, inspect, key_establishment, ml_dsa, oasis, slh_dsa, support::*,
+    aes_gcm, eddsa, generation, hash_pqc, inspect, key_establishment, ml_dsa, oasis, slh_dsa,
+    support::*,
 };
 use clap::ArgMatches;
 use pkcs11_client::{
@@ -100,12 +101,15 @@ impl Inputs {
         let ml_dsa = ml_dsa::selected(m);
         let slh_dsa = slh_dsa::selected(m);
         let hash_pqc = hash_pqc::selected(m);
+        let eddsa = eddsa::selected(m);
         if ml_dsa {
             ml_dsa::validate_options(m)?;
         } else if slh_dsa {
             slh_dsa::validate_options(m)?;
         } else if hash_pqc {
             hash_pqc::validate_options(m)?;
+        } else if eddsa {
+            eddsa::validate_options(m)?;
         } else if get(m, "context-file").is_some() || get(m, "hedging").is_some() {
             return Err(usage(
                 "context-file and hedging require an ML-DSA algorithm",
@@ -197,6 +201,8 @@ impl Inputs {
                 } else {
                     hash_pqc::request_slh(m, &bytes, &domain_context)?;
                 }
+            } else if eddsa {
+                eddsa::request(m, &bytes)?;
             } else {
                 request(m, &bytes)?;
             }
@@ -250,6 +256,11 @@ impl Inputs {
             if hash_pqc {
                 return Err(usage(
                     "HashML-DSA/HashSLH-DSA certificate verification is not exposed by this CLI",
+                ));
+            }
+            if eddsa {
+                return Err(usage(
+                    "EdDSA certificate-file verification is not exposed; use a token certificate URI",
                 ));
             }
             let certificate = if ml_dsa {
@@ -461,6 +472,9 @@ fn client_operation(
     m: &ArgMatches,
     inputs: &Inputs,
 ) -> Result<Output> {
+    if eddsa::selected(m) {
+        return eddsa::client_operation(client, name, m, inputs);
+    }
     if hash_pqc::selected(m) {
         return hash_pqc::client_operation(client, name, m, inputs);
     }
@@ -657,6 +671,10 @@ fn management_operation(
                 let key = pkcs11_client::PublicKeyRef::new(uri(m, "object")?)
                     .map_err(pkcs11_client::Error::from)?;
                 session.export_slh_dsa_public_key(&key)?
+            } else if get(m, "key-family") == Some("eddsa") {
+                let key = pkcs11_client::PublicKeyRef::new(uri(m, "object")?)
+                    .map_err(pkcs11_client::Error::from)?;
+                session.export_eddsa_public_key(&key)?
             } else if ml_dsa::selected(m) {
                 let key = pkcs11_client::PublicKeyRef::new(uri(m, "object")?)
                     .map_err(pkcs11_client::Error::from)?;

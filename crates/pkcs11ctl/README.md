@@ -473,3 +473,16 @@ pkcs11ctl sign --module /path/lib.so \
 are available for token-hashed message profiles; SHA-3/SHAKE caller digests are
 upstream-blocked because published `cryptoki` has no standalone SHA-3/SHAKE
 digest mechanism.
+
+EdDSA uses the same verbs:
+
+```sh
+pkcs11ctl generate --module /path/lib.so --token 'pkcs11:token=test' \
+  --kind ed25519 --id 96 --label ed25519 --confirm
+pkcs11ctl sign --module /path/lib.so \
+  --key 'pkcs11:token=test;object=ed25519;type=private' \
+  --algorithm ed25519 --input message.bin --output signature.bin --pin-file user.pin
+pkcs11ctl export --module /path/lib.so \
+  --object 'pkcs11:token=test;object=ed25519;type=public' \
+  --key-family eddsa --output public.der --pin-file user.pin
+```

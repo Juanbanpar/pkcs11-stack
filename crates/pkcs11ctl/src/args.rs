@@ -31,7 +31,7 @@ fn key(command: Command) -> Command {
 fn key_family(command: Command) -> Command {
     command.arg(
         value("key-family", "Key/certificate algorithm family")
-            .value_parser(["classical", "ml-dsa"])
+            .value_parser(["classical", "ml-dsa", "eddsa"])
             .default_value("classical"),
     )
 }
@@ -74,9 +74,13 @@ fn signature(command: Command) -> Command {
             "rsa-pkcs1",
             "rsa-pss",
             "ecdsa",
+            "ed25519",
+            "ed448",
             "ml-dsa-44",
             "ml-dsa-65",
             "ml-dsa-87",
+            "ed25519",
+            "ed448",
             "hash-ml-dsa",
             "hash-slh-dsa",
             "slh-dsa-sha2-128s",
@@ -241,7 +245,7 @@ pub(crate) fn command() -> Command {
         .about("Export certificate/data bytes or public-key SPKI DER; no trust validation")
         .arg(
             value("key-family", "Public-key algorithm family")
-                .value_parser(["classical", "ml-dsa", "ml-kem"])
+                .value_parser(["classical", "ml-dsa", "ml-kem", "slh-dsa", "eddsa"])
                 .default_value("classical"),
         )
         .arg(required(
@@ -322,12 +326,16 @@ pub(crate) fn command() -> Command {
             "hmac-sha256",
             "hmac-sha384",
             "hmac-sha512",
+            "ed25519",
+            "ed448",
             "p256",
             "p384",
             "p521",
             "ml-dsa-44",
             "ml-dsa-65",
             "ml-dsa-87",
+            "ed25519",
+            "ed448",
             "hash-ml-dsa",
             "hash-slh-dsa",
             "ml-kem-512",

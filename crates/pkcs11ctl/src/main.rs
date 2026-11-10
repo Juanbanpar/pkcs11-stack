@@ -3,6 +3,7 @@
 //! PKCS#11 command-line workflows over the client library.
 mod aes_gcm;
 mod args;
+mod eddsa;
 mod generation;
 mod hash_pqc;
 mod inspect;

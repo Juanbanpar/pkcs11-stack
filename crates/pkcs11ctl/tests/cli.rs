@@ -176,6 +176,29 @@ fn oasis_commands_reject_invalid_parameters_before_loading_a_module() {
 }
 
 #[test]
+fn eddsa_rejects_classical_options_before_loading_a_module() {
+    let out = run(&[
+        "sign",
+        "--module",
+        "/must-not-load",
+        "--key",
+        "pkcs11:token=test;object=eddsa;type=private",
+        "--algorithm",
+        "ed25519",
+        "--digest",
+        "sha256",
+        "--input",
+        "-",
+        "--output",
+        "-",
+    ]);
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("EdDSA") || stderr.contains("invalid command line"));
+    assert!(!stderr.contains("must-not-load"));
+}
+
+#[test]
 fn hash_pqc_requires_explicit_parameter_set_before_loading_a_module() {
     let out = run(&[
         "sign",
