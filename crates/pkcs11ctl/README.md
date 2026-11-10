@@ -451,6 +451,17 @@ pkcs11ctl import --module /path/lib.so --token 'pkcs11:token=test' \
 `--multipart` to process the bounded input through the runtime's multipart
 native calls. Single-part remains the default.
 
+SHA-1 signatures are disabled by default and require an explicit legacy opt-in:
+
+```sh
+pkcs11ctl sign --module /path/lib.so   --key 'pkcs11:token=test;object=rsa;type=private' \
+  --algorithm rsa-pkcs1 --digest sha1 --allow-sha1 \
+  --input message.bin --output signature.bin --pin-file user.pin
+```
+
+`verify` accepts the same `--digest sha1 --allow-sha1` pair. SHA-1
+`DigestInfo` uses the original `1.3.14.3.2.26` OID.
+
 SHA-224 signatures are disabled by default. Opt in explicitly:
 
 ```sh

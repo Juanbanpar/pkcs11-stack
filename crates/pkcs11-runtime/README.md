@@ -519,6 +519,11 @@ signature-first path is gated by the selected interface; providers that expose
 only a `CKR_FUNCTION_NOT_SUPPORTED` stub return a typed `UnsupportedVerification`
 error and leave the session usable.
 
+`DigestAlgorithm::Sha1` is available for legacy RSA PKCS#1, ECDSA and RSA-PSS
+profiles, but it is not part of `SigningPolicy::default()`. Add it to
+`policy.digests` explicitly. SHA-1 DigestInfo uses the original
+`1.3.14.3.2.26` OID, not the SHA-2 OID arc.
+
 `DigestAlgorithm::Sha224` is available for RSA PKCS#1, ECDSA and RSA-PSS raw
 profiles, but it is not part of `SigningPolicy::default()`. Add it to
 `policy.digests` explicitly. SHA-224 PSS has no combined upstream mechanism;

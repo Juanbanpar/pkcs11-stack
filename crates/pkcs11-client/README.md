@@ -338,6 +338,11 @@ sources remain available. A missing provider attribute status is a runtime failu
 not invalid user input. Diagnostic strings are not a parsing contract; categories
 do not authorize retries.
 
+`SigningPolicy::default()` permits SHA-256/384/512. SHA-1 and SHA-224 are
+legacy opt-ins: add them to `policy.digests` explicitly. Certificate signature
+verification uses the same digest profile and rejects SHA-1 unless the caller
+opts in.
+
 Runnable [signing examples](../../docs/examples.md) demonstrate `Provider::client`,
 generic signing, binding and explicit shutdown with PIN files and raw stdout output.
 

@@ -44,14 +44,14 @@ coverage. Provider support is separate.
 
 | Family | Implemented operations | Notes |
 |---|---|---|
-| RSA | key generation, PKCS#1 v1.5 and PSS sign/verify, OAEP encrypt/decrypt | SHA-224/256/384/512 combined mechanisms; SHA-224 is opt-in |
-| ECDSA | key generation, sign/verify | P-256/P-384/P-521; SHA-224 opt-in |
+| RSA | key generation, PKCS#1 v1.5 and PSS sign/verify, OAEP encrypt/decrypt | SHA-1/224/256/384/512 combined mechanisms; SHA-1 and SHA-224 are opt-in |
+| ECDSA | key generation, sign/verify | P-256/P-384/P-521; SHA-1 and SHA-224 are opt-in |
 | ECDH | key-pair generation, raw derivation, SHA-2 KDF profiles | token-held secrets only |
 | EdDSA | Ed25519/Ed448 key generation, sign/verify, public export/import, CLI and desktop; rustls Ed25519 | added here; SoftHSM provider-tested |
 | Montgomery | X25519/X448 generation, public import/export, ECDH derivation with null/SHA-2 KDFs | added here; no unmodified provider available for positive verification |
 | AES | key generation, ECB/CBC/CBC-PAD, GCM single-part, CMAC, RFC 3394 wrap/unwrap | CBC/CBC-PAD added here; GCM and KW already existed |
 | DES/3DES | upstream types available | not exposed by this branch; legacy only |
-| SHA-1/SHA-2 | single-part and multipart digest | SHA-3 is upstream-blocked |
+| SHA-1/SHA-2 | single-part and multipart digest | SHA-1 signatures are legacy opt-in; SHA-3 is upstream-blocked |
 | HMAC | full-tag SHA-1/SHA-2 single-part and multipart | general-length and SHA-3 are upstream-blocked |
 | SP 800-108 | counter, feedback, double-pipeline; HMAC-SHA-1/2 and AES-CMAC PRFs | added here |
 | HKDF | extract-and-expand, token-held salt | already existed |
@@ -80,6 +80,7 @@ FFI, a fork, duplicated bindings or a replacement engine to work around them.
 | Legacy | DSA, DH, RC2/RC4, IDEA, CAST, Blowfish, SSL/TLS PRF and most vendor families |
 | Cancellation | no typed `C_SessionCancel` wrapper |
 | Bounded output | no caller-bounded single-part/multipart completion |
+| Message-based AEAD | no parameterless `CKM_AES_GCM` message-init mechanism and no bounded `C_EncryptMessage`/`C_DecryptMessage` completion; `decrypt_message` returns an unbounded `Vec` |
 | Interface selector | no public selected-interface metadata |
 
 The full per-identifier list is in `coverage.md` and `inventory.json`. The
@@ -94,7 +95,7 @@ no-fork/no-raw-FFI constraints", not "the standard omits it".
 | Montgomery provider verification | implemented, unverified on a provider | SoftHSM does not advertise Montgomery; an unmodified Kryoptic Montgomery build was not available |
 | HashML-DSA / HashSLH-DSA provider verification | implemented, unverified on a provider | SoftHSM advertises ML-DSA but not HashML-DSA; no unmodified HashSLH-DSA provider was available |
 | SLH-DSA CLI verification | client/runtime only | the CLI verification path is certificate-based; SLH-DSA certificates are not supported |
-| Message-based AES-GCM | upstream representable, not exposed | bounded message-process ownership needs a dedicated API |
+| Message-based AES-GCM | upstream-blocked | published `cryptoki` 0.12.1 has no parameterless `CKM_AES_GCM` message-init variant and no bounded `encrypt_message_into`/`decrypt_message_into`; the available `decrypt_message` returns an unbounded `Vec` that cannot be zeroized on failure |
 | Public-key import | implemented for RSA/named EC | SPKI validation, purpose policy and duplicate-ID checks |
 | SLH-DSA provider verification | implemented, unverified on a provider | no unmodified provider build completed in the validation environment; an unmodified Kryoptic/OpenSSL build was attempted but failed at the OpenSSL link step |
 | DSA/DH/legacy ciphers | upstream representable in part, not exposed | security policy and lack of typed variants |
@@ -105,7 +106,7 @@ The following runs were executed for this branch:
 
 | Provider | Build | Tests | Result |
 |---|---|---|---|
-| SoftHSM | 2.7.0 (unmodified) | `tools/test-softhsm.sh`, including digest/HMAC/AES-CMAC/AES-CBC known answers, token RSA/ECDSA verification, EdDSA generation/signing/verification, Ed25519 TLS 1.3, CLI workflows, MAC key generation, public-key import and Montgomery negative coverage | pass |
+| SoftHSM | 2.7.0 (unmodified) | `tools/test-softhsm.sh`, including digest/HMAC/AES-CMAC/AES-CBC known answers, token RSA/ECDSA verification, opt-in SHA-1/SHA-224 RSA/ECDSA signing, EdDSA generation/signing/verification, Ed25519 TLS 1.3, CLI workflows, MAC key generation, public-key import and Montgomery negative coverage | pass |
 | SoftHSM PQC | pinned OpenSSL 3.5.9 + SoftHSM build (unmodified) | `tools/test-ml-dsa.sh` (runtime, client, CLI, TLS, desktop) | pass |
 | Kryoptic | pinned SP 800-108 build (unmodified) | `tools/test-kem-hkdf.sh`, including KBKDF determinism/usable-output and CLI derivation tests | pass |
 | Kryoptic | pinned build (unmodified) | `tools/test-ml-kem.sh` (runtime, client, desktop) | pass |
