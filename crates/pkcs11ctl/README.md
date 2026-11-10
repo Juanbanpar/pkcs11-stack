@@ -486,3 +486,15 @@ pkcs11ctl export --module /path/lib.so \
   --object 'pkcs11:token=test;object=ed25519;type=public' \
   --key-family eddsa --output public.der --pin-file user.pin
 ```
+
+X25519/X448 use `generate --kind x25519|x448`, `derive-montgomery` and
+`export --key-family montgomery`:
+
+```sh
+pkcs11ctl generate --module /path/lib.so --token 'pkcs11:token=test' \
+  --kind x25519 --id 70 --label x25519 --confirm
+pkcs11ctl derive-montgomery --module /path/lib.so \
+  --object 'pkcs11:token=test;object=x25519;type=private' \
+  --curve x25519 --peer peer.bin --kdf null --kind derivation-secret --length 32 \
+  --id 71 --label derived --confirm --pin-file user.pin
+```

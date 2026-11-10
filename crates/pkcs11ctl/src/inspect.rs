@@ -17,6 +17,9 @@ pub(crate) fn key_kind(kind: KeyKind) -> Value {
         KeyKind::Rsa { bits } => json!({"algorithm":"rsa","bits":bits}),
         KeyKind::Ec(curve) => json!({"algorithm":"ec","curve":format!("{curve:?}")}),
         KeyKind::Edwards(curve) => json!({"algorithm":"eddsa","curve":curve.to_string()}),
+        KeyKind::Montgomery(curve) => {
+            json!({"algorithm":"montgomery","curve":curve.to_string()})
+        }
     }
 }
 pub(crate) fn attribute_type(name: &str) -> Result<AttributeType> {

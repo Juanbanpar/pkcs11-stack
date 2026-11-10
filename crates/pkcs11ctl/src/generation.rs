@@ -3,7 +3,8 @@ use crate::{inspect, key_establishment, ml_dsa, oasis, support::*};
 use clap::ArgMatches;
 use pkcs11_client::{
     AesKeyPurpose, AesKeyRequest, AesKeySize, EcdhKeyPairRequest, EdDsaCurve, KeyKind,
-    MacAlgorithm, MacKeyRequest, ManagementSession, NamedCurve, Provider, SlhDsaKeyPairRequest,
+    MacAlgorithm, MacKeyRequest, ManagementSession, MontgomeryCurve, NamedCurve, Provider,
+    SlhDsaKeyPairRequest,
 };
 use serde_json::{Value, json};
 
@@ -29,6 +30,13 @@ fn purpose(m: &ArgMatches) -> Result<AesKeyPurpose> {
         "wrapping" => Ok(AesKeyPurpose::Wrapping),
         "authentication" => Ok(AesKeyPurpose::Authentication),
         _ => Err(usage("invalid AES purpose")),
+    }
+}
+fn montgomery(kind: &str) -> Option<MontgomeryCurve> {
+    match kind {
+        "x25519" => Some(MontgomeryCurve::X25519),
+        "x448" => Some(MontgomeryCurve::X448),
+        _ => None,
     }
 }
 fn eddsa(kind: &str) -> Option<EdDsaCurve> {
@@ -78,6 +86,7 @@ pub(crate) fn validate(m: &ArgMatches) -> Result<()> {
     let non_signing = curve(kind).is_some()
         || aes(kind).is_some()
         || eddsa(kind).is_some()
+        || montgomery(kind).is_some()
         || hmac(kind).is_some()
         || key_establishment::parameter(Some(kind)).is_some()
         || oasis::slh_parameter(kind).is_some();
@@ -104,9 +113,9 @@ pub(crate) fn validate(m: &ArgMatches) -> Result<()> {
         }
         .validate()
         .map_err(|_| usage("AES ID and label must each contain 1..=128 bytes"))?;
-    } else if eddsa(kind).is_some() {
+    } else if eddsa(kind).is_some() || montgomery(kind).is_some() {
         if id.is_empty() || id.len() > 128 || label.is_empty() || label.len() > 128 {
-            return Err(usage("EdDSA ID and label must each contain 1..=128 bytes"));
+            return Err(usage("key ID and label must each contain 1..=128 bytes"));
         }
     } else if let Some(algorithm) = hmac(kind) {
         MacKeyRequest {
@@ -121,6 +130,7 @@ pub(crate) fn validate(m: &ArgMatches) -> Result<()> {
         && ml_dsa::parameter(Some(kind)).is_none()
         && oasis::slh_parameter(kind).is_none()
         && eddsa(kind).is_none()
+        && montgomery(kind).is_none()
     {
         signing(m)?;
     }
@@ -150,6 +160,9 @@ pub(crate) fn generate(session: &mut ManagementSession<'_>, m: &ArgMatches) -> R
     } else if let Some(curve) = eddsa(kind) {
         session.generate_eddsa_key_pair(curve, &id, label, flag(m, "always-authenticate"))?;
         json!({"algorithm":"eddsa","curve":curve.to_string()})
+    } else if let Some(curve) = montgomery(kind) {
+        session.generate_montgomery_key_pair(curve, &id, label)?;
+        json!({"algorithm":"montgomery","curve":curve.to_string()})
     } else if let Some(algorithm) = hmac(kind) {
         session.generate_mac_key(&MacKeyRequest {
             algorithm,
@@ -195,6 +208,7 @@ pub(crate) fn options(provider: &Provider, m: &ArgMatches) -> Result<Value> {
         "aes_purposes":["encryption","wrapping"],
         "ml_dsa":options.ml_dsa.into_iter().map(ml_dsa::key_info).collect::<Vec<_>>(),
         "ml_kem":options.ml_kem.into_iter().map(key_establishment::key_info).collect::<Vec<_>>(),
-        "eddsa":options.eddsa.into_iter().map(|curve| curve.to_string()).collect::<Vec<_>>()
+        "eddsa":options.eddsa.into_iter().map(|curve| curve.to_string()).collect::<Vec<_>>(),
+        "montgomery":options.montgomery.into_iter().map(|curve| curve.to_string()).collect::<Vec<_>>()
     }))
 }

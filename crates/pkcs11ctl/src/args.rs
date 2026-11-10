@@ -245,7 +245,14 @@ pub(crate) fn command() -> Command {
         .about("Export certificate/data bytes or public-key SPKI DER; no trust validation")
         .arg(
             value("key-family", "Public-key algorithm family")
-                .value_parser(["classical", "ml-dsa", "ml-kem", "slh-dsa", "eddsa"])
+                .value_parser([
+                    "classical",
+                    "ml-dsa",
+                    "ml-kem",
+                    "slh-dsa",
+                    "eddsa",
+                    "montgomery",
+                ])
                 .default_value("classical"),
         )
         .arg(required(
@@ -328,6 +335,8 @@ pub(crate) fn command() -> Command {
             "hmac-sha512",
             "ed25519",
             "ed448",
+            "x25519",
+            "x448",
             "p256",
             "p384",
             "p521",
@@ -491,6 +500,33 @@ pub(crate) fn command() -> Command {
         .about("Inspect AES mode permissions and provider support")
         .arg(required("mode", "AES mode").value_parser(["ecb", "cbc", "cbc-pad"]))
         .arg(required("operation", "Requested direction").value_parser(["encrypt", "decrypt"]));
+    let derive_montgomery = Command::new("derive-montgomery")
+        .about("Derive a persistent token key from X25519/X448 agreement")
+        .arg(required("curve", "Base/peer curve").value_parser(["x25519", "x448"]))
+        .arg(required(
+            "peer",
+            "Raw RFC 7748 peer public-key file; - reads stdin",
+        ))
+        .arg(required("kdf", "ECDH KDF").value_parser([
+            "null",
+            "x963-sha256",
+            "x963-sha384",
+            "x963-sha512",
+            "sp800-56a-sha256",
+            "sp800-56a-sha384",
+            "sp800-56a-sha512",
+        ]))
+        .arg(value(
+            "shared-info-file",
+            "Public KDF context file, at most 4096 bytes",
+        ))
+        .arg(required("kind", "Output key type").value_parser([
+            "aes128",
+            "aes192",
+            "aes256",
+            "derivation-secret",
+        ]))
+        .arg(value("length", "Generic derivation-secret length in bytes"));
     let function_support = Command::new("function-support")
         .about("Report which standard functions the selected interface provides");
     let commands = [
@@ -589,6 +625,7 @@ pub(crate) fn command() -> Command {
         auth(aes_cipher("encrypt-aes", "Encrypt with a token AES key")),
         auth(aes_cipher("decrypt-aes", "Decrypt with a token AES key")),
         mutation(auth(named(object(derive_kbkdf)))),
+        mutation(auth(named(object(derive_montgomery)))),
         auth(object(aes_cipher_capabilities)),
         token(function_support),
     ];

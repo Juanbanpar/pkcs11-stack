@@ -9,6 +9,7 @@ mod hash_pqc;
 mod inspect;
 mod key_establishment;
 mod ml_dsa;
+mod montgomery;
 mod oasis;
 mod operations;
 mod slh_dsa;

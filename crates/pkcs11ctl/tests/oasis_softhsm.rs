@@ -416,6 +416,30 @@ fn digest_mac_and_aes_block_workflows() {
         "{stderr}"
     );
 
+    // SoftHSM does not advertise Montgomery key generation.
+    let output = run(&[
+        "--module",
+        &module,
+        "generate",
+        "--token",
+        token,
+        "--pin-file",
+        path(&pin),
+        "--kind",
+        "x25519",
+        "--id",
+        "98",
+        "--label",
+        "montgomery-negative",
+        "--confirm",
+    ]);
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("unsupported") || stderr.contains("key operation"),
+        "{stderr}"
+    );
+
     // SHA-224 is opt-in and works for RSA PKCS#1 and ECDSA.
     let sha224_message = scratch.file("sha224-message", b"SHA-224 signing fixture");
     for (algorithm, key_object) in [("rsa-pkcs1", "rsa"), ("ecdsa", "p256")] {

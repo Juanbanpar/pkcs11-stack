@@ -176,6 +176,37 @@ fn oasis_commands_reject_invalid_parameters_before_loading_a_module() {
 }
 
 #[test]
+fn montgomery_rejects_invalid_output_before_loading_a_module() {
+    let out = run(&[
+        "derive-montgomery",
+        "--module",
+        "/must-not-load",
+        "--object",
+        "pkcs11:token=test;object=base;type=private",
+        "--curve",
+        "x25519",
+        "--peer",
+        "-",
+        "--kdf",
+        "null",
+        "--kind",
+        "derivation-secret",
+        "--label",
+        "derived",
+        "--id",
+        "01",
+        "--confirm",
+    ]);
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("length") || stderr.contains("invalid command line"),
+        "{stderr}"
+    );
+    assert!(!stderr.contains("must-not-load"));
+}
+
+#[test]
 fn eddsa_rejects_classical_options_before_loading_a_module() {
     let out = run(&[
         "sign",

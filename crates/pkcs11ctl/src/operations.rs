@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use crate::{
-    aes_gcm, eddsa, generation, hash_pqc, inspect, key_establishment, ml_dsa, oasis, slh_dsa,
-    support::*,
+    aes_gcm, eddsa, generation, hash_pqc, inspect, key_establishment, ml_dsa, montgomery, oasis,
+    slh_dsa, support::*,
 };
 use clap::ArgMatches;
 use pkcs11_client::{
@@ -92,6 +92,8 @@ pub(crate) struct Inputs {
     pub kdf_label: Vec<u8>,
     pub kdf_context: Vec<u8>,
     pub kdf_iv: Vec<u8>,
+    pub peer: Vec<u8>,
+    pub montgomery_info: Vec<u8>,
     pub random: Option<RandomRequest>,
     pub so: bool,
     pub establishment: key_establishment::Inputs,
@@ -165,6 +167,7 @@ impl Inputs {
         {
             return Err(usage("SHA-224 requires --allow-sha224"));
         }
+        montgomery::validate(name, m)?;
         oasis::validate(name, m)?;
         let aes_gcm = aes_gcm::Inputs::load(name, m)?;
         let bytes = if aes_gcm::selected(name) {
@@ -229,6 +232,20 @@ impl Inputs {
         let kdf_context = if name == "derive-kbkdf" {
             match get(m, "kdf-context-file") {
                 Some("-") => return Err(usage("kdf-context-file requires a file path")),
+                Some(path) => bounded_input(path, 4096)?,
+                None => vec![],
+            }
+        } else {
+            vec![]
+        };
+        let peer = if name == "derive-montgomery" {
+            bounded_input(need(m, "peer")?, 56)?
+        } else {
+            vec![]
+        };
+        let montgomery_info = if name == "derive-montgomery" {
+            match get(m, "shared-info-file") {
+                Some("-") => return Err(usage("shared-info-file requires a file path")),
                 Some(path) => bounded_input(path, 4096)?,
                 None => vec![],
             }
@@ -353,6 +370,8 @@ impl Inputs {
             kdf_label,
             kdf_context,
             kdf_iv,
+            peer,
+            montgomery_info,
             random,
             so,
         })
@@ -596,6 +615,7 @@ fn management_command(
     }
     let mutation = key_establishment::mutation(name)
         || oasis::mutation(name)
+        || montgomery::mutation(name)
         || matches!(
             name,
             "init-pin" | "set-pin" | "generate" | "import" | "delete" | "set-label"
@@ -626,6 +646,9 @@ fn management_operation(
     }
     if key_establishment::selected(name) {
         return key_establishment::operation(session, name, m, inputs);
+    }
+    if montgomery::selected(name) {
+        return montgomery::operation(session, name, m, inputs);
     }
     if oasis::selected(name) {
         return oasis::operation(session, name, m, inputs);
@@ -675,6 +698,10 @@ fn management_operation(
                 let key = pkcs11_client::PublicKeyRef::new(uri(m, "object")?)
                     .map_err(pkcs11_client::Error::from)?;
                 session.export_eddsa_public_key(&key)?
+            } else if get(m, "key-family") == Some("montgomery") {
+                let key = pkcs11_client::PublicKeyRef::new(uri(m, "object")?)
+                    .map_err(pkcs11_client::Error::from)?;
+                session.export_montgomery_public_key(&key)?
             } else if ml_dsa::selected(m) {
                 let key = pkcs11_client::PublicKeyRef::new(uri(m, "object")?)
                     .map_err(pkcs11_client::Error::from)?;
