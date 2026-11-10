@@ -248,7 +248,7 @@ impl Inputs {
             vec![]
         };
         let peer = if name == "derive-montgomery" {
-            bounded_input(need(m, "peer")?, 56)?
+            bounded_input(need(m, "peer")?, 4096)?
         } else {
             vec![]
         };

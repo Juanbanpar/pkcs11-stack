@@ -148,6 +148,21 @@ impl ClassicalPublicKey {
     pub fn spki_der(&self) -> &[u8] {
         &self.spki
     }
+
+    /// Extract a checked raw Montgomery public key, if this SPKI is X25519/X448.
+    pub fn montgomery_public_key(&self) -> Result<crate::MontgomeryPublicKey, Error> {
+        let crate::KeyKind::Montgomery(curve) = self.metadata.key else {
+            return Err(Error::InvalidPublicKey);
+        };
+        crate::MontgomeryPublicKey::from_bytes(
+            curve,
+            self.metadata
+                .ec_point
+                .as_deref()
+                .ok_or(Error::InvalidPublicKey)?,
+        )
+        .map_err(Error::from)
+    }
 }
 
 /// Bounded identity and explicit purpose for one public-key import.

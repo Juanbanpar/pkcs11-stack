@@ -527,6 +527,16 @@ impl ManagementSession<'_> {
         self.session.generate_slh_dsa_key_pair(request)?;
         Ok(())
     }
+
+    /// Generate a protected HashSLH-DSA-only pair in an RW session.
+    /// Pure SLH-DSA remains excluded from the allowed-mechanism list.
+    pub fn generate_hash_slh_dsa_key_pair(
+        &mut self,
+        request: &SlhDsaKeyPairRequest<'_>,
+    ) -> Result<(), Error> {
+        self.session.generate_hash_slh_dsa_key_pair(request)?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]

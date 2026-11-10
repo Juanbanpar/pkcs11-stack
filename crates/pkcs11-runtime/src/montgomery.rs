@@ -273,6 +273,15 @@ fn raw_ec_point(value: &[u8], length: usize) -> Option<&[u8]> {
     }
 }
 
+fn size_supported(curve: MontgomeryCurve, minimum: usize, maximum: usize) -> bool {
+    // Providers disagree on whether X25519 is reported as 255 or 256 bits.
+    // Accept either endpoint while keeping X448 exact.
+    match curve {
+        MontgomeryCurve::X25519 => minimum <= 256 && maximum >= 255,
+        MontgomeryCurve::X448 => minimum <= 448 && maximum >= 448,
+    }
+}
+
 fn generation_supported(token: &Token<'_>, curve: MontgomeryCurve) -> Result<bool, Error> {
     let mechanism = MechanismType::ECC_MONTGOMERY_KEY_PAIR_GEN;
     if !token
@@ -284,8 +293,7 @@ fn generation_supported(token: &Token<'_>, curve: MontgomeryCurve) -> Result<boo
         return Ok(false);
     }
     let info = token.mechanism_info(mechanism)?;
-    Ok(info.generate_key_pair()
-        && (info.min_key_size()..=info.max_key_size()).contains(&curve.bits()))
+    Ok(info.generate_key_pair() && size_supported(curve, info.min_key_size(), info.max_key_size()))
 }
 
 fn derivation_supported(token: &Token<'_>, curve: MontgomeryCurve) -> Result<bool, Error> {
@@ -296,7 +304,7 @@ fn derivation_supported(token: &Token<'_>, curve: MontgomeryCurve) -> Result<boo
         return Ok(false);
     }
     let info = token.mechanism_info(mechanism)?;
-    Ok(info.derive() && (info.min_key_size()..=info.max_key_size()).contains(&curve.bits()))
+    Ok(info.derive() && size_supported(curve, info.min_key_size(), info.max_key_size()))
 }
 
 impl Token<'_> {

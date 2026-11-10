@@ -95,6 +95,12 @@ fn signature(command: Command) -> Command {
             "slh-dsa-shake-192f",
             "slh-dsa-shake-256s",
             "slh-dsa-shake-256f",
+            "hash-slh-dsa-sha2-128s",
+            "hash-slh-dsa-sha2-128f",
+            "hash-slh-dsa-sha2-192s",
+            "hash-slh-dsa-sha2-192f",
+            "hash-slh-dsa-sha2-256s",
+            "hash-slh-dsa-sha2-256f",
         ]))
         .arg(
             value("digest", "Required for RSA/ECDSA; forbidden for ML-DSA")
@@ -366,6 +372,12 @@ pub(crate) fn command() -> Command {
             "slh-dsa-shake-192f",
             "slh-dsa-shake-256s",
             "slh-dsa-shake-256f",
+            "hash-slh-dsa-sha2-128s",
+            "hash-slh-dsa-sha2-128f",
+            "hash-slh-dsa-sha2-192s",
+            "hash-slh-dsa-sha2-192f",
+            "hash-slh-dsa-sha2-256s",
+            "hash-slh-dsa-sha2-256f",
         ]))
         .arg(value("bits", "RSA modulus size; RSA only"))
         .arg(

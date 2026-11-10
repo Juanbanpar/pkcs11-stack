@@ -430,6 +430,31 @@ impl<'m> Session<'m> {
         self.generate_slh_dsa_pair(request, &[MechanismType::SLH_DSA])
     }
 
+    /// Generate a persistent HashSLH-DSA-only signing pair.
+    ///
+    /// The allowed-mechanism list contains the raw prehash mechanism and every
+    /// combined SHA-2/SHA-3 message mechanism. Pure SLH-DSA and SHAKE prehash
+    /// remain excluded so callers cannot silently switch profiles.
+    pub fn generate_hash_slh_dsa_key_pair(
+        &mut self,
+        request: &SlhDsaKeyPairRequest<'_>,
+    ) -> Result<(Object<'_, 'm>, Object<'_, 'm>), Error> {
+        self.generate_slh_dsa_pair(
+            request,
+            &[
+                MechanismType::HASH_SLH_DSA,
+                MechanismType::HASH_SLH_DSA_SHA224,
+                MechanismType::HASH_SLH_DSA_SHA256,
+                MechanismType::HASH_SLH_DSA_SHA384,
+                MechanismType::HASH_SLH_DSA_SHA512,
+                MechanismType::HASH_SLH_DSA_SHA3_224,
+                MechanismType::HASH_SLH_DSA_SHA3_256,
+                MechanismType::HASH_SLH_DSA_SHA3_384,
+                MechanismType::HASH_SLH_DSA_SHA3_512,
+            ],
+        )
+    }
+
     pub(crate) fn generate_slh_dsa_pair(
         &mut self,
         request: &SlhDsaKeyPairRequest<'_>,

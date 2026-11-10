@@ -233,6 +233,10 @@ jobs:
           sudo apt-get install --yes clang libclang-dev pkg-config libsqlite3-dev g++ make perl openssl opensc libxkbcommon-dev libwayland-dev libegl1-mesa-dev
       - name: Build pinned Kryoptic and OpenSSL with ML-KEM, ECDH and HKDF
         run: ./tools/build-kem-hkdf-provider.sh "$RUNNER_TEMP/kdf-provider"
+      - name: Build pinned all-features Kryoptic provider
+        env:
+          KRYOPTIC_OPENSSL_SOURCES: ${{ runner.temp }}/kdf-provider/openssl
+        run: ./tools/build-pqc-kryoptic-provider.sh "$RUNNER_TEMP/pqc-kryoptic"
       - name: Require library, CLI and desktop KEM/HKDF workflows on the same token
         env:
           PKCS11_TEST_KDF_MODULE: ${{ runner.temp }}/kdf-provider/libkryoptic_pkcs11.so
@@ -241,3 +245,8 @@ jobs:
         run: |
           ./tools/test-ml-kem.sh
           ./tools/test-kem-hkdf.sh
+      - name: Require SLH-DSA, HashSLH-DSA, HashML-DSA and Montgomery workflows
+        env:
+          PKCS11_TEST_PQC_MODULE: ${{ runner.temp }}/pqc-kryoptic/libkryoptic_pkcs11.so
+          PKCS11_TEST_PQC_OPENSSL: ${{ runner.temp }}/kdf-provider/openssl/bin/openssl
+        run: ./tools/test-pqc-kryoptic.sh

@@ -4,8 +4,8 @@
 use crate::{operations::Inputs, operations::Output, support::*};
 use clap::ArgMatches;
 use pkcs11_client::{
-    AesKeySize, ManagementSession, MontgomeryCurve, MontgomeryDerivation, MontgomeryKdf,
-    MontgomeryOutput, MontgomeryPublicKey, object_reference,
+    AesKeySize, ClassicalPublicKey, ManagementSession, MontgomeryCurve, MontgomeryDerivation,
+    MontgomeryKdf, MontgomeryOutput, MontgomeryPublicKey, object_reference,
 };
 use serde_json::json;
 
@@ -74,8 +74,17 @@ pub(crate) fn operation(
     }
     let base = object_reference(uri(m, "object")?)?;
     let curve = curve(need(m, "curve")?)?;
-    let peer =
-        MontgomeryPublicKey::from_bytes(curve, &inputs.peer).map_err(pkcs11_client::Error::from)?;
+    let peer = match MontgomeryPublicKey::from_bytes(curve, &inputs.peer) {
+        Ok(peer) => peer,
+        Err(_) => {
+            let parsed = ClassicalPublicKey::from_spki_der(&inputs.peer)?;
+            let peer = parsed.montgomery_public_key()?;
+            if peer.curve() != curve {
+                return Err(usage("peer public key curve does not match --curve"));
+            }
+            peer
+        }
+    };
     let id = unhex(need(m, "id")?)?;
     let request = MontgomeryDerivation {
         peer: &peer,
