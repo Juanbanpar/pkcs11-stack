@@ -52,6 +52,15 @@ fn eddsa_generation_signing_verification_and_curve_checks() {
             .generate_eddsa_key_pair(curve, id.as_bytes(), id.as_bytes(), false)
             .unwrap();
     }
+    assert!(matches!(
+        session.generate_eddsa_key_pair(
+            EdDsaCurve::Ed25519,
+            b"eddsa-context",
+            b"eddsa-context",
+            true,
+        ),
+        Err(Error::UnsupportedSigning(_))
+    ));
 
     for (curve, id) in [
         (EdDsaCurve::Ed25519, "eddsa-25519"),

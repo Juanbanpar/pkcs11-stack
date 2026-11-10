@@ -17,9 +17,13 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
     };
     let id = form.id;
     let sign = form.scope.mode == CryptoMode::Sign;
+    let eddsa = matches!(
+        form.choice.map(|choice| choice.0.parameters),
+        Some(SignatureProfile::EdDsa(_))
+    ) || state.object_key_type() == Some(pkcs11_client::KeyType::EC_EDWARDS);
     let ml_dsa = match form.choice.map(|choice| choice.0.parameters) {
         Some(SignatureProfile::MlDsa(_)) => true,
-        Some(SignatureProfile::Classical(_)) => false,
+        Some(SignatureProfile::Classical(_) | SignatureProfile::EdDsa(_)) => false,
         None => state.object_key_type() == Some(pkcs11_client::KeyType::ML_DSA),
     };
     let enabled = state.can_submit();
@@ -46,6 +50,9 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
             }).size(14))
                 .push(text_input("ML-DSA domain context (UTF-8, 0–255 bytes)", &form.domain_context)
                     .on_input_maybe((enabled && form.choice.is_some()).then_some(move |value| edit(CryptoField::DomainContext, value))));
+    } else if eddsa {
+        content = content
+            .push(text("Pure EdDSA uses the original message with an empty context.").size(14));
     } else if sign {
         content = content.push(
             checkbox(form.software_hashing)
@@ -129,6 +136,8 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
     }
     content = content.push(text(if sign && ml_dsa {
         "Output is a raw ML-DSA signature. Verification needs the same message and context; the signature file does not store the context. Existing files are never overwritten; a failed operation may leave an empty or partial file."
+    } else if eddsa {
+        "Signature encoding is raw RFC 8032 EdDSA bytes. Use the original message and an empty context. Existing files are never overwritten; a failed operation may leave an empty or partial file."
     } else if sign {
         "Output uses raw RSA bytes or fixed-width ECDSA r || s, not DER. Existing files are never overwritten; a failed operation may leave an empty or partial file."
     } else if ml_dsa {

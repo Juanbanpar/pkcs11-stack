@@ -23,13 +23,12 @@ pub enum GenerationKind {
 }
 impl GenerationKind {
     pub fn supports_context_authentication(self) -> bool {
-        matches!(self, Self::Signing(_) | Self::MlDsa(_) | Self::EdDsa(_))
+        matches!(self, Self::Signing(_) | Self::MlDsa(_))
     }
     pub fn validate(self, id: &[u8], label: &[u8], context: bool) -> Result<(), BackendError> {
         let valid = match self {
-            Self::Signing(_) | Self::MlDsa(_) | Self::EdDsa(_) => {
-                !id.is_empty() && !label.is_empty()
-            }
+            Self::Signing(_) | Self::MlDsa(_) => !id.is_empty() && !label.is_empty(),
+            Self::EdDsa(_) => !context && !id.is_empty() && !label.is_empty(),
             Self::MlKem(_) => !context && !id.is_empty() && !label.is_empty(),
             Self::Ecdh(curve) => {
                 !context && EcdhKeyPairRequest { curve, id, label }.validate().is_ok()

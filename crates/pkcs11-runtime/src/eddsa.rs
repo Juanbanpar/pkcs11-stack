@@ -18,7 +18,6 @@ use cryptoki::{
         eddsa::{EddsaParams, EddsaSignatureScheme},
     },
     object::KeyType,
-    session::UserType,
 };
 
 /// RFC 8032 Edwards signing curves.
@@ -217,13 +216,18 @@ fn mechanism_support(token: &Token<'_>, curve: EdDsaCurve, verify: bool) -> Resu
 
 fn capabilities(object: &Object<'_, '_>) -> Result<EdDsaCapabilities, Error> {
     let curve = curve_of(object, ObjectClass::PRIVATE_KEY)?;
+    let always_authenticate = permission(object, AttributeType::AlwaysAuthenticate)?;
+    // Context authentication needs a single-part sign after C_SignInit. Published
+    // cryptoki exposes only multipart completion, which not every provider
+    // implements for EdDSA. Do not advertise a path that cannot be completed.
     Ok(EdDsaCapabilities {
         curve,
-        can_sign: permission(object, AttributeType::Sign)?
+        can_sign: !always_authenticate
+            && permission(object, AttributeType::Sign)?
             && allowed(object)?
             && mechanism_support(object.session.token(), curve, false)?,
         can_verify: false,
-        always_authenticate: permission(object, AttributeType::AlwaysAuthenticate)?,
+        always_authenticate,
     })
 }
 
@@ -268,6 +272,11 @@ impl<'m> Session<'m> {
         self.validate()?;
         if self.mode != SessionMode::ReadWrite {
             return Err(Error::ReadWriteRequired);
+        }
+        if always_authenticate {
+            return Err(Error::UnsupportedSigning(
+                "EdDSA context authentication requires upstream single-part initialized signing",
+            ));
         }
         if !self.token().eddsa_generation_options()?.contains(&curve) {
             return Err(Error::UnsupportedSigning("EdDSA key generation"));
@@ -430,36 +439,21 @@ impl<'m> Session<'m> {
         let object = self.resolve(key.as_object_ref())?;
         let capabilities = capabilities(&object)?;
         if capabilities.curve != request.curve || !capabilities.can_sign {
-            return Err(Error::UnsupportedSigning("EdDSA curve or permissions"));
+            return Err(Error::UnsupportedSigning(
+                "EdDSA curve, permissions or context-authentication profile",
+            ));
         }
-        let pin = if capabilities.always_authenticate {
-            object
-                .session
-                .login_pin(context_pin.ok_or(Error::ContextAuthenticationRequired)?)?
-        } else {
-            if context_pin.is_some() {
-                return Err(Error::InvalidParameters(
-                    "context PIN for a key without always-authenticate",
-                ));
-            }
-            None
-        };
+        if context_pin.is_some() {
+            return Err(Error::InvalidParameters(
+                "context PIN for an EdDSA key without a supported context profile",
+            ));
+        }
         let mechanism = request.curve.mechanism();
         let raw = object.session.raw()?;
         object.session.healthy.set(false);
-        let signature = if capabilities.always_authenticate {
-            raw.sign_init(&mechanism, object.handle)
-                .map_err(|e| backend("EdDSA sign init", e))?;
-            raw.login(UserType::ContextSpecific, pin)
-                .map_err(|e| backend("EdDSA context login", e))?;
-            raw.sign_update(request.message)
-                .map_err(|e| backend("EdDSA sign update", e))?;
-            raw.sign_final()
-                .map_err(|e| backend("EdDSA sign final", e))?
-        } else {
-            raw.sign(&mechanism, object.handle, request.message)
-                .map_err(|e| backend("EdDSA sign", e))?
-        };
+        let signature = raw
+            .sign(&mechanism, object.handle, request.message)
+            .map_err(|e| backend("EdDSA sign", e))?;
         if signature.len() != request.curve.signature_length() {
             return Err(Error::InvalidSignature);
         }

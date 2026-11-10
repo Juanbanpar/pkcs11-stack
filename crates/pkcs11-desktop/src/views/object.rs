@@ -56,7 +56,10 @@ pub fn detail(state: &UiState) -> Element<'_, Message> {
     let kind = state.object_key_type();
     match object.class {
         Some(ObjectClass::PRIVATE_KEY) => {
-            if matches!(kind, Some(KeyType::RSA | KeyType::EC | KeyType::ML_DSA)) {
+            if matches!(
+                kind,
+                Some(KeyType::RSA | KeyType::EC | KeyType::ML_DSA | KeyType::EC_EDWARDS)
+            ) {
                 actions = actions.push(
                     button("Sign file…")
                         .width(Length::Fill)

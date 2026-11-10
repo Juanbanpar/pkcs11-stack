@@ -4,10 +4,10 @@ use super::{
     browse::read_session,
 };
 use pkcs11_client::{
-    AttributeType, Certificate, HashLocation, HashingPolicy, KeyType, ManagementSession,
-    MechanismType, MlDsaCertificate, MlDsaHedging, MlDsaParameterSet, MlDsaRequest,
-    MlDsaSigningPolicy, ObjectClass, Pin, PrivateKeyRef, SessionState, SignInput,
-    SignatureParameters, SigningPolicy,
+    AttributeType, Certificate, EdDsaCertificate, EdDsaCurve, EdDsaRequest, HashLocation,
+    HashingPolicy, KeyType, ManagementSession, MechanismType, MlDsaCertificate, MlDsaHedging,
+    MlDsaParameterSet, MlDsaRequest, MlDsaSigningPolicy, ObjectClass, Pin, PrivateKeyRef,
+    SessionState, SignInput, SignatureParameters, SigningPolicy,
 };
 use std::{
     fs::File,
@@ -39,6 +39,7 @@ pub struct CryptoScope {
 pub enum SignatureProfile {
     Classical(SignatureParameters),
     MlDsa(MlDsaParameterSet),
+    EdDsa(EdDsaCurve),
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SignatureOption {
@@ -79,16 +80,25 @@ fn read_bounded(path: &Path, maximum: u64) -> Result<Vec<u8>, BackendError> {
 enum VerificationCertificate {
     Classical(Certificate),
     MlDsa(MlDsaCertificate),
+    EdDsa(EdDsaCertificate),
 }
 impl VerificationCertificate {
     fn from_der(der: Vec<u8>) -> Result<Self, BackendError> {
         match Certificate::from_der(der.clone()) {
             Ok(certificate) => Ok(Self::Classical(certificate)),
-            // Only an unsupported key algorithm permits trying the ML-DSA parser.
-            // Malformed classical certificates retain their original error.
-            Err(pkcs11_client::Error::UnsupportedCertificateKey) => MlDsaCertificate::from_der(der)
-                .map(Self::MlDsa)
-                .map_err(|e| BackendError::from(&e)),
+            // Only an unsupported key algorithm permits trying another parser.
+            // Malformed certificates retain their original error.
+            Err(pkcs11_client::Error::UnsupportedCertificateKey) => {
+                match MlDsaCertificate::from_der(der.clone()) {
+                    Ok(certificate) => Ok(Self::MlDsa(certificate)),
+                    Err(pkcs11_client::Error::UnsupportedCertificateKey) => {
+                        EdDsaCertificate::from_der(der)
+                            .map(Self::EdDsa)
+                            .map_err(|e| BackendError::from(&e))
+                    }
+                    Err(error) => Err(BackendError::from(&error)),
+                }
+            }
             Err(error) => Err(BackendError::from(&error)),
         }
     }
@@ -100,6 +110,7 @@ impl VerificationCertificate {
                 .map(SignatureProfile::Classical)
                 .collect(),
             Self::MlDsa(certificate) => vec![SignatureProfile::MlDsa(certificate.parameter_set())],
+            Self::EdDsa(certificate) => vec![SignatureProfile::EdDsa(certificate.curve())],
         };
         parameters
             .into_iter()
@@ -125,6 +136,11 @@ impl VerificationCertificate {
             SignatureProfile::MlDsa(_) if job.domain_context.len() > 255 => {
                 return Err(BackendError::MlDsaContext);
             }
+            SignatureProfile::EdDsa(_)
+                if job.software_hashing || !job.domain_context.is_empty() =>
+            {
+                return Err(BackendError::SignatureChoice);
+            }
             SignatureProfile::Classical(_) if !job.domain_context.is_empty() => {
                 return Err(BackendError::SignatureChoice);
             }
@@ -142,6 +158,14 @@ impl VerificationCertificate {
                         message: &input,
                         context: &job.domain_context,
                         hedging: MlDsaHedging::Preferred,
+                    },
+                    &signature,
+                ),
+            (Self::EdDsa(certificate), SignatureProfile::EdDsa(curve)) => certificate
+                .verify_signature(
+                    &EdDsaRequest {
+                        curve,
+                        message: &input,
                     },
                     &signature,
                 ),
@@ -179,6 +203,24 @@ fn signing_options(
             Ok((
                 vec![SignatureOption {
                     parameters: SignatureProfile::MlDsa(caps.parameter_set),
+                    plan: None,
+                }],
+                caps.always_authenticate,
+            ))
+        }
+        Some(KeyType::EC_EDWARDS) => {
+            if software {
+                return Err(BackendError::SignatureChoice);
+            }
+            let caps = session
+                .eddsa_capabilities(key)
+                .map_err(|e| BackendError::from(&e))?;
+            if !caps.can_sign {
+                return Err(BackendError::SigningUnavailable);
+            }
+            Ok((
+                vec![SignatureOption {
+                    parameters: SignatureProfile::EdDsa(caps.curve),
                     plan: None,
                 }],
                 caps.always_authenticate,
@@ -302,6 +344,11 @@ impl Registry {
                     return Err(BackendError::SignatureChoice);
                 }
             }
+            SignatureProfile::EdDsa(_)
+                if job.software_hashing || !job.domain_context.is_empty() =>
+            {
+                return Err(BackendError::SignatureChoice);
+            }
             SignatureProfile::Classical(_) if !job.domain_context.is_empty() => {
                 return Err(BackendError::SignatureChoice);
             }
@@ -357,6 +404,14 @@ impl Registry {
                         hedging: MlDsaHedging::Required,
                     },
                     &MlDsaSigningPolicy::default(),
+                    context,
+                ),
+                SignatureProfile::EdDsa(curve) => session.sign_eddsa(
+                    &key,
+                    &EdDsaRequest {
+                        curve,
+                        message: &input,
+                    },
                     context,
                 ),
             }
@@ -417,6 +472,9 @@ impl Registry {
     }
 }
 
+#[cfg(test)]
+#[path = "eddsa_tests.rs"]
+mod eddsa_tests;
 #[cfg(test)]
 #[path = "ml_dsa_tests.rs"]
 mod ml_dsa_tests;
