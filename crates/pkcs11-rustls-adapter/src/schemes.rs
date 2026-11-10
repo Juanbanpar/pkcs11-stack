@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use pkcs11_runtime::{
-    DigestAlgorithm as Digest, KeyCapabilities, KeyKind, NamedCurve, PssParameters, SignInput,
-    SignRequest, SignatureAlgorithm, SigningPolicy,
+    DigestAlgorithm as Digest, EdDsaCurve, EdDsaRequest, KeyCapabilities, KeyKind, NamedCurve,
+    PssParameters, SignInput, SignRequest, SignatureAlgorithm, SigningPolicy,
 };
 use rustls::{SignatureScheme, crypto::CryptoProvider};
 
 pub(crate) const PREFERENCE: &[SignatureScheme] = &[
+    SignatureScheme::ED25519,
     SignatureScheme::ECDSA_NISTP256_SHA256,
     SignatureScheme::ECDSA_NISTP384_SHA384,
     SignatureScheme::ECDSA_NISTP521_SHA512,
@@ -16,12 +17,26 @@ pub(crate) const PREFERENCE: &[SignatureScheme] = &[
     SignatureScheme::RSA_PKCS1_SHA384,
     SignatureScheme::RSA_PKCS1_SHA256,
 ];
+pub(crate) enum Request<'a> {
+    Classical(SignRequest<'a>),
+    EdDsa(EdDsaRequest<'a>),
+}
+
 pub(crate) fn request(
     scheme: SignatureScheme,
     key: KeyKind,
     message: &[u8],
-) -> Option<SignRequest<'_>> {
+) -> Option<Request<'_>> {
     use SignatureScheme::*;
+    if scheme == ED25519 {
+        let KeyKind::Edwards(EdDsaCurve::Ed25519) = key else {
+            return None;
+        };
+        return Some(Request::EdDsa(EdDsaRequest {
+            curve: EdDsaCurve::Ed25519,
+            message,
+        }));
+    }
     let (algorithm, digest) = match (scheme, key) {
         (RSA_PSS_SHA256, KeyKind::Rsa { .. }) => (SignatureAlgorithm::RsaPss, Digest::Sha256),
         (RSA_PSS_SHA384, KeyKind::Rsa { .. }) => (SignatureAlgorithm::RsaPss, Digest::Sha384),
@@ -40,7 +55,7 @@ pub(crate) fn request(
         }
         _ => return None,
     };
-    Some(SignRequest {
+    Some(Request::Classical(SignRequest {
         algorithm,
         digest,
         input: SignInput::Message(message),
@@ -48,7 +63,7 @@ pub(crate) fn request(
             mgf_digest: digest,
             salt_len: digest.output_len(),
         }),
-    })
+    }))
 }
 pub(crate) fn choose(
     offered: &[SignatureScheme],
@@ -61,6 +76,8 @@ pub(crate) fn choose(
         KeyKind::Ec(NamedCurve::P256) => rustls_pki_types::alg_id::ECDSA_P256,
         KeyKind::Ec(NamedCurve::P384) => rustls_pki_types::alg_id::ECDSA_P384,
         KeyKind::Ec(NamedCurve::P521) => rustls_pki_types::alg_id::ECDSA_P521,
+        KeyKind::Edwards(EdDsaCurve::Ed25519) => rustls_pki_types::alg_id::ED25519,
+        KeyKind::Edwards(EdDsaCurve::Ed448) => rustls_pki_types::alg_id::ED448,
     };
     PREFERENCE.iter().copied().find(|scheme| {
         offered.contains(scheme)
@@ -71,7 +88,22 @@ pub(crate) fn choose(
                 .any(|(s, a)| {
                     s == scheme && a.iter().any(|v| v.public_key_alg_id() == public_algorithm)
                 })
-            && request(*scheme, caps.key, b"").is_some_and(|r| caps.plan(&r, policy).is_ok())
+            && request(*scheme, caps.key, b"").is_some_and(|r| match r {
+                Request::Classical(request) => caps.plan(&request, policy).is_ok(),
+                Request::EdDsa(_) => {
+                    caps.can_sign
+                        && caps.mechanisms.iter().any(|m| {
+                            m.mechanism == pkcs11_runtime::MechanismType::EDDSA
+                                && m.can_sign
+                                && caps.key.bits() >= m.minimum_bits
+                                && caps.key.bits() <= m.maximum_bits
+                        })
+                        && caps.allowed_mechanisms.as_ref().is_none_or(|allowed| {
+                            allowed.is_empty()
+                                || allowed.contains(&pkcs11_runtime::MechanismType::EDDSA)
+                        })
+                }
+            })
     })
 }
 
@@ -87,7 +119,11 @@ mod tests {
             (SignatureScheme::RSA_PSS_SHA384, Digest::Sha384),
             (SignatureScheme::RSA_PSS_SHA512, Digest::Sha512),
         ] {
-            let r = request(scheme, KeyKind::Rsa { bits: 2048 }, b"message").unwrap();
+            let Request::Classical(r) =
+                request(scheme, KeyKind::Rsa { bits: 2048 }, b"message").unwrap()
+            else {
+                panic!("expected classical request");
+            };
             assert_eq!(
                 r.pss,
                 Some(PssParameters {
@@ -106,6 +142,14 @@ mod tests {
             .is_none()
         );
         assert!(request(SignatureScheme::ED25519, KeyKind::Ec(NamedCurve::P256), b"").is_none());
+        assert!(matches!(
+            request(
+                SignatureScheme::ED25519,
+                KeyKind::Edwards(EdDsaCurve::Ed25519),
+                b""
+            ),
+            Some(Request::EdDsa(_))
+        ));
         assert!(
             request(
                 SignatureScheme::RSA_PKCS1_SHA1,

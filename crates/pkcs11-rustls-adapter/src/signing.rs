@@ -87,6 +87,8 @@ impl SigningKey for TokenKey {
         match self.0.capabilities.key {
             KeyKind::Rsa { .. } => SignatureAlgorithm::RSA,
             KeyKind::Ec(_) => SignatureAlgorithm::ECDSA,
+            KeyKind::Edwards(pkcs11_runtime::EdDsaCurve::Ed25519) => SignatureAlgorithm::ED25519,
+            KeyKind::Edwards(pkcs11_runtime::EdDsaCurve::Ed448) => SignatureAlgorithm::ED448,
         }
     }
 }
@@ -107,12 +109,19 @@ impl TokenSigner {
             .ok_or(Error::NoCompatibleScheme)?;
         let credentials = self.state.source.credentials()?;
         let mut lease = self.state.pool.try_acquire(credentials.authentication())?;
-        let raw = lease.session().sign(
-            &self.state.key,
-            &request,
-            &self.state.policy,
-            credentials.context_pin(),
-        )?;
+        let raw = match request {
+            schemes::Request::Classical(request) => lease.session().sign(
+                &self.state.key,
+                &request,
+                &self.state.policy,
+                credentials.context_pin(),
+            )?,
+            schemes::Request::EdDsa(request) => {
+                lease
+                    .session()
+                    .sign_eddsa(&self.state.key, &request, credentials.context_pin())?
+            }
+        };
         let signature = match crate::encoding::format_signature(self.state.capabilities.key, raw) {
             Ok(v) => v,
             Err(e) => {
@@ -155,7 +164,8 @@ impl Credential {
     ///
     /// The source is invoked once. Planning picks a policy/provider-supported TLS
     /// scheme before signing; failure is never retried. The chain must be leaf-first.
-    /// Accepts rsaEncryption and named-curve EC leaf keys. Use `load_ml_dsa` for ML-DSA.
+    /// Accepts rsaEncryption, named-curve EC and Ed25519 leaf keys. Use
+    /// `load_ml_dsa` for ML-DSA.
     pub fn load(
         pool: Arc<SessionPool<'static>>,
         key: PrivateKeyRef,
@@ -171,7 +181,11 @@ impl Credential {
         let algorithm = &public.algorithm;
         let rsa = algorithm.oid == ObjectIdentifier::new_unwrap("1.2.840.113549.1.1.1");
         let ec = algorithm.oid == ObjectIdentifier::new_unwrap("1.2.840.10045.2.1");
-        if !rsa && !ec {
+        let ed25519 = algorithm.oid == ObjectIdentifier::new_unwrap("1.3.101.112");
+        if !rsa && !ec && !ed25519 {
+            return Err(Error::UnsupportedCertificateKey);
+        }
+        if ed25519 && algorithm.parameters.is_some() {
             return Err(Error::UnsupportedCertificateKey);
         }
         if rsa
@@ -206,6 +220,11 @@ impl Credential {
         let capabilities = lease.session().key_capabilities(&key)?;
         if rsa != matches!(capabilities.key, KeyKind::Rsa { .. })
             || curve.is_some_and(|c| capabilities.key != KeyKind::Ec(c))
+            || ed25519
+                != matches!(
+                    capabilities.key,
+                    KeyKind::Edwards(pkcs11_runtime::EdDsaCurve::Ed25519)
+                )
         {
             return Err(Error::KeyCertificateMismatch);
         }
@@ -214,9 +233,18 @@ impl Credential {
         let message = b"pkcs11-rustls-adapter credential binding v1\0";
         let request =
             schemes::request(scheme, capabilities.key, message).ok_or(Error::NoCompatibleScheme)?;
-        let raw = lease
-            .session()
-            .sign(&key, &request, &policy, credentials.context_pin())?;
+        let raw = match request {
+            schemes::Request::Classical(request) => {
+                lease
+                    .session()
+                    .sign(&key, &request, &policy, credentials.context_pin())?
+            }
+            schemes::Request::EdDsa(request) => {
+                lease
+                    .session()
+                    .sign_eddsa(&key, &request, credentials.context_pin())?
+            }
+        };
         let signature = match crate::encoding::format_signature(capabilities.key, raw) {
             Ok(v) => v,
             Err(e) => {

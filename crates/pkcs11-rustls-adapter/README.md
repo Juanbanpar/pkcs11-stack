@@ -199,7 +199,9 @@ exhaustion and key replacement. Run it with the provider configuration in the
 ## OASIS scope and TLS
 
 Only signature schemes that rustls, the configured crypto provider, the token
-and the application policy all accept are selected. The adapter reuses runtime
+and the application policy all accept are selected. Ed25519 is enabled when the
+provider verifies it and the token key is an Ed25519 Edwards key; Ed448 is not
+enabled for TLS. The adapter reuses runtime
 signing for RSA-PSS, RSA PKCS#1, ECDSA and ML-DSA where the provider supports
 verification. It does not add AES-CCM, ChaCha20-Poly1305, SHA-3 signatures or
 other OASIS mechanisms to TLS merely because the standard defines them: TLS
