@@ -89,6 +89,8 @@ impl SigningKey for TokenKey {
             KeyKind::Ec(_) => SignatureAlgorithm::ECDSA,
             KeyKind::Edwards(pkcs11_runtime::EdDsaCurve::Ed25519) => SignatureAlgorithm::ED25519,
             KeyKind::Edwards(pkcs11_runtime::EdDsaCurve::Ed448) => SignatureAlgorithm::ED448,
+            // Montgomery keys are not TLS signing keys; scheme selection returns None.
+            KeyKind::Montgomery(_) => SignatureAlgorithm::ECDSA,
         }
     }
 }

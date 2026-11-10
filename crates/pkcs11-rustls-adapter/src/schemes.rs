@@ -78,6 +78,7 @@ pub(crate) fn choose(
         KeyKind::Ec(NamedCurve::P521) => rustls_pki_types::alg_id::ECDSA_P521,
         KeyKind::Edwards(EdDsaCurve::Ed25519) => rustls_pki_types::alg_id::ED25519,
         KeyKind::Edwards(EdDsaCurve::Ed448) => rustls_pki_types::alg_id::ED448,
+        KeyKind::Montgomery(_) => return None,
     };
     PREFERENCE.iter().copied().find(|scheme| {
         offered.contains(scheme)
