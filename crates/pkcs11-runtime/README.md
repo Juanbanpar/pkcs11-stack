@@ -534,6 +534,11 @@ HashSLH-DSA mechanisms with SHA-2/SHA-3/SHAKE message hashing and SHA-2 caller
 digests. SHA-3/SHAKE caller digests are not representable because published
 `cryptoki` exposes no standalone SHA-3/SHAKE digest mechanism.
 
+`generate_slh_dsa_key_pair` creates pure SLH-DSA keys; `generate_hash_slh_dsa_key_pair`
+creates a separate HashSLH-DSA-only pair whose `CKA_ALLOWED_MECHANISMS` excludes
+pure SLH-DSA. SLH-DSA, HashSLH-DSA, HashML-DSA and Montgomery have positive
+coverage against an unmodified Kryoptic build via `tools/test-pqc-kryoptic.sh`.
+
 `generate_eddsa_key_pair`, `sign_eddsa`, `verify_eddsa`, `eddsa_capabilities`,
 `eddsa_public_key` and `import_eddsa_public_key` expose pure Ed25519/Ed448 with
 RFC 8410 OID parameters. SoftHSM's private keys report the RFC 8032 curveName

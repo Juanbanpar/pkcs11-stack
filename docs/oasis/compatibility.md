@@ -48,7 +48,7 @@ coverage. Provider support is separate.
 | ECDSA | key generation, sign/verify | P-256/P-384/P-521; SHA-1 and SHA-224 are opt-in |
 | ECDH | key-pair generation, raw derivation, SHA-2 KDF profiles | token-held secrets only |
 | EdDSA | Ed25519/Ed448 key generation, sign/verify, public export/import, CLI and desktop; rustls Ed25519 | pure original-message profile; context-authenticated EdDSA is upstream-blocked |
-| Montgomery | X25519/X448 generation, public import/export, ECDH derivation with null/SHA-2 KDFs | added here; no unmodified provider available for positive verification |
+| Montgomery | X25519/X448 generation, public import/export, ECDH derivation with null/SHA-2 KDFs | provider-tested on a pinned unmodified Kryoptic build |
 | AES | key generation, ECB/CBC/CBC-PAD, GCM single-part, CMAC, RFC 3394 wrap/unwrap | CBC/CBC-PAD added here; GCM and KW already existed |
 | DES/3DES | upstream types available | not exposed by this branch; legacy only |
 | SHA-1/SHA-2 | single-part and multipart digest | SHA-1 signatures are legacy opt-in; SHA-3 is upstream-blocked |
@@ -57,9 +57,9 @@ coverage. Provider support is separate.
 | HKDF | extract-and-expand, token-held salt | already existed |
 | ML-KEM | key generation, encapsulation, decapsulation, public import/export | already existed |
 | ML-DSA | key generation, sign/verify, public export | already existed |
-| HashML-DSA | sign/verify with SHA-2/SHA-3/SHAKE message profiles; SHA-2 caller digests | added here; provider verification pending |
-| HashSLH-DSA | sign/verify with SHA-2/SHA-3/SHAKE message profiles; SHA-2 caller digests | added here; provider verification pending |
-| SLH-DSA | key generation, sign/verify, public export, CLI generation/signing | added here; provider verification is pending |
+| HashML-DSA | sign/verify with SHA-2/SHA-3/SHAKE message profiles; SHA-2 caller digests | provider-tested on pinned unmodified Kryoptic |
+| HashSLH-DSA | sign/verify with SHA-2/SHA-3/SHAKE message profiles; SHA-2 caller digests; dedicated HashSLH-only key generation | provider-tested on pinned unmodified Kryoptic |
+| SLH-DSA | key generation, sign/verify, public export, CLI generation/signing | provider-tested on pinned unmodified Kryoptic; independent OpenSSL verification |
 | Objects | create, read, update, destroy, discover, copy (upstream), generate, wrap/unwrap, import certificate/data/public key | RSA/EC public-key import added here |
 | Sessions | authentication, protected path, multipart digest/MAC/AES and signature-first verification, cancellation (upstream types absent) | CLI exposes multipart digest/MAC/AES; cancellation is upstream-blocked |
 
@@ -93,13 +93,11 @@ no-fork/no-raw-FFI constraints", not "the standard omits it".
 | Item | State | Reason |
 |---|---|---|
 | EdDSA provider verification | Ed25519/Ed448 runtime, client, CLI and SoftHSM tests | rustls Ed25519 TLS 1.3 handshake tested; Ed448 stays out of TLS |
-| Montgomery provider verification | implemented, unverified on a provider | SoftHSM does not advertise Montgomery; an unmodified Kryoptic Montgomery build was not available |
 | EdDSA context authentication | upstream-blocked | published `cryptoki` has no single-part initialized signing call, and SoftHSM rejects multipart EdDSA; generation with `--always-authenticate` is rejected |
-| HashML-DSA / HashSLH-DSA provider verification | implemented, unverified on a provider | SoftHSM advertises ML-DSA but not HashML-DSA; no unmodified HashSLH-DSA provider was available |
+| SLH-DSA context authentication | provider-dependent | the runtime uses multipart completion for always-authenticate keys; the pinned Kryoptic provider was tested with non-context keys only |
 | SLH-DSA CLI verification | client/runtime only | the CLI verification path is certificate-based; SLH-DSA certificates are not supported |
 | Message-based AES-GCM | upstream-blocked | published `cryptoki` 0.12.1 has no parameterless `CKM_AES_GCM` message-init variant and no bounded `encrypt_message_into`/`decrypt_message_into`; the available `decrypt_message` returns an unbounded `Vec` that cannot be zeroized on failure |
-| Public-key import | implemented for RSA/named EC | SPKI validation, purpose policy and duplicate-ID checks |
-| SLH-DSA provider verification | implemented, unverified on a provider | no unmodified provider build completed in the validation environment; an unmodified Kryoptic/OpenSSL build was attempted but failed at the OpenSSL link step |
+| Public-key import | implemented for RSA/named EC/EdDSA/Montgomery | SPKI validation, purpose policy and duplicate-ID checks |
 | DSA/DH/legacy ciphers | upstream representable in part, not exposed | security policy and lack of typed variants |
 
 ## Provider evidence
@@ -112,12 +110,13 @@ The following runs were executed for this branch:
 | SoftHSM PQC | pinned OpenSSL 3.5.9 + SoftHSM build (unmodified) | `tools/test-ml-dsa.sh` (runtime, client, CLI, TLS, desktop) | pass |
 | Kryoptic | pinned SP 800-108 build (unmodified) | `tools/test-kem-hkdf.sh`, including KBKDF determinism/usable-output and CLI derivation tests | pass |
 | Kryoptic | pinned build (unmodified) | `tools/test-ml-kem.sh` (runtime, client, desktop) | pass |
+| Kryoptic | pinned all-features build (unmodified) | `tools/test-pqc-kryoptic.sh`: SLH-DSA generation/sign/verify with independent OpenSSL verification, HashSLH-DSA and HashML-DSA message and caller-digest signatures, HashSLH-only key generation, Montgomery generation/import/derivation and AES-GCM agreement, CLI HashSLH and Montgomery workflows | pass |
 | All above | pinned provider builds | `./tools/test.sh` with the provider environment | pass |
 
 The SoftHSM run covers RSA/EC signing, OAEP, AES-GCM, RFC 3394 wrap, HKDF, ML-DSA,
-ML-KEM, TLS and the new digest/MAC/AES block operations. The Kryoptic run covers
-ML-KEM, ECDH, HKDF, hybrid exchange, SP 800-108 and the related CLI/desktop
-workflows.
+ML-KEM, TLS and the new digest/MAC/AES block operations. The Kryoptic runs cover
+ML-KEM, ECDH, HKDF, hybrid exchange, SP 800-108, SLH-DSA, HashSLH-DSA,
+HashML-DSA, Montgomery agreement and the related CLI/desktop workflows.
 
 Provider builds are disposable and unmodified. No provider source patch is part
 of this branch. A provider that lacks a mechanism produces an explicit

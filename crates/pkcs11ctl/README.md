@@ -470,8 +470,10 @@ pkcs11ctl sign --module /path/lib.so   --key 'pkcs11:token=test;object=rsa;type=
   --input message.bin --output signature.bin --pin-file user.pin
 ```
 
-HashML-DSA and HashSLH-DSA use `--algorithm hash-ml-dsa|hash-slh-dsa`, an
-explicit `--parameter-set` and `--digest` prehash:
+SLH-DSA keys are generated with `--kind slh-dsa-*`. HashSLH-DSA requires a
+separate `--kind hash-slh-dsa-*` pair whose allowed mechanisms exclude pure
+SLH-DSA. HashML-DSA and HashSLH-DSA use `--algorithm hash-ml-dsa|hash-slh-dsa`,
+an explicit `--parameter-set` and `--digest` prehash:
 
 ```sh
 pkcs11ctl sign --module /path/lib.so \
@@ -499,7 +501,8 @@ pkcs11ctl export --module /path/lib.so \
 ```
 
 X25519/X448 use `generate --kind x25519|x448`, `derive-montgomery` and
-`export --key-family montgomery`:
+`export --key-family montgomery`. `derive-montgomery --peer` accepts either raw
+RFC 7748 bytes or the RFC 8410 SPKI DER produced by `export`:
 
 ```sh
 pkcs11ctl generate --module /path/lib.so --token 'pkcs11:token=test' \

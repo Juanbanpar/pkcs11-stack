@@ -11,6 +11,8 @@ PKCS11_TEST_MODULE=/absolute/path/to/softhsm-pqc/lib/softhsm/libsofthsm2.so \
 SOFTHSM2_UTIL=/absolute/path/to/softhsm-pqc/bin/softhsm2-util \
 PKCS11_TEST_PQC_OPENSSL=/absolute/path/to/softhsm-pqc/openssl/bin/openssl \
 PKCS11_TEST_KDF_MODULE=/absolute/path/to/kdf-provider/libkryoptic_pkcs11.so \
+PKCS11_TEST_PQC_MODULE=/absolute/path/to/pqc-kryoptic/libkryoptic_pkcs11.so \
+PKCS11_TEST_PQC_OPENSSL=/absolute/path/to/pqc-kryoptic/openssl/bin/openssl \
 ./tools/test.sh
 ```
 
@@ -168,6 +170,26 @@ reject unsuitable inputs; and check that temporary combined secrets are destroye
 CLI tests exchange RFC 9935 public keys, persist public ciphertext, derive matching
 keys and preserve existing output files. A separate native lifecycle verifies CLI
 key agreement using AES challenges.
+
+## SLH-DSA, HashSLH-DSA, HashML-DSA and Montgomery
+
+Build the pinned all-features Kryoptic module and run the dedicated lane:
+
+```sh
+./tools/build-pqc-kryoptic-provider.sh /absolute/path/to/pqc-kryoptic
+PKCS11_TEST_PQC_MODULE=/absolute/path/to/pqc-kryoptic/libkryoptic_pkcs11.so \
+PKCS11_TEST_PQC_OPENSSL=/absolute/path/to/pqc-kryoptic/openssl/bin/openssl \
+./tools/test-pqc-kryoptic.sh
+```
+
+`tools/test.sh` runs this lane when `PKCS11_TEST_PQC_MODULE` is set. The provider
+build is unmodified and enables SLH-DSA, HashSLH-DSA, HashML-DSA, ML-DSA, ML-KEM,
+ECDH, Montgomery and SQLite. The runner creates a temporary store and removes it
+on exit. Tests cover SLH-DSA generation/signing/verification with independent
+OpenSSL verification, HashSLH-DSA and HashML-DSA message and caller-digest
+signatures, dedicated HashSLH-only key generation, Montgomery X25519/X448
+generation/import/derivation with matching AES-GCM keys, and CLI HashSLH and
+Montgomery workflows.
 
 ## AES-GCM provider compatibility
 
