@@ -14,6 +14,9 @@ impl std::fmt::Display for KeyChoice {
             GenerationKind::Signing(KeyKind::Edwards(curve)) => {
                 write!(f, "{} — signing", curve)
             }
+            GenerationKind::Signing(KeyKind::Montgomery(curve)) => {
+                write!(f, "{} — key agreement", curve)
+            }
             GenerationKind::EdDsa(curve) => write!(f, "{} — signing", curve),
             GenerationKind::MlDsa(parameter) => write!(
                 f,
