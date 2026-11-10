@@ -139,6 +139,7 @@ impl Session<'_> {
             KeyKind::Rsa { bits } => bits.div_ceil(8),
             KeyKind::Ec(curve) => 2 * curve.bits().div_ceil(8),
             KeyKind::Edwards(curve) => curve.signature_length(),
+            KeyKind::Montgomery(_) => 0,
         };
         if request.signature.len() != expected {
             return Err(Error::SignatureMismatch);
@@ -199,6 +200,7 @@ impl Session<'_> {
             KeyKind::Rsa { bits } => bits.div_ceil(8),
             KeyKind::Ec(curve) => 2 * curve.bits().div_ceil(8),
             KeyKind::Edwards(curve) => curve.signature_length(),
+            KeyKind::Montgomery(_) => 0,
         };
         if signature.len() != expected {
             return Err(Error::SignatureMismatch);

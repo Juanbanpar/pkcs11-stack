@@ -295,6 +295,7 @@ pub fn is_runtime_supported(mechanism: MechanismType) -> bool {
             | M::ECDH1_DERIVE
             | M::ECC_KEY_PAIR_GEN
             | M::ECC_EDWARDS_KEY_PAIR_GEN
+            | M::ECC_MONTGOMERY_KEY_PAIR_GEN
             | M::EDDSA
             | M::AES_KEY_GEN
             | M::AES_ECB

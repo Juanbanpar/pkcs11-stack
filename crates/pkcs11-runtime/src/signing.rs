@@ -227,6 +227,8 @@ pub enum KeyKind {
     Ec(NamedCurve),
     /// Edwards curve used by EdDSA.
     Edwards(crate::EdDsaCurve),
+    /// Montgomery curve used by X25519/X448.
+    Montgomery(crate::MontgomeryCurve),
 }
 impl KeyKind {
     /// Key size or field size in bits.
@@ -235,6 +237,7 @@ impl KeyKind {
             Self::Rsa { bits } => bits,
             Self::Ec(curve) => curve.bits(),
             Self::Edwards(curve) => curve.bits(),
+            Self::Montgomery(curve) => curve.bits(),
         }
     }
 }
@@ -684,6 +687,7 @@ impl Session<'_> {
             KeyKind::Rsa { bits } => bits.div_ceil(8),
             KeyKind::Ec(curve) => 2 * curve.bits().div_ceil(8),
             KeyKind::Edwards(curve) => curve.signature_length(),
+            KeyKind::Montgomery(_) => 0,
         };
         if signature.len() != expected {
             return Err(Error::InvalidSignature);
@@ -734,7 +738,7 @@ fn public_metadata(object: &Object<'_, '_>) -> Result<PublicKeyMetadata, Error> 
                 result.public_exponent = Some(v);
             }
         }
-        KeyKind::Ec(_) | KeyKind::Edwards(_) => {
+        KeyKind::Ec(_) | KeyKind::Edwards(_) | KeyKind::Montgomery(_) => {
             if let Some(Attribute::EcParams(v)) = attribute(object, AttributeType::EcParams, true)?
             {
                 result.ec_params = Some(v);

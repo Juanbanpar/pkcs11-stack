@@ -100,6 +100,11 @@ impl<'m> Session<'m> {
                     "use the EdDSA key-generation operation",
                 ));
             }
+            KeyKind::Montgomery(_) => {
+                return Err(Error::UnsupportedSigning(
+                    "use the Montgomery key-generation operation",
+                ));
+            }
             KeyKind::Rsa { bits } => {
                 if !(2048..=16384).contains(&bits) || bits % 8 != 0 {
                     return Err(Error::InvalidParameters("invalid RSA key size"));

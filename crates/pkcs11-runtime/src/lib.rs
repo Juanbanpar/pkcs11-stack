@@ -15,7 +15,12 @@ pub use capability::{
 };
 mod digest;
 mod eddsa;
+mod montgomery;
 pub use eddsa::{EdDsaCapabilities, EdDsaCurve, EdDsaPublicKey, EdDsaRequest};
+pub use montgomery::{
+    MontgomeryCapabilities, MontgomeryCurve, MontgomeryDerivation, MontgomeryKdf, MontgomeryOutput,
+    MontgomeryPublicKey,
+};
 mod encryption;
 pub use digest::{DIGEST_MAXIMUM_INPUT, HashAlgorithm};
 mod mac;

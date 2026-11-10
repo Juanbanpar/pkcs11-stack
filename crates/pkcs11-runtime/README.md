@@ -533,3 +533,9 @@ digests. SHA-3/SHAKE caller digests are not representable because published
 `eddsa_public_key` and `import_eddsa_public_key` expose pure Ed25519/Ed448 with
 RFC 8410 OID parameters. SoftHSM's private keys report the RFC 8032 curveName
 form; both OID and curveName `CKA_EC_PARAMS` encodings are accepted.
+
+`generate_montgomery_key_pair`, `montgomery_public_key`,
+`import_montgomery_public_key` and `derive_montgomery` expose RFC 7748
+X25519/X448. Peer inputs are length- and low-order-checked; derivation supports
+`CKD_NULL` and ANSI X9.63/SP 800-56A SHA-2 KDFs. The private key and derived
+secret remain on the token.
