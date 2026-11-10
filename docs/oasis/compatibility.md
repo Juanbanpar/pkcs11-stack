@@ -86,7 +86,8 @@ FFI, a fork, duplicated bindings or a replacement engine to work around them.
 
 The full per-identifier list is in `coverage.md` and `inventory.json`. The
 `UPSTREAM_BLOCKED` status means "cannot be executed without violating the
-no-fork/no-raw-FFI constraints", not "the standard omits it".
+no-fork/no-raw-FFI constraints", not "the standard omits it". Draft upstream
+requests are recorded in [`upstream-issues.md`](upstream-issues.md).
 
 ## Implemented but not yet exposed or verified
 
