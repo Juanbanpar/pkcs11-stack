@@ -672,7 +672,9 @@ EdDSA is exposed through `generate_eddsa_key_pair`, `sign_eddsa`,
 `verify_eddsa`, `eddsa_capabilities`, `export_eddsa_public_key`,
 `import_eddsa_public_key`, `EdDsaVerifyingKey`, `EdDsaCertificate` and
 `EdDsaIdentity`. Certificate verification supports Ed25519 and Ed448 in software;
-TLS integration currently enables Ed25519 only.
+TLS integration currently enables Ed25519 only. Context-authenticated EdDSA is
+rejected because published `cryptoki` lacks single-part signing after
+initialization.
 
 Montgomery workflows use `generate_montgomery_key_pair`,
 `montgomery_public_key`, `export_montgomery_public_key`,

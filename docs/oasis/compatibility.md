@@ -47,7 +47,7 @@ coverage. Provider support is separate.
 | RSA | key generation, PKCS#1 v1.5 and PSS sign/verify, OAEP encrypt/decrypt | SHA-1/224/256/384/512 combined mechanisms; SHA-1 and SHA-224 are opt-in |
 | ECDSA | key generation, sign/verify | P-256/P-384/P-521; SHA-1 and SHA-224 are opt-in |
 | ECDH | key-pair generation, raw derivation, SHA-2 KDF profiles | token-held secrets only |
-| EdDSA | Ed25519/Ed448 key generation, sign/verify, public export/import, CLI and desktop; rustls Ed25519 | added here; SoftHSM provider-tested |
+| EdDSA | Ed25519/Ed448 key generation, sign/verify, public export/import, CLI and desktop; rustls Ed25519 | pure original-message profile; context-authenticated EdDSA is upstream-blocked |
 | Montgomery | X25519/X448 generation, public import/export, ECDH derivation with null/SHA-2 KDFs | added here; no unmodified provider available for positive verification |
 | AES | key generation, ECB/CBC/CBC-PAD, GCM single-part, CMAC, RFC 3394 wrap/unwrap | CBC/CBC-PAD added here; GCM and KW already existed |
 | DES/3DES | upstream types available | not exposed by this branch; legacy only |
@@ -81,6 +81,7 @@ FFI, a fork, duplicated bindings or a replacement engine to work around them.
 | Cancellation | no typed `C_SessionCancel` wrapper |
 | Bounded output | no caller-bounded single-part/multipart completion |
 | Message-based AEAD | no parameterless `CKM_AES_GCM` message-init mechanism and no bounded `C_EncryptMessage`/`C_DecryptMessage` completion; `decrypt_message` returns an unbounded `Vec` |
+| Initialized single-part signing | no `sign_initialized_into`; context-authenticated EdDSA would need single-part `C_Sign` after `C_SignInit` and `C_Login(CKU_CONTEXT_SPECIFIC)`, while only multipart completion is exposed |
 | Interface selector | no public selected-interface metadata |
 
 The full per-identifier list is in `coverage.md` and `inventory.json`. The
@@ -93,6 +94,7 @@ no-fork/no-raw-FFI constraints", not "the standard omits it".
 |---|---|---|
 | EdDSA provider verification | Ed25519/Ed448 runtime, client, CLI and SoftHSM tests | rustls Ed25519 TLS 1.3 handshake tested; Ed448 stays out of TLS |
 | Montgomery provider verification | implemented, unverified on a provider | SoftHSM does not advertise Montgomery; an unmodified Kryoptic Montgomery build was not available |
+| EdDSA context authentication | upstream-blocked | published `cryptoki` has no single-part initialized signing call, and SoftHSM rejects multipart EdDSA; generation with `--always-authenticate` is rejected |
 | HashML-DSA / HashSLH-DSA provider verification | implemented, unverified on a provider | SoftHSM advertises ML-DSA but not HashML-DSA; no unmodified HashSLH-DSA provider was available |
 | SLH-DSA CLI verification | client/runtime only | the CLI verification path is certificate-based; SLH-DSA certificates are not supported |
 | Message-based AES-GCM | upstream-blocked | published `cryptoki` 0.12.1 has no parameterless `CKM_AES_GCM` message-init variant and no bounded `encrypt_message_into`/`decrypt_message_into`; the available `decrypt_message` returns an unbounded `Vec` that cannot be zeroized on failure |

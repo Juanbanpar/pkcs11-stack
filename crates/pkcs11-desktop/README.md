@@ -348,9 +348,18 @@ another operation can start; navigation remains available. Closing the window
 drains queued work, closes authentication sessions, finalizes providers and joins
 the worker off the UI thread.
 
+## Pure EdDSA
+
+Advertised generation choices include Ed25519 and Ed448 signing pairs. Private
+keys are sensitive and nonextractable. Selecting an Edwards private key offers
+signing over the original message; selecting an EdDSA certificate offers software
+verification. No external digest, domain context or software-hashing policy is
+accepted. Context-authenticated EdDSA is not offered: published `cryptoki` has no
+single-part signing call after `C_SignInit`, and SoftHSM rejects multipart EdDSA.
+
 Tests cover state transitions, stale responses, picker results, backend errors,
 shutdown, lazy details, ambiguous objects, metadata redaction and isolated SoftHSM
-module/object/mechanism, USER/SO authentication, object management, signing/verification, AES-GCM, RSA-OAEP, ECDH and RFC 3394 workflows:
+module/object/mechanism, USER/SO authentication, object management, signing/verification, AES-GCM, RSA-OAEP, ECDH, EdDSA and RFC 3394 workflows:
 
 ```sh
 ./tools/test-softhsm.sh
