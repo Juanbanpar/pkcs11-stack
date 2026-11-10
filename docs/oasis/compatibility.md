@@ -47,7 +47,7 @@ coverage. Provider support is separate.
 | RSA | key generation, PKCS#1 v1.5 and PSS sign/verify, OAEP encrypt/decrypt | SHA-224/256/384/512 combined mechanisms; SHA-224 is opt-in |
 | ECDSA | key generation, sign/verify | P-256/P-384/P-521; SHA-224 opt-in |
 | ECDH | key-pair generation, raw derivation, SHA-2 KDF profiles | token-held secrets only |
-| EdDSA | upstream types available | not yet exposed by this branch |
+| EdDSA | Ed25519/Ed448 key generation, sign/verify, public export/import, CLI and desktop; rustls Ed25519 | added here; SoftHSM provider-tested |
 | Montgomery | upstream key-generation types available | not yet exposed by this branch |
 | AES | key generation, ECB/CBC/CBC-PAD, GCM single-part, CMAC, RFC 3394 wrap/unwrap | CBC/CBC-PAD added here; GCM and KW already existed |
 | DES/3DES | upstream types available | not exposed by this branch; legacy only |
@@ -90,7 +90,7 @@ no-fork/no-raw-FFI constraints", not "the standard omits it".
 
 | Item | State | Reason |
 |---|---|---|
-| EdDSA (Ed25519/Ed448) | upstream representable, not exposed | needs explicit key-kind/certificate handling across runtime/client/rustls |
+| EdDSA provider verification | Ed25519/Ed448 runtime, client, CLI and SoftHSM tests | rustls Ed25519 TLS 1.3 handshake tested; Ed448 stays out of TLS |
 | Montgomery (X25519/X448) | upstream representable, not exposed | same |
 | HashML-DSA / HashSLH-DSA provider verification | implemented, unverified on a provider | SoftHSM advertises ML-DSA but not HashML-DSA; no unmodified HashSLH-DSA provider was available |
 | SLH-DSA CLI verification | client/runtime only | the CLI verification path is certificate-based; SLH-DSA certificates are not supported |
@@ -105,7 +105,7 @@ The following runs were executed for this branch:
 
 | Provider | Build | Tests | Result |
 |---|---|---|---|
-| SoftHSM | 2.7.0 (unmodified) | `tools/test-softhsm.sh`, including digest/HMAC/AES-CMAC/AES-CBC known answers, token RSA/ECDSA verification, CLI workflows, MAC key generation and public-key import | pass |
+| SoftHSM | 2.7.0 (unmodified) | `tools/test-softhsm.sh`, including digest/HMAC/AES-CMAC/AES-CBC known answers, token RSA/ECDSA verification, EdDSA generation/signing/verification, Ed25519 TLS 1.3, CLI workflows, MAC key generation and public-key import | pass |
 | SoftHSM PQC | pinned OpenSSL 3.5.9 + SoftHSM build (unmodified) | `tools/test-ml-dsa.sh` (runtime, client, CLI, TLS, desktop) | pass |
 | Kryoptic | pinned SP 800-108 build (unmodified) | `tools/test-kem-hkdf.sh`, including KBKDF determinism/usable-output and CLI derivation tests | pass |
 | Kryoptic | pinned build (unmodified) | `tools/test-ml-kem.sh` (runtime, client, desktop) | pass |
