@@ -17,6 +17,8 @@ pub struct GenerationCapabilities {
     pub ml_dsa: Vec<crate::MlDsaParameterSet>,
     /// ML-KEM parameter sets.
     pub ml_kem: Vec<crate::MlKemParameterSet>,
+    /// EdDSA curves.
+    pub eddsa: Vec<crate::EdDsaCurve>,
 }
 impl Provider {
     /// Collect classical, PQC, ECDH and AES generation choices without opening
@@ -33,6 +35,7 @@ impl Provider {
             aes: selected.aes_generation_options()?,
             ml_dsa: self.ml_dsa_generation_options(token)?,
             ml_kem: self.ml_kem_generation_options(token)?,
+            eddsa: selected.eddsa_generation_options()?,
         })
     }
 }

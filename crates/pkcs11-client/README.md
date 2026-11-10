@@ -662,3 +662,9 @@ falling back to software or another algorithm. See
 `ManagementSession::generate_mac_key` creates persistent HMAC or AES-CMAC keys,
 and `ManagementSession::import_public_key` validates and imports RSA or named-EC
 SPKI public keys with an explicit verification or RSA-encryption purpose.
+
+EdDSA is exposed through `generate_eddsa_key_pair`, `sign_eddsa`,
+`verify_eddsa`, `eddsa_capabilities`, `export_eddsa_public_key`,
+`import_eddsa_public_key`, `EdDsaVerifyingKey`, `EdDsaCertificate` and
+`EdDsaIdentity`. Certificate verification supports Ed25519 and Ed448 in software;
+TLS integration currently enables Ed25519 only.

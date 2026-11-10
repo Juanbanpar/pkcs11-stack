@@ -10,6 +10,10 @@ pub use aes_gcm::{
     AesGcmCapabilities, AesGcmDecryptRequest, AesGcmEncryptRequest, AesGcmOperation,
 };
 mod certificate;
+mod eddsa;
+mod eddsa_certificate;
+pub use eddsa::EdDsaVerifyingKey;
+pub use eddsa_certificate::{EdDsaCertificate, EdDsaIdentity};
 mod encryption;
 mod key_operations;
 pub use encryption::{DecryptRequest, EncryptRequest, OaepChoice, Plaintext};
@@ -66,11 +70,11 @@ pub use pkcs11_runtime::{
 };
 pub use pkcs11_runtime::{
     Attribute, AttributeInfo, AttributeType, AttributeValues, Authentication, CertificateRef,
-    DigestAlgorithm, HashLocation, HashingPolicy, KeyCapabilities, KeyKind, KeyType, LibraryInfo,
-    MechanismInfo, MechanismType, Module, NamedCurve, ObjectClass, ObjectRef, Pin, PrivateKeyRef,
-    PssParameters, PublicKeyMetadata, PublicKeyRef, SessionMode, SessionPool, SessionState,
-    SignInput, SignPlan, SignRequest, SignatureAlgorithm, SigningMechanism, SigningPolicy,
-    SlotInfo, TokenInfo,
+    DigestAlgorithm, EdDsaCapabilities, EdDsaCurve, EdDsaPublicKey, EdDsaRequest, HashLocation,
+    HashingPolicy, KeyCapabilities, KeyKind, KeyType, LibraryInfo, MechanismInfo, MechanismType,
+    Module, NamedCurve, ObjectClass, ObjectRef, Pin, PrivateKeyRef, PssParameters,
+    PublicKeyMetadata, PublicKeyRef, SessionMode, SessionPool, SessionState, SignInput, SignPlan,
+    SignRequest, SignatureAlgorithm, SigningMechanism, SigningPolicy, SlotInfo, TokenInfo,
 };
 pub use random::{RandomBytes, RandomRequest};
 pub use signature_options::{SignatureParameters, SigningChoice, SigningOptions};

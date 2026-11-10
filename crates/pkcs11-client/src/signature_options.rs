@@ -46,6 +46,7 @@ pub(crate) fn candidates(key: KeyKind) -> Vec<SignatureParameters> {
     let algorithms: &[SignatureAlgorithm] = match key {
         KeyKind::Rsa { .. } => &[SignatureAlgorithm::RsaPkcs1, SignatureAlgorithm::RsaPss],
         KeyKind::Ec(_) => &[SignatureAlgorithm::Ecdsa],
+        KeyKind::Edwards(_) => &[],
     };
     algorithms
         .iter()

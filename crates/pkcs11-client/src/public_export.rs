@@ -27,6 +27,28 @@ pub(crate) fn encode_public_key(metadata: PublicKeyMetadata) -> Result<Vec<u8>, 
                 .as_bytes()
                 .to_vec())
         }
+        KeyKind::Edwards(curve) => {
+            let params = metadata.ec_params.ok_or_else(invalid)?;
+            let point = metadata.ec_point.ok_or_else(invalid)?;
+            if params != curve.ec_params() {
+                return Err(invalid());
+            }
+            let point = OctetString::from_der(&point).map_err(|_| invalid())?;
+            let raw = point.as_bytes();
+            let key = crate::EdDsaVerifyingKey::from_bytes(curve, raw)?;
+            SubjectPublicKeyInfoOwned {
+                algorithm: AlgorithmIdentifierOwned {
+                    oid: ObjectIdentifier::new_unwrap(match curve {
+                        crate::EdDsaCurve::Ed25519 => "1.3.101.112",
+                        crate::EdDsaCurve::Ed448 => "1.3.101.113",
+                    }),
+                    parameters: None,
+                },
+                subject_public_key: BitString::from_bytes(key.as_bytes()).map_err(|_| invalid())?,
+            }
+            .to_der()
+            .map_err(|_| invalid())
+        }
         KeyKind::Ec(curve) => {
             let params = metadata.ec_params.ok_or_else(invalid)?;
             let point = metadata.ec_point.ok_or_else(invalid)?;
@@ -101,6 +123,7 @@ mod tests {
                             .unwrap(),
                     );
                 }
+                KeyKind::Edwards(_) => continue,
             }
             assert_eq!(
                 encode_public_key(metadata.clone()).unwrap(),

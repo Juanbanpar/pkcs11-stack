@@ -89,6 +89,19 @@ impl ClassicalPublicKey {
                 metadata.modulus = Some(public.modulus.as_bytes().to_vec());
                 metadata.public_exponent = Some(public.public_exponent.as_bytes().to_vec());
             }
+            oid if oid == ObjectIdentifier::new_unwrap("1.3.101.112")
+                || oid == ObjectIdentifier::new_unwrap("1.3.101.113") =>
+            {
+                let key = crate::EdDsaVerifyingKey::from_spki_der(bytes)?;
+                metadata.key = KeyKind::Edwards(key.curve());
+                metadata.ec_params = Some(key.curve().ec_params().to_vec());
+                metadata.ec_point = Some(
+                    OctetString::new(key.as_bytes().to_vec())
+                        .map_err(|_| Error::InvalidPublicKey)?
+                        .to_der()
+                        .map_err(|_| Error::InvalidPublicKey)?,
+                );
+            }
             oid if oid == ObjectIdentifier::new_unwrap("1.2.840.10045.2.1") => {
                 let peer = EcdhPeer::from_spki_der(bytes)?;
                 metadata.key = KeyKind::Ec(peer.curve());
@@ -196,6 +209,12 @@ impl PublicKeyImportRequest<'_> {
                 Attribute::KeyType(KeyType::EC),
                 Attribute::EcParams(metadata.ec_params.clone().ok_or(Error::InvalidPublicKey)?),
                 Attribute::EcPoint(metadata.ec_point.clone().ok_or(Error::InvalidPublicKey)?),
+            ]),
+            KeyKind::Edwards(_) => template.extend([
+                Attribute::KeyType(KeyType::EC_EDWARDS),
+                Attribute::EcParams(metadata.ec_params.clone().ok_or(Error::InvalidPublicKey)?),
+                Attribute::EcPoint(metadata.ec_point.clone().ok_or(Error::InvalidPublicKey)?),
+                Attribute::AllowedMechanisms(vec![crate::MechanismType::EDDSA]),
             ]),
         }
         Ok(template)
