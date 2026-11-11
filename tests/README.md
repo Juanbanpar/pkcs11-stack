@@ -190,7 +190,8 @@ OpenSSL verification, HashSLH-DSA and HashML-DSA message and caller-digest
 signatures, dedicated HashSLH-only key generation, Montgomery X25519/X448
 generation/import/derivation with matching AES-GCM keys, CLI HashSLH signing and
 token verification, CLI Montgomery agreement, and desktop SLH-DSA/HashSLH-DSA/
-HashML-DSA signing and token verification plus Montgomery agreement.
+HashML-DSA signing and token verification, desktop public-key import, and
+Montgomery agreement.
 
 ## AES-GCM provider compatibility
 
