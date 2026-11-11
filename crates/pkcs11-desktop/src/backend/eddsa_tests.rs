@@ -180,6 +180,40 @@ fn eddsa_desktop_generation_signing_and_native_verification() {
                 &std::fs::read(&signature).unwrap(),
             )
             .unwrap();
+        let public = objects
+            .iter()
+            .find(|entry| entry.label == label && entry.class == Some(ObjectClass::PUBLIC_KEY))
+            .unwrap()
+            .id;
+        let verify_target = CryptoScope {
+            module,
+            token,
+            mode: CryptoMode::Verify,
+            object: public,
+        };
+        let (verify_options, _) = choices(&registry, verify_target, false);
+        assert_eq!(
+            verify_options,
+            vec![SignatureOption {
+                parameters: SignatureProfile::EdDsa(curve),
+                plan: None
+            }]
+        );
+        let result = registry.crypto(
+            verify_target,
+            CryptoJob {
+                parameters: SignatureProfile::EdDsa(curve),
+                software_hashing: false,
+                domain_context: Vec::new(),
+                input: input.clone(),
+                signature: signature.clone(),
+                context: None,
+            },
+        );
+        assert!(
+            matches!(result, Ok(BackendResult::Verified { .. })),
+            "{result:?}"
+        );
 
         let target = target_for(&objects, &label, CryptoMode::Sign);
         let forbidden = root.join(format!("{index}.forbidden"));

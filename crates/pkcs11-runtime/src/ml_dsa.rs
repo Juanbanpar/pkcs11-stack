@@ -368,6 +368,14 @@ impl<'m> Session<'m> {
         capabilities(&self.resolve(key.as_object_ref())?)
     }
 
+    /// Read the public key's ML-DSA parameter set without reading key bytes.
+    pub fn ml_dsa_public_parameter_set(
+        &mut self,
+        key: &PublicKeyRef,
+    ) -> Result<MlDsaParameterSet, Error> {
+        parameter_set(&self.resolve(key.as_object_ref())?, ObjectClass::PUBLIC_KEY)
+    }
+
     /// Read CKA_VALUE only from an explicitly public, non-private ML-DSA public key.
     /// Never reads private-key CKA_VALUE or CKA_SEED.
     pub fn ml_dsa_public_key(&mut self, key: &PublicKeyRef) -> Result<MlDsaPublicKey, Error> {

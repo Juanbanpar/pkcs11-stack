@@ -10,8 +10,8 @@ use pkcs11_runtime::{
     FunctionAvailability, HashAlgorithm, HashMlDsaCapabilities, HashMlDsaRequest,
     HashMlDsaSigningPolicy, HashSlhDsaCapabilities, HashSlhDsaRequest, HashSlhDsaSigningPolicy,
     KbkdfCapabilities, KbkdfMode, KbkdfPrf, KbkdfRequest, MacAlgorithm, MacKeyRequest,
-    MechanismCapability, SlhDsaCapabilities, SlhDsaKeyPairRequest, SlhDsaRequest,
-    SlhDsaSigningPolicy, VerifyRequest,
+    MechanismCapability, MlDsaParameterSet, SlhDsaCapabilities, SlhDsaKeyPairRequest,
+    SlhDsaRequest, SlhDsaSigningPolicy, VerifyRequest,
 };
 use secrecy::SecretBox;
 use x509_cert::{
@@ -371,6 +371,74 @@ impl Client<'_> {
 }
 
 impl ManagementSession<'_> {
+    /// Read the public key's ML-DSA parameter set without reading key bytes.
+    pub fn ml_dsa_public_parameter_set(
+        &mut self,
+        key: &crate::PublicKeyRef,
+    ) -> Result<MlDsaParameterSet, Error> {
+        Ok(self.session.ml_dsa_public_parameter_set(key)?)
+    }
+
+    /// Read the public key's EdDSA curve without reading key bytes.
+    pub fn eddsa_public_curve(
+        &mut self,
+        key: &crate::PublicKeyRef,
+    ) -> Result<crate::EdDsaCurve, Error> {
+        Ok(self.session.eddsa_public_curve(key)?)
+    }
+
+    /// Verify a classical RSA/ECDSA signature on the token.
+    pub fn verify_token(
+        &mut self,
+        key: &crate::PublicKeyRef,
+        request: &VerifyRequest<'_>,
+        policy: &pkcs11_runtime::SigningPolicy,
+    ) -> Result<(), Error> {
+        self.session.verify(key, request, policy)?;
+        Ok(())
+    }
+
+    /// Read the public key's SLH-DSA parameter set without reading key bytes.
+    pub fn slh_dsa_public_parameter_set(
+        &mut self,
+        key: &crate::PublicKeyRef,
+    ) -> Result<pkcs11_runtime::SlhDsaParameterSet, Error> {
+        Ok(self.session.slh_dsa_public_parameter_set(key)?)
+    }
+
+    /// Verify one SLH-DSA signature on the token.
+    pub fn verify_slh_dsa(
+        &mut self,
+        key: &crate::PublicKeyRef,
+        request: &SlhDsaRequest<'_>,
+        signature: &[u8],
+    ) -> Result<(), Error> {
+        self.session.verify_slh_dsa(key, request, signature)?;
+        Ok(())
+    }
+
+    /// Verify one HashSLH-DSA signature on the token.
+    pub fn verify_hash_slh_dsa(
+        &mut self,
+        key: &crate::PublicKeyRef,
+        request: &HashSlhDsaRequest<'_>,
+        signature: &[u8],
+    ) -> Result<(), Error> {
+        self.session.verify_hash_slh_dsa(key, request, signature)?;
+        Ok(())
+    }
+
+    /// Verify one HashML-DSA signature on the token.
+    pub fn verify_hash_ml_dsa(
+        &mut self,
+        key: &crate::PublicKeyRef,
+        request: &HashMlDsaRequest<'_>,
+        signature: &[u8],
+    ) -> Result<(), Error> {
+        self.session.verify_hash_ml_dsa(key, request, signature)?;
+        Ok(())
+    }
+
     /// Digest one bounded buffer on this session's token.
     pub fn digest(&mut self, algorithm: HashAlgorithm, input: &[u8]) -> Result<Vec<u8>, Error> {
         Ok(self.session.digest(algorithm, input)?)
@@ -536,6 +604,77 @@ impl ManagementSession<'_> {
     ) -> Result<(), Error> {
         self.session.generate_hash_slh_dsa_key_pair(request)?;
         Ok(())
+    }
+
+    /// Discover SLH-DSA signing capabilities for a selected private key.
+    pub fn slh_dsa_capabilities(
+        &mut self,
+        key: &crate::PrivateKeyRef,
+    ) -> Result<SlhDsaCapabilities, Error> {
+        Ok(self.session.slh_dsa_capabilities(key)?)
+    }
+
+    /// Sign one original message with SLH-DSA.
+    pub fn sign_slh_dsa(
+        &mut self,
+        key: &crate::PrivateKeyRef,
+        request: &SlhDsaRequest<'_>,
+        policy: &SlhDsaSigningPolicy,
+        context_pin: Option<crate::Pin<'_>>,
+    ) -> Result<Vec<u8>, Error> {
+        Ok(self
+            .session
+            .sign_slh_dsa(key, request, policy, context_pin)?)
+    }
+
+    /// Inspect HashML-DSA signing support for one hash/mode.
+    pub fn hash_ml_dsa_capabilities(
+        &mut self,
+        key: &crate::PrivateKeyRef,
+        hash: pkcs11_runtime::PrehashAlgorithm,
+        prehashed: bool,
+    ) -> Result<HashMlDsaCapabilities, Error> {
+        Ok(self
+            .session
+            .hash_ml_dsa_capabilities(key, hash, prehashed)?)
+    }
+
+    /// Sign one HashML-DSA message or digest.
+    pub fn sign_hash_ml_dsa(
+        &mut self,
+        key: &crate::PrivateKeyRef,
+        request: &HashMlDsaRequest<'_>,
+        policy: &HashMlDsaSigningPolicy,
+        context_pin: Option<crate::Pin<'_>>,
+    ) -> Result<Vec<u8>, Error> {
+        Ok(self
+            .session
+            .sign_hash_ml_dsa(key, request, policy, context_pin)?)
+    }
+
+    /// Inspect HashSLH-DSA signing support for one hash/mode.
+    pub fn hash_slh_dsa_capabilities(
+        &mut self,
+        key: &crate::PrivateKeyRef,
+        hash: pkcs11_runtime::PrehashAlgorithm,
+        prehashed: bool,
+    ) -> Result<HashSlhDsaCapabilities, Error> {
+        Ok(self
+            .session
+            .hash_slh_dsa_capabilities(key, hash, prehashed)?)
+    }
+
+    /// Sign one HashSLH-DSA message or digest.
+    pub fn sign_hash_slh_dsa(
+        &mut self,
+        key: &crate::PrivateKeyRef,
+        request: &HashSlhDsaRequest<'_>,
+        policy: &HashSlhDsaSigningPolicy,
+        context_pin: Option<crate::Pin<'_>>,
+    ) -> Result<Vec<u8>, Error> {
+        Ok(self
+            .session
+            .sign_hash_slh_dsa(key, request, policy, context_pin)?)
     }
 }
 

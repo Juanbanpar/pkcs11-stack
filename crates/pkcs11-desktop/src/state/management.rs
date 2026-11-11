@@ -3,7 +3,25 @@ use super::*;
 use crate::backend::{GenerationKind, ManagementAction};
 use pkcs11_client::{
     AesKeyPurpose, KeyKind, MlDsaParameterSet, MlKemParameterSet, NamedCurve, ObjectClass,
+    SlhDsaParameterSet,
 };
+
+fn slh_name(parameter: SlhDsaParameterSet) -> &'static str {
+    match parameter {
+        SlhDsaParameterSet::Sha2_128S => "SLH-DSA-SHA2-128s",
+        SlhDsaParameterSet::Sha2_128F => "SLH-DSA-SHA2-128f",
+        SlhDsaParameterSet::Sha2_192S => "SLH-DSA-SHA2-192s",
+        SlhDsaParameterSet::Sha2_192F => "SLH-DSA-SHA2-192f",
+        SlhDsaParameterSet::Sha2_256S => "SLH-DSA-SHA2-256s",
+        SlhDsaParameterSet::Sha2_256F => "SLH-DSA-SHA2-256f",
+        SlhDsaParameterSet::Shake128S => "SLH-DSA-SHAKE-128s",
+        SlhDsaParameterSet::Shake128F => "SLH-DSA-SHAKE-128f",
+        SlhDsaParameterSet::Shake192S => "SLH-DSA-SHAKE-192s",
+        SlhDsaParameterSet::Shake192F => "SLH-DSA-SHAKE-192f",
+        SlhDsaParameterSet::Shake256S => "SLH-DSA-SHAKE-256s",
+        SlhDsaParameterSet::Shake256F => "SLH-DSA-SHAKE-256f",
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct KeyChoice(pub GenerationKind);
@@ -18,6 +36,13 @@ impl std::fmt::Display for KeyChoice {
                 write!(f, "{} — key agreement", curve)
             }
             GenerationKind::EdDsa(curve) => write!(f, "{} — signing", curve),
+            GenerationKind::SlhDsa(parameter) => write!(f, "{} — signing", slh_name(parameter)),
+            GenerationKind::HashSlhDsa(parameter) => {
+                write!(f, "{} — HashSLH-DSA signing", slh_name(parameter))
+            }
+            GenerationKind::Montgomery(curve) => {
+                write!(f, "{} — key agreement", curve)
+            }
             GenerationKind::MlDsa(parameter) => write!(
                 f,
                 "ML-DSA-{} — signing",

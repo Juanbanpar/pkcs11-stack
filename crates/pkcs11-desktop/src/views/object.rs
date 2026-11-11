@@ -58,7 +58,13 @@ pub fn detail(state: &UiState) -> Element<'_, Message> {
         Some(ObjectClass::PRIVATE_KEY) => {
             if matches!(
                 kind,
-                Some(KeyType::RSA | KeyType::EC | KeyType::ML_DSA | KeyType::EC_EDWARDS)
+                Some(
+                    KeyType::RSA
+                        | KeyType::EC
+                        | KeyType::ML_DSA
+                        | KeyType::EC_EDWARDS
+                        | KeyType::SLH_DSA
+                )
             ) {
                 actions = actions.push(
                     button("Sign file…")
@@ -85,6 +91,17 @@ pub fn detail(state: &UiState) -> Element<'_, Message> {
             if kind == Some(KeyType::EC) {
                 actions = actions.push(
                     button("Derive ECDH secret…")
+                        .width(Length::Fill)
+                        .on_press_maybe(
+                            state
+                                .can_open_key_operation(CryptoMode::Derive)
+                                .then_some(Message::OpenKeyOperation(CryptoMode::Derive)),
+                        ),
+                );
+            }
+            if kind == Some(KeyType::EC_MONTGOMERY) {
+                actions = actions.push(
+                    button("Derive X25519/X448 secret…")
                         .width(Length::Fill)
                         .on_press_maybe(
                             state
@@ -124,14 +141,41 @@ pub fn detail(state: &UiState) -> Element<'_, Message> {
             )
         }
         Some(ObjectClass::PUBLIC_KEY) if kind == Some(KeyType::RSA) => {
+            actions = actions
+                .push(
+                    button("Verify signature…")
+                        .width(Length::Fill)
+                        .on_press_maybe(
+                            state
+                                .can_open_crypto(CryptoMode::Verify)
+                                .then_some(Message::OpenCrypto(CryptoMode::Verify)),
+                        ),
+                )
+                .push(
+                    button("Encrypt RSA OAEP…")
+                        .width(Length::Fill)
+                        .style(button::primary)
+                        .on_press_maybe(
+                            state
+                                .can_open_cipher(CryptoMode::Encrypt)
+                                .then_some(Message::OpenCipher(CryptoMode::Encrypt)),
+                        ),
+                )
+        }
+        Some(ObjectClass::PUBLIC_KEY)
+            if matches!(
+                kind,
+                Some(KeyType::EC | KeyType::ML_DSA | KeyType::EC_EDWARDS | KeyType::SLH_DSA)
+            ) =>
+        {
             actions = actions.push(
-                button("Encrypt RSA OAEP…")
+                button("Verify signature…")
                     .width(Length::Fill)
                     .style(button::primary)
                     .on_press_maybe(
                         state
-                            .can_open_cipher(CryptoMode::Encrypt)
-                            .then_some(Message::OpenCipher(CryptoMode::Encrypt)),
+                            .can_open_crypto(CryptoMode::Verify)
+                            .then_some(Message::OpenCrypto(CryptoMode::Verify)),
                     ),
             )
         }

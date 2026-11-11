@@ -541,6 +541,14 @@ impl<'m> Session<'m> {
         capabilities(&self.resolve(key.as_object_ref())?)
     }
 
+    /// Read the public key's SLH-DSA parameter set without reading key bytes.
+    pub fn slh_dsa_public_parameter_set(
+        &mut self,
+        key: &PublicKeyRef,
+    ) -> Result<SlhDsaParameterSet, Error> {
+        parameter_set(&self.resolve(key.as_object_ref())?, ObjectClass::PUBLIC_KEY)
+    }
+
     /// Read CKA_VALUE only from an explicitly public, non-private SLH-DSA public key.
     /// Requires that CKA_ALLOWED_MECHANISMS permit pure SLH-DSA, for pure SPKI export.
     /// Never reads private-key CKA_VALUE or CKA_SEED.

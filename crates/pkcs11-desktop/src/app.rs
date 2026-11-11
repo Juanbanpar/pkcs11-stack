@@ -2,7 +2,7 @@
 use crate::{
     backend::{
         AdministrationKind, BackendCommand, BackendError, BackendEvent, CryptoMode, EventSource,
-        LoginRole, RequestId, ResourceId, Worker,
+        LoginRole, MontgomeryKdfChoice, MontgomeryOutputChoice, RequestId, ResourceId, Worker,
     },
     state::{
         AdministrationField, AdministrationPinField, CipherChoice, CipherField, CryptoField,
@@ -47,6 +47,14 @@ pub enum Message {
     KeyTarget {
         id: RequestId,
         target: WrapTarget,
+    },
+    KeyKdf {
+        id: RequestId,
+        kdf: MontgomeryKdfChoice,
+    },
+    KeyOutput {
+        id: RequestId,
+        output: MontgomeryOutputChoice,
     },
     KeyBrowse {
         id: RequestId,
@@ -200,6 +208,8 @@ impl std::fmt::Debug for Message {
             Self::OpenKeyOperation(_) => "OpenKeyOperation",
             Self::KeyEdit { .. } => "KeyEdit",
             Self::KeyTarget { .. } => "KeyTarget",
+            Self::KeyKdf { .. } => "KeyKdf",
+            Self::KeyOutput { .. } => "KeyOutput",
             Self::KeyBrowse { .. } => "KeyBrowse",
             Self::KeyPicked { .. } => "KeyPicked",
             Self::SubmitKeyOperation(_) => "SubmitKeyOperation",
@@ -348,6 +358,8 @@ impl App {
             Message::HkdfOutput { id, output } => self.state.hkdf_output(id, output),
             Message::KeyEdit { id, field, value } => self.state.key_edit(id, field, value),
             Message::KeyTarget { id, target } => self.state.key_target(id, target),
+            Message::KeyKdf { id, kdf } => self.state.key_kdf(id, kdf),
+            Message::KeyOutput { id, output } => self.state.key_output(id, output),
             Message::KeyPicked { id, path } => self.state.key_picked(id, path),
             Message::SubmitKeyOperation(id) => {
                 let command = self.state.submit_key_operation(id);

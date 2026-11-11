@@ -121,6 +121,10 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
             .on_toggle_maybe((enabled && state.management.key.is_some_and(|key| key.0.supports_context_authentication())).then_some(Message::AlwaysAuthenticate)),
         text(match state.management.key.map(|key| key.0) {
             Some(crate::backend::GenerationKind::MlDsa(_)) => "ML-DSA signing pair. The private key is sensitive and nonextractable. Select the private key on Objects to sign a file, or the public key to export it.",
+            Some(crate::backend::GenerationKind::EdDsa(_)) => "Pure EdDSA signing pair. The private key is sensitive and nonextractable. Context-authenticated EdDSA is not offered.",
+            Some(crate::backend::GenerationKind::SlhDsa(_)) => "Pure SLH-DSA signing pair. The private key is sensitive and nonextractable. Select the private key on Objects to sign a file.",
+            Some(crate::backend::GenerationKind::HashSlhDsa(_)) => "HashSLH-DSA-only signing pair. Pure SLH-DSA is excluded from its allowed mechanisms.",
+            Some(crate::backend::GenerationKind::Montgomery(_)) => "X25519/X448 key-agreement pair. The private key is sensitive and nonextractable. Select the private key on Objects to derive a persistent key.",
             Some(crate::backend::GenerationKind::MlKem(_)) => "ML-KEM encapsulation/decapsulation pair. The private key is sensitive and nonextractable. Select either key on Objects for ML-KEM operations, or export the public key.",
             Some(crate::backend::GenerationKind::Ecdh(_)) => "Derivation-only EC pair. The private key is sensitive and nonextractable. ID and label: 1–128 bytes each.",
             Some(crate::backend::GenerationKind::Aes(_, pkcs11_client::AesKeyPurpose::Encryption)) => "Private, sensitive, nonextractable AES key for encryption/decryption only. ID and label: 1–128 bytes each.",

@@ -341,6 +341,11 @@ impl<'m> Session<'m> {
         capabilities(&self.resolve(key.as_object_ref())?)
     }
 
+    /// Read the public key's EdDSA curve without reading key bytes.
+    pub fn eddsa_public_curve(&mut self, key: &PublicKeyRef) -> Result<EdDsaCurve, Error> {
+        curve_of(&self.resolve(key.as_object_ref())?, ObjectClass::PUBLIC_KEY)
+    }
+
     /// Read an explicitly public EdDSA key as raw RFC 8032 bytes.
     pub fn eddsa_public_key(&mut self, key: &PublicKeyRef) -> Result<EdDsaPublicKey, Error> {
         let object = self.resolve(key.as_object_ref())?;

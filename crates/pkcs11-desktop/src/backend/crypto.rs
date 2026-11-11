@@ -4,10 +4,13 @@ use super::{
     browse::read_session,
 };
 use pkcs11_client::{
-    AttributeType, Certificate, EdDsaCertificate, EdDsaCurve, EdDsaRequest, HashLocation,
-    HashingPolicy, KeyType, ManagementSession, MechanismType, MlDsaCertificate, MlDsaHedging,
-    MlDsaParameterSet, MlDsaRequest, MlDsaSigningPolicy, ObjectClass, Pin, PrivateKeyRef,
-    SessionState, SignInput, SignatureParameters, SigningPolicy,
+    AttributeType, Certificate, EdDsaCertificate, EdDsaCurve, EdDsaRequest, HashInput,
+    HashLocation, HashMlDsaRequest, HashMlDsaSigningPolicy, HashSlhDsaRequest,
+    HashSlhDsaSigningPolicy, HashingPolicy, KeyType, ManagementSession, MechanismType,
+    MlDsaCertificate, MlDsaHedging, MlDsaParameterSet, MlDsaRequest, MlDsaSigningPolicy,
+    ObjectClass, Pin, PrehashAlgorithm, PrivateKeyRef, PublicKeyRef, SessionState, SignInput,
+    SignatureAlgorithm, SignatureParameters, SigningPolicy, SlhDsaHedging, SlhDsaParameterSet,
+    SlhDsaRequest, SlhDsaSigningPolicy, VerifyRequest,
 };
 use std::{
     fs::File,
@@ -40,6 +43,17 @@ pub enum SignatureProfile {
     Classical(SignatureParameters),
     MlDsa(MlDsaParameterSet),
     EdDsa(EdDsaCurve),
+    SlhDsa(SlhDsaParameterSet),
+    HashMlDsa {
+        parameter_set: MlDsaParameterSet,
+        hash: PrehashAlgorithm,
+        prehashed: bool,
+    },
+    HashSlhDsa {
+        parameter_set: SlhDsaParameterSet,
+        hash: PrehashAlgorithm,
+        prehashed: bool,
+    },
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SignatureOption {
@@ -147,7 +161,7 @@ impl VerificationCertificate {
             _ => {}
         }
         let input = read_bounded(&job.input, 16 * 1024 * 1024)?;
-        let signature = read_bounded(&job.signature, 16 * 1024)?;
+        let signature = read_bounded(&job.signature, 64 * 1024)?;
         let result = match (self, job.parameters) {
             (Self::Classical(certificate), SignatureProfile::Classical(parameters)) => certificate
                 .verify_signature(&parameters.request(SignInput::Message(&input)), &signature),
@@ -177,6 +191,141 @@ impl VerificationCertificate {
         })
     }
 }
+fn hash_input<'a>(hash: PrehashAlgorithm, prehashed: bool, bytes: &'a [u8]) -> HashInput<'a> {
+    if prehashed {
+        HashInput::Digest { hash, bytes }
+    } else {
+        HashInput::Message {
+            hash,
+            message: bytes,
+        }
+    }
+}
+
+fn validate_hash_input(profile: SignatureProfile, input_len: usize) -> Result<(), BackendError> {
+    match profile {
+        SignatureProfile::HashMlDsa {
+            hash, prehashed, ..
+        }
+        | SignatureProfile::HashSlhDsa {
+            hash, prehashed, ..
+        } if prehashed && input_len != hash.output_len() => Err(BackendError::SignatureChoice),
+        _ => Ok(()),
+    }
+}
+
+fn public_verification_options(
+    session: &mut ManagementSession<'_>,
+    key: &PublicKeyRef,
+) -> Result<Vec<SignatureOption>, BackendError> {
+    let reads = session
+        .inspect(key.as_object_ref(), &[AttributeType::KeyType])
+        .map_err(|e| BackendError::from(&e))?;
+    let mut options = Vec::new();
+    match super::browse::key_type(&reads) {
+        Some(KeyType::RSA) => {
+            for algorithm in [SignatureAlgorithm::RsaPkcs1, SignatureAlgorithm::RsaPss] {
+                for digest in [
+                    pkcs11_client::DigestAlgorithm::Sha256,
+                    pkcs11_client::DigestAlgorithm::Sha384,
+                    pkcs11_client::DigestAlgorithm::Sha512,
+                ] {
+                    options.push(SignatureOption {
+                        parameters: SignatureProfile::Classical(SignatureParameters {
+                            algorithm,
+                            digest,
+                            pss: (algorithm == SignatureAlgorithm::RsaPss).then_some(
+                                pkcs11_client::PssParameters {
+                                    mgf_digest: digest,
+                                    salt_len: digest.output_len(),
+                                },
+                            ),
+                        }),
+                        plan: None,
+                    });
+                }
+            }
+        }
+        Some(KeyType::EC) => {
+            for digest in [
+                pkcs11_client::DigestAlgorithm::Sha256,
+                pkcs11_client::DigestAlgorithm::Sha384,
+                pkcs11_client::DigestAlgorithm::Sha512,
+            ] {
+                options.push(SignatureOption {
+                    parameters: SignatureProfile::Classical(SignatureParameters {
+                        algorithm: SignatureAlgorithm::Ecdsa,
+                        digest,
+                        pss: None,
+                    }),
+                    plan: None,
+                });
+            }
+        }
+        Some(KeyType::ML_DSA) => {
+            let parameter_set = session
+                .ml_dsa_public_parameter_set(key)
+                .map_err(|e| BackendError::from(&e))?;
+            options.push(SignatureOption {
+                parameters: SignatureProfile::MlDsa(parameter_set),
+                plan: None,
+            });
+            for hash in [
+                PrehashAlgorithm::Sha256,
+                PrehashAlgorithm::Sha384,
+                PrehashAlgorithm::Sha512,
+            ] {
+                for prehashed in [false, true] {
+                    options.push(SignatureOption {
+                        parameters: SignatureProfile::HashMlDsa {
+                            parameter_set,
+                            hash,
+                            prehashed,
+                        },
+                        plan: None,
+                    });
+                }
+            }
+        }
+        Some(KeyType::SLH_DSA) => {
+            let parameter_set = session
+                .slh_dsa_public_parameter_set(key)
+                .map_err(|e| BackendError::from(&e))?;
+            options.push(SignatureOption {
+                parameters: SignatureProfile::SlhDsa(parameter_set),
+                plan: None,
+            });
+            for hash in [
+                PrehashAlgorithm::Sha256,
+                PrehashAlgorithm::Sha384,
+                PrehashAlgorithm::Sha512,
+            ] {
+                for prehashed in [false, true] {
+                    options.push(SignatureOption {
+                        parameters: SignatureProfile::HashSlhDsa {
+                            parameter_set,
+                            hash,
+                            prehashed,
+                        },
+                        plan: None,
+                    });
+                }
+            }
+        }
+        Some(KeyType::EC_EDWARDS) => {
+            let curve = session
+                .eddsa_public_curve(key)
+                .map_err(|e| BackendError::from(&e))?;
+            options.push(SignatureOption {
+                parameters: SignatureProfile::EdDsa(curve),
+                plan: None,
+            });
+        }
+        _ => return Err(BackendError::SigningUnavailable),
+    }
+    Ok(options)
+}
+
 fn signing_options(
     session: &mut ManagementSession<'_>,
     key: &PrivateKeyRef,
@@ -193,20 +342,86 @@ fn signing_options(
             let caps = session
                 .ml_dsa_capabilities(key)
                 .map_err(|e| BackendError::from(&e))?;
-            if !caps.can_sign
-                || !MlDsaSigningPolicy::default()
+            let mut options = Vec::new();
+            let mut always_authenticate = caps.always_authenticate;
+            if caps.can_sign
+                && MlDsaSigningPolicy::default()
                     .parameter_sets
                     .contains(&caps.parameter_set)
             {
-                return Err(BackendError::SigningUnavailable);
-            }
-            Ok((
-                vec![SignatureOption {
+                options.push(SignatureOption {
                     parameters: SignatureProfile::MlDsa(caps.parameter_set),
                     plan: None,
-                }],
-                caps.always_authenticate,
-            ))
+                });
+            }
+            for hash in [
+                PrehashAlgorithm::Sha256,
+                PrehashAlgorithm::Sha384,
+                PrehashAlgorithm::Sha512,
+            ] {
+                for prehashed in [false, true] {
+                    let caps = session
+                        .hash_ml_dsa_capabilities(key, hash, prehashed)
+                        .map_err(|e| BackendError::from(&e))?;
+                    if caps.can_sign {
+                        always_authenticate |= caps.always_authenticate;
+                        options.push(SignatureOption {
+                            parameters: SignatureProfile::HashMlDsa {
+                                parameter_set: caps.parameter_set,
+                                hash,
+                                prehashed,
+                            },
+                            plan: None,
+                        });
+                    }
+                }
+            }
+            if options.is_empty() {
+                return Err(BackendError::SigningUnavailable);
+            }
+            Ok((options, always_authenticate))
+        }
+        Some(KeyType::SLH_DSA) => {
+            if software {
+                return Err(BackendError::SignatureChoice);
+            }
+            let caps = session
+                .slh_dsa_capabilities(key)
+                .map_err(|e| BackendError::from(&e))?;
+            let mut options = Vec::new();
+            let mut always_authenticate = caps.always_authenticate;
+            if caps.can_sign {
+                options.push(SignatureOption {
+                    parameters: SignatureProfile::SlhDsa(caps.parameter_set),
+                    plan: None,
+                });
+            }
+            for hash in [
+                PrehashAlgorithm::Sha256,
+                PrehashAlgorithm::Sha384,
+                PrehashAlgorithm::Sha512,
+            ] {
+                for prehashed in [false, true] {
+                    let caps = session
+                        .hash_slh_dsa_capabilities(key, hash, prehashed)
+                        .map_err(|e| BackendError::from(&e))?;
+                    if caps.can_sign {
+                        always_authenticate |= caps.always_authenticate;
+                        options.push(SignatureOption {
+                            parameters: SignatureProfile::HashSlhDsa {
+                                parameter_set: caps.parameter_set,
+                                hash,
+                                prehashed,
+                            },
+                            plan: None,
+                        });
+                    }
+                }
+            }
+            if options.is_empty() {
+                return Err(BackendError::SigningUnavailable);
+            }
+            Ok((options, always_authenticate))
         }
         Some(KeyType::EC_EDWARDS) => {
             if software {
@@ -299,6 +514,146 @@ impl Registry {
         })?;
         VerificationCertificate::from_der(der)
     }
+    fn public_verification_options(
+        &self,
+        scope: CryptoScope,
+    ) -> Result<Vec<SignatureOption>, BackendError> {
+        let (index, uri) = self.location(scope.module, scope.token)?;
+        let (reference, class) = self.reference(scope.module, scope.token, scope.object)?;
+        if class != Some(ObjectClass::PUBLIC_KEY) {
+            return Err(BackendError::SigningUnavailable);
+        }
+        let key = PublicKeyRef::new(
+            reference
+                .uri()
+                .to_string()
+                .parse()
+                .map_err(|_| BackendError::SigningUnavailable)?,
+        )
+        .map_err(|_| BackendError::SigningUnavailable)?;
+        let module = &self.modules[index];
+        read_session(module, &uri, module.read_mode(scope.token)?, |session| {
+            public_verification_options(session, &key)
+        })
+    }
+
+    fn verify_public_file(&self, scope: CryptoScope, job: CryptoJob) -> Result<(), BackendError> {
+        match job.parameters {
+            SignatureProfile::HashMlDsa { .. } if job.software_hashing => {
+                return Err(BackendError::SignatureChoice);
+            }
+            SignatureProfile::HashSlhDsa { .. } | SignatureProfile::SlhDsa(_)
+                if job.software_hashing =>
+            {
+                return Err(BackendError::SignatureChoice);
+            }
+            SignatureProfile::SlhDsa(_) | SignatureProfile::HashSlhDsa { .. }
+                if job.domain_context.len() > 255 =>
+            {
+                return Err(BackendError::PqcContext);
+            }
+            SignatureProfile::HashMlDsa { .. } if job.domain_context.len() > 255 => {
+                return Err(BackendError::MlDsaContext);
+            }
+            SignatureProfile::EdDsa(_) if !job.domain_context.is_empty() => {
+                return Err(BackendError::SignatureChoice);
+            }
+            SignatureProfile::Classical(_) if !job.domain_context.is_empty() => {
+                return Err(BackendError::SignatureChoice);
+            }
+            _ => {}
+        }
+        let (index, uri) = self.location(scope.module, scope.token)?;
+        let (reference, class) = self.reference(scope.module, scope.token, scope.object)?;
+        if class != Some(ObjectClass::PUBLIC_KEY) {
+            return Err(BackendError::SigningUnavailable);
+        }
+        let key = PublicKeyRef::new(
+            reference
+                .uri()
+                .to_string()
+                .parse()
+                .map_err(|_| BackendError::SigningUnavailable)?,
+        )
+        .map_err(|_| BackendError::SigningUnavailable)?;
+        let input = read_bounded(&job.input, 16 * 1024 * 1024)?;
+        let signature = read_bounded(&job.signature, 64 * 1024)?;
+        validate_hash_input(job.parameters, input.len())?;
+        let module = &self.modules[index];
+        read_session(module, &uri, module.read_mode(scope.token)?, |session| {
+            match job.parameters {
+                SignatureProfile::Classical(parameters) => session.verify_token(
+                    &key,
+                    &VerifyRequest {
+                        parameters: parameters.request(SignInput::Message(&input)),
+                        signature: &signature,
+                    },
+                    &policy(job.software_hashing),
+                ),
+                SignatureProfile::MlDsa(parameter_set) => session.verify_ml_dsa(
+                    &key,
+                    &MlDsaRequest {
+                        parameter_set,
+                        message: &input,
+                        context: &job.domain_context,
+                        hedging: MlDsaHedging::Deterministic,
+                    },
+                    &signature,
+                ),
+                SignatureProfile::EdDsa(curve) => session.verify_eddsa(
+                    &key,
+                    &EdDsaRequest {
+                        curve,
+                        message: &input,
+                    },
+                    &signature,
+                ),
+                SignatureProfile::SlhDsa(parameter_set) => session.verify_slh_dsa(
+                    &key,
+                    &SlhDsaRequest {
+                        parameter_set,
+                        message: &input,
+                        context: &job.domain_context,
+                        hedging: SlhDsaHedging::Deterministic,
+                    },
+                    &signature,
+                ),
+                SignatureProfile::HashMlDsa {
+                    parameter_set,
+                    hash,
+                    prehashed,
+                } => session.verify_hash_ml_dsa(
+                    &key,
+                    &HashMlDsaRequest {
+                        parameter_set,
+                        input: hash_input(hash, prehashed, &input),
+                        context: &job.domain_context,
+                        hedging: MlDsaHedging::Deterministic,
+                    },
+                    &signature,
+                ),
+                SignatureProfile::HashSlhDsa {
+                    parameter_set,
+                    hash,
+                    prehashed,
+                } => session.verify_hash_slh_dsa(
+                    &key,
+                    &HashSlhDsaRequest {
+                        parameter_set,
+                        input: hash_input(hash, prehashed, &input),
+                        context: &job.domain_context,
+                        hedging: SlhDsaHedging::Deterministic,
+                    },
+                    &signature,
+                ),
+            }
+            .map_err(|error| match error {
+                pkcs11_client::Error::SignatureMismatch => BackendError::SignatureMismatch,
+                other => BackendError::from(&other),
+            })
+        })
+    }
+
     pub(super) fn crypto_options(
         &self,
         scope: CryptoScope,
@@ -321,7 +676,14 @@ impl Registry {
                     signing_options(session, &key, software_hashing)
                 })?
             }
-            CryptoMode::Verify => (self.verification_certificate(scope)?.options(), false),
+            CryptoMode::Verify => {
+                let (_, class) = self.reference(scope.module, scope.token, scope.object)?;
+                if class == Some(ObjectClass::CERTIFICATE) {
+                    (self.verification_certificate(scope)?.options(), false)
+                } else {
+                    (self.public_verification_options(scope)?, false)
+                }
+            }
         };
         Ok(BackendResult::CryptoOptions {
             scope,
@@ -342,6 +704,22 @@ impl Registry {
                 .map_err(|_| BackendError::MlDsaContext)?;
                 if job.software_hashing {
                     return Err(BackendError::SignatureChoice);
+                }
+            }
+            SignatureProfile::HashMlDsa { .. } => {
+                if job.software_hashing {
+                    return Err(BackendError::SignatureChoice);
+                }
+                if job.domain_context.len() > 255 {
+                    return Err(BackendError::MlDsaContext);
+                }
+            }
+            SignatureProfile::SlhDsa(_) | SignatureProfile::HashSlhDsa { .. } => {
+                if job.software_hashing {
+                    return Err(BackendError::SignatureChoice);
+                }
+                if job.domain_context.len() > 255 {
+                    return Err(BackendError::PqcContext);
                 }
             }
             SignatureProfile::EdDsa(_)
@@ -366,6 +744,7 @@ impl Registry {
             return Err(BackendError::AuthenticationUnavailable);
         }
         let input = read_bounded(&job.input, 16 * 1024 * 1024)?;
+        validate_hash_input(job.parameters, input.len())?;
         let signature = read_session(module, &uri, module.read_mode(scope.token)?, |session| {
             let (options, always_authenticate) =
                 signing_options(session, &key, job.software_hashing)?;
@@ -414,6 +793,47 @@ impl Registry {
                     },
                     context,
                 ),
+                SignatureProfile::SlhDsa(parameter_set) => session.sign_slh_dsa(
+                    &key,
+                    &SlhDsaRequest {
+                        parameter_set,
+                        message: &input,
+                        context: &job.domain_context,
+                        hedging: SlhDsaHedging::Required,
+                    },
+                    &SlhDsaSigningPolicy::default(),
+                    context,
+                ),
+                SignatureProfile::HashSlhDsa {
+                    parameter_set,
+                    hash,
+                    prehashed,
+                } => session.sign_hash_slh_dsa(
+                    &key,
+                    &HashSlhDsaRequest {
+                        parameter_set,
+                        input: hash_input(hash, prehashed, &input),
+                        context: &job.domain_context,
+                        hedging: SlhDsaHedging::Required,
+                    },
+                    &HashSlhDsaSigningPolicy::default(),
+                    context,
+                ),
+                SignatureProfile::HashMlDsa {
+                    parameter_set,
+                    hash,
+                    prehashed,
+                } => session.sign_hash_ml_dsa(
+                    &key,
+                    &HashMlDsaRequest {
+                        parameter_set,
+                        input: hash_input(hash, prehashed, &input),
+                        context: &job.domain_context,
+                        hedging: MlDsaHedging::Required,
+                    },
+                    &HashMlDsaSigningPolicy::default(),
+                    context,
+                ),
             }
             .map_err(|e| BackendError::from(&e))?;
             Ok((signature, output))
@@ -431,7 +851,12 @@ impl Registry {
         job: CryptoJob,
     ) -> Result<BackendResult, BackendError> {
         if scope.mode == CryptoMode::Verify {
-            self.verification_certificate(scope)?.verify(job)?;
+            let (_, class) = self.reference(scope.module, scope.token, scope.object)?;
+            if class == Some(ObjectClass::CERTIFICATE) {
+                self.verification_certificate(scope)?.verify(job)?;
+            } else {
+                self.verify_public_file(scope, job)?;
+            }
             return Ok(BackendResult::Verified { scope });
         }
         if scope.mode != CryptoMode::Sign {
@@ -478,6 +903,9 @@ mod eddsa_tests;
 #[cfg(test)]
 #[path = "ml_dsa_tests.rs"]
 mod ml_dsa_tests;
+#[cfg(test)]
+#[path = "pqc_tests.rs"]
+mod pqc_tests;
 #[cfg(test)]
 #[path = "crypto_tests.rs"]
 mod tests;

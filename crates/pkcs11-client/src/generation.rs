@@ -21,6 +21,8 @@ pub struct GenerationCapabilities {
     pub eddsa: Vec<crate::EdDsaCurve>,
     /// Montgomery curves.
     pub montgomery: Vec<crate::MontgomeryCurve>,
+    /// SLH-DSA parameter sets.
+    pub slh_dsa: Vec<crate::SlhDsaParameterSet>,
 }
 impl Provider {
     /// Collect classical, PQC, ECDH and AES generation choices without opening
@@ -44,6 +46,7 @@ impl Provider {
                 .filter(|capability| capability.can_generate)
                 .map(|capability| capability.curve)
                 .collect(),
+            slh_dsa: selected.slh_dsa_generation_options()?,
         })
     }
 }

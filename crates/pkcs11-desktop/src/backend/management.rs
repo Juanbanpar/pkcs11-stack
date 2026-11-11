@@ -2,8 +2,8 @@
 use super::{BackendError, BackendResult, Registry, ResourceId, browse::read_session};
 use pkcs11_client::{
     AesKeyPurpose, AesKeyRequest, AesKeySize, Authentication, CertificateDocument,
-    EcdhKeyPairRequest, KeyKind, MlDsaParameterSet, MlKemParameterSet, NamedCurve, SessionMode,
-    SessionState,
+    EcdhKeyPairRequest, KeyKind, MlDsaParameterSet, MlKemParameterSet, MontgomeryCurve, NamedCurve,
+    SessionMode, SessionState, SlhDsaKeyPairRequest, SlhDsaParameterSet,
 };
 
 use std::{
@@ -19,16 +19,24 @@ pub enum GenerationKind {
     MlKem(MlKemParameterSet),
     Ecdh(NamedCurve),
     EdDsa(pkcs11_client::EdDsaCurve),
+    SlhDsa(SlhDsaParameterSet),
+    HashSlhDsa(SlhDsaParameterSet),
+    Montgomery(MontgomeryCurve),
     Aes(AesKeySize, AesKeyPurpose),
 }
 impl GenerationKind {
     pub fn supports_context_authentication(self) -> bool {
-        matches!(self, Self::Signing(_) | Self::MlDsa(_))
+        matches!(
+            self,
+            Self::Signing(_) | Self::MlDsa(_) | Self::SlhDsa(_) | Self::HashSlhDsa(_)
+        )
     }
     pub fn validate(self, id: &[u8], label: &[u8], context: bool) -> Result<(), BackendError> {
         let valid = match self {
-            Self::Signing(_) | Self::MlDsa(_) => !id.is_empty() && !label.is_empty(),
-            Self::EdDsa(_) => !context && !id.is_empty() && !label.is_empty(),
+            Self::Signing(_) | Self::MlDsa(_) | Self::SlhDsa(_) | Self::HashSlhDsa(_) => {
+                !id.is_empty() && !label.is_empty()
+            }
+            Self::EdDsa(_) | Self::Montgomery(_) => !context && !id.is_empty() && !label.is_empty(),
             Self::MlKem(_) => !context && !id.is_empty() && !label.is_empty(),
             Self::Ecdh(curve) => {
                 !context && EcdhKeyPairRequest { curve, id, label }.validate().is_ok()
@@ -112,6 +120,7 @@ impl Registry {
             .provider
             .generation_capabilities(&uri)
             .map_err(|e| BackendError::from(&e))?;
+        let slh_dsa = choices.slh_dsa;
         Ok(choices
             .signing
             .into_iter()
@@ -120,6 +129,14 @@ impl Registry {
             .chain(choices.ml_kem.into_iter().map(GenerationKind::MlKem))
             .chain(choices.ecdh.into_iter().map(GenerationKind::Ecdh))
             .chain(choices.eddsa.into_iter().map(GenerationKind::EdDsa))
+            .chain(
+                choices
+                    .montgomery
+                    .into_iter()
+                    .map(GenerationKind::Montgomery),
+            )
+            .chain(slh_dsa.clone().into_iter().map(GenerationKind::SlhDsa))
+            .chain(slh_dsa.into_iter().map(GenerationKind::HashSlhDsa))
             .chain(choices.aes.into_iter().flat_map(|size| {
                 [
                     AesKeyPurpose::Encryption,
@@ -221,6 +238,24 @@ impl Registry {
                         ),
                         GenerationKind::EdDsa(curve) => {
                             session.generate_eddsa_key_pair(curve, &id, &label, always_authenticate)
+                        }
+                        GenerationKind::SlhDsa(parameter) => {
+                            session.generate_slh_dsa_key_pair(&SlhDsaKeyPairRequest {
+                                parameter_set: parameter,
+                                id: &id,
+                                label: &label,
+                                always_authenticate,
+                            })
+                        }
+                        GenerationKind::HashSlhDsa(parameter) => session
+                            .generate_hash_slh_dsa_key_pair(&SlhDsaKeyPairRequest {
+                                parameter_set: parameter,
+                                id: &id,
+                                label: &label,
+                                always_authenticate,
+                            }),
+                        GenerationKind::Montgomery(curve) => {
+                            session.generate_montgomery_key_pair(curve, &id, &label)
                         }
                         GenerationKind::MlKem(parameter) => {
                             session.generate_ml_kem_key_pair(parameter, &id, &label)

@@ -16,7 +16,7 @@ mod hkdf;
 mod kem;
 pub use hkdf::HkdfJob;
 mod key_operations;
-pub use key_operations::{KeyJob, KeyProfile};
+pub use key_operations::{KeyJob, KeyProfile, MontgomeryKdfChoice, MontgomeryOutputChoice};
 mod crypto;
 pub use cipher::{AesGcmFiles, CipherJob, CipherParameters};
 mod management;
@@ -315,6 +315,7 @@ pub enum BackendError {
     SigningUnavailable,
     SignatureChoice,
     MlDsaContext,
+    PqcContext,
     ContextRequired,
     CryptoRead,
     SignatureMismatch,
@@ -387,6 +388,9 @@ impl BackendError {
                 "Select a currently permitted signature choice and input/output files."
             }
             Self::MlDsaContext => "ML-DSA context must contain at most 255 UTF-8 bytes.",
+            Self::PqcContext => {
+                "SLH-DSA and hash-PQC context must contain at most 255 UTF-8 bytes."
+            }
             Self::ContextRequired => {
                 "This key requires a per-operation PIN or protected authentication path."
             }

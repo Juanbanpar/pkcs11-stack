@@ -23,7 +23,7 @@ cargo test -p pkcs11-runtime --test oasis_softhsm --test verification_softhsm --
 cargo test -p pkcs11ctl --test oasis_softhsm --locked -- --ignored --test-threads=1
 cargo test -p pkcs11-runtime --test key_operations_softhsm --test generation_softhsm --test aes_gcm_provider --locked -- --ignored --test-threads=1
 # PQC and persistent HKDF have dedicated required provider runners.
-cargo test -p pkcs11-desktop --locked -- --ignored --test-threads=1 --skip persistent_hkdf_desktop --skip ml_dsa --skip ml_kem
+cargo test -p pkcs11-desktop --locked -- --ignored --test-threads=1 --skip persistent_hkdf_desktop --skip ml_dsa --skip ml_kem --skip slh_and_hash_pqc_desktop_signing --skip montgomery_desktop_generation_and_agreement
 bash tools/test-examples.sh client
 cargo test -p pkcs11-client --test softhsm --test administration_softhsm --test generation_softhsm --test aes_gcm_provider --test eddsa_softhsm --locked -- --ignored --test-threads=1
 cargo test -p pkcs11ctl --test softhsm --test aes_gcm --test eddsa_softhsm --locked -- --ignored --test-threads=1

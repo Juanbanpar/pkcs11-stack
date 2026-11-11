@@ -396,6 +396,17 @@ impl<'m> Session<'m> {
         ))
     }
 
+    /// Read the private key's Montgomery curve without reading key bytes.
+    pub fn montgomery_private_curve(
+        &mut self,
+        key: &crate::PrivateKeyRef,
+    ) -> Result<MontgomeryCurve, Error> {
+        curve_of(
+            &self.resolve(key.as_object_ref())?,
+            ObjectClass::PRIVATE_KEY,
+        )
+    }
+
     /// Read a public Montgomery key as raw RFC 7748 bytes.
     pub fn montgomery_public_key(
         &mut self,

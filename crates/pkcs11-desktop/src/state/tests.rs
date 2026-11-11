@@ -1030,6 +1030,8 @@ fn ambiguous_or_wrong_class_objects_do_not_open_crypto_forms() {
     state.objects[0].ambiguous = false;
     state.objects[0].class = Some(pkcs11_client::ObjectClass::PUBLIC_KEY);
     assert!(state.open_crypto(CryptoMode::Sign).is_none());
+    assert!(state.open_crypto(CryptoMode::Verify).is_some());
+    state.object_details.as_mut().unwrap().key_type = Some(pkcs11_client::KeyType::AES);
     assert!(state.open_crypto(CryptoMode::Verify).is_none());
 }
 

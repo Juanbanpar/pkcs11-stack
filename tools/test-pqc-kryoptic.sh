@@ -25,3 +25,5 @@ export PKCS11_TEST_PQC_ISOLATED=1
 export PKCS11_TEST_PQC_OPENSSL=${PKCS11_TEST_PQC_OPENSSL:-openssl}
 cargo test -p pkcs11-runtime --test pqc_kryoptic --locked -- --ignored --test-threads=1
 cargo test -p pkcs11ctl --test pqc_kryoptic --locked -- --ignored --test-threads=1
+cargo test -p pkcs11-desktop --locked -- slh_and_hash_pqc_desktop_signing --ignored --test-threads=1
+cargo test -p pkcs11-desktop --locked -- montgomery_desktop_generation_and_agreement --ignored --test-threads=1
