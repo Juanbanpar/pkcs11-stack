@@ -431,7 +431,7 @@ fn verification_rejects_mismatch_bad_parameters_and_oversized_inputs() {
         assert_eq!(run(&all).status.code(), Some(2));
     }
     for (option, maximum) in [
-        ("--signature", 16 * 1024),
+        ("--signature", 64 * 1024),
         ("--certificate-file", 1024 * 1024),
         ("--input", 64 * 1024 * 1024),
     ] {

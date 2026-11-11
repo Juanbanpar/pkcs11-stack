@@ -86,7 +86,7 @@ fn hash_slh_dsa_and_montgomery_cli_workflows() {
     success(&generated);
 
     let message = scratch.file("hash-slh-message", b"CLI HashSLH-DSA provider message");
-    let signature = scratch.0.join("hash-slh-signature");
+    let signature_path = scratch.0.join("hash-slh-signature");
     let signed = run(&[
         "--module",
         &module,
@@ -104,14 +104,34 @@ fn hash_slh_dsa_and_montgomery_cli_workflows() {
         "--input",
         path(&message),
         "--output",
-        path(&signature),
+        path(&signature_path),
     ]);
     success(&signed);
-    let signature = std::fs::read(&signature).unwrap();
+    let signature = std::fs::read(&signature_path).unwrap();
     assert_eq!(
         signature.len(),
         SlhDsaParameterSet::Sha2_128F.signature_length()
     );
+    let verified = run(&[
+        "--module",
+        &module,
+        "verify",
+        "--key",
+        "pkcs11:token=pqc-test;object=cli-hash-slh;type=public",
+        "--pin-file",
+        path(&pin),
+        "--algorithm",
+        "hash-slh-dsa",
+        "--parameter-set",
+        "slh-dsa-sha2-128f",
+        "--digest",
+        "sha256",
+        "--input",
+        path(&message),
+        "--signature",
+        path(&signature_path),
+    ]);
+    success(&verified);
 
     let provider = Provider::load(&module).unwrap();
     let client = provider

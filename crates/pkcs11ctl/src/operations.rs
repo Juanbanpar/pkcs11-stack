@@ -220,7 +220,7 @@ impl Inputs {
             }
         }
         let signature = if name == "verify" {
-            bounded_input(need(m, "signature")?, 16 * 1024)?
+            bounded_input(need(m, "signature")?, 64 * 1024)?
         } else {
             vec![]
         };
@@ -339,8 +339,13 @@ impl Inputs {
         for selector in ["token", "object", "key", "certificate", "post-quantum"] {
             if get(m, selector).is_some() {
                 let parsed = uri(m, selector)?;
-                if selector == "key" && parsed.path_attribute("type") != Some(b"private") {
-                    return Err(usage("key URI requires type=private"));
+                if selector == "key"
+                    && parsed.path_attribute("type") != Some(b"private")
+                    && !(name == "verify" && parsed.path_attribute("type") == Some(b"public"))
+                {
+                    return Err(usage(
+                        "key URI requires type=private, or type=public for verify",
+                    ));
                 }
                 if (selector == "certificate" || (name == "certificate" && selector == "object"))
                     && parsed.path_attribute("type") != Some(b"cert")
@@ -485,7 +490,11 @@ fn client_command(
     let selector = if name == "certificate" {
         "object"
     } else if name == "verify" {
-        "certificate"
+        if get(m, "key").is_some() {
+            "key"
+        } else {
+            "certificate"
+        }
     } else {
         "key"
     };
@@ -514,6 +523,23 @@ fn client_operation(
     }
     let auth = || inputs.credential.auth(false);
     if name == "verify" {
+        if let Some(key_uri) = get(m, "key") {
+            let key = client.public_key(
+                key_uri.parse().map_err(|_| usage("invalid key URI"))?,
+                auth(),
+            )?;
+            client.verify(
+                &key,
+                &pkcs11_client::VerifyRequest {
+                    parameters: request(m, &inputs.bytes)?,
+                    signature: &inputs.signature,
+                },
+                auth(),
+            )?;
+            return Ok(Output::Structured(
+                json!({"verified":true,"trust_validated":false,"verification":"token"}),
+            ));
+        }
         return verify(
             &VerificationCertificate::Classical(
                 client.certificate(uri(m, "certificate")?, auth())?,

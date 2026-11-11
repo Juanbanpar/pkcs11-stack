@@ -227,6 +227,12 @@ pub(crate) fn options(provider: &Provider, m: &ArgMatches) -> Result<Value> {
         "ml_dsa":options.ml_dsa.into_iter().map(ml_dsa::key_info).collect::<Vec<_>>(),
         "ml_kem":options.ml_kem.into_iter().map(key_establishment::key_info).collect::<Vec<_>>(),
         "eddsa":options.eddsa.into_iter().map(|curve| curve.to_string()).collect::<Vec<_>>(),
-        "montgomery":options.montgomery.into_iter().map(|curve| curve.to_string()).collect::<Vec<_>>()
+        "montgomery":options.montgomery.into_iter().map(|curve| curve.to_string()).collect::<Vec<_>>(),
+        "slh_dsa":options.slh_dsa.iter().copied().map(oasis::slh_key_info).collect::<Vec<_>>(),
+        "hash_slh_dsa":options.slh_dsa.into_iter().map(|parameter| {
+            let mut info = oasis::slh_key_info(parameter);
+            info["profile"] = json!("hash-slh-dsa");
+            info
+        }).collect::<Vec<_>>()
     }))
 }

@@ -47,6 +47,16 @@ pub(crate) fn client_operation(
 ) -> Result<Output> {
     let auth = || inputs.credential.auth(false);
     if name == "verify" {
+        if let Some(key_uri) = get(m, "key") {
+            let key = client.public_key(
+                key_uri.parse().map_err(|_| usage("invalid key URI"))?,
+                auth(),
+            )?;
+            client.verify_eddsa(&key, &request(m, &inputs.bytes)?, &inputs.signature, auth())?;
+            return Ok(Output::Structured(
+                json!({"verified":true,"trust_validated":false,"verification":"token"}),
+            ));
+        }
         let certificate = client.eddsa_certificate(uri(m, "certificate")?, auth())?;
         certificate.verify_signature(&request(m, &inputs.bytes)?, &inputs.signature)?;
         return Ok(Output::Structured(

@@ -93,12 +93,27 @@ pub(crate) fn client_operation(
     m: &ArgMatches,
     inputs: &Inputs,
 ) -> Result<Output> {
+    let auth = || inputs.credential.auth(false);
     if name == "verify" {
-        return Err(usage(
-            "SLH-DSA verification is not exposed through the certificate CLI; use the client API",
+        let Some(key_uri) = get(m, "key") else {
+            return Err(usage(
+                "SLH-DSA verification requires --key with a type=public URI; certificates are not supported",
+            ));
+        };
+        let key = client.public_key(
+            key_uri.parse().map_err(|_| usage("invalid key URI"))?,
+            auth(),
+        )?;
+        client.verify_slh_dsa(
+            &key,
+            &request(m, &inputs.bytes, &inputs.domain_context)?,
+            &inputs.signature,
+            auth(),
+        )?;
+        return Ok(Output::Structured(
+            json!({"verified":true,"trust_validated":false,"verification":"token"}),
         ));
     }
-    let auth = || inputs.credential.auth(false);
     let key = client.private_key(uri(m, "key")?, auth())?;
     let policy = SlhDsaSigningPolicy::default();
     let value = match name {

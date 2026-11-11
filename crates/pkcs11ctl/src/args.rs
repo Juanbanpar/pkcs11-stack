@@ -293,17 +293,29 @@ pub(crate) fn command() -> Command {
         .about("Check bounded pool capacity, role and lease reuse")
         .arg(value("pool-size", "Number of concurrent leases, 1..=64").default_value("2"));
     let verify = Command::new("verify")
-        .about("Verify a raw signature using a certificate; no certificate trust validation")
+        .about(
+            "Verify a raw signature using a certificate or token public key; no trust validation",
+        )
         .arg(
             value("certificate", "Token certificate URI with type=cert")
-                .required_unless_present("certificate-file"),
+                .required_unless_present_any(["certificate-file", "key"]),
         )
         .arg(
             value(
                 "certificate-file",
                 "X.509 DER certificate file; no module required",
             )
-            .conflicts_with_all(["certificate", "pin-file", "protected-path", "role"]),
+            .conflicts_with_all([
+                "certificate",
+                "key",
+                "pin-file",
+                "protected-path",
+                "role",
+            ]),
+        )
+        .arg(
+            value("key", "Token public key URI with type=public")
+                .conflicts_with_all(["certificate", "certificate-file"]),
         )
         .arg(required("signature", "Raw signature file; - reads stdin"));
     let random = Command::new("random")

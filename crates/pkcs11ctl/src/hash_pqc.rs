@@ -149,12 +149,36 @@ pub(crate) fn client_operation(
     m: &ArgMatches,
     inputs: &Inputs,
 ) -> Result<Output> {
+    let auth = || inputs.credential.auth(false);
     if name == "verify" {
-        return Err(usage(
-            "HashML-DSA/HashSLH-DSA certificate verification is not exposed by this CLI",
+        let Some(key_uri) = get(m, "key") else {
+            return Err(usage(
+                "HashML-DSA/HashSLH-DSA verification requires --key with a type=public URI; certificates are not supported",
+            ));
+        };
+        let key = client.public_key(
+            key_uri.parse().map_err(|_| usage("invalid key URI"))?,
+            auth(),
+        )?;
+        if get(m, "algorithm") == Some("hash-ml-dsa") {
+            client.verify_hash_ml_dsa(
+                &key,
+                &request_ml(m, &inputs.bytes, &inputs.domain_context)?,
+                &inputs.signature,
+                auth(),
+            )?;
+        } else {
+            client.verify_hash_slh_dsa(
+                &key,
+                &request_slh(m, &inputs.bytes, &inputs.domain_context)?,
+                &inputs.signature,
+                auth(),
+            )?;
+        }
+        return Ok(Output::Structured(
+            json!({"verified":true,"trust_validated":false,"verification":"token"}),
         ));
     }
-    let auth = || inputs.credential.auth(false);
     let key = client.private_key(uri(m, "key")?, auth())?;
     let value = if get(m, "algorithm") == Some("hash-ml-dsa") {
         let request = request_ml(m, &inputs.bytes, &inputs.domain_context)?;
