@@ -313,3 +313,78 @@ fn software_token_initialization_pin_roles_stale_targets_and_reauthentication() 
     registry.close().unwrap();
     Provider::load(path).unwrap().finalize().unwrap();
 }
+
+#[test]
+#[ignore = "requires tools/test-softhsm.sh disposable store"]
+fn desktop_public_key_import_round_trip() {
+    use crate::backend::ObjectEntry;
+    use pkcs11_client::{ClassicalPublicKeyPurpose, ObjectClass, PublicKeyRef};
+    use std::path::PathBuf;
+
+    assert_eq!(std::env::var("PKCS11_TEST_ISOLATED").as_deref(), Ok("1"));
+    let root = PathBuf::from(std::env::var_os("PKCS11_CLIENT_TEST_DIR").unwrap())
+        .join("desktop-public-import");
+    std::fs::create_dir(&root).unwrap();
+    let mut registry = Registry::default();
+    let module = registry
+        .load(&PathBuf::from(
+            std::env::var_os("PKCS11_TEST_MODULE").unwrap(),
+        ))
+        .unwrap();
+    let token = registry.modules[0]
+        .entry
+        .tokens
+        .iter()
+        .find(|token| token.label == "client-test")
+        .unwrap()
+        .id;
+    registry
+        .login(
+            module,
+            token,
+            LoginRole::User,
+            SecretInput::Value("12345678".into()),
+        )
+        .unwrap();
+    let objects = registry.objects(module, token).unwrap();
+    let public = objects
+        .iter()
+        .find(|entry| entry.label == "p256" && entry.class == Some(ObjectClass::PUBLIC_KEY))
+        .unwrap()
+        .id;
+    let (reference, _) = registry.reference(module, token, public).unwrap();
+    let key = PublicKeyRef::new(reference.uri().to_string().parse().unwrap()).unwrap();
+    let (_, uri) = registry.location(module, token).unwrap();
+    let mut session = registry.modules[0]
+        .provider
+        .management(&uri, SessionMode::ReadOnly, Authentication::None)
+        .unwrap();
+    let der = session.export_public(key.as_object_ref()).unwrap();
+    session.close().unwrap();
+    let path = root.join("p256.spki.der");
+    std::fs::write(&path, der).unwrap();
+    let result = registry.manage(
+        module,
+        token,
+        ManagementAction::ImportPublicKey {
+            path,
+            id: b"desktop-import-p256".to_vec(),
+            label: b"desktop-import-p256".to_vec(),
+            purpose: ClassicalPublicKeyPurpose::Verification,
+        },
+    );
+    let objects: Vec<ObjectEntry> = match result {
+        BackendResult::Managed {
+            objects: Some(objects),
+            error,
+            ..
+        } => {
+            assert_eq!(error, None);
+            objects
+        }
+        result => panic!("unexpected import result: {result:?}"),
+    };
+    assert!(objects.iter().any(|entry| {
+        entry.label == "desktop-import-p256" && entry.class == Some(ObjectClass::PUBLIC_KEY)
+    }));
+}
