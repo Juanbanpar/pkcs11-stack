@@ -669,7 +669,10 @@ and `ManagementSession::import_public_key` validates and imports RSA or named-EC
 SPKI public keys with an explicit verification or RSA-encryption purpose.
 
 `ManagementSession::generate_hash_slh_dsa_key_pair` creates a HashSLH-DSA-only
-pair; pure SLH-DSA keys remain restricted to `CKM_SLH_DSA`.
+pair; pure SLH-DSA keys remain restricted to `CKM_SLH_DSA`. `ManagementSession`
+also exposes token-side verification for classical, EdDSA, ML-DSA, SLH-DSA,
+HashML-DSA and HashSLH-DSA public keys, plus public parameter/curve inspection
+without reading key bytes.
 
 EdDSA is exposed through `generate_eddsa_key_pair`, `sign_eddsa`,
 `verify_eddsa`, `eddsa_capabilities`, `export_eddsa_public_key`,

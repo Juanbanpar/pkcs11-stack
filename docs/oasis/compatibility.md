@@ -60,7 +60,7 @@ coverage. Provider support is separate.
 | HashML-DSA | sign/verify with SHA-2/SHA-3/SHAKE message profiles; SHA-2 caller digests | provider-tested on pinned unmodified Kryoptic |
 | HashSLH-DSA | sign/verify with SHA-2/SHA-3/SHAKE message profiles; SHA-2 caller digests; dedicated HashSLH-only key generation | provider-tested on pinned unmodified Kryoptic |
 | SLH-DSA | key generation, sign/verify, public export, CLI generation/signing | provider-tested on pinned unmodified Kryoptic; independent OpenSSL verification |
-| Objects | create, read, update, destroy, discover, copy (upstream), generate, wrap/unwrap, import certificate/data/public key | RSA/EC public-key import added here |
+| Objects | create, read, update, destroy, discover, copy (upstream), generate, wrap/unwrap, import certificate/data/public key | RSA/EC/EdDSA/Montgomery public-key import added here |
 | Sessions | authentication, protected path, multipart digest/MAC/AES and signature-first verification, cancellation (upstream types absent) | CLI exposes multipart digest/MAC/AES; cancellation is upstream-blocked |
 
 ## Known upstream blockers
@@ -117,7 +117,8 @@ The following runs were executed for this branch:
 The SoftHSM run covers RSA/EC signing, OAEP, AES-GCM, RFC 3394 wrap, HKDF, ML-DSA,
 ML-KEM, TLS and the new digest/MAC/AES block operations. The Kryoptic runs cover
 ML-KEM, ECDH, HKDF, hybrid exchange, SP 800-108, SLH-DSA, HashSLH-DSA,
-HashML-DSA, Montgomery agreement and the related CLI/desktop workflows.
+HashML-DSA, Montgomery agreement and the related CLI/desktop workflows, including
+desktop token verification and CLI `verify --key`.
 
 Provider builds are disposable and unmodified. No provider source patch is part
 of this branch. A provider that lacks a mechanism produces an explicit

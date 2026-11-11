@@ -357,9 +357,24 @@ verification. No external digest, domain context or software-hashing policy is
 accepted. Context-authenticated EdDSA is not offered: published `cryptoki` has no
 single-part signing call after `C_SignInit`, and SoftHSM rejects multipart EdDSA.
 
+## SLH-DSA, hash-PQC and Montgomery
+
+Generation choices include pure SLH-DSA, HashSLH-DSA-only and X25519/X448 pairs.
+Signing forms offer pure SLH-DSA, HashSLH-DSA and HashML-DSA choices with
+SHA-256/384/512 message or caller-digest input and a bounded domain context.
+Public-key verification uses the selected token key; certificate verification
+remains available for classical, ML-DSA and EdDSA certificates. Signature files
+are bounded to 64 KiB so the largest SLH-DSA signatures are accepted.
+
+Montgomery private keys open an agreement form with explicit X9.63/SP 800-56A
+KDF, public shared info, AES or derivation-secret output and raw/SPKI peer input.
+The derived key stays on the token. The pinned Kryoptic provider lane exercises
+desktop SLH-DSA/HashSLH-DSA/HashML-DSA signing, token verification and
+Montgomery agreement with matching AES-GCM keys.
+
 Tests cover state transitions, stale responses, picker results, backend errors,
 shutdown, lazy details, ambiguous objects, metadata redaction and isolated SoftHSM
-module/object/mechanism, USER/SO authentication, object management, signing/verification, AES-GCM, RSA-OAEP, ECDH, EdDSA and RFC 3394 workflows:
+module/object/mechanism, USER/SO authentication, object management, signing/verification, AES-GCM, RSA-OAEP, ECDH, EdDSA, SLH-DSA, hash-PQC, Montgomery and RFC 3394 workflows:
 
 ```sh
 ./tools/test-softhsm.sh

@@ -188,8 +188,9 @@ ECDH, Montgomery and SQLite. The runner creates a temporary store and removes it
 on exit. Tests cover SLH-DSA generation/signing/verification with independent
 OpenSSL verification, HashSLH-DSA and HashML-DSA message and caller-digest
 signatures, dedicated HashSLH-only key generation, Montgomery X25519/X448
-generation/import/derivation with matching AES-GCM keys, and CLI HashSLH and
-Montgomery workflows.
+generation/import/derivation with matching AES-GCM keys, CLI HashSLH signing and
+token verification, CLI Montgomery agreement, and desktop SLH-DSA/HashSLH-DSA/
+HashML-DSA signing and token verification plus Montgomery agreement.
 
 ## AES-GCM provider compatibility
 

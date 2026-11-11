@@ -462,6 +462,11 @@ pkcs11ctl sign --module /path/lib.so   --key 'pkcs11:token=test;object=rsa;type=
 `verify` accepts the same `--digest sha1 --allow-sha1` pair. SHA-1
 `DigestInfo` uses the original `1.3.14.3.2.26` OID.
 
+`verify --key 'pkcs11:...;type=public'` verifies on the token for classical,
+EdDSA, ML-DSA, SLH-DSA, HashML-DSA and HashSLH-DSA profiles. Certificate
+verification remains the default when `--certificate` or `--certificate-file`
+is used. SLH-DSA and hash-PQC certificates are not supported.
+
 SHA-224 signatures are disabled by default. Opt in explicitly:
 
 ```sh
