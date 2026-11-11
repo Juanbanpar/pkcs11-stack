@@ -317,7 +317,7 @@ fn software_token_initialization_pin_roles_stale_targets_and_reauthentication() 
 #[test]
 #[ignore = "requires tools/test-softhsm.sh disposable store"]
 fn desktop_public_key_import_round_trip() {
-    use crate::backend::ObjectEntry;
+    use crate::backend::{GenerationKind, ObjectEntry};
     use pkcs11_client::{ClassicalPublicKeyPurpose, ObjectClass, PublicKeyRef};
     use std::path::PathBuf;
 
@@ -386,5 +386,67 @@ fn desktop_public_key_import_round_trip() {
     };
     assert!(objects.iter().any(|entry| {
         entry.label == "desktop-import-p256" && entry.class == Some(ObjectClass::PUBLIC_KEY)
+    }));
+
+    let objects = match registry.manage(
+        module,
+        token,
+        ManagementAction::Generate {
+            kind: GenerationKind::EdDsa(pkcs11_client::EdDsaCurve::Ed25519),
+            id: b"desktop-import-eddsa-source".to_vec(),
+            label: b"desktop-import-eddsa-source".to_vec(),
+            always_authenticate: false,
+        },
+    ) {
+        BackendResult::Managed {
+            objects: Some(objects),
+            error,
+            ..
+        } => {
+            assert_eq!(error, None);
+            objects
+        }
+        result => panic!("unexpected EdDSA generation result: {result:?}"),
+    };
+    let public = objects
+        .iter()
+        .find(|entry| {
+            entry.label == "desktop-import-eddsa-source"
+                && entry.class == Some(ObjectClass::PUBLIC_KEY)
+        })
+        .unwrap()
+        .id;
+    let (reference, _) = registry.reference(module, token, public).unwrap();
+    let key = PublicKeyRef::new(reference.uri().to_string().parse().unwrap()).unwrap();
+    let mut session = registry.modules[0]
+        .provider
+        .management(&uri, SessionMode::ReadOnly, Authentication::None)
+        .unwrap();
+    let der = session.export_eddsa_public_key(&key).unwrap();
+    session.close().unwrap();
+    let path = root.join("ed25519.spki.der");
+    std::fs::write(&path, der).unwrap();
+    let objects = match registry.manage(
+        module,
+        token,
+        ManagementAction::ImportPublicKey {
+            path,
+            id: b"desktop-import-eddsa".to_vec(),
+            label: b"desktop-import-eddsa".to_vec(),
+            purpose: ClassicalPublicKeyPurpose::Verification,
+        },
+    ) {
+        BackendResult::Managed {
+            objects: Some(objects),
+            error,
+            ..
+        } => {
+            assert_eq!(error, None);
+            objects
+        }
+        result => panic!("unexpected EdDSA import result: {result:?}"),
+    };
+    assert!(objects.iter().any(|entry| {
+        entry.label == "desktop-import-eddsa" && entry.class == Some(ObjectClass::PUBLIC_KEY)
     }));
 }
