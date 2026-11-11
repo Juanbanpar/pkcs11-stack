@@ -340,6 +340,7 @@ pub enum BackendError {
     InvalidForm,
     FileRead,
     MlKemImportInput,
+    PublicKeyImportInput,
     HkdfInput,
     FileWrite,
     ExportUnavailable,
@@ -415,6 +416,9 @@ impl BackendError {
             }
             Self::MlKemImportInput => {
                 "Provide one ML-KEM SPKI DER public key of at most 2048 bytes, a label of 1–128 UTF-8 bytes and an ID of 1–128 hexadecimal bytes."
+            }
+            Self::PublicKeyImportInput => {
+                "Provide one RSA/EC/EdDSA/Montgomery SPKI DER public key of at most 4096 bytes, a label of 1–128 UTF-8 bytes and an ID of 1–128 hexadecimal bytes."
             }
             Self::FileRead => {
                 "Could not read one DER certificate of at most 16 MiB from the selected file."

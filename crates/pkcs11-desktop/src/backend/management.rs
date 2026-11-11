@@ -2,8 +2,9 @@
 use super::{BackendError, BackendResult, Registry, ResourceId, browse::read_session};
 use pkcs11_client::{
     AesKeyPurpose, AesKeyRequest, AesKeySize, Authentication, CertificateDocument,
-    EcdhKeyPairRequest, KeyKind, MlDsaParameterSet, MlKemParameterSet, MontgomeryCurve, NamedCurve,
-    SessionMode, SessionState, SlhDsaKeyPairRequest, SlhDsaParameterSet,
+    ClassicalPublicKey, ClassicalPublicKeyPurpose, EcdhKeyPairRequest, KeyKind, MlDsaParameterSet,
+    MlKemParameterSet, MontgomeryCurve, NamedCurve, PublicKeyImportRequest, SessionMode,
+    SessionState, SlhDsaKeyPairRequest, SlhDsaParameterSet,
 };
 
 use std::{
@@ -61,6 +62,12 @@ pub enum ManagementAction {
         path: PathBuf,
         id: Vec<u8>,
         label: Vec<u8>,
+    },
+    ImportPublicKey {
+        path: PathBuf,
+        id: Vec<u8>,
+        label: Vec<u8>,
+        purpose: ClassicalPublicKeyPurpose,
     },
     Generate {
         kind: GenerationKind,
@@ -202,6 +209,29 @@ impl Registry {
             ManagementAction::ImportCertificate { path, .. } => Some(certificate(path)?),
             _ => None,
         };
+        let imported_public_key = match &action {
+            ManagementAction::ImportPublicKey {
+                path,
+                id,
+                label,
+                purpose,
+            } => {
+                let bytes = super::key_operations::read(path, 4096)
+                    .map_err(|_| BackendError::PublicKeyImportInput)?;
+                let key = ClassicalPublicKey::from_spki_der(&bytes)
+                    .map_err(|_| BackendError::PublicKeyImportInput)?;
+                PublicKeyImportRequest {
+                    key: &key,
+                    purpose: *purpose,
+                    id,
+                    label,
+                }
+                .validate()
+                .map_err(|_| BackendError::PublicKeyImportInput)?;
+                Some(key)
+            }
+            _ => None,
+        };
         if let ManagementAction::Generate { kind, .. } = &action
             && !self.capabilities(module, token)?.contains(kind)
         {
@@ -277,6 +307,14 @@ impl Registry {
                         }
                     }
                 }
+                ManagementAction::ImportPublicKey {
+                    id, label, purpose, ..
+                } => session.import_public_key(&PublicKeyImportRequest {
+                    key: imported_public_key.as_ref().expect("validated public key"),
+                    purpose,
+                    id: &id,
+                    label: &label,
+                }),
                 ManagementAction::ImportMlKem { id, label, .. } => session
                     .import_ml_kem_public_key(
                         public_key.as_ref().expect("parsed public key"),

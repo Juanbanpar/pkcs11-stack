@@ -359,6 +359,10 @@ single-part signing call after `C_SignInit`, and SoftHSM rejects multipart EdDSA
 
 ## SLH-DSA, hash-PQC and Montgomery
 
+The Operations view imports RSA, named-EC, EdDSA and Montgomery SPKI DER
+public keys with an explicit verification or RSA-encryption purpose. The client
+rechecks canonical encoding, duplicate IDs, permissions and provider support.
+
 Generation choices include pure SLH-DSA, HashSLH-DSA-only and X25519/X448 pairs.
 Signing forms offer pure SLH-DSA, HashSLH-DSA and HashML-DSA choices with
 SHA-256/384/512 message or caller-digest input and a bounded domain context.

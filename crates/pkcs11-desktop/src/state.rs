@@ -21,7 +21,9 @@ pub use cipher::{CipherChoice, CipherField, CipherForm};
 mod management;
 mod random;
 pub use crypto::{CryptoField, CryptoForm, SignatureChoice};
-pub use management::{FilePurpose, KeyChoice, ManagementField, ManagementUi};
+pub use management::{
+    FilePurpose, KeyChoice, ManagementField, ManagementUi, PublicKeyPurposeChoice,
+};
 pub use random::{RandomField, RandomUi};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

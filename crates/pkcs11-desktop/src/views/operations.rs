@@ -75,6 +75,12 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
             ),
             task_button(
                 lucide::upload(),
+                "Import RSA/EC/EdDSA/Montgomery Public Key",
+                requirement,
+                ManagementTask::ImportPublicKey
+            ),
+            task_button(
+                lucide::upload(),
                 "Import X.509 Certificate",
                 requirement,
                 ManagementTask::Import
@@ -101,6 +107,15 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
         .into();
     };
     let form: Element<'_, Message> = match task {
+        ManagementTask::ImportPublicKey => column![
+            text("Import RSA/EC/EdDSA/Montgomery public key").size(22).font(EMPHASIS), muted(hint),
+            row![text_input("Public key file (SPKI DER)", &state.management.public_key_path).on_input_maybe(enabled.then_some(move |value| edit(ManagementField::PublicKeyPath, value))), button("Browse…").on_press_maybe((enabled && state.management.file_request.is_none()).then_some(Message::ChoosePublicKey))].spacing(10).align_y(iced::Alignment::End),
+            pick_list(crate::state::PublicKeyPurposeChoice::ALL, Some(state.management.public_key_purpose), Message::PublicKeyPurpose).enabled(enabled),
+            text_input("Public key label (1–128 UTF-8 bytes)", &state.management.public_key_label).on_input_maybe(enabled.then_some(move |value| edit(ManagementField::PublicKeyLabel, value))),
+            text_input("Public key ID (1–128 hexadecimal bytes)", &state.management.public_key_id).on_input_maybe(enabled.then_some(move |value| edit(ManagementField::PublicKeyId, value))),
+            text("Accepts one SPKI DER key up to 4096 bytes: RSA 2048–16384, P-256/384/521, Ed25519/Ed448 or X25519/X448. Verification or RSA-encryption permissions are explicit. Existing IDs can make selection ambiguous; import does not establish identity or private-key possession.").size(14),
+            button("Import public key").style(button::primary).on_press_maybe(enabled.then_some(Message::ImportPublicKey)),
+        ].spacing(12).into(),
         ManagementTask::ImportMlKem => column![
             text("Import ML-KEM public key").size(22).font(EMPHASIS), muted(hint),
             row![text_input("ML-KEM public key file (SPKI DER)", &state.management.ml_kem_path).on_input_maybe(enabled.then_some(move |value| edit(ManagementField::MlKemPath, value))), button("Browse…").on_press_maybe((enabled && state.management.file_request.is_none()).then_some(Message::ChooseMlKem))].spacing(10).align_y(iced::Alignment::End),
