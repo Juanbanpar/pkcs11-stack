@@ -61,7 +61,7 @@ run against unmodified SoftHSM 2.7.0 and pinned Kryoptic builds for ML-DSA,
 ML-KEM, HKDF, SP 800-108, SLH-DSA, hash-PQC, EdDSA and Montgomery. The commands
 and provider setup are in [tests/README.md](tests/README.md).
 
-[The OASIS compatibility document](docs/oasis/compatibility.md) is the single
+[The OASIS compatibility document](docs/oasis-compatibility.md) is the single
 detailed list of supported mechanisms, operations and remaining upstream or
 provider boundaries. This project does not claim formal OASIS conformance.
 

@@ -662,7 +662,7 @@ the runtime capability model without leaking handles. `Client` adds
 All operations reuse the runtime's permission, mechanism, authentication and
 session-health checks. Unsupported families return typed errors rather than
 falling back to software or another algorithm. See
-[`docs/oasis/compatibility.md`](../../docs/oasis/compatibility.md).
+[`docs/oasis-compatibility.md`](../../docs/oasis-compatibility.md).
 
 `ManagementSession::generate_mac_key` creates persistent HMAC or AES-CMAC keys,
 and `ManagementSession::import_public_key` validates and imports RSA or named-EC
