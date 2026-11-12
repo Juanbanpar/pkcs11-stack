@@ -48,66 +48,22 @@ software crypto provider selection stay outside runtime.
 
 ## Status
 
-The libraries and CLI implement discovery, USER/SO authentication, session pooling,
-RSA PKCS#1 v1.5, RSA-PSS and ECDSA signing, certificate/data import and export,
-signing-key generation, object deletion/relabeling, and token/PIN initialization
-and changes. Certificate binding verifies that a selected private key matches a
-certificate and checks each subsequent bound signature.
+`pkcs11-stack` provides a typed Rust surface over PKCS#11 2.40, 3.0, 3.1 and 3.2
+using published `cryptoki` 0.12.1. It covers module and token discovery, sessions,
+authentication, object management, classical RSA/EC signing and encryption, AES,
+ECDH/HKDF/SP 800-108, ML-DSA, ML-KEM, SLH-DSA, hash-PQC, EdDSA, Montgomery,
+token-side verification and TLS client/server authentication. Private and secret
+key material stays on the token.
 
-The CLI can also verify signatures using a DER certificate file without loading a
-module, verify against a token certificate, and save token-generated random bytes.
+The workspace is checked with formatting, compilation, Clippy, unit and
+integration tests, documentation and dependency-boundary checks. Provider suites
+run against unmodified SoftHSM 2.7.0 and pinned Kryoptic builds for ML-DSA,
+ML-KEM, HKDF, SP 800-108, SLH-DSA, hash-PQC, EdDSA and Montgomery. The commands
+and provider setup are in [tests/README.md](tests/README.md).
 
-Runtime and client support pure ML-DSA-44/65/87 key generation, signing, token
-verification and public-key SPKI export. Requests use explicit parameter sets,
-contexts and hedging choices. The client also verifies signatures in software
-and binds token private keys to ML-DSA certificates, checking each subsequent
-bound signature. The CLI exposes these workflows, including offline certificate
-verification and context authentication.
-
-Runtime and client also support ML-KEM-512/768/1024 key generation, encapsulation
-and decapsulation, with RFC 9935 public-key import/export. Raw shared secrets remain sensitive and nonextractable on the
-token, with only further derivation permitted. Typed HKDF extract-and-expand
-creates nonextractable AES keys or further derivation secrets on the same token.
-The CLI exposes ML-KEM generation, public-key exchange, encapsulation,
-decapsulation and HKDF derivation. A P-256 || ML-KEM-768 application combiner
-derives token-held keys using HKDF-SHA512; callers supply authenticated component
-secrets and protocol context. It does not define a wire protocol.
-
-The TLS adapter supports server and mutual authentication with TLS 1.3 and optional
-TLS 1.2. RSA and EC P-256/P-384/P-521 work across those versions; ML-DSA
-authentication requires TLS 1.3. An optional hybrid-only provider policy requires
-X25519MLKEM768 and prevents classical key-exchange fallback. TLS key exchange
-and its key schedule run in the application's crypto provider; signing keys stay
-on the token. TLS use requires verification support from that provider. See the
-[signing and TLS examples](docs/examples.md) for runnable programs.
-
-RSA-OAEP encryption/decryption supports SHA-2 with a matching MGF1 digest and
-empty label. It processes one RSA block. Raw ECDH creates token-held generic
-secrets on P-256/P-384/P-521; AES key wrapping and unwrapping use RFC 3394.
-Runtime and client generate derivation-only EC pairs and AES keys restricted to
-encryption/decryption or wrapping/unwrapping. A shared client capability query
-reports generation choices for the CLI and GUI. Both expose ECDH and AES
-generation with explicit purposes.
-AES-GCM is available through the libraries, CLI and desktop with 12-byte
-caller-managed nonces, full 16-byte tags and authenticated, zeroizing plaintext
-output. File workflows use raw ciphertext followed by the tag, with a separate
-nonce and optional AAD file. Plaintext is limited to 16 MiB.
-Private-key import is not implemented. Certificate parsing and binding do not validate
-certificate trust; applications configure trust separately.
-
-The desktop application loads and unloads modules, enumerates slots and tokens,
-and browses visible objects and advertised mechanisms with filters and metadata
-details. USER/SO login and logout support host PINs and token-protected
-authentication paths. Refresh updates inventories and clears stale selections.
-The GUI also generates RSA/EC and ML-DSA signing pairs, ML-KEM pairs, ECDH pairs
-and AES keys, imports DER certificates and ML-KEM public keys, confirms
-object deletion, exports public objects, signs files with RSA/EC or ML-DSA keys,
-and verifies RSA/EC or ML-DSA signatures against selected certificates. It can also save bytes from a token's random
-generator, encrypt/decrypt AES-GCM files or small RSA-OAEP payloads, derive ECDH
-secrets, wrap/unwrap AES keys with permitted keys, and encapsulate/decapsulate
-ML-KEM secrets. HKDF derives AES or derivation-only keys without exporting key values.
-Administration supports confirmed token initialization, USER PIN initialization/reset, and USER/SO PIN changes with host PINs.
-Hybrid KEM workflows remain available through the libraries and CLI.
+[The OASIS compatibility document](docs/oasis/compatibility.md) is the single
+detailed list of supported mechanisms, operations and remaining upstream or
+provider boundaries. This project does not claim formal OASIS conformance.
 
 ## Development
 

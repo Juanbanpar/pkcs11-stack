@@ -1,148 +1,91 @@
-# OASIS PKCS#11 compatibility guide
+# OASIS PKCS#11 compatibility
 
-This guide explains how `pkcs11-stack` relates to OASIS PKCS#11 2.40, 3.0, 3.1
-and 3.2. It is deliberately narrower than a claim of conformance. Three layers
-must agree before an operation is useful:
-
-1. the OASIS standard defines the mechanism or function;
-2. the published upstream dependency can represent and execute it safely;
-3. the connected provider advertises it and permits it for the selected key and
-   session.
-
-This project can only provide the first two layers and a typed application path.
-Provider behaviour is established by provider tests, never by compilation.
+`pkcs11-stack` targets PKCS#11 2.40, 3.0, 3.1 and 3.2 through the published
+`cryptoki` 0.12.1 API. This is a support matrix, not a claim of formal OASIS
+conformance. A mechanism is listed as implemented only when the runtime, client,
+CLI and, where applicable, desktop have a typed path through the published API.
 
 ## Interface negotiation
 
-`pkcs11-runtime` uses published `cryptoki` 0.12.1. That release already:
+`cryptoki` requests the 3.2 interface, then the 3.0 function list, then the
+legacy 2.40 list. The runtime exposes per-function availability and library
+metadata. It does not invent a selected-interface selector because the published
+API does not expose one.
 
-- requests the 3.2 interface through `C_GetInterface`;
-- falls back to the 3.0 function list, then to the legacy 2.40
-  `C_GetFunctionList`;
-- stores the largest known function-list layout and exposes
-  `is_fn_supported(Function)`;
-- reports library metadata through `C_GetInfo`.
+## Implemented mechanisms
 
-`Module::function_availability()` and `Module::supports_function()` expose the
-selected list without invoking a function. The runtime never calls a function
-because its name exists in the 3.2 specification.
-
-The exact selected interface version is not exposed by published `cryptoki`
-0.12.1. The runtime therefore reports:
-
-- `C_GetInfo` Cryptoki/library versions (library metadata);
-- per-function availability from the selected function list (interface
-  behaviour).
-
-It does not invent an interface-version selector. A module that implements only
-legacy entry points still works through the upstream fallback.
-
-## Supported families and operations
-
-The following are implemented with published APIs and have runtime/client/CLI
-coverage. Provider support is separate.
-
-| Family | Implemented operations | Notes |
+| Family | Operations | Notes |
 |---|---|---|
-| RSA | key generation, PKCS#1 v1.5 and PSS sign/verify, OAEP encrypt/decrypt | SHA-1/224/256/384/512 combined mechanisms; SHA-1 and SHA-224 are opt-in |
+| RSA | key generation, PKCS#1 v1.5/PSS sign/verify, OAEP encrypt/decrypt | SHA-1/224/256/384/512; SHA-1 and SHA-224 are opt-in |
 | ECDSA | key generation, sign/verify | P-256/P-384/P-521; SHA-1 and SHA-224 are opt-in |
 | ECDH | key-pair generation, raw derivation, SHA-2 KDF profiles | token-held secrets only |
-| EdDSA | Ed25519/Ed448 key generation, sign/verify, public export/import, CLI and desktop; rustls Ed25519 | pure original-message profile; context-authenticated EdDSA is upstream-blocked |
-| Montgomery | X25519/X448 generation, public import/export, ECDH derivation with null/SHA-2 KDFs | provider-tested on a pinned unmodified Kryoptic build |
-| AES | key generation, ECB/CBC/CBC-PAD, GCM single-part, CMAC, RFC 3394 wrap/unwrap | CBC/CBC-PAD added here; GCM and KW already existed |
-| DES/3DES | upstream types available | not exposed by this branch; legacy only |
-| SHA-1/SHA-2 | single-part and multipart digest | SHA-1 signatures are legacy opt-in; SHA-3 is upstream-blocked |
-| HMAC | full-tag SHA-1/SHA-2 single-part and multipart | general-length and SHA-3 are upstream-blocked |
-| SP 800-108 | counter, feedback, double-pipeline; HMAC-SHA-1/2 and AES-CMAC PRFs | added here |
-| HKDF | extract-and-expand, token-held salt | already existed |
-| ML-KEM | key generation, encapsulation, decapsulation, public import/export | already existed |
-| ML-DSA | key generation, sign/verify, public export | already existed |
-| HashML-DSA | sign/verify with SHA-2/SHA-3/SHAKE message profiles; SHA-2 caller digests | provider-tested on pinned unmodified Kryoptic |
-| HashSLH-DSA | sign/verify with SHA-2/SHA-3/SHAKE message profiles; SHA-2 caller digests; dedicated HashSLH-only key generation | provider-tested on pinned unmodified Kryoptic |
-| SLH-DSA | key generation, sign/verify, public export, CLI generation/signing | provider-tested on pinned unmodified Kryoptic; independent OpenSSL verification |
-| Objects | create, read, update, destroy, discover, copy (upstream), generate, wrap/unwrap, import certificate/data/public key | RSA/EC/EdDSA/Montgomery public-key import added here |
-| Sessions | authentication, protected path, multipart digest/MAC/AES and signature-first verification, cancellation (upstream types absent) | CLI exposes multipart digest/MAC/AES; cancellation is upstream-blocked |
+| EdDSA | Ed25519/Ed448 generation, sign/verify, import/export | pure original-message profile; context authentication is blocked |
+| Montgomery | X25519/X448 generation, import/export, ECDH derivation | `CKD_NULL`, X9.63 and SP 800-56A SHA-2 KDFs |
+| AES | key generation, ECB/CBC/CBC-PAD, GCM single-part, CMAC, RFC 3394 wrap/unwrap | caller-managed nonce for GCM |
+| SHA-1/SHA-2 | single-part and multipart digest | SHA-3 is blocked upstream |
+| HMAC | full-tag SHA-1/SHA-2 single-part and multipart | general-length MACs are blocked upstream |
+| SP 800-108 | counter, feedback and double-pipeline | HMAC-SHA-1/2 and AES-CMAC PRFs |
+| HKDF | extract-and-expand with token-held salt | SHA-1/224/256/384/512 |
+| ML-KEM | generation, encapsulation, decapsulation, public import/export | RFC 9935 SPKI |
+| ML-DSA | generation, sign/verify, public export | explicit parameter sets, context and hedging |
+| HashML-DSA | sign/verify with SHA-2/SHA-3/SHAKE message profiles; SHA-2 caller digests | provider-tested on Kryoptic |
+| SLH-DSA | generation, sign/verify, public export | provider-tested on Kryoptic; independent OpenSSL verification |
+| HashSLH-DSA | sign/verify with SHA-2/SHA-3 message profiles; SHA-2 caller digests | dedicated HashSLH-only key generation |
+| Objects | create/read/update/destroy/discover, generate, wrap/unwrap, import/export | RSA/EC/EdDSA/Montgomery public-key import |
+| Sessions | authentication, protected path, multipart operations, session pooling | cancellation is blocked upstream |
 
-## Known upstream blockers
+Application surfaces:
 
-Published `cryptoki` 0.12.1 has no typed `MechanismType` conversion or
-`Mechanism` variant for these standard mechanisms. The project does not use raw
-FFI, a fork, duplicated bindings or a replacement engine to work around them.
+- **CLI:** discovery, key and certificate management, signing and token or
+  certificate verification, AES/HKDF/KBKDF, ML-KEM, ML-DSA, SLH/hash-PQC, EdDSA,
+  Montgomery and token administration.
+- **Desktop:** module/token/object browsing, generation, signing and token or
+  certificate verification, AES-GCM/KW, RSA-OAEP, ECDH, HKDF, ML-KEM, ML-DSA,
+  SLH/hash-PQC, EdDSA, Montgomery agreement, public-key import and administration.
 
-| Area | Blocked identifiers |
+## Upstream-blocked
+
+These identifiers or operations cannot be implemented through published
+`cryptoki` 0.12.1 without a fork, raw FFI, duplicated bindings or unsafe code.
+
+| Area | Blocked identifiers or capability |
 |---|---|
 | AEAD | `CKM_AES_CCM`, `CKM_CHACHA20_POLY1305`, `CKM_AES_XTS` |
-| Key wrap | `CKM_AES_KEY_WRAP_KWP` (RFC 5649) |
+| Key wrap | `CKM_AES_KEY_WRAP_KWP` |
 | Password KDF | `CKM_PKCS5_PBKD2` |
-| SHA-3 | `CKM_SHA3_*`, `CKM_SHA3_*_HMAC*`, `CKM_SHA3_*_RSA_*`, `CKM_ECDSA_SHA3_*` |
+| SHA-3/SHAKE | `CKM_SHA3_*`, SHA-3/SHAKE HMAC, RSA and ECDSA combinations |
 | SHA-512/t | `CKM_SHA512_224*`, `CKM_SHA512_256*`, `CKM_SHA512_T*` |
 | General MAC | `CKM_*_HMAC_GENERAL`, `CKM_AES_CMAC_GENERAL` |
-| Legacy | DSA, DH, RC2/RC4, IDEA, CAST, Blowfish, SSL/TLS PRF and most vendor families |
 | Cancellation | no typed `C_SessionCancel` wrapper |
-| Bounded output | no caller-bounded single-part/multipart completion |
-| Message-based AEAD | no parameterless `CKM_AES_GCM` message-init mechanism and no bounded `C_EncryptMessage`/`C_DecryptMessage` completion; `decrypt_message` returns an unbounded `Vec` |
-| Initialized single-part signing | no `sign_initialized_into`; context-authenticated EdDSA would need single-part `C_Sign` after `C_SignInit` and `C_Login(CKU_CONTEXT_SPECIFIC)`, while only multipart completion is exposed |
-| Interface selector | no public selected-interface metadata |
+| Bounded output | no caller-bounded single-part or multipart completion |
+| Message-based AEAD | no parameterless message-init AES-GCM variant and no bounded message completion |
+| Initialized single-part signing | no single-part completion after explicit `sign_init`; context-authenticated EdDSA is rejected |
+| Interface metadata | no public selected-interface selector |
+| Legacy | DSA, DH, RC2/RC4, IDEA, CAST, Blowfish, most PBE and vendor mechanisms |
 
-The full per-identifier list is in `coverage.md` and `inventory.json`. The
-`UPSTREAM_BLOCKED` status means "cannot be executed without violating the
-no-fork/no-raw-FFI constraints", not "the standard omits it". Draft upstream
-requests are recorded in [`upstream-issues.md`](upstream-issues.md).
-
-## Implemented but not yet exposed or verified
-
-| Item | State | Reason |
-|---|---|---|
-| EdDSA provider verification | Ed25519/Ed448 runtime, client, CLI and SoftHSM tests | rustls Ed25519 TLS 1.3 handshake tested; Ed448 stays out of TLS |
-| EdDSA context authentication | upstream-blocked | published `cryptoki` has no single-part initialized signing call, and SoftHSM rejects multipart EdDSA; generation with `--always-authenticate` is rejected |
-| SLH-DSA context authentication | provider-dependent | the runtime uses multipart completion for always-authenticate keys; the pinned Kryoptic provider was tested with non-context keys only |
-| SLH-DSA CLI verification | client/runtime only | the CLI verification path is certificate-based; SLH-DSA certificates are not supported |
-| Message-based AES-GCM | upstream-blocked | published `cryptoki` 0.12.1 has no parameterless `CKM_AES_GCM` message-init variant and no bounded `encrypt_message_into`/`decrypt_message_into`; the available `decrypt_message` returns an unbounded `Vec` that cannot be zeroized on failure |
-| Public-key import | implemented for RSA/named EC/EdDSA/Montgomery | SPKI validation, purpose policy and duplicate-ID checks |
-| DSA/DH/legacy ciphers | upstream representable in part, not exposed | security policy and lack of typed variants |
+Context-authenticated EdDSA is rejected at generation and signing. SLH-DSA
+context authentication remains provider-dependent and was not exercised by the
+pinned provider lane.
 
 ## Provider evidence
 
-The following runs were executed for this branch:
+| Provider | Build | Coverage |
+|---|---|---|
+| SoftHSM | 2.7.0, unmodified | classical signing/OAEP, digest/HMAC/AES, SHA-1/SHA-224 opt-in, EdDSA, TLS, CLI and desktop workflows, public-key import |
+| SoftHSM PQC | pinned OpenSSL 3.5.9 + SoftHSM, unmodified | ML-DSA runtime/client/CLI/TLS/desktop |
+| Kryoptic | pinned SP 800-108 build, unmodified | ML-KEM, ECDH, HKDF, hybrid exchange, CLI/desktop derivation |
+| Kryoptic | pinned all-features build, unmodified | SLH-DSA, HashSLH-DSA, HashML-DSA, Montgomery, ML-KEM, ECDH, HKDF, CLI/desktop workflows |
+| NSS | optional lane | no NSS module was available in this environment |
 
-| Provider | Build | Tests | Result |
-|---|---|---|---|
-| SoftHSM | 2.7.0 (unmodified) | `tools/test-softhsm.sh`, including digest/HMAC/AES-CMAC/AES-CBC known answers, token RSA/ECDSA verification, opt-in SHA-1/SHA-224 RSA/ECDSA signing, EdDSA generation/signing/verification, Ed25519 TLS 1.3, CLI workflows, MAC key generation, public-key import and Montgomery negative coverage | pass |
-| SoftHSM PQC | pinned OpenSSL 3.5.9 + SoftHSM build (unmodified) | `tools/test-ml-dsa.sh` (runtime, client, CLI, TLS, desktop) | pass |
-| Kryoptic | pinned SP 800-108 build (unmodified) | `tools/test-kem-hkdf.sh`, including KBKDF determinism/usable-output and CLI derivation tests | pass |
-| Kryoptic | pinned build (unmodified) | `tools/test-ml-kem.sh` (runtime, client, desktop) | pass |
-| Kryoptic | pinned all-features build (unmodified) | `tools/test-pqc-kryoptic.sh`: SLH-DSA generation/sign/verify with independent OpenSSL verification, HashSLH-DSA and HashML-DSA message and caller-digest signatures, HashSLH-only key generation, Montgomery generation/import/derivation and AES-GCM agreement, CLI HashSLH and Montgomery workflows | pass |
-| All above | pinned provider builds | `./tools/test.sh` with the provider environment | pass |
-
-The SoftHSM run covers RSA/EC signing, OAEP, AES-GCM, RFC 3394 wrap, HKDF, ML-DSA,
-ML-KEM, TLS and the new digest/MAC/AES block operations. The Kryoptic runs cover
-ML-KEM, ECDH, HKDF, hybrid exchange, SP 800-108, SLH-DSA, HashSLH-DSA,
-HashML-DSA, Montgomery agreement and the related CLI/desktop workflows, including
-desktop token verification and CLI `verify --key`.
-
-Provider builds are disposable and unmodified. No provider source patch is part
-of this branch. A provider that lacks a mechanism produces an explicit
-`Unsupported*` error; it is never silently downgraded.
+Provider stores are temporary. Provider builds are unmodified; no provider patch
+is part of this repository.
 
 ## Security boundaries
 
-- Private and secret keys remain on the token. The runtime reads only public
-  attributes and never exports private material.
-- No software fallback exists for token-bound operations.
-- `CKA_ALLOWED_MECHANISMS`, `CKA_SIGN`/`VERIFY`/`ENCRYPT`/`DECRYPT`/`DERIVE`,
-  context authentication and provider flags are checked before execution.
-- AEAD plaintext is returned only after authentication and exact-length checks.
-- Failed operations mark the session unhealthy; it is not returned to the pool.
+- Private and secret keys remain on the token; no key value is logged or exported.
+- There is no software fallback for token-bound operations.
+- Authentication, usage flags, `CKA_ALLOWED_MECHANISMS`, session permissions and
+  provider capabilities are checked before execution.
+- AEAD plaintext is released only after authentication and exact-length checks.
+- Failed or incomplete operations do not return sessions to the pool.
 - State-changing operations are not retried.
-- Decryption output is zeroizing and redacted in `Debug`.
-
-## What this is not
-
-This branch does not claim complete OASIS 3.2 support. It claims:
-
-- every identifier in the locked 3.2 headers is represented in the inventory;
-- every executable mechanism has a published upstream path;
-- every executed operation has a runtime capability check;
-- the listed providers pass the listed tests;
-- every remaining gap is `UPSTREAM_BLOCKED`, not implemented, or not yet
-  provider-verified, as recorded in `coverage.md`.
