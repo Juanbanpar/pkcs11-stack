@@ -34,14 +34,48 @@ API does not expose one.
 | Objects | create/read/update/destroy/discover, generate, wrap/unwrap, import/export | RSA/EC/EdDSA/Montgomery public-key import |
 | Sessions | authentication, protected path, multipart operations, session pooling | cancellation is blocked upstream |
 
-Application surfaces:
+### Application surfaces
 
-- **CLI:** discovery, key and certificate management, signing and token or
-  certificate verification, AES/HKDF/KBKDF, ML-KEM, ML-DSA, SLH/hash-PQC, EdDSA,
-  Montgomery and token administration.
-- **Desktop:** module/token/object browsing, generation, signing and token or
-  certificate verification, AES-GCM/KW, RSA-OAEP, ECDH, HKDF, ML-KEM, ML-DSA,
-  SLH/hash-PQC, EdDSA, Montgomery agreement, public-key import and administration.
+`Runtime` is the typed execution layer. `Client`, `CLI` and `Desktop` are
+application surfaces. A dash means no typed application operation; it does not
+imply that the provider lacks the mechanism.
+
+| Operation | Runtime | Client | CLI | Desktop |
+|---|---|---|---|---|
+| Module/token discovery | Yes | Yes | Yes | Yes |
+| Session authentication and pooling | Yes | Yes | Yes | Yes |
+| Object discovery and metadata read | Yes | Yes | Yes | Yes |
+| Key/certificate generation and import | Yes | Yes | Yes | Yes |
+| Object delete and public export | Yes | Yes | Yes | Yes |
+| Object relabel | Yes | Yes | Yes | — |
+| Token and PIN administration | Yes | Yes | Yes | Yes |
+| Random bytes | Yes | Yes | Yes | Yes |
+| RSA key generation | Yes | Yes | Yes | Yes |
+| RSA PKCS#1 v1.5 / PSS sign and verify | Yes | Yes | Yes | Yes |
+| RSA-OAEP encryption/decryption | Yes | Yes | — | Yes |
+| ECDSA key generation, sign, verify | Yes | Yes | Yes | Yes |
+| ECDH key generation | Yes | Yes | Yes | Yes |
+| Raw ECDH derivation | Yes | Yes | — | Yes |
+| EdDSA key generation, sign, verify | Yes | Yes | Yes | Yes |
+| Montgomery key generation and derivation | Yes | Yes | Yes | Yes |
+| AES key generation | Yes | Yes | Yes | Yes |
+| AES-ECB / CBC / CBC-PAD | Yes | Yes | Yes | — |
+| AES-GCM single-part | Yes | Yes | Yes | Yes |
+| AES-CMAC | Yes | Yes | Yes | — |
+| AES key wrap/unwrap | Yes | Yes | — | Yes |
+| SHA-1/SHA-2 digest, single-part and multipart | Yes | Yes | Yes | — |
+| HMAC, single-part and multipart | Yes | Yes | Yes | — |
+| HKDF extract-and-expand | Yes | Yes | Yes | Yes |
+| SP 800-108 counter/feedback/double-pipeline | Yes | Yes | Yes | — |
+| ML-KEM generation, encapsulation/decapsulation | Yes | Yes | Yes | Yes |
+| ML-DSA generation, sign, verify | Yes | Yes | Yes | Yes |
+| HashML-DSA sign, verify | Yes | Yes | Yes | Yes |
+| SLH-DSA generation, sign, verify | Yes | Yes | Yes | Yes |
+| HashSLH-DSA sign, verify | Yes | Yes | Yes | Yes |
+| Public-key import | Yes | Yes | Yes | Yes |
+| Certificate import/export | Yes | Yes | Yes | Yes |
+| Cancellation | — | — | — | — |
+| Message-based AES-GCM | — | — | — | — |
 
 ## Upstream-blocked
 
