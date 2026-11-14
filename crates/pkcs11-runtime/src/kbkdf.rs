@@ -21,7 +21,7 @@ use cryptoki::{
     },
     object::KeyType,
 };
-use std::num::NonZeroUsize;
+use std::{ffi::c_ulong, num::NonZeroUsize};
 
 /// SP 800-108 mode.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -224,7 +224,7 @@ pub struct KbkdfCapabilities {
     pub mode: KbkdfMode,
 }
 
-fn base_metadata(object: &Object<'_, '_>) -> Result<(u64, usize), Error> {
+fn base_metadata(object: &Object<'_, '_>) -> Result<(c_ulong, usize), Error> {
     for (kind, expected) in [
         (
             AttributeType::Class,

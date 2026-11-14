@@ -17,6 +17,7 @@ use cryptoki::{
     mechanism::Mechanism,
     object::KeyType,
 };
+use std::ffi::c_ulong;
 
 /// Maximum single-part MAC input, in bytes (64 MiB).
 pub const MAC_MAXIMUM_INPUT: usize = 64 * 1024 * 1024;
@@ -24,12 +25,12 @@ pub const MAC_MAXIMUM_INPUT: usize = 64 * 1024 * 1024;
 /// Published `cryptoki` 0.12.1 maps `KeyType::SHA224_HMAC`, `SHA384_HMAC` and
 /// `SHA512_HMAC` to the SHA-256 key-type value. The OASIS numeric values are
 /// used here so that a provider's actual `CKA_KEY_TYPE` is not misclassified.
-const CKK_SHA_1_HMAC: u64 = 0x0000_0028;
-const CKK_SHA224_HMAC: u64 = 0x0000_002e;
-const CKK_SHA256_HMAC: u64 = 0x0000_002b;
-const CKK_SHA384_HMAC: u64 = 0x0000_002c;
-const CKK_SHA512_HMAC: u64 = 0x0000_002d;
-const CKK_GENERIC_SECRET: u64 = 0x0000_0010;
+const CKK_SHA_1_HMAC: c_ulong = 0x0000_0028;
+const CKK_SHA224_HMAC: c_ulong = 0x0000_002e;
+const CKK_SHA256_HMAC: c_ulong = 0x0000_002b;
+const CKK_SHA384_HMAC: c_ulong = 0x0000_002c;
+const CKK_SHA512_HMAC: c_ulong = 0x0000_002d;
+const CKK_GENERIC_SECRET: c_ulong = 0x0000_0010;
 
 /// MAC algorithms executable through the published upstream binding.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -94,7 +95,7 @@ impl MacAlgorithm {
         }
     }
 
-    fn key_type(self) -> u64 {
+    fn key_type(self) -> c_ulong {
         match self {
             Self::HmacSha1 => CKK_SHA_1_HMAC,
             Self::HmacSha224 => CKK_SHA224_HMAC,
@@ -109,7 +110,7 @@ impl MacAlgorithm {
     ///
     /// Generic secret keys are accepted for HMAC, as permitted by the PKCS#11
     /// mechanism descriptions. AES-CMAC requires an AES key.
-    pub(crate) fn matches_key_type(self, kind: u64) -> bool {
+    pub(crate) fn matches_key_type(self, kind: c_ulong) -> bool {
         match self {
             Self::AesCmac => kind == *KeyType::AES,
             _ => kind == self.key_type() || kind == CKK_GENERIC_SECRET,
@@ -141,7 +142,7 @@ pub struct MacCapabilities {
     pub can_verify: bool,
 }
 
-fn key_type(object: &Object<'_, '_>) -> Result<u64, Error> {
+fn key_type(object: &Object<'_, '_>) -> Result<c_ulong, Error> {
     match attribute(object, AttributeType::KeyType, true)? {
         Some(Attribute::KeyType(kind)) => Ok(*kind),
         _ => Err(Error::MissingMetadata("MAC key type")),
