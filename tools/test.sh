@@ -9,3 +9,9 @@ bash tools/test-softhsm.sh
 bash tools/test-ml-dsa.sh
 bash tools/test-ml-kem.sh
 bash tools/test-kem-hkdf.sh
+
+if [[ -n ${PKCS11_TEST_PQC_MODULE:-} ]]; then
+    bash tools/test-pqc-kryoptic.sh
+else
+    echo 'PKCS11_TEST_PQC_MODULE is not set; the SLH-DSA/HashSLH-DSA/HashML-DSA/Montgomery provider lane was not run.' >&2
+fi

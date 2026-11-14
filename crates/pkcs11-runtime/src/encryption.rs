@@ -38,6 +38,8 @@ impl RsaOaepCapabilities {
 }
 fn mechanism(digest: DigestAlgorithm) -> Mechanism<'static> {
     let (hash, mgf) = match digest {
+        DigestAlgorithm::Sha1 => (MechanismType::SHA1, PkcsMgfType::MGF1_SHA1),
+        DigestAlgorithm::Sha224 => (MechanismType::SHA224, PkcsMgfType::MGF1_SHA224),
         DigestAlgorithm::Sha256 => (MechanismType::SHA256, PkcsMgfType::MGF1_SHA256),
         DigestAlgorithm::Sha384 => (MechanismType::SHA384, PkcsMgfType::MGF1_SHA384),
         DigestAlgorithm::Sha512 => (MechanismType::SHA512, PkcsMgfType::MGF1_SHA512),

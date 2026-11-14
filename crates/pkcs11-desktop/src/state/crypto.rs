@@ -1,7 +1,66 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use super::*;
 use crate::backend::{CryptoJob, CryptoMode, CryptoScope, SignatureOption, SignatureProfile};
-use pkcs11_client::{DigestAlgorithm, KeyType, ObjectClass, SignatureAlgorithm};
+use pkcs11_client::{
+    DigestAlgorithm, KeyType, ObjectClass, PrehashAlgorithm, SignatureAlgorithm, SlhDsaParameterSet,
+};
+
+fn ml_dsa_name(parameter: pkcs11_client::MlDsaParameterSet) -> &'static str {
+    match parameter {
+        pkcs11_client::MlDsaParameterSet::MlDsa44 => "ML-DSA-44",
+        pkcs11_client::MlDsaParameterSet::MlDsa65 => "ML-DSA-65",
+        pkcs11_client::MlDsaParameterSet::MlDsa87 => "ML-DSA-87",
+    }
+}
+
+fn slh_dsa_name(parameter: SlhDsaParameterSet) -> &'static str {
+    match parameter {
+        SlhDsaParameterSet::Sha2_128S => "SLH-DSA-SHA2-128s",
+        SlhDsaParameterSet::Sha2_128F => "SLH-DSA-SHA2-128f",
+        SlhDsaParameterSet::Sha2_192S => "SLH-DSA-SHA2-192s",
+        SlhDsaParameterSet::Sha2_192F => "SLH-DSA-SHA2-192f",
+        SlhDsaParameterSet::Sha2_256S => "SLH-DSA-SHA2-256s",
+        SlhDsaParameterSet::Sha2_256F => "SLH-DSA-SHA2-256f",
+        SlhDsaParameterSet::Shake128S => "SLH-DSA-SHAKE-128s",
+        SlhDsaParameterSet::Shake128F => "SLH-DSA-SHAKE-128f",
+        SlhDsaParameterSet::Shake192S => "SLH-DSA-SHAKE-192s",
+        SlhDsaParameterSet::Shake192F => "SLH-DSA-SHAKE-192f",
+        SlhDsaParameterSet::Shake256S => "SLH-DSA-SHAKE-256s",
+        SlhDsaParameterSet::Shake256F => "SLH-DSA-SHAKE-256f",
+    }
+}
+
+fn hash_name(hash: PrehashAlgorithm) -> &'static str {
+    match hash {
+        PrehashAlgorithm::Sha224 => "SHA-224",
+        PrehashAlgorithm::Sha256 => "SHA-256",
+        PrehashAlgorithm::Sha384 => "SHA-384",
+        PrehashAlgorithm::Sha512 => "SHA-512",
+        PrehashAlgorithm::Sha3_224 => "SHA3-224",
+        PrehashAlgorithm::Sha3_256 => "SHA3-256",
+        PrehashAlgorithm::Sha3_384 => "SHA3-384",
+        PrehashAlgorithm::Sha3_512 => "SHA3-512",
+        PrehashAlgorithm::Shake128 => "SHAKE128",
+        PrehashAlgorithm::Shake256 => "SHAKE256",
+    }
+}
+
+fn profile_has_context(profile: SignatureProfile) -> bool {
+    matches!(
+        profile,
+        SignatureProfile::MlDsa(_)
+            | SignatureProfile::SlhDsa(_)
+            | SignatureProfile::HashMlDsa { .. }
+            | SignatureProfile::HashSlhDsa { .. }
+    )
+}
+
+fn profile_uses_ml_dsa_context(profile: SignatureProfile) -> bool {
+    matches!(
+        profile,
+        SignatureProfile::MlDsa(_) | SignatureProfile::HashMlDsa { .. }
+    )
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SignatureChoice(pub SignatureOption);
@@ -9,15 +68,45 @@ impl std::fmt::Display for SignatureChoice {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let parameters = self.0.parameters;
         let parameters = match parameters {
+            SignatureProfile::EdDsa(curve) => return write!(f, "{curve:?} — original message"),
             SignatureProfile::Classical(parameters) => parameters,
             SignatureProfile::MlDsa(parameter) => {
+                return write!(f, "{} / pure message", ml_dsa_name(parameter));
+            }
+            SignatureProfile::SlhDsa(parameter) => {
+                return write!(f, "{} / pure message", slh_dsa_name(parameter));
+            }
+            SignatureProfile::HashMlDsa {
+                parameter_set,
+                hash,
+                prehashed,
+            } => {
                 return write!(
                     f,
-                    "ML-DSA-{} / pure message",
-                    match parameter {
-                        pkcs11_client::MlDsaParameterSet::MlDsa44 => 44,
-                        pkcs11_client::MlDsaParameterSet::MlDsa65 => 65,
-                        pkcs11_client::MlDsaParameterSet::MlDsa87 => 87,
+                    "{} / HashML-DSA / {} / {}",
+                    ml_dsa_name(parameter_set),
+                    hash_name(hash),
+                    if prehashed {
+                        "caller digest"
+                    } else {
+                        "message"
+                    }
+                );
+            }
+            SignatureProfile::HashSlhDsa {
+                parameter_set,
+                hash,
+                prehashed,
+            } => {
+                return write!(
+                    f,
+                    "{} / HashSLH-DSA / {} / {}",
+                    slh_dsa_name(parameter_set),
+                    hash_name(hash),
+                    if prehashed {
+                        "caller digest"
+                    } else {
+                        "message"
                     }
                 );
             }
@@ -28,6 +117,8 @@ impl std::fmt::Display for SignatureChoice {
             SignatureAlgorithm::Ecdsa => "ECDSA",
         };
         let digest = match parameters.digest {
+            DigestAlgorithm::Sha1 => "SHA-1",
+            DigestAlgorithm::Sha224 => "SHA-224",
             DigestAlgorithm::Sha256 => "SHA-256",
             DigestAlgorithm::Sha384 => "SHA-384",
             DigestAlgorithm::Sha512 => "SHA-512",
@@ -91,13 +182,32 @@ impl UiState {
                             object.class == Some(ObjectClass::PRIVATE_KEY)
                                 && matches!(
                                     self.object_key_type(),
-                                    Some(KeyType::RSA | KeyType::EC | KeyType::ML_DSA)
+                                    Some(
+                                        KeyType::RSA
+                                            | KeyType::EC
+                                            | KeyType::ML_DSA
+                                            | KeyType::EC_EDWARDS
+                                            | KeyType::SLH_DSA
+                                    )
                                 )
                                 && self
                                     .token()
                                     .is_some_and(|token| token.login == LoginState::User)
                         }
-                        CryptoMode::Verify => object.class == Some(ObjectClass::CERTIFICATE),
+                        CryptoMode::Verify => {
+                            object.class == Some(ObjectClass::CERTIFICATE)
+                                || (object.class == Some(ObjectClass::PUBLIC_KEY)
+                                    && matches!(
+                                        self.object_key_type(),
+                                        Some(
+                                            KeyType::RSA
+                                                | KeyType::EC
+                                                | KeyType::ML_DSA
+                                                | KeyType::EC_EDWARDS
+                                                | KeyType::SLH_DSA
+                                        )
+                                    ))
+                        }
                         _ => false,
                     }
             })
@@ -148,10 +258,13 @@ impl UiState {
         if form.id != form_id
             || form.scope.mode != CryptoMode::Sign
             || !self.can_submit()
-            || self.object_key_type() == Some(KeyType::ML_DSA)
-            || form
-                .choice
-                .is_some_and(|choice| matches!(choice.0.parameters, SignatureProfile::MlDsa(_)))
+            || matches!(
+                self.object_key_type(),
+                Some(KeyType::ML_DSA | KeyType::EC_EDWARDS | KeyType::SLH_DSA)
+            )
+            || form.choice.is_some_and(|choice| {
+                !matches!(choice.0.parameters, SignatureProfile::Classical(_))
+            })
         {
             return None;
         }
@@ -227,7 +340,7 @@ impl UiState {
         if field == CryptoField::DomainContext
             && !self.crypto_form.as_ref().is_some_and(|form| {
                 form.choice
-                    .is_some_and(|choice| matches!(choice.0.parameters, SignatureProfile::MlDsa(_)))
+                    .is_some_and(|choice| profile_has_context(choice.0.parameters))
             })
         {
             return;
@@ -317,7 +430,7 @@ impl UiState {
             || !form.loaded
             || (form.software_hashing
                 && form.choice.is_some_and(|choice| {
-                    matches!(choice.0.parameters, SignatureProfile::MlDsa(_))
+                    !matches!(choice.0.parameters, SignatureProfile::Classical(_))
                 }))
         {
             self.notification = Some(Notification::Error(BackendError::SignatureChoice));
@@ -325,10 +438,14 @@ impl UiState {
             return None;
         }
         let form = self.crypto_form.take()?;
-        if matches!(form.choice?.0.parameters, SignatureProfile::MlDsa(_))
-            && form.domain_context.len() > 255
-        {
-            self.notification = Some(Notification::Error(BackendError::MlDsaContext));
+        let profile = form.choice?.0.parameters;
+        if profile_has_context(profile) && form.domain_context.len() > 255 {
+            let error = if profile_uses_ml_dsa_context(profile) {
+                BackendError::MlDsaContext
+            } else {
+                BackendError::PqcContext
+            };
+            self.notification = Some(Notification::Error(error));
             self.crypto_form = Some(CryptoForm {
                 pin: SecretString::default(),
                 ..form

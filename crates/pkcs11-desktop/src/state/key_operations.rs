@@ -1,12 +1,16 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use super::*;
-use crate::backend::{CryptoMode, CryptoScope, KeyJob, KeyProfile};
+use crate::backend::{
+    CryptoMode, CryptoScope, KeyJob, KeyProfile, MontgomeryKdfChoice, MontgomeryOutputChoice,
+};
 use pkcs11_client::{KeyType, ObjectClass};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum KeyField {
     Salt,
     Info,
     Length,
+    Kdf,
+    OutputKind,
     Input,
     Output,
     Label,
@@ -33,6 +37,8 @@ pub struct KeyForm {
     pub output: String,
     pub label: String,
     pub key_id: String,
+    pub montgomery_kdf: MontgomeryKdfChoice,
+    pub montgomery_output: MontgomeryOutputChoice,
     pub targets: Vec<WrapTarget>,
     pub target: Option<WrapTarget>,
     picked_input: Option<PathBuf>,
@@ -59,7 +65,10 @@ impl UiState {
                         }
                         CryptoMode::Derive => {
                             object.class == Some(ObjectClass::PRIVATE_KEY)
-                                && self.object_key_type() == Some(KeyType::EC)
+                                && matches!(
+                                    self.object_key_type(),
+                                    Some(KeyType::EC | KeyType::EC_MONTGOMERY)
+                                )
                         }
                         CryptoMode::Encapsulate | CryptoMode::Decapsulate => {
                             object.class
@@ -115,6 +124,8 @@ impl UiState {
             output: String::new(),
             label: String::new(),
             key_id: String::new(),
+            montgomery_kdf: MontgomeryKdfChoice::X963Sha256,
+            montgomery_output: MontgomeryOutputChoice::Aes128,
             targets,
             target: None,
             picked_input: None,
@@ -137,9 +148,23 @@ impl UiState {
             form.picker = None;
             match field {
                 KeyField::Salt if form.scope.mode == CryptoMode::Hkdf => form.hkdf.salt = value,
-                KeyField::Info if form.scope.mode == CryptoMode::Hkdf => form.hkdf.info = value,
-                KeyField::Length if form.scope.mode == CryptoMode::Hkdf => form.hkdf.length = value,
-                KeyField::Salt | KeyField::Info | KeyField::Length => {}
+                KeyField::Info
+                    if form.scope.mode == CryptoMode::Hkdf
+                        || form.scope.mode == CryptoMode::Derive =>
+                {
+                    form.hkdf.info = value
+                }
+                KeyField::Length
+                    if form.scope.mode == CryptoMode::Hkdf
+                        || form.scope.mode == CryptoMode::Derive =>
+                {
+                    form.hkdf.length = value
+                }
+                KeyField::Salt
+                | KeyField::Info
+                | KeyField::Length
+                | KeyField::Kdf
+                | KeyField::OutputKind => {}
                 KeyField::Input => {
                     form.input = value;
                     form.picked_input = None;
@@ -162,6 +187,30 @@ impl UiState {
             && form.targets.contains(&target)
         {
             form.target = Some(target);
+        }
+    }
+    pub fn key_kdf(&mut self, id: RequestId, kdf: MontgomeryKdfChoice) {
+        if !self.can_submit() {
+            return;
+        }
+        if let Some(form) = &mut self.key_form
+            && form.id == id
+            && form.scope.mode == CryptoMode::Derive
+            && matches!(form.profile, Some(KeyProfile::Montgomery(_)))
+        {
+            form.montgomery_kdf = kdf;
+        }
+    }
+    pub fn key_output(&mut self, id: RequestId, output: MontgomeryOutputChoice) {
+        if !self.can_submit() {
+            return;
+        }
+        if let Some(form) = &mut self.key_form
+            && form.id == id
+            && form.scope.mode == CryptoMode::Derive
+            && matches!(form.profile, Some(KeyProfile::Montgomery(_)))
+        {
+            form.montgomery_output = output;
         }
     }
     pub fn key_picker(&mut self, id: RequestId, field: KeyField) -> Option<(RequestId, bool)> {
@@ -245,10 +294,16 @@ impl UiState {
                             .as_ref()
                             .is_some_and(|target| form.targets.contains(target))
                 }
-                CryptoMode::Derive
-                | CryptoMode::Unwrap
-                | CryptoMode::Encapsulate
-                | CryptoMode::Decapsulate => {
+                CryptoMode::Derive => {
+                    !form.input.is_empty()
+                        && !form.label.is_empty()
+                        && form.label.len() <= 128
+                        && form.hkdf.info.len() <= 4096
+                        && identity.as_ref().is_some_and(|id| id.len() <= 128)
+                        && (form.montgomery_output != MontgomeryOutputChoice::DerivationSecret
+                            || form.hkdf.length.parse::<usize>().is_ok())
+                }
+                CryptoMode::Unwrap | CryptoMode::Encapsulate | CryptoMode::Decapsulate => {
                     (if form.scope.mode == CryptoMode::Encapsulate {
                         !form.output.is_empty()
                     } else {
@@ -281,11 +336,30 @@ impl UiState {
                     .picked_output
                     .unwrap_or_else(|| PathBuf::from(form.output)),
             },
-            CryptoMode::Derive => KeyJob::Derive {
-                peer: input,
-                id: identity?,
-                label: form.label.into_bytes(),
-            },
+            CryptoMode::Derive => {
+                if matches!(form.profile, Some(KeyProfile::Montgomery(_))) {
+                    let length = (form.montgomery_output
+                        == MontgomeryOutputChoice::DerivationSecret)
+                        .then(|| form.hkdf.length.parse::<usize>())
+                        .transpose()
+                        .ok()?;
+                    KeyJob::DeriveMontgomery {
+                        peer: input,
+                        kdf: form.montgomery_kdf,
+                        shared_info: form.hkdf.info.as_bytes().to_vec(),
+                        output: form.montgomery_output,
+                        length,
+                        id: identity?,
+                        label: form.label.into_bytes(),
+                    }
+                } else {
+                    KeyJob::Derive {
+                        peer: input,
+                        id: identity?,
+                        label: form.label.into_bytes(),
+                    }
+                }
+            }
             CryptoMode::Encapsulate => KeyJob::Encapsulate {
                 output: form
                     .picked_output

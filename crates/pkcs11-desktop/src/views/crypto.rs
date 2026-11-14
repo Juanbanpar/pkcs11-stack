@@ -17,11 +17,37 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
     };
     let id = form.id;
     let sign = form.scope.mode == CryptoMode::Sign;
-    let ml_dsa = match form.choice.map(|choice| choice.0.parameters) {
-        Some(SignatureProfile::MlDsa(_)) => true,
-        Some(SignatureProfile::Classical(_)) => false,
-        None => state.object_key_type() == Some(pkcs11_client::KeyType::ML_DSA),
-    };
+    let profile = form.choice.map(|choice| choice.0.parameters);
+    let eddsa = matches!(profile, Some(SignatureProfile::EdDsa(_)))
+        || (profile.is_none()
+            && state.object_key_type() == Some(pkcs11_client::KeyType::EC_EDWARDS));
+    let ml_dsa = matches!(
+        profile,
+        Some(SignatureProfile::MlDsa(_) | SignatureProfile::HashMlDsa { .. })
+    ) || (profile.is_none()
+        && state.object_key_type() == Some(pkcs11_client::KeyType::ML_DSA));
+    let slh_dsa = matches!(
+        profile,
+        Some(SignatureProfile::SlhDsa(_) | SignatureProfile::HashSlhDsa { .. })
+    ) || (profile.is_none()
+        && state.object_key_type() == Some(pkcs11_client::KeyType::SLH_DSA));
+    let context = matches!(
+        profile,
+        Some(
+            SignatureProfile::MlDsa(_)
+                | SignatureProfile::SlhDsa(_)
+                | SignatureProfile::HashMlDsa { .. }
+                | SignatureProfile::HashSlhDsa { .. }
+        )
+    ) || (profile.is_none()
+        && matches!(
+            state.object_key_type(),
+            Some(pkcs11_client::KeyType::ML_DSA | pkcs11_client::KeyType::SLH_DSA)
+        ));
+    let hash_pqc = matches!(
+        profile,
+        Some(SignatureProfile::HashMlDsa { .. } | SignatureProfile::HashSlhDsa { .. })
+    );
     let enabled = state.can_submit();
     let edit = move |field, value| Message::CryptoEdit { id, field, value };
     let browse = move |field| Message::CryptoBrowse { id, field };
@@ -38,14 +64,35 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
             "No supported signature choices under the selected policy.",
         ));
     }
-    if ml_dsa {
-        content = content.push(text(if sign {
-                "Pure ML-DSA on the token, with fresh randomness required. No prehash or software-hashing fallback."
-            } else {
-                "Pure ML-DSA verification in software. Use the original message and the exact domain context used for signing. No prehash is accepted."
-            }).size(14))
-                .push(text_input("ML-DSA domain context (UTF-8, 0–255 bytes)", &form.domain_context)
-                    .on_input_maybe((enabled && form.choice.is_some()).then_some(move |value| edit(CryptoField::DomainContext, value))));
+    if context {
+        let description = if ml_dsa {
+            "ML-DSA on the token. Pure messages require fresh randomness; HashML-DSA choices use the selected prehash. No software-hashing fallback is used."
+        } else {
+            "SLH-DSA on the token. Pure and HashSLH-DSA choices appear only when the key permits them; no software-hashing fallback is used."
+        };
+        content = content.push(text(description).size(14)).push(
+            text_input(
+                if ml_dsa {
+                    "ML-DSA domain context (UTF-8, 0–255 bytes)"
+                } else {
+                    "SLH-DSA domain context (UTF-8, 0–255 bytes)"
+                },
+                &form.domain_context,
+            )
+            .on_input_maybe(
+                (enabled && form.choice.is_some())
+                    .then_some(move |value| edit(CryptoField::DomainContext, value)),
+            ),
+        );
+        if hash_pqc {
+            content = content.push(
+                text("Caller-digest choices require a file of exactly the selected hash length.")
+                    .size(14),
+            );
+        }
+    } else if eddsa {
+        content = content
+            .push(text("Pure EdDSA uses the original message with an empty context.").size(14));
     } else if sign {
         content = content.push(
             checkbox(form.software_hashing)
@@ -87,7 +134,7 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
                     if sign {
                         "New signature output file"
                     } else {
-                        "Signature file (up to 16 KiB)"
+                        "Signature file (up to 64 KiB)"
                     },
                     &form.signature
                 )
@@ -128,7 +175,11 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
             .push(text("One attempt only. Failed authentication can lock the PIN.").size(14));
     }
     content = content.push(text(if sign && ml_dsa {
-        "Output is a raw ML-DSA signature. Verification needs the same message and context; the signature file does not store the context. Existing files are never overwritten; a failed operation may leave an empty or partial file."
+        "Output is a raw ML-DSA signature. Verification needs the same message or digest and context; the signature file does not store them. Existing files are never overwritten; a failed operation may leave an empty or partial file."
+    } else if sign && slh_dsa {
+        "Output is a raw SLH-DSA signature. Verification needs the same message or digest and context; the signature file does not store them. Existing files are never overwritten; a failed operation may leave an empty or partial file."
+    } else if eddsa {
+        "Signature encoding is raw RFC 8032 EdDSA bytes. Use the original message and an empty context. Existing files are never overwritten; a failed operation may leave an empty or partial file."
     } else if sign {
         "Output uses raw RSA bytes or fixed-width ECDSA r || s, not DER. Existing files are never overwritten; a failed operation may leave an empty or partial file."
     } else if ml_dsa {

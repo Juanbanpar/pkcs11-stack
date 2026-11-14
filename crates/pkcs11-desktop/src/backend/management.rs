@@ -2,8 +2,9 @@
 use super::{BackendError, BackendResult, Registry, ResourceId, browse::read_session};
 use pkcs11_client::{
     AesKeyPurpose, AesKeyRequest, AesKeySize, Authentication, CertificateDocument,
-    EcdhKeyPairRequest, KeyKind, MlDsaParameterSet, MlKemParameterSet, NamedCurve, SessionMode,
-    SessionState,
+    ClassicalPublicKey, ClassicalPublicKeyPurpose, EcdhKeyPairRequest, KeyKind, MlDsaParameterSet,
+    MlKemParameterSet, MontgomeryCurve, NamedCurve, PublicKeyImportRequest, SessionMode,
+    SessionState, SlhDsaKeyPairRequest, SlhDsaParameterSet,
 };
 
 use std::{
@@ -18,15 +19,25 @@ pub enum GenerationKind {
     MlDsa(MlDsaParameterSet),
     MlKem(MlKemParameterSet),
     Ecdh(NamedCurve),
+    EdDsa(pkcs11_client::EdDsaCurve),
+    SlhDsa(SlhDsaParameterSet),
+    HashSlhDsa(SlhDsaParameterSet),
+    Montgomery(MontgomeryCurve),
     Aes(AesKeySize, AesKeyPurpose),
 }
 impl GenerationKind {
     pub fn supports_context_authentication(self) -> bool {
-        matches!(self, Self::Signing(_) | Self::MlDsa(_))
+        matches!(
+            self,
+            Self::Signing(_) | Self::MlDsa(_) | Self::SlhDsa(_) | Self::HashSlhDsa(_)
+        )
     }
     pub fn validate(self, id: &[u8], label: &[u8], context: bool) -> Result<(), BackendError> {
         let valid = match self {
-            Self::Signing(_) | Self::MlDsa(_) => !id.is_empty() && !label.is_empty(),
+            Self::Signing(_) | Self::MlDsa(_) | Self::SlhDsa(_) | Self::HashSlhDsa(_) => {
+                !id.is_empty() && !label.is_empty()
+            }
+            Self::EdDsa(_) | Self::Montgomery(_) => !context && !id.is_empty() && !label.is_empty(),
             Self::MlKem(_) => !context && !id.is_empty() && !label.is_empty(),
             Self::Ecdh(curve) => {
                 !context && EcdhKeyPairRequest { curve, id, label }.validate().is_ok()
@@ -51,6 +62,12 @@ pub enum ManagementAction {
         path: PathBuf,
         id: Vec<u8>,
         label: Vec<u8>,
+    },
+    ImportPublicKey {
+        path: PathBuf,
+        id: Vec<u8>,
+        label: Vec<u8>,
+        purpose: ClassicalPublicKeyPurpose,
     },
     Generate {
         kind: GenerationKind,
@@ -110,6 +127,7 @@ impl Registry {
             .provider
             .generation_capabilities(&uri)
             .map_err(|e| BackendError::from(&e))?;
+        let slh_dsa = choices.slh_dsa;
         Ok(choices
             .signing
             .into_iter()
@@ -117,9 +135,22 @@ impl Registry {
             .chain(choices.ml_dsa.into_iter().map(GenerationKind::MlDsa))
             .chain(choices.ml_kem.into_iter().map(GenerationKind::MlKem))
             .chain(choices.ecdh.into_iter().map(GenerationKind::Ecdh))
+            .chain(choices.eddsa.into_iter().map(GenerationKind::EdDsa))
+            .chain(
+                choices
+                    .montgomery
+                    .into_iter()
+                    .map(GenerationKind::Montgomery),
+            )
+            .chain(slh_dsa.clone().into_iter().map(GenerationKind::SlhDsa))
+            .chain(slh_dsa.into_iter().map(GenerationKind::HashSlhDsa))
             .chain(choices.aes.into_iter().flat_map(|size| {
-                [AesKeyPurpose::Encryption, AesKeyPurpose::Wrapping]
-                    .map(|purpose| GenerationKind::Aes(size, purpose))
+                [
+                    AesKeyPurpose::Encryption,
+                    AesKeyPurpose::Wrapping,
+                    AesKeyPurpose::Authentication,
+                ]
+                .map(|purpose| GenerationKind::Aes(size, purpose))
             }))
             .collect())
     }
@@ -178,6 +209,29 @@ impl Registry {
             ManagementAction::ImportCertificate { path, .. } => Some(certificate(path)?),
             _ => None,
         };
+        let imported_public_key = match &action {
+            ManagementAction::ImportPublicKey {
+                path,
+                id,
+                label,
+                purpose,
+            } => {
+                let bytes = super::key_operations::read(path, 4096)
+                    .map_err(|_| BackendError::PublicKeyImportInput)?;
+                let key = ClassicalPublicKey::from_spki_der(&bytes)
+                    .map_err(|_| BackendError::PublicKeyImportInput)?;
+                PublicKeyImportRequest {
+                    key: &key,
+                    purpose: *purpose,
+                    id,
+                    label,
+                }
+                .validate()
+                .map_err(|_| BackendError::PublicKeyImportInput)?;
+                Some(key)
+            }
+            _ => None,
+        };
         if let ManagementAction::Generate { kind, .. } = &action
             && !self.capabilities(module, token)?.contains(kind)
         {
@@ -212,6 +266,27 @@ impl Registry {
                             &label,
                             always_authenticate,
                         ),
+                        GenerationKind::EdDsa(curve) => {
+                            session.generate_eddsa_key_pair(curve, &id, &label, always_authenticate)
+                        }
+                        GenerationKind::SlhDsa(parameter) => {
+                            session.generate_slh_dsa_key_pair(&SlhDsaKeyPairRequest {
+                                parameter_set: parameter,
+                                id: &id,
+                                label: &label,
+                                always_authenticate,
+                            })
+                        }
+                        GenerationKind::HashSlhDsa(parameter) => session
+                            .generate_hash_slh_dsa_key_pair(&SlhDsaKeyPairRequest {
+                                parameter_set: parameter,
+                                id: &id,
+                                label: &label,
+                                always_authenticate,
+                            }),
+                        GenerationKind::Montgomery(curve) => {
+                            session.generate_montgomery_key_pair(curve, &id, &label)
+                        }
                         GenerationKind::MlKem(parameter) => {
                             session.generate_ml_kem_key_pair(parameter, &id, &label)
                         }
@@ -232,6 +307,14 @@ impl Registry {
                         }
                     }
                 }
+                ManagementAction::ImportPublicKey {
+                    id, label, purpose, ..
+                } => session.import_public_key(&PublicKeyImportRequest {
+                    key: imported_public_key.as_ref().expect("validated public key"),
+                    purpose,
+                    id: &id,
+                    label: &label,
+                }),
                 ManagementAction::ImportMlKem { id, label, .. } => session
                     .import_ml_kem_public_key(
                         public_key.as_ref().expect("parsed public key"),

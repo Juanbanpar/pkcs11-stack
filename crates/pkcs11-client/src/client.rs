@@ -235,6 +235,8 @@ fn binding_request(
     let algorithms: &[SignatureAlgorithm] = match capabilities.key {
         KeyKind::Rsa { .. } => &[SignatureAlgorithm::RsaPss, SignatureAlgorithm::RsaPkcs1],
         KeyKind::Ec(_) => &[SignatureAlgorithm::Ecdsa],
+        KeyKind::Edwards(_) => &[],
+        KeyKind::Montgomery(_) => &[],
     };
     for &algorithm in algorithms {
         for digest in [

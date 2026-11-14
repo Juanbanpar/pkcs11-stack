@@ -6,6 +6,12 @@ cd "$(dirname "$0")/.."
 
 source tools/softhsm-store.sh
 command -v openssl >/dev/null
+eddsa_filter=()
+if [[ ${PKCS11_TEST_SKIP_EDDSA:-0} == 1 ]]; then
+    eddsa_filter=(--skip eddsa --skip token_ed25519_tls13_handshake)
+fi
+# SHA-1 signature verification needs an OpenSSL build that permits SHA-1.
+export PKCS11_TEST_OPENSSL=${PKCS11_TEST_OPENSSL:-${PKCS11_TEST_PQC_OPENSSL:-openssl}}
 # Deliberately duplicated labels exercise ambiguity. PINs are public disposable
 # fixture values, not a model for production PIN input.
 for number in 1 2; do
@@ -17,14 +23,16 @@ cargo test -p pkcs11-runtime --test softhsm --test signing_softhsm --locked -- -
 export PKCS11_CLIENT_TEST_DIR="$scratch/client"
 mkdir "$PKCS11_CLIENT_TEST_DIR"
 bash tools/provision-client-softhsm.sh
+cargo test -p pkcs11-runtime --test oasis_softhsm --test verification_softhsm --test eddsa_softhsm --locked -- --ignored --test-threads=1 "${eddsa_filter[@]}"
+cargo test -p pkcs11ctl --test oasis_softhsm --locked -- --ignored --test-threads=1
 cargo test -p pkcs11-runtime --test key_operations_softhsm --test generation_softhsm --test aes_gcm_provider --locked -- --ignored --test-threads=1
 # PQC and persistent HKDF have dedicated required provider runners.
-cargo test -p pkcs11-desktop --locked -- --ignored --test-threads=1 --skip persistent_hkdf_desktop --skip ml_dsa --skip ml_kem
+cargo test -p pkcs11-desktop --locked -- --ignored --test-threads=1 --skip persistent_hkdf_desktop --skip ml_dsa --skip ml_kem --skip slh_and_hash_pqc_desktop_signing --skip montgomery_desktop_generation_and_agreement "${eddsa_filter[@]}"
 bash tools/test-examples.sh client
-cargo test -p pkcs11-client --test softhsm --test administration_softhsm --test generation_softhsm --test aes_gcm_provider --locked -- --ignored --test-threads=1
-cargo test -p pkcs11ctl --test softhsm --test aes_gcm --locked -- --ignored --test-threads=1
+cargo test -p pkcs11-client --test softhsm --test administration_softhsm --test generation_softhsm --test aes_gcm_provider --test eddsa_softhsm --locked -- --ignored --test-threads=1 "${eddsa_filter[@]}"
+cargo test -p pkcs11ctl --test softhsm --test aes_gcm --test eddsa_softhsm --locked -- --ignored --test-threads=1 "${eddsa_filter[@]}"
 export PKCS11_TLS_TEST_DIR="$scratch/tls"
 mkdir "$PKCS11_TLS_TEST_DIR"
 bash tools/provision-tls-softhsm.sh
 bash tools/test-examples.sh tls
-cargo test -p pkcs11-rustls-adapter --features tls12 --test softhsm --locked -- --ignored --test-threads=1
+cargo test -p pkcs11-rustls-adapter --features tls12 --test softhsm --locked -- --ignored --test-threads=1 "${eddsa_filter[@]}"

@@ -50,10 +50,17 @@ import sys
 path = Path(sys.argv[1])
 (path / "wrap-key.bin").write_bytes(bytes(range(32)))
 (path / "wrap-target.bin").write_bytes(bytes.fromhex("00112233445566778899aabbccddeeff"))
+(path / "hmac-key.bin").write_bytes(bytes(range(32)))
+(path / "cmac-key.bin").write_bytes(bytes.fromhex("2b7e151628aed2a6abf7158809cf4f3c"))
+(path / "cbc-key.bin").write_bytes(bytes.fromhex("2b7e151628aed2a6abf7158809cf4f3c"))
 PY
 args=(--module "$module" --token-label client-test --login --pin 12345678 --type secrkey --private --sensitive)
 pkcs11-tool "${args[@]}" --write-object "$scratch/wrap-key.bin" --key-type AES:32 --id 40 --label wrapping --usage-wrap >/dev/null 2>&1
 pkcs11-tool "${args[@]}" --write-object "$scratch/wrap-target.bin" --key-type AES:16 --id 41 --label transferable --usage-decrypt --extractable >/dev/null 2>&1
 pkcs11-tool "${args[@]}" --write-object "$scratch/wrap-target.bin" --key-type AES:16 --id 42 --label nonextractable --usage-decrypt >/dev/null 2>&1
+# Digest/MAC/AES block fixtures; public test-vector bytes, disposable token.
+pkcs11-tool "${args[@]}" --write-object "$scratch/hmac-key.bin" --key-type GENERIC:32 --id 50 --label hmac >/dev/null 2>&1
+pkcs11-tool "${args[@]}" --write-object "$scratch/cmac-key.bin" --key-type AES:16 --id 51 --label cmac >/dev/null 2>&1
+pkcs11-tool "${args[@]}" --write-object "$scratch/cbc-key.bin" --key-type AES:16 --id 52 --label aes-cbc >/dev/null 2>&1
 "${SOFTHSM2_UTIL:-softhsm2-util}" --module "$module" --init-token --free \
     --label admin-client-test --so-pin 87654321 --pin 12345678 >/dev/null

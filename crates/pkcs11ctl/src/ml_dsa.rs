@@ -23,6 +23,8 @@ pub(crate) fn validate_options(m: &ArgMatches) -> Result<()> {
         .iter()
         .any(|name| get(m, name).is_some())
         || get(m, "input-kind") == Some("digest")
+        || flag(m, "allow-sha224")
+        || flag(m, "allow-sha1")
     {
         return Err(usage(
             "pure ML-DSA does not accept digests, prehash input, PSS parameters or hashing policies",
@@ -65,6 +67,21 @@ pub(crate) fn client_operation(
 ) -> Result<Output> {
     let auth = || inputs.credential.auth(false);
     if name == "verify" {
+        if let Some(key_uri) = get(m, "key") {
+            let key = client.public_key(
+                key_uri.parse().map_err(|_| usage("invalid key URI"))?,
+                auth(),
+            )?;
+            client.verify_ml_dsa(
+                &key,
+                &request(m, &inputs.bytes, &inputs.domain_context)?,
+                &inputs.signature,
+                auth(),
+            )?;
+            return Ok(Output::Structured(
+                json!({"verified":true,"trust_validated":false,"verification":"token"}),
+            ));
+        }
         let certificate = client.ml_dsa_certificate(uri(m, "certificate")?, auth())?;
         return verify(&VerificationCertificate::MlDsa(certificate), m, inputs)
             .map(Output::Structured);

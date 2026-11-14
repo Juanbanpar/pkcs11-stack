@@ -45,7 +45,7 @@ impl HkdfOutput {
 /// All output keys are persistent, private, sensitive and nonextractable.
 #[derive(Clone, Copy)]
 pub struct HkdfRequest<'a> {
-    /// SHA-256, SHA-384 or SHA-512. PKCS#11 requires a hash-length base key.
+    /// SHA-1 or SHA-224/256/384/512; the base key must match the hash length.
     pub digest: DigestAlgorithm,
     /// Non-secret extraction salt, at most 4096 bytes. Empty means RFC 5869 zero salt.
     pub salt: &'a [u8],
@@ -117,6 +117,8 @@ fn capabilities(object: &Object<'_, '_>) -> Result<HkdfCapabilities, Error> {
     let input_length = secret_length(object)?;
     // PKCS#11 3.2 section 6.62.3 restricts secret-key input to the hash length.
     let digest = match input_length {
+        20 => DigestAlgorithm::Sha1,
+        28 => DigestAlgorithm::Sha224,
         32 => DigestAlgorithm::Sha256,
         48 => DigestAlgorithm::Sha384,
         64 => DigestAlgorithm::Sha512,
@@ -148,7 +150,7 @@ pub(crate) fn permits(object: &Object<'_, '_>, mechanism: MechanismType) -> Resu
     Ok(())
 }
 impl Session<'_> {
-    /// Discover the SHA-2 HKDF profile permitted by a uniquely selected base.
+    /// Discover the SHA-1/SHA-2 HKDF profile permitted by a uniquely selected base.
     /// Reads one object and its metadata once. Unsupported bases/mechanisms produce
     /// no choices; selection, missing metadata and provider errors propagate.
     pub fn hkdf_options(&mut self, base: &ObjectRef) -> Result<Vec<HkdfCapabilities>, Error> {
@@ -199,6 +201,8 @@ impl Session<'_> {
             return Err(Error::UnsupportedKeyOperation);
         }
         let hash = match request.digest {
+            DigestAlgorithm::Sha1 => MechanismType::SHA1,
+            DigestAlgorithm::Sha224 => MechanismType::SHA224,
             DigestAlgorithm::Sha256 => MechanismType::SHA256,
             DigestAlgorithm::Sha384 => MechanismType::SHA384,
             DigestAlgorithm::Sha512 => MechanismType::SHA512,

@@ -10,6 +10,10 @@ pub use aes_gcm::{
     AesGcmCapabilities, AesGcmDecryptRequest, AesGcmEncryptRequest, AesGcmOperation,
 };
 mod certificate;
+mod eddsa;
+mod eddsa_certificate;
+pub use eddsa::EdDsaVerifyingKey;
+pub use eddsa_certificate::{EdDsaCertificate, EdDsaIdentity};
 mod encryption;
 mod key_operations;
 pub use encryption::{DecryptRequest, EncryptRequest, OaepChoice, Plaintext};
@@ -26,9 +30,11 @@ pub use generation::{
 };
 mod hkdf;
 mod management;
+mod mechanisms;
 mod ml_dsa;
 mod ml_dsa_certificate;
 mod ml_kem;
+mod montgomery;
 pub use ml_dsa_certificate::{MlDsaCertificate, MlDsaIdentity, MlDsaVerifyingKey};
 pub use ml_kem::MlKemPublicKey;
 pub use pkcs11_runtime::{HkdfCapabilities, HkdfOutput, HkdfRequest};
@@ -39,6 +45,8 @@ pub use pkcs11_runtime::{
 pub use pkcs11_runtime::{MlKemCapabilities, MlKemOperation, MlKemParameterSet, MlKemRequest};
 mod object_locator;
 mod public_export;
+mod public_import;
+pub use public_import::{ClassicalPublicKey, ClassicalPublicKeyPurpose, PublicKeyImportRequest};
 mod random;
 mod signature_options;
 
@@ -52,12 +60,23 @@ pub use management::{
 pub use object_locator::object_locator;
 pub use pkcs11_locator::Pkcs11Uri;
 pub use pkcs11_runtime::{
+    AES_BLOCK_SIZE, AES_MAXIMUM_INPUT, AesCipherCapabilities, AesDecryptRequest, AesDirection,
+    AesEncryptRequest, AesMode, FunctionAvailability, HashAlgorithm, HashInput,
+    HashMlDsaCapabilities, HashMlDsaRequest, HashMlDsaSigningPolicy, HashSlhDsaCapabilities,
+    HashSlhDsaRequest, HashSlhDsaSigningPolicy, KbkdfCapabilities, KbkdfMode, KbkdfOutput,
+    KbkdfPrf, KbkdfRequest, MacAlgorithm, MacCapabilities, MacKeyRequest, MechanismCapability,
+    MechanismFamily, MechanismOperation, MontgomeryCapabilities, MontgomeryCurve,
+    MontgomeryDerivation, MontgomeryKdf, MontgomeryOutput, MontgomeryPublicKey, PrehashAlgorithm,
+    SlhDsaCapabilities, SlhDsaHedging, SlhDsaKeyPairRequest, SlhDsaParameterSet, SlhDsaPublicKey,
+    SlhDsaRequest, SlhDsaSigningPolicy, VerificationCapabilities, VerifyRequest,
+};
+pub use pkcs11_runtime::{
     Attribute, AttributeInfo, AttributeType, AttributeValues, Authentication, CertificateRef,
-    DigestAlgorithm, HashLocation, HashingPolicy, KeyCapabilities, KeyKind, KeyType, LibraryInfo,
-    MechanismInfo, MechanismType, Module, NamedCurve, ObjectClass, ObjectRef, Pin, PrivateKeyRef,
-    PssParameters, PublicKeyMetadata, PublicKeyRef, SessionMode, SessionPool, SessionState,
-    SignInput, SignPlan, SignRequest, SignatureAlgorithm, SigningMechanism, SigningPolicy,
-    SlotInfo, TokenInfo,
+    DigestAlgorithm, EdDsaCapabilities, EdDsaCurve, EdDsaPublicKey, EdDsaRequest, HashLocation,
+    HashingPolicy, KeyCapabilities, KeyKind, KeyType, LibraryInfo, MechanismInfo, MechanismType,
+    Module, NamedCurve, ObjectClass, ObjectRef, Pin, PrivateKeyRef, PssParameters,
+    PublicKeyMetadata, PublicKeyRef, SessionMode, SessionPool, SessionState, SignInput, SignPlan,
+    SignRequest, SignatureAlgorithm, SigningMechanism, SigningPolicy, SlotInfo, TokenInfo,
 };
 pub use random::{RandomBytes, RandomRequest};
 pub use signature_options::{SignatureParameters, SigningChoice, SigningOptions};

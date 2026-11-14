@@ -1,9 +1,39 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-use crate::{Attribute, Error, KeyKind, Object, Session, SessionMode, error::backend};
+use crate::{
+    Attribute, Error, KeyKind, Object, Session, SessionMode,
+    error::{backend, function_not_supported},
+};
 use cryptoki::mechanism::Mechanism;
 use secrecy::SecretString;
 
 impl<'m> Session<'m> {
+    /// Run one read-only native operation with session health tracking.
+    ///
+    /// The session is marked unhealthy before the native call so a panic or
+    /// error can never return an active operation to a pool.
+    pub(crate) fn operation<T>(
+        &self,
+        operation: &'static str,
+        action: impl FnOnce(&cryptoki::session::Session) -> Result<T, cryptoki::error::Error>,
+    ) -> Result<T, Error> {
+        self.validate()?;
+        let raw = self.raw()?;
+        self.healthy.set(false);
+        match action(raw) {
+            Ok(value) => {
+                self.healthy.set(true);
+                Ok(value)
+            }
+            Err(source) => {
+                // A stub that reports CKR_FUNCTION_NOT_SUPPORTED did not start
+                // an operation, so the session remains usable.
+                if function_not_supported(&source) {
+                    self.healthy.set(true);
+                }
+                Err(backend(operation, source))
+            }
+        }
+    }
     pub(crate) fn write_operation<T>(
         &self,
         operation: &'static str,
@@ -13,11 +43,7 @@ impl<'m> Session<'m> {
         if self.mode != SessionMode::ReadWrite {
             return Err(Error::ReadWriteRequired);
         }
-        let raw = self.raw()?;
-        self.healthy.set(false);
-        let result = action(raw).map_err(|e| backend(operation, e))?;
-        self.healthy.set(true);
-        Ok(result)
+        self.operation(operation, action)
     }
     /// Initialize/reset the USER PIN. Requires an RW session logged in as SO.
     /// Uses a host PIN; the upstream API does not support a null/protected-path PIN.
@@ -69,6 +95,16 @@ impl<'m> Session<'m> {
             Attribute::AlwaysAuthenticate(always_authenticate),
         ];
         let mechanism = match kind {
+            KeyKind::Edwards(_) => {
+                return Err(Error::UnsupportedSigning(
+                    "use the EdDSA key-generation operation",
+                ));
+            }
+            KeyKind::Montgomery(_) => {
+                return Err(Error::UnsupportedSigning(
+                    "use the Montgomery key-generation operation",
+                ));
+            }
             KeyKind::Rsa { bits } => {
                 if !(2048..=16384).contains(&bits) || bits % 8 != 0 {
                     return Err(Error::InvalidParameters("invalid RSA key size"));

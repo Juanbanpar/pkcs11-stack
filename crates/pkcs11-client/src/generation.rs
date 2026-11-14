@@ -17,11 +17,17 @@ pub struct GenerationCapabilities {
     pub ml_dsa: Vec<crate::MlDsaParameterSet>,
     /// ML-KEM parameter sets.
     pub ml_kem: Vec<crate::MlKemParameterSet>,
+    /// EdDSA curves.
+    pub eddsa: Vec<crate::EdDsaCurve>,
+    /// Montgomery curves.
+    pub montgomery: Vec<crate::MontgomeryCurve>,
+    /// SLH-DSA parameter sets.
+    pub slh_dsa: Vec<crate::SlhDsaParameterSet>,
 }
 impl Provider {
     /// Collect classical, PQC, ECDH and AES generation choices without opening
     /// sessions or generating keys. Unknown/unsupported mechanisms yield empty
-    /// choices; provider errors propagate. No mechanism planning belongs in a UI.
+    /// choices; provider errors propagate.
     pub fn generation_capabilities(
         &self,
         token: &Pkcs11Uri,
@@ -33,6 +39,14 @@ impl Provider {
             aes: selected.aes_generation_options()?,
             ml_dsa: self.ml_dsa_generation_options(token)?,
             ml_kem: self.ml_kem_generation_options(token)?,
+            eddsa: selected.eddsa_generation_options()?,
+            montgomery: selected
+                .montgomery_capabilities()?
+                .into_iter()
+                .filter(|capability| capability.can_generate)
+                .map(|capability| capability.curve)
+                .collect(),
+            slh_dsa: selected.slh_dsa_generation_options()?,
         })
     }
 }

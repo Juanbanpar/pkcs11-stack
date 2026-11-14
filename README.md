@@ -1,17 +1,39 @@
 # pkcs11-stack
 
-Rust libraries and tools for working with PKCS#11 tokens and hardware security
-modules. Load a vendor module, find keys and certificates with PKCS#11 URIs,
-manage token objects, and sign messages while keeping private keys on the token.
+Rust libraries, CLI and desktop application for PKCS#11 tokens and hardware
+security modules. Load a trusted vendor module, select keys and certificates with
+PKCS#11 URIs, manage objects and perform cryptographic operations on the token.
+The rustls adapter provides token-backed TLS client and server authentication.
 
-Applications can use `pkcs11-client` for synchronous discovery, signing and
-administration. `pkcs11ctl` exposes those workflows from the command line. The
-rustls adapter uses token keys for server and client TLS authentication, alongside
-an application-selected software crypto provider.
+## Build and run
 
-## Architecture
+| Component | Minimum Rust | Requirements |
+| --- | --- | --- |
+| Libraries and CLI | 1.85 | A trusted PKCS#11 module for token operations |
+| Desktop and full workspace | 1.88 | Wayland on Linux; [native build dependencies](crates/pkcs11-desktop/README.md#build-and-run) |
 
-Arrows show direct dependencies:
+```sh
+cargo build --release -p pkcs11ctl --locked
+./target/release/pkcs11ctl --help
+./target/release/pkcs11ctl --module /absolute/path/to/trusted-pkcs11.so tokens
+cargo run --release -p pkcs11-desktop --locked
+```
+
+Module paths load executable code and must come from a trusted source. A URI never
+loads a library. Use stable token serials and object IDs; ambiguous matches fail.
+
+## Crates
+
+| Crate | Purpose |
+| --- | --- |
+| [pkcs11-locator](crates/pkcs11-locator/README.md) | Parse, build and match RFC 7512 URIs; binary IDs and PIN redaction |
+| [pkcs11-runtime](crates/pkcs11-runtime/README.md) | Own modules, sessions and pools; discover resources and execute token operations |
+| [pkcs11-client](crates/pkcs11-client/README.md) | Application workflows, certificate binding, public import/export and administration |
+| [pkcs11ctl](crates/pkcs11ctl/README.md) | Command-line inspection, cryptography and token administration |
+| [pkcs11-rustls-adapter](crates/pkcs11-rustls-adapter/README.md) | Token-backed rustls signing and certificate resolvers |
+| [pkcs11-desktop](crates/pkcs11-desktop/README.md) | Native Iced token browser, cryptographic operations and object manager |
+
+Direct dependencies:
 
 ```mermaid
 flowchart TD
@@ -26,116 +48,41 @@ flowchart TD
     desktop[pkcs11-desktop] --> client
 ```
 
-Runtime owns module initialization, sessions, authentication and mechanism
-planning. Selectors identify persistent objects; raw handles stay within their
-sessions. The client and CLI share application workflows. TLS-specific types and
-software crypto provider selection stay outside runtime.
+Runtime owns initialization, sessions, authentication and mechanism planning.
+Selectors identify persistent objects; raw handles stay within their sessions.
+Applications choose the software crypto provider used by rustls for record
+protection, key exchange and peer verification.
 
-## Crates
+## Supported operations
 
-- [pkcs11-locator](crates/pkcs11-locator/README.md): parse, build and match RFC 7512
-  URIs, including binary object IDs and redacted PIN attributes.
-- [pkcs11-runtime](crates/pkcs11-runtime/README.md): own modules and sessions,
-  discover tokens and objects, pool sessions, plan signing and execute token operations.
-- [pkcs11-client](crates/pkcs11-client/README.md): look up resources, inspect and
-  manage objects, sign messages, and verify key/certificate associations.
-- [pkcs11ctl](crates/pkcs11ctl/README.md): inspect modules and tokens, sign and verify,
-  manage keys and certificates, and administer token PINs from the command line.
-- [pkcs11-rustls-adapter](crates/pkcs11-rustls-adapter/README.md): use token keys
-  with rustls signing traits and server/client certificate resolvers.
-- [pkcs11-desktop](crates/pkcs11-desktop/README.md): native Iced window with
-  module loading, token browsing, metadata overviews and background execution.
+The stack uses `cryptoki` 0.12.1 for PKCS#11 2.40, 3.0, 3.1 and 3.2. It supports
+RSA/EC, AES, digest/MAC, ECDH/HKDF/SP 800-108, EdDSA, Montgomery, ML-DSA, ML-KEM,
+SLH-DSA and hash-PQC operations. Availability depends on the token, provider and
+application surface; see the [compatibility matrix](docs/oasis-compatibility.md).
+Formal OASIS conformance and hardware compatibility are not implied.
 
-## Status
+Typed private/secret-key operations keep key material on the token. Authentication,
+permissions, mechanism support and policy are checked before execution. Mutations
+are not retried or rolled back; failures can leave persistent effects.
 
-The libraries and CLI implement discovery, USER/SO authentication, session pooling,
-RSA PKCS#1 v1.5, RSA-PSS and ECDSA signing, certificate/data import and export,
-signing-key generation, object deletion/relabeling, and token/PIN initialization
-and changes. Certificate binding verifies that a selected private key matches a
-certificate and checks each subsequent bound signature.
+## Documentation and checks
 
-The CLI can also verify signatures using a DER certificate file without loading a
-module, verify against a token certificate, and save token-generated random bytes.
-
-Runtime and client support pure ML-DSA-44/65/87 key generation, signing, token
-verification and public-key SPKI export. Requests use explicit parameter sets,
-contexts and hedging choices. The client also verifies signatures in software
-and binds token private keys to ML-DSA certificates, checking each subsequent
-bound signature. The CLI exposes these workflows, including offline certificate
-verification and context authentication.
-
-Runtime and client also support ML-KEM-512/768/1024 key generation, encapsulation
-and decapsulation, with RFC 9935 public-key import/export. Raw shared secrets remain sensitive and nonextractable on the
-token, with only further derivation permitted. Typed HKDF extract-and-expand
-creates nonextractable AES keys or further derivation secrets on the same token.
-The CLI exposes ML-KEM generation, public-key exchange, encapsulation,
-decapsulation and HKDF derivation. A P-256 || ML-KEM-768 application combiner
-derives token-held keys using HKDF-SHA512; callers supply authenticated component
-secrets and protocol context. It does not define a wire protocol.
-
-The TLS adapter supports server and mutual authentication with TLS 1.3 and optional
-TLS 1.2. RSA and EC P-256/P-384/P-521 work across those versions; ML-DSA
-authentication requires TLS 1.3. An optional hybrid-only provider policy requires
-X25519MLKEM768 and prevents classical key-exchange fallback. TLS key exchange
-and its key schedule run in the application's crypto provider; signing keys stay
-on the token. TLS use requires verification support from that provider. See the
-[signing and TLS examples](docs/examples.md) for runnable programs.
-
-RSA-OAEP encryption/decryption supports SHA-2 with a matching MGF1 digest and
-empty label. It processes one RSA block. Raw ECDH creates token-held generic
-secrets on P-256/P-384/P-521; AES key wrapping and unwrapping use RFC 3394.
-Runtime and client generate derivation-only EC pairs and AES keys restricted to
-encryption/decryption or wrapping/unwrapping. A shared client capability query
-reports generation choices for the CLI and GUI. Both expose ECDH and AES
-generation with explicit purposes.
-AES-GCM is available through the libraries, CLI and desktop with 12-byte
-caller-managed nonces, full 16-byte tags and authenticated, zeroizing plaintext
-output. File workflows use raw ciphertext followed by the tag, with a separate
-nonce and optional AAD file. Plaintext is limited to 16 MiB.
-Private-key import is not implemented. Certificate parsing and binding do not validate
-certificate trust; applications configure trust separately.
-
-The desktop application loads and unloads modules, enumerates slots and tokens,
-and browses visible objects and advertised mechanisms with filters and metadata
-details. USER/SO login and logout support host PINs and token-protected
-authentication paths. Refresh updates inventories and clears stale selections.
-The GUI also generates RSA/EC and ML-DSA signing pairs, ML-KEM pairs, ECDH pairs
-and AES keys, imports DER certificates and ML-KEM public keys, confirms
-object deletion, exports public objects, signs files with RSA/EC or ML-DSA keys,
-and verifies RSA/EC or ML-DSA signatures against selected certificates. It can also save bytes from a token's random
-generator, encrypt/decrypt AES-GCM files or small RSA-OAEP payloads, derive ECDH
-secrets, wrap/unwrap AES keys with permitted keys, and encapsulate/decapsulate
-ML-KEM secrets. HKDF derives AES or derivation-only keys without exporting key values.
-Administration supports confirmed token initialization, USER PIN initialization/reset, and USER/SO PIN changes with host PINs.
-Hybrid KEM workflows remain available through the libraries and CLI.
-
-## Development
-
-Rust 1.85 or newer for libraries and CLI; Rust 1.88 or newer for desktop and
-full workspace checks.
+Crate READMEs are also the library rustdoc landing pages. Build API documentation
+and run checks from the repository root:
 
 ```sh
+cargo doc --workspace --all-features --no-deps --locked
 cargo fmt --all -- --check
 cargo check --workspace --all-targets --locked
-python3 tools/check-dependencies.py
 cargo clippy --workspace --all-targets --locked -- -D warnings
-cargo run -p pkcs11ctl -- --help
-./tools/test.sh
-bash tools/test-fuzz.sh
+cargo test --workspace --locked
+python3 tools/check-dependencies.py
 ```
 
-The adapter's optional `tls12` feature enables TLS 1.2. Its default configuration
-uses rustls `std` without selecting a software crypto provider.
-
-Desktop uses Iced `tiny-skia`, `thread-pool`, `wayland`, `advanced` and
-`linux-theme-detection`, with default features disabled. `iced_aw` enables only
-`badge` and `spinner`. Linux requires Wayland.
-
-[Test commands and provider setup](tests/README.md) cover the default suite,
-including classical, PQC, hybrid and desktop integration tests.
-[Fuzzing](fuzz/README.md) describes the separate fuzz workspace.
+- [Application examples](docs/examples.md): signing, certificate binding and TLS.
+- [Provider tests](tests/README.md): disposable SoftHSM/Kryoptic setup and full-suite commands.
+- [Fuzzing](fuzz/README.md): sanitizer runs, corpora and artifact replay.
 
 ## License
 
-The project is available under either the [MIT license](LICENSE-MIT) or the
-[Apache License 2.0](LICENSE-APACHE), at your option.
+[MIT](LICENSE-MIT) OR [Apache-2.0](LICENSE-APACHE), at your option.

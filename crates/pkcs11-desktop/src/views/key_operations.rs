@@ -2,7 +2,7 @@
 use crate::ui::{button, components::EMPHASIS, pick_list, text_input};
 use crate::{
     app::Message,
-    backend::{CryptoMode, KeyProfile},
+    backend::{CryptoMode, KeyProfile, MontgomeryKdfChoice, MontgomeryOutputChoice},
     state::{KeyField, UiState},
 };
 use iced::{
@@ -20,6 +20,7 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
     let enabled = state.can_submit();
     let wrap = form.scope.mode == CryptoMode::Wrap;
     let derive = form.scope.mode == CryptoMode::Derive;
+    let montgomery = matches!(form.profile, Some(KeyProfile::Montgomery(_)));
     let encapsulate = form.scope.mode == CryptoMode::Encapsulate;
     let decapsulate = form.scope.mode == CryptoMode::Decapsulate;
     let kem = encapsulate || decapsulate;
@@ -27,6 +28,8 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
         "Encapsulate an ML-KEM shared secret"
     } else if decapsulate {
         "Decapsulate an ML-KEM shared secret"
+    } else if derive && montgomery {
+        "Derive an X25519/X448 shared secret"
     } else if derive {
         "Derive an ECDH shared secret"
     } else if wrap {
@@ -41,6 +44,7 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
             KeyProfile::Classical(pkcs11_client::KeyOperationProfile::AesKeyWrap(bytes)) => format!("RFC 3394 AES key wrap with the default IV, using an AES-{} key. The blob contains no label, ID or permissions.", bytes * 8),
             KeyProfile::Hkdf(_) => "No compatible key-operation profile.".into(),
             KeyProfile::MlKem(parameter) => format!("ML-KEM-{}: {}-byte raw ciphertext. The 32-byte shared secret stays on the token; apply a protocol KDF before use and authenticate the peer separately.", match parameter { pkcs11_client::MlKemParameterSet::MlKem512 => 512, pkcs11_client::MlKemParameterSet::MlKem768 => 768, pkcs11_client::MlKemParameterSet::MlKem1024 => 1024 }, parameter.ciphertext_length()),
+            KeyProfile::Montgomery(curve) => format!("{curve} key agreement. The peer public key must be authenticated separately; the raw agreement value stays on the token and is passed through the selected KDF before use."),
         }).size(14));
     } else {
         content = content.push(text(if form.loaded {
@@ -59,6 +63,8 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
                     text_input(
                         if decapsulate {
                             "ML-KEM ciphertext input file (raw bytes)"
+                        } else if derive && montgomery {
+                            "Peer public key file (raw RFC 7748 or SPKI DER)"
                         } else if derive {
                             "Peer public key file (SPKI DER)"
                         } else {
@@ -96,7 +102,54 @@ pub fn view(state: &UiState) -> Element<'_, Message> {
                 enabled.then_some(move |value| Message::KeyEdit { id, field, value }),
             ));
         }
-        content = content.push(text(if derive || kem { "Creates a persistent sensitive, nonextractable generic secret with derivation permission only. No encryption, decryption, signing or wrapping is allowed. Existing secret key IDs are rejected. Failure may leave an object; refresh before retrying." } else { "Creates a persistent private sensitive, nonextractable AES key with encryption/decryption permission only. Existing secret key IDs are rejected. Failure may leave an object; refresh before retrying." }).size(14));
+        if montgomery {
+            content = content
+                .push(
+                    pick_list(
+                        MontgomeryKdfChoice::ALL,
+                        Some(form.montgomery_kdf),
+                        move |kdf| Message::KeyKdf { id, kdf },
+                    )
+                    .placeholder("KDF")
+                    .enabled(enabled),
+                )
+                .push(
+                    pick_list(
+                        MontgomeryOutputChoice::ALL,
+                        Some(form.montgomery_output),
+                        move |output| Message::KeyOutput { id, output },
+                    )
+                    .placeholder("Output key type")
+                    .enabled(enabled),
+                )
+                .push(
+                    text_input("Public shared info (UTF-8, 0–4096 bytes)", &form.hkdf.info)
+                        .on_input_maybe(enabled.then_some(move |value| Message::KeyEdit {
+                            id,
+                            field: KeyField::Info,
+                            value,
+                        })),
+                );
+            if form.montgomery_output == MontgomeryOutputChoice::DerivationSecret {
+                content = content.push(
+                    text_input("Output length in bytes (1–4096)", &form.hkdf.length)
+                        .on_input_maybe(enabled.then_some(move |value| Message::KeyEdit {
+                            id,
+                            field: KeyField::Length,
+                            value,
+                        })),
+                );
+            }
+        }
+        content = content.push(text(if montgomery
+            && form.montgomery_output != MontgomeryOutputChoice::DerivationSecret
+        {
+            "Creates a persistent private sensitive, nonextractable AES key with encryption/decryption permission only. Existing secret key IDs are rejected. Failure may leave an object; refresh before retrying."
+        } else if derive || kem {
+            "Creates a persistent sensitive, nonextractable generic secret with derivation permission only. No encryption, decryption, signing or wrapping is allowed. Existing secret key IDs are rejected. Failure may leave an object; refresh before retrying."
+        } else {
+            "Creates a persistent private sensitive, nonextractable AES key with encryption/decryption permission only. Existing secret key IDs are rejected. Failure may leave an object; refresh before retrying."
+        }).size(14));
     }
     if decapsulate {
         content = content.push(text("ML-KEM implicit rejection can accept altered ciphertext of the correct length and create a different secret. Completion does not confirm that peers share the same secret. Always-authenticate decapsulation keys are unsupported.").size(14));

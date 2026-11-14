@@ -60,8 +60,12 @@ fn software_token_typed_generation_permissions_and_use() {
         .into_iter()
         .map(GenerationKind::Ecdh)
         .chain(sizes.into_iter().flat_map(|size| {
-            [AesKeyPurpose::Encryption, AesKeyPurpose::Wrapping]
-                .map(|purpose| GenerationKind::Aes(size, purpose))
+            [
+                AesKeyPurpose::Encryption,
+                AesKeyPurpose::Wrapping,
+                AesKeyPurpose::Authentication,
+            ]
+            .map(|purpose| GenerationKind::Aes(size, purpose))
         }))
         .enumerate()
     {
@@ -90,7 +94,14 @@ fn software_token_typed_generation_permissions_and_use() {
             ("Private", true),
             ("Sensitive", true),
             ("Extractable", false),
-            ("Sign", false),
+            (
+                "Sign",
+                matches!(kind, GenerationKind::Aes(_, AesKeyPurpose::Authentication)),
+            ),
+            (
+                "Verify",
+                matches!(kind, GenerationKind::Aes(_, AesKeyPurpose::Authentication)),
+            ),
             ("Derive", matches!(kind, GenerationKind::Ecdh(_))),
             (
                 "Encrypt",
@@ -110,6 +121,11 @@ fn software_token_typed_generation_permissions_and_use() {
             ),
         ] {
             if class == ObjectClass::PRIVATE_KEY && matches!(name, "Encrypt" | "Wrap") {
+                continue;
+            }
+            if name == "Verify"
+                && !matches!(kind, GenerationKind::Aes(_, AesKeyPurpose::Authentication))
+            {
                 continue;
             }
             assert!(

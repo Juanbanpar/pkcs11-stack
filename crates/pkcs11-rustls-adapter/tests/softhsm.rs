@@ -3,8 +3,8 @@
 mod common;
 use common::transfer;
 use pkcs11_runtime::{
-    Attribute, AttributeType, Authentication, HashingPolicy, KeyKind, Module, ObjectRef, Pin,
-    PrivateKeyRef, SessionMode, SessionPool, SigningPolicy,
+    Attribute, AttributeType, Authentication, EdDsaCurve, HashingPolicy, KeyKind, Module,
+    ObjectRef, Pin, PrivateKeyRef, PublicKeyRef, SessionMode, SessionPool, SigningPolicy,
 };
 use pkcs11_rustls_adapter::{
     ClientResolver, Credential, CredentialSource, Credentials, Error, PinInput, ServerResolver,
@@ -19,12 +19,19 @@ use std::{
     io::{Read, Write},
     num::NonZeroUsize,
     path::PathBuf,
+    process::Command,
     sync::{
         Arc,
         atomic::{AtomicUsize, Ordering},
     },
 };
-use x509_cert::der::{Decode, Encode};
+use x509_cert::{
+    der::{
+        Decode, Encode,
+        asn1::{BitString, ObjectIdentifier},
+    },
+    spki::{AlgorithmIdentifierOwned, SubjectPublicKeyInfoOwned},
+};
 
 fn source(context: bool) -> Arc<dyn CredentialSource> {
     Arc::new(move || {
@@ -590,4 +597,161 @@ fn token_tls_handshakes_and_lifecycle() {
     drop(pool);
     assert!(weak.upgrade().is_none());
     Module::load(&path).unwrap().finalize().unwrap();
+}
+
+#[test]
+#[ignore = "requires tools/test-softhsm.sh disposable store"]
+fn token_ed25519_tls13_handshake() {
+    assert_eq!(std::env::var("PKCS11_TEST_ISOLATED").as_deref(), Ok("1"));
+    let path = std::env::var("PKCS11_TEST_MODULE").unwrap();
+    let root = PathBuf::from(std::env::var("PKCS11_TLS_TEST_DIR").unwrap());
+    let module = Arc::new(Module::load(&path).unwrap());
+    let token_uri: pkcs11_locator::Pkcs11Uri = "pkcs11:token=tls-test".parse().unwrap();
+    let pin = SecretString::from("12345678");
+    {
+        let token = module.resolve_token_uri(&token_uri).unwrap();
+        let mut session = token.open_session(SessionMode::ReadWrite).unwrap();
+        session
+            .authenticate(Authentication::User(Pin::Value(&pin)))
+            .unwrap();
+        session
+            .generate_eddsa_key_pair(EdDsaCurve::Ed25519, b"09", b"server-ed25519", false)
+            .unwrap();
+        let public = PublicKeyRef::new(
+            "pkcs11:token=tls-test;object=server-ed25519;type=public"
+                .parse()
+                .unwrap(),
+        )
+        .unwrap();
+        let raw = session.eddsa_public_key(&public).unwrap();
+        let spki = SubjectPublicKeyInfoOwned {
+            algorithm: AlgorithmIdentifierOwned {
+                oid: ObjectIdentifier::new_unwrap("1.3.101.112"),
+                parameters: None,
+            },
+            subject_public_key: BitString::from_bytes(raw.as_bytes()).unwrap(),
+        }
+        .to_der()
+        .unwrap();
+        std::fs::write(root.join("server-ed25519-public.der"), spki).unwrap();
+        session.close().unwrap();
+    }
+
+    let openssl = |args: &[&str]| {
+        let status = Command::new("openssl").args(args).status().unwrap();
+        assert!(status.success(), "openssl {args:?}");
+    };
+    let ca_key = root.join("ed25519-ca.key");
+    let ca_pem = root.join("ed25519-ca.pem");
+    openssl(&[
+        "req",
+        "-x509",
+        "-newkey",
+        "rsa:2048",
+        "-nodes",
+        "-subj",
+        "/CN=EdDSA-Test-CA",
+        "-days",
+        "1",
+        "-addext",
+        "basicConstraints=critical,CA:TRUE",
+        "-addext",
+        "keyUsage=critical,keyCertSign,cRLSign",
+        "-keyout",
+        ca_key.to_str().unwrap(),
+        "-out",
+        ca_pem.to_str().unwrap(),
+    ]);
+    let public_pem = root.join("server-ed25519-public.pem");
+    openssl(&[
+        "pkey",
+        "-pubin",
+        "-inform",
+        "DER",
+        "-in",
+        root.join("server-ed25519-public.der").to_str().unwrap(),
+        "-out",
+        public_pem.to_str().unwrap(),
+    ]);
+    let extensions = root.join("ed25519-extensions");
+    std::fs::write(
+        &extensions,
+        "basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=serverAuth\nsubjectAltName=DNS:localhost\n",
+    )
+    .unwrap();
+    openssl(&[
+        "x509",
+        "-new",
+        "-force_pubkey",
+        public_pem.to_str().unwrap(),
+        "-CA",
+        ca_pem.to_str().unwrap(),
+        "-CAkey",
+        ca_key.to_str().unwrap(),
+        "-set_serial",
+        "0x09",
+        "-subj",
+        "/CN=server-ed25519",
+        "-days",
+        "1",
+        "-extfile",
+        extensions.to_str().unwrap(),
+        "-outform",
+        "DER",
+        "-out",
+        root.join("server-ed25519.der").to_str().unwrap(),
+    ]);
+    openssl(&[
+        "x509",
+        "-in",
+        ca_pem.to_str().unwrap(),
+        "-outform",
+        "DER",
+        "-out",
+        root.join("ed25519-ca.der").to_str().unwrap(),
+    ]);
+
+    let provider = Arc::new(rustls::crypto::ring::default_provider());
+    let pool = Arc::new(
+        SessionPool::new_owned(
+            module,
+            &token_uri,
+            SessionMode::ReadOnly,
+            NonZeroUsize::new(2).unwrap(),
+        )
+        .unwrap(),
+    );
+    let credential = Arc::new(
+        Credential::load(
+            pool.clone(),
+            key("server-ed25519"),
+            vec![cert(&root, "server-ed25519"), cert(&root, "ed25519-ca")],
+            SigningPolicy::default(),
+            source(false),
+            provider.clone(),
+        )
+        .unwrap(),
+    );
+    assert_eq!(
+        credential.certified_key().key.algorithm(),
+        rustls::SignatureAlgorithm::ED25519
+    );
+    let resolver = Arc::new(
+        ServerResolver::new(
+            vec![("localhost".into(), credential.clone())],
+            Some(credential),
+        )
+        .unwrap(),
+    );
+    let client = Arc::new(ClientResolver::new(vec![]));
+    let (client_config, server_config) = configs(
+        &provider,
+        &rustls::version::TLS13,
+        resolver,
+        client,
+        cert(&root, "ed25519-ca"),
+        None,
+    );
+    handshake(client_config, server_config, "localhost").unwrap();
+    drop(pool);
 }

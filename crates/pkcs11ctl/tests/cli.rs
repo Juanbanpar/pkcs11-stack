@@ -64,6 +64,15 @@ fn help_and_version_need_no_module() {
         "import",
         "set-label",
         "delete",
+        "digest",
+        "mac",
+        "verify-mac",
+        "encrypt-aes",
+        "decrypt-aes",
+        "derive-kbkdf",
+        "derive-montgomery",
+        "aes-cipher-capabilities",
+        "function-support",
     ] {
         let out = run(&[name, "--help"]);
         assert!(
@@ -74,6 +83,223 @@ fn help_and_version_need_no_module() {
         assert!(out.stderr.is_empty());
     }
     assert!(run(&["--version"]).status.success());
+}
+
+#[test]
+fn oasis_commands_reject_invalid_parameters_before_loading_a_module() {
+    let token = "pkcs11:token=test";
+    let object = "pkcs11:token=test;object=key;type=secret-key";
+    for args in [
+        vec![
+            "digest",
+            "--module",
+            "/must-not-load",
+            "--token",
+            token,
+            "--algorithm",
+            "md5",
+            "--input",
+            "-",
+            "--output",
+            "-",
+        ],
+        vec![
+            "encrypt-aes",
+            "--module",
+            "/must-not-load",
+            "--object",
+            object,
+            "--mode",
+            "ecb",
+            "--iv",
+            "00000000000000000000000000000000",
+            "--input",
+            "-",
+            "--output",
+            "-",
+        ],
+        vec![
+            "decrypt-aes",
+            "--module",
+            "/must-not-load",
+            "--object",
+            object,
+            "--mode",
+            "cbc",
+            "--input",
+            "-",
+            "--output",
+            "-",
+        ],
+        vec![
+            "derive-kbkdf",
+            "--module",
+            "/must-not-load",
+            "--object",
+            object,
+            "--prf",
+            "hmac-sha256",
+            "--mode",
+            "counter",
+            "--kind",
+            "derivation-secret",
+            "--label",
+            "derived",
+            "--id",
+            "01",
+            "--confirm",
+        ],
+        vec![
+            "verify-mac",
+            "--module",
+            "/must-not-load",
+            "--object",
+            object,
+            "--algorithm",
+            "aes-cmac",
+            "--input",
+            "-",
+            "--tag",
+            "-",
+        ],
+    ] {
+        let out = run(&args);
+        assert!(!out.status.success(), "{args:?}");
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            stderr.contains("input")
+                || stderr.contains("size limit")
+                || stderr.contains("invalid command line"),
+            "{args:?}: {stderr}"
+        );
+        assert!(!stderr.contains("must-not-load"));
+    }
+}
+
+#[test]
+fn montgomery_rejects_invalid_output_before_loading_a_module() {
+    let out = run(&[
+        "derive-montgomery",
+        "--module",
+        "/must-not-load",
+        "--object",
+        "pkcs11:token=test;object=base;type=private",
+        "--curve",
+        "x25519",
+        "--peer",
+        "-",
+        "--kdf",
+        "null",
+        "--kind",
+        "derivation-secret",
+        "--label",
+        "derived",
+        "--id",
+        "01",
+        "--confirm",
+    ]);
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("length") || stderr.contains("invalid command line"),
+        "{stderr}"
+    );
+    assert!(!stderr.contains("must-not-load"));
+}
+
+#[test]
+fn sha1_signatures_require_explicit_opt_in_before_loading_a_module() {
+    let out = run(&[
+        "sign",
+        "--module",
+        "/must-not-load",
+        "--key",
+        "pkcs11:token=test;object=key;type=private",
+        "--algorithm",
+        "rsa-pkcs1",
+        "--digest",
+        "sha1",
+        "--input",
+        "-",
+        "--output",
+        "-",
+    ]);
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("--allow-sha1"), "{stderr}");
+    assert!(!stderr.contains("must-not-load"));
+}
+
+#[test]
+fn eddsa_rejects_classical_options_before_loading_a_module() {
+    let out = run(&[
+        "sign",
+        "--module",
+        "/must-not-load",
+        "--key",
+        "pkcs11:token=test;object=eddsa;type=private",
+        "--algorithm",
+        "ed25519",
+        "--digest",
+        "sha256",
+        "--input",
+        "-",
+        "--output",
+        "-",
+    ]);
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("EdDSA") || stderr.contains("invalid command line"));
+    assert!(!stderr.contains("must-not-load"));
+}
+
+#[test]
+fn hash_pqc_requires_explicit_parameter_set_before_loading_a_module() {
+    let out = run(&[
+        "sign",
+        "--module",
+        "/must-not-load",
+        "--key",
+        "pkcs11:token=test;object=hash;type=private",
+        "--algorithm",
+        "hash-ml-dsa",
+        "--digest",
+        "sha256",
+        "--input",
+        "-",
+        "--output",
+        "-",
+    ]);
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("parameter-set") || stderr.contains("invalid command line"),
+        "{stderr}"
+    );
+    assert!(!stderr.contains("must-not-load"));
+}
+
+#[test]
+fn slh_dsa_rejects_classical_options_before_loading_a_module() {
+    let out = run(&[
+        "sign",
+        "--module",
+        "/must-not-load",
+        "--key",
+        "pkcs11:token=test;object=slh;type=private",
+        "--algorithm",
+        "slh-dsa-sha2-128s",
+        "--digest",
+        "sha256",
+        "--input",
+        "-",
+        "--output",
+        "-",
+    ]);
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("SLH-DSA") || stderr.contains("invalid command line"));
+    assert!(!stderr.contains("must-not-load"));
 }
 
 #[test]
@@ -205,7 +431,7 @@ fn verification_rejects_mismatch_bad_parameters_and_oversized_inputs() {
         assert_eq!(run(&all).status.code(), Some(2));
     }
     for (option, maximum) in [
-        ("--signature", 16 * 1024),
+        ("--signature", 64 * 1024),
         ("--certificate-file", 1024 * 1024),
         ("--input", 64 * 1024 * 1024),
     ] {

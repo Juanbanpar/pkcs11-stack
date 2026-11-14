@@ -2,12 +2,13 @@
 use crate::{
     backend::{
         AdministrationKind, BackendCommand, BackendError, BackendEvent, CryptoMode, EventSource,
-        LoginRole, RequestId, ResourceId, Worker,
+        LoginRole, MontgomeryKdfChoice, MontgomeryOutputChoice, RequestId, ResourceId, Worker,
     },
     state::{
         AdministrationField, AdministrationPinField, CipherChoice, CipherField, CryptoField,
         Dialog, FilePurpose, HkdfOutputChoice, KeyChoice, KeyField, ManagementField, Notification,
-        RandomField, Screen, SignatureChoice, TokenPage, UiState, WrapTarget,
+        PublicKeyPurposeChoice, RandomField, Screen, SignatureChoice, TokenPage, UiState,
+        WrapTarget,
     },
     views,
 };
@@ -47,6 +48,14 @@ pub enum Message {
     KeyTarget {
         id: RequestId,
         target: WrapTarget,
+    },
+    KeyKdf {
+        id: RequestId,
+        kdf: MontgomeryKdfChoice,
+    },
+    KeyOutput {
+        id: RequestId,
+        output: MontgomeryOutputChoice,
     },
     KeyBrowse {
         id: RequestId,
@@ -154,6 +163,9 @@ pub enum Message {
     Generate,
     ImportCertificate,
     ImportMlKem,
+    ImportPublicKey,
+    PublicKeyPurpose(PublicKeyPurposeChoice),
+    ChoosePublicKey,
     ChooseMlKem,
     ChooseCertificate,
     ExportObject,
@@ -200,6 +212,8 @@ impl std::fmt::Debug for Message {
             Self::OpenKeyOperation(_) => "OpenKeyOperation",
             Self::KeyEdit { .. } => "KeyEdit",
             Self::KeyTarget { .. } => "KeyTarget",
+            Self::KeyKdf { .. } => "KeyKdf",
+            Self::KeyOutput { .. } => "KeyOutput",
             Self::KeyBrowse { .. } => "KeyBrowse",
             Self::KeyPicked { .. } => "KeyPicked",
             Self::SubmitKeyOperation(_) => "SubmitKeyOperation",
@@ -246,6 +260,9 @@ impl std::fmt::Debug for Message {
             Self::Generate => "Generate",
             Self::ImportCertificate => "ImportCertificate",
             Self::ImportMlKem => "ImportMlKem",
+            Self::ImportPublicKey => "ImportPublicKey",
+            Self::PublicKeyPurpose(_) => "PublicKeyPurpose",
+            Self::ChoosePublicKey => "ChoosePublicKey",
             Self::ChooseMlKem => "ChooseMlKem",
             Self::ChooseCertificate => "ChooseCertificate",
             Self::ExportObject => "ExportObject",
@@ -348,6 +365,8 @@ impl App {
             Message::HkdfOutput { id, output } => self.state.hkdf_output(id, output),
             Message::KeyEdit { id, field, value } => self.state.key_edit(id, field, value),
             Message::KeyTarget { id, target } => self.state.key_target(id, target),
+            Message::KeyKdf { id, kdf } => self.state.key_kdf(id, kdf),
+            Message::KeyOutput { id, output } => self.state.key_output(id, output),
             Message::KeyPicked { id, path } => self.state.key_picked(id, path),
             Message::SubmitKeyOperation(id) => {
                 let command = self.state.submit_key_operation(id);
@@ -555,6 +574,11 @@ impl App {
                 let command = self.state.generate();
                 self.submit(command);
             }
+            Message::ImportPublicKey => {
+                let command = self.state.import_public_key();
+                self.submit(command);
+            }
+            Message::PublicKeyPurpose(purpose) => self.state.public_key_purpose(purpose),
             Message::ImportMlKem => {
                 let command = self.state.import_ml_kem();
                 self.submit(command);
@@ -568,8 +592,13 @@ impl App {
                 let command = self.state.confirm_delete(id);
                 self.submit(command);
             }
-            Message::ChooseCertificate | Message::ChooseMlKem | Message::ExportObject => {
-                let request = if matches!(message, Message::ChooseMlKem) {
+            Message::ChooseCertificate
+            | Message::ChoosePublicKey
+            | Message::ChooseMlKem
+            | Message::ExportObject => {
+                let request = if matches!(message, Message::ChoosePublicKey) {
+                    self.state.begin_public_key_file()
+                } else if matches!(message, Message::ChooseMlKem) {
                     self.state.begin_ml_kem_file()
                 } else {
                     self.state
@@ -579,27 +608,34 @@ impl App {
                     return Task::perform(
                         async move {
                             let dialog = rfd::AsyncFileDialog::new();
-                            let file = match purpose {
-                                FilePurpose::MlKem => {
-                                    dialog
-                                        .set_title("Select an ML-KEM SPKI DER public key")
+                            let file =
+                                match purpose {
+                                    FilePurpose::PublicKey => dialog
+                                        .set_title(
+                                            "Select an RSA/EC/EdDSA/Montgomery SPKI DER public key",
+                                        )
                                         .pick_file()
-                                        .await
-                                }
-                                FilePurpose::Certificate => {
-                                    dialog
-                                        .set_title("Select a DER certificate")
-                                        .pick_file()
-                                        .await
-                                }
-                                FilePurpose::Export { .. } => {
-                                    dialog
-                                        .set_title("Export public object to a new file")
-                                        .set_file_name("object.der")
-                                        .save_file()
-                                        .await
-                                }
-                            };
+                                        .await,
+                                    FilePurpose::MlKem => {
+                                        dialog
+                                            .set_title("Select an ML-KEM SPKI DER public key")
+                                            .pick_file()
+                                            .await
+                                    }
+                                    FilePurpose::Certificate => {
+                                        dialog
+                                            .set_title("Select a DER certificate")
+                                            .pick_file()
+                                            .await
+                                    }
+                                    FilePurpose::Export { .. } => {
+                                        dialog
+                                            .set_title("Export public object to a new file")
+                                            .set_file_name("object.der")
+                                            .save_file()
+                                            .await
+                                    }
+                                };
                             file.map(|file| file.path().to_path_buf())
                         },
                         move |path| Message::ObjectFilePicked { id, path },

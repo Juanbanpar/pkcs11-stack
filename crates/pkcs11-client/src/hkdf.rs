@@ -2,7 +2,7 @@
 use crate::{DigestAlgorithm, Error, HkdfCapabilities, HkdfRequest, ManagementSession, ObjectRef};
 
 impl ManagementSession<'_> {
-    /// Discover SHA-2 HKDF profiles permitted by the selected base and provider.
+    /// Discover SHA-1/SHA-2 HKDF profiles permitted by the selected base and provider.
     /// At most one digest matches the PKCS#11 hash-length base-key requirement.
     /// Unsupported profiles are omitted; selection, metadata and provider failures propagate.
     /// This reads capabilities only and never derives or reads a key value.

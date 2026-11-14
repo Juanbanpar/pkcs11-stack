@@ -69,7 +69,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-2022, macos-14]
+        os: [windows-2022, macos-15]
     defaults:
       run:
         shell: bash
@@ -215,6 +215,10 @@ jobs:
         run: |
           sudo apt-get install --yes cmake pkg-config libxkbcommon-dev libwayland-dev libegl1-mesa-dev
       - name: Isolated runtime, client, CLI, TLS and desktop workflows
+        env:
+          # SoftHSM 2.6.1 reports encoded-byte EdDSA bounds instead of field bits.
+          # Upstream retains mandatory Ed25519/Ed448 coverage.
+          PKCS11_TEST_SKIP_EDDSA: ${{ matrix.provider == 'packaged' && '1' || '0' }}
         run: ./tools/test-softhsm.sh
       - name: ML-DSA library, CLI, TLS and desktop workflows
         if: matrix.provider == 'upstream'
@@ -233,6 +237,10 @@ jobs:
           sudo apt-get install --yes clang libclang-dev pkg-config libsqlite3-dev g++ make perl openssl opensc libxkbcommon-dev libwayland-dev libegl1-mesa-dev
       - name: Build pinned Kryoptic and OpenSSL with ML-KEM, ECDH and HKDF
         run: ./tools/build-kem-hkdf-provider.sh "$RUNNER_TEMP/kdf-provider"
+      - name: Build pinned all-features Kryoptic provider
+        env:
+          KRYOPTIC_OPENSSL_SOURCES: ${{ runner.temp }}/kdf-provider/openssl
+        run: ./tools/build-pqc-kryoptic-provider.sh "$RUNNER_TEMP/pqc-kryoptic"
       - name: Require library, CLI and desktop KEM/HKDF workflows on the same token
         env:
           PKCS11_TEST_KDF_MODULE: ${{ runner.temp }}/kdf-provider/libkryoptic_pkcs11.so
@@ -241,3 +249,8 @@ jobs:
         run: |
           ./tools/test-ml-kem.sh
           ./tools/test-kem-hkdf.sh
+      - name: Require SLH-DSA, HashSLH-DSA, HashML-DSA and Montgomery workflows
+        env:
+          PKCS11_TEST_PQC_MODULE: ${{ runner.temp }}/pqc-kryoptic/libkryoptic_pkcs11.so
+          PKCS11_TEST_PQC_OPENSSL: ${{ runner.temp }}/kdf-provider/openssl/bin/openssl
+        run: ./tools/test-pqc-kryoptic.sh

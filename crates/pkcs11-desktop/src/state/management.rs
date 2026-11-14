@@ -2,8 +2,26 @@
 use super::*;
 use crate::backend::{GenerationKind, ManagementAction};
 use pkcs11_client::{
-    AesKeyPurpose, KeyKind, MlDsaParameterSet, MlKemParameterSet, NamedCurve, ObjectClass,
+    AesKeyPurpose, ClassicalPublicKeyPurpose, KeyKind, MlDsaParameterSet, MlKemParameterSet,
+    NamedCurve, ObjectClass, SlhDsaParameterSet,
 };
+
+fn slh_name(parameter: SlhDsaParameterSet) -> &'static str {
+    match parameter {
+        SlhDsaParameterSet::Sha2_128S => "SLH-DSA-SHA2-128s",
+        SlhDsaParameterSet::Sha2_128F => "SLH-DSA-SHA2-128f",
+        SlhDsaParameterSet::Sha2_192S => "SLH-DSA-SHA2-192s",
+        SlhDsaParameterSet::Sha2_192F => "SLH-DSA-SHA2-192f",
+        SlhDsaParameterSet::Sha2_256S => "SLH-DSA-SHA2-256s",
+        SlhDsaParameterSet::Sha2_256F => "SLH-DSA-SHA2-256f",
+        SlhDsaParameterSet::Shake128S => "SLH-DSA-SHAKE-128s",
+        SlhDsaParameterSet::Shake128F => "SLH-DSA-SHAKE-128f",
+        SlhDsaParameterSet::Shake192S => "SLH-DSA-SHAKE-192s",
+        SlhDsaParameterSet::Shake192F => "SLH-DSA-SHAKE-192f",
+        SlhDsaParameterSet::Shake256S => "SLH-DSA-SHAKE-256s",
+        SlhDsaParameterSet::Shake256F => "SLH-DSA-SHAKE-256f",
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct KeyChoice(pub GenerationKind);
@@ -11,6 +29,20 @@ impl std::fmt::Display for KeyChoice {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.0 {
             GenerationKind::Signing(KeyKind::Rsa { bits }) => write!(f, "RSA {bits} — signing"),
+            GenerationKind::Signing(KeyKind::Edwards(curve)) => {
+                write!(f, "{} — signing", curve)
+            }
+            GenerationKind::Signing(KeyKind::Montgomery(curve)) => {
+                write!(f, "{} — key agreement", curve)
+            }
+            GenerationKind::EdDsa(curve) => write!(f, "{} — signing", curve),
+            GenerationKind::SlhDsa(parameter) => write!(f, "{} — signing", slh_name(parameter)),
+            GenerationKind::HashSlhDsa(parameter) => {
+                write!(f, "{} — HashSLH-DSA signing", slh_name(parameter))
+            }
+            GenerationKind::Montgomery(curve) => {
+                write!(f, "{} — key agreement", curve)
+            }
             GenerationKind::MlDsa(parameter) => write!(
                 f,
                 "ML-DSA-{} — signing",
@@ -49,13 +81,33 @@ impl std::fmt::Display for KeyChoice {
                 match purpose {
                     AesKeyPurpose::Encryption => "encryption/decryption",
                     AesKeyPurpose::Wrapping => "wrapping/unwrapping",
+                    AesKeyPurpose::Authentication => "AES-CMAC signing/verification",
                 }
             ),
         }
     }
 }
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PublicKeyPurposeChoice(pub ClassicalPublicKeyPurpose);
+impl PublicKeyPurposeChoice {
+    pub const ALL: [Self; 2] = [
+        Self(ClassicalPublicKeyPurpose::Verification),
+        Self(ClassicalPublicKeyPurpose::Encryption),
+    ];
+}
+impl std::fmt::Display for PublicKeyPurposeChoice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self.0 {
+            ClassicalPublicKeyPurpose::Verification => {
+                "Signature verification (RSA/EC/EdDSA/Montgomery)"
+            }
+            ClassicalPublicKeyPurpose::Encryption => "Encryption (RSA only)",
+        })
+    }
+}
 #[derive(Clone, Copy)]
 pub enum FilePurpose {
+    PublicKey,
     MlKem,
     Certificate,
     Export {
@@ -76,6 +128,11 @@ pub struct DeleteConfirmation {
 }
 #[derive(Default)]
 pub struct ManagementUi {
+    pub public_key_label: String,
+    pub public_key_id: String,
+    pub public_key_path: String,
+    pub picked_public_key: Option<PathBuf>,
+    pub public_key_purpose: PublicKeyPurposeChoice,
     pub ml_kem_label: String,
     pub ml_kem_id: String,
     pub ml_kem_path: String,
@@ -171,6 +228,36 @@ impl UiState {
             id,
             label: self.management.key_label.as_bytes().to_vec(),
             always_authenticate: self.management.always_authenticate,
+        };
+        self.begin_management(self.module()?.id, self.token()?.id, action)
+    }
+    pub fn public_key_purpose(&mut self, purpose: PublicKeyPurposeChoice) {
+        if self.can_manage() && self.token_page == TokenPage::Operations {
+            self.management.public_key_purpose = purpose;
+        }
+    }
+    pub fn import_public_key(&mut self) -> Option<BackendCommand> {
+        if !self.can_manage() || self.token_page != TokenPage::Operations {
+            return None;
+        }
+        let id = identifier(&self.management.public_key_id);
+        if !id.as_ref().is_some_and(|id| id.len() <= 128)
+            || self.management.public_key_path.is_empty()
+            || self.management.public_key_label.is_empty()
+            || self.management.public_key_label.len() > 128
+        {
+            self.notification = Some(Notification::Error(BackendError::PublicKeyImportInput));
+            return None;
+        }
+        let action = ManagementAction::ImportPublicKey {
+            path: self
+                .management
+                .picked_public_key
+                .clone()
+                .unwrap_or_else(|| PathBuf::from(&self.management.public_key_path)),
+            id: id?,
+            label: self.management.public_key_label.as_bytes().to_vec(),
+            purpose: self.management.public_key_purpose.0,
         };
         self.begin_management(self.module()?.id, self.token()?.id, action)
     }
@@ -312,6 +399,12 @@ impl UiState {
         };
         self.begin_management_file(purpose)
     }
+    pub fn begin_public_key_file(&mut self) -> Option<(RequestId, FilePurpose)> {
+        if self.token_page != TokenPage::Operations || !self.can_manage() {
+            return None;
+        }
+        self.begin_management_file(FilePurpose::PublicKey)
+    }
     pub fn begin_ml_kem_file(&mut self) -> Option<(RequestId, FilePurpose)> {
         if self.token_page != TokenPage::Operations || !self.can_manage() {
             return None;
@@ -343,6 +436,11 @@ impl UiState {
         let request = self.management.file_request.take()?;
         let path = path?;
         match request.purpose {
+            FilePurpose::PublicKey if self.token_page == TokenPage::Operations => {
+                self.management.public_key_path = path.to_string_lossy().into_owned();
+                self.management.picked_public_key = Some(path);
+                None
+            }
             FilePurpose::MlKem if self.token_page == TokenPage::Operations => {
                 self.management.ml_kem_path = path.to_string_lossy().into_owned();
                 self.management.picked_ml_kem = Some(path);
@@ -371,6 +469,9 @@ impl UiState {
 
 #[derive(Clone, Copy)]
 pub enum ManagementField {
+    PublicKeyLabel,
+    PublicKeyId,
+    PublicKeyPath,
     MlKemLabel,
     MlKemId,
     MlKemPath,
@@ -386,6 +487,13 @@ impl UiState {
             return;
         }
         match field {
+            ManagementField::PublicKeyLabel => self.management.public_key_label = value,
+            ManagementField::PublicKeyId => self.management.public_key_id = value,
+            ManagementField::PublicKeyPath => {
+                self.management.public_key_path = value;
+                self.management.picked_public_key = None;
+                self.management.file_request = None;
+            }
             ManagementField::MlKemLabel => self.management.ml_kem_label = value,
             ManagementField::MlKemId => self.management.ml_kem_id = value,
             ManagementField::MlKemPath => {

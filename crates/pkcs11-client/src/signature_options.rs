@@ -6,7 +6,7 @@ use crate::*;
 pub struct SignatureParameters {
     /// Signature family.
     pub algorithm: SignatureAlgorithm,
-    /// SHA-2 message digest.
+    /// Message digest; default policy choices are SHA-2.
     pub digest: DigestAlgorithm,
     /// Explicit PSS parameters; absent for other families.
     pub pss: Option<PssParameters>,
@@ -46,6 +46,8 @@ pub(crate) fn candidates(key: KeyKind) -> Vec<SignatureParameters> {
     let algorithms: &[SignatureAlgorithm] = match key {
         KeyKind::Rsa { .. } => &[SignatureAlgorithm::RsaPkcs1, SignatureAlgorithm::RsaPss],
         KeyKind::Ec(_) => &[SignatureAlgorithm::Ecdsa],
+        KeyKind::Edwards(_) => &[],
+        KeyKind::Montgomery(_) => &[],
     };
     algorithms
         .iter()

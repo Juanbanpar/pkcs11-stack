@@ -1,7 +1,7 @@
 # pkcs11-locator
 
-Hardware-independent RFC 7512 URI parsing, construction and selector matching.
-Parsing and matching require no module loading or hardware access.
+RFC 7512 URI parsing, construction and selector matching without module loading
+or hardware access.
 
 ```rust
 use pkcs11_locator::{Pkcs11Uri, ResourceIdentity, ObjectType};
@@ -19,10 +19,9 @@ assert!(uri.matches(&discovered));
 
 ## Model and construction
 
-`Pkcs11Uri` stores validated decoded attributes. `Pkcs11UriBuilder` accepts decoded
-bytes for path attributes and owned `secrecy::SecretString` values for query
-attributes. The same validation applies to builder and parser. Attribute setters
-return typed errors instead of silently replacing earlier values.
+`Pkcs11Uri` stores validated decoded attributes. Its builder accepts decoded path
+bytes and owned `SecretString` query values, applying the same validation as parsing.
+Attribute setters return typed errors rather than silently replacing values.
 
 ```rust
 use pkcs11_locator::Pkcs11Uri;
@@ -39,12 +38,11 @@ assert!(serialized.expose_secret().contains("example-only"));
 # Ok::<(), pkcs11_locator::Error>(())
 ```
 
-`ModuleSelector`, `SlotSelector`, `TokenSelector` and `ObjectSelector` are borrowed
-views of a URI's criteria. Their `matches` methods check only the named level;
-use `Pkcs11Uri::matches(ResourceIdentity)` to check the complete hierarchy.
-Discovered identities are separate, borrowed metadata structs, with no handles or
-session state. Missing identity fields are unknown, not empty. Initialize them
-with `Default` and assign the available public fields.
+`ModuleSelector`, `SlotSelector`, `TokenSelector` and `ObjectSelector` borrow URI
+criteria. Their `matches` methods check one level; `Pkcs11Uri::matches` checks the
+complete `ResourceIdentity`. Discovered identities borrow metadata without handles
+or session state. Initialize with `Default` and populate available fields; missing
+fields mean unknown, not empty.
 
 ## Syntax and matching policy
 
@@ -74,25 +72,24 @@ resource-identity or full URI-equivalence guarantee.
 
 ## Secret handling
 
-`pin-value` and `pin-source` are mutually exclusive. Both are redacted in Display,
-Debug, builder Debug and selector Debug. Display uses `[REDACTED]` markers; it is
-for diagnostics, not persistence of credentials. Query values are stored in
-`SecretString`, exposed only through an explicit `ExposeSecret` call. Unknown
-query values remain visible in URI Display, so callers must not put secrets in
-arbitrary vendor attributes unless they apply their own redaction policy.
+| Surface | Secret handling |
+| --- | --- |
+| `pin-value` / `pin-source` | Mutually exclusive; redacted in URI, builder and selector Display/Debug |
+| Query storage | `SecretString`; access requires explicit `ExposeSecret` |
+| URI Display | Diagnostic `[REDACTED]` markers; unsuitable for credential persistence |
+| `to_secret_uri` | Full serialization in zeroizing, Debug-redacted storage |
+| Unknown query attributes | Visible in Display; callers must supply their own redaction if storing secrets |
 
-`to_secret_uri` explicitly serializes the full URI into `SecretString`; its Debug
-is also redacted. Decoding uses zeroizing scratch storage, and full serialization
-reserves its encoded size before writing secrets. Errors contain neither input
-values nor attacker-controlled names. This does not erase the caller's original
-input or any copies made after secret exposure. PIN-source values are stored
-without interpreting or executing them.
+Decoding uses zeroizing scratch storage; full serialization reserves encoded size
+before writing secrets. Errors omit input values and attacker-controlled names.
+Original input and copies made after exposure remain the caller's responsibility.
+PIN-source values are stored without interpretation or execution.
 
 ## Testing
 
 ```sh
 cargo test -p pkcs11-locator --locked
-cargo clippy -p pkcs11-locator --all-targets -- -D warnings
+cargo clippy -p pkcs11-locator --all-targets --locked -- -D warnings
 ```
 
 Tests cover parsing, binary IDs, matching, serialization and secret redaction.

@@ -291,7 +291,7 @@ impl ManagementSession<'_> {
     }
     /// Export only public certificate/data values or public keys as SPKI DER.
     /// Private/secret key classes and CKA_PRIVATE objects are rejected before value reads.
-    /// RSA, named EC, ML-DSA and ML-KEM keys use their observed key type; unsupported
+    /// RSA, named EC, ML-DSA, ML-KEM and SLH-DSA use their observed key type; unsupported
     /// types fail without trying another encoder. Export does not authenticate the key's owner.
     pub fn export_public(&mut self, reference: &ObjectRef) -> Result<Vec<u8>, Error> {
         let object = self.session.resolve(reference)?;
@@ -343,6 +343,7 @@ impl ManagementSession<'_> {
                     KeyType::RSA | KeyType::EC => self.export_classical_public_key(&key),
                     KeyType::ML_DSA => self.export_ml_dsa_public_key(&key),
                     KeyType::ML_KEM => self.export_ml_kem_public_key(&key),
+                    KeyType::SLH_DSA => self.export_slh_dsa_public_key(&key),
                     _ => Err(Error::UnsupportedExport),
                 }
             }

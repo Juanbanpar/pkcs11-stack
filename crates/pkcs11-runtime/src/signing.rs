@@ -12,7 +12,8 @@ use cryptoki::{
     session::UserType,
 };
 use pkcs11_locator::Pkcs11Uri;
-use sha2::{Digest, Sha256, Sha384, Sha512};
+use sha1::Sha1;
+use sha2::{Digest, Sha224, Sha256, Sha384, Sha512};
 use std::borrow::Cow;
 
 macro_rules! reference {
@@ -51,9 +52,13 @@ reference!(
     "Persistent certificate selector; association with a key is an application decision."
 );
 
-/// Supported SHA-2 digests.
+/// Supported message digests.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DigestAlgorithm {
+    /// SHA-1. Disabled by default; legacy opt-in only.
+    Sha1,
+    /// SHA-224. Disabled by default; opt in through an explicit policy.
+    Sha224,
     /// SHA-256.
     Sha256,
     /// SHA-384.
@@ -65,6 +70,8 @@ impl DigestAlgorithm {
     /// Digest length in bytes.
     pub fn output_len(self) -> usize {
         match self {
+            Self::Sha1 => 20,
+            Self::Sha224 => 28,
             Self::Sha256 => 32,
             Self::Sha384 => 48,
             Self::Sha512 => 64,
@@ -72,6 +79,8 @@ impl DigestAlgorithm {
     }
     fn mechanism(self) -> MechanismType {
         match self {
+            Self::Sha1 => MechanismType::SHA1,
+            Self::Sha224 => MechanismType::SHA224,
             Self::Sha256 => MechanismType::SHA256,
             Self::Sha384 => MechanismType::SHA384,
             Self::Sha512 => MechanismType::SHA512,
@@ -79,13 +88,17 @@ impl DigestAlgorithm {
     }
     fn mgf(self) -> PkcsMgfType {
         match self {
+            Self::Sha1 => PkcsMgfType::MGF1_SHA1,
+            Self::Sha224 => PkcsMgfType::MGF1_SHA224,
             Self::Sha256 => PkcsMgfType::MGF1_SHA256,
             Self::Sha384 => PkcsMgfType::MGF1_SHA384,
             Self::Sha512 => PkcsMgfType::MGF1_SHA512,
         }
     }
-    fn hash(self, data: &[u8]) -> Vec<u8> {
+    pub(crate) fn hash(self, data: &[u8]) -> Vec<u8> {
         match self {
+            Self::Sha1 => Sha1::digest(data).to_vec(),
+            Self::Sha224 => Sha224::digest(data).to_vec(),
             Self::Sha256 => Sha256::digest(data).to_vec(),
             Self::Sha384 => Sha384::digest(data).to_vec(),
             Self::Sha512 => Sha512::digest(data).to_vec(),
@@ -95,7 +108,7 @@ impl DigestAlgorithm {
 /// Generic signature family, independent of protocols.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SignatureAlgorithm {
-    /// RSASSA-PKCS1-v1_5, with a SHA-2 DigestInfo.
+    /// RSASSA-PKCS1-v1_5, with a DER DigestInfo for the selected digest.
     RsaPkcs1,
     /// RSASSA-PSS, requiring explicit MGF1 digest and salt length.
     RsaPss,
@@ -219,12 +232,19 @@ pub enum KeyKind {
     },
     /// EC with a recognized named curve.
     Ec(NamedCurve),
+    /// Edwards curve used by EdDSA.
+    Edwards(crate::EdDsaCurve),
+    /// Montgomery curve used by X25519/X448.
+    Montgomery(crate::MontgomeryCurve),
 }
 impl KeyKind {
-    fn bits(self) -> usize {
+    /// Key size or field size in bits.
+    pub fn bits(self) -> usize {
         match self {
             Self::Rsa { bits } => bits,
             Self::Ec(curve) => curve.bits(),
+            Self::Edwards(curve) => curve.bits(),
+            Self::Montgomery(curve) => curve.bits(),
         }
     }
 }
@@ -339,7 +359,7 @@ impl KeyCapabilities {
         {
             return Err(Error::InvalidParameters("DigestInfo does not fit modulus"));
         }
-        let combined = mechanism(request, true)?.mechanism_type();
+        let combined = mechanism(request, true).ok().map(|m| m.mechanism_type());
         let raw = mechanism(request, false)?.mechanism_type();
         let supports = |m| {
             self.mechanisms.iter().any(|v| {
@@ -355,9 +375,10 @@ impl KeyCapabilities {
         let (selected, hashing) = match request.input {
             SignInput::Digest(_) if supports(raw) => (raw, HashLocation::Caller),
             SignInput::Message(_)
-                if policy.hashing != HashingPolicy::SoftwareOnly && supports(combined) =>
+                if policy.hashing != HashingPolicy::SoftwareOnly
+                    && combined.is_some_and(supports) =>
             {
-                (combined, HashLocation::Token)
+                (combined.expect("checked above"), HashLocation::Token)
             }
             SignInput::Message(_)
                 if policy.hashing != HashingPolicy::TokenOnly && supports(raw) =>
@@ -378,12 +399,17 @@ impl KeyCapabilities {
         })
     }
 }
-fn mechanism(request: &SignRequest<'_>, combined: bool) -> Result<Mechanism<'static>, Error> {
+pub(crate) fn mechanism(
+    request: &SignRequest<'_>,
+    combined: bool,
+) -> Result<Mechanism<'static>, Error> {
     use DigestAlgorithm::*;
     Ok(match request.algorithm {
         SignatureAlgorithm::RsaPkcs1 => {
             if combined {
                 match request.digest {
+                    Sha1 => Mechanism::Sha1RsaPkcs,
+                    Sha224 => Mechanism::Sha224RsaPkcs,
                     Sha256 => Mechanism::Sha256RsaPkcs,
                     Sha384 => Mechanism::Sha384RsaPkcs,
                     Sha512 => Mechanism::Sha512RsaPkcs,
@@ -395,6 +421,8 @@ fn mechanism(request: &SignRequest<'_>, combined: bool) -> Result<Mechanism<'sta
         SignatureAlgorithm::Ecdsa => {
             if combined {
                 match request.digest {
+                    Sha1 => Mechanism::EcdsaSha1,
+                    Sha224 => Mechanism::EcdsaSha224,
                     Sha256 => Mechanism::EcdsaSha256,
                     Sha384 => Mechanism::EcdsaSha384,
                     Sha512 => Mechanism::EcdsaSha512,
@@ -417,6 +445,12 @@ fn mechanism(request: &SignRequest<'_>, combined: bool) -> Result<Mechanism<'sta
             };
             if combined {
                 match request.digest {
+                    Sha1 => Mechanism::Sha1RsaPkcsPss(params),
+                    Sha224 => {
+                        return Err(Error::UnsupportedSigning(
+                            "SHA-224 PSS combined mechanism unavailable",
+                        ));
+                    }
                     Sha256 => Mechanism::Sha256RsaPkcsPss(params),
                     Sha384 => Mechanism::Sha384RsaPkcsPss(params),
                     Sha512 => Mechanism::Sha512RsaPkcsPss(params),
@@ -428,35 +462,48 @@ fn mechanism(request: &SignRequest<'_>, combined: bool) -> Result<Mechanism<'sta
     })
 }
 fn digest_info(digest: DigestAlgorithm, data: &[u8]) -> Vec<u8> {
-    // DER DigestInfo for the three fixed SHA-2 OIDs, with explicit NULL parameters.
-    let (len, oid) = match digest {
-        DigestAlgorithm::Sha256 => (0x31, 1),
-        DigestAlgorithm::Sha384 => (0x41, 2),
-        DigestAlgorithm::Sha512 => (0x51, 3),
+    // DER DigestInfo with explicit NULL parameters. SHA-1 uses its original
+    // 1.3.14.3.2.26 OID; SHA-2 uses the 2.16.840.1.101.3.4.2 arc.
+    let oid = match digest {
+        DigestAlgorithm::Sha1 => &[0x06, 0x05, 0x2b, 0x0e, 0x03, 0x02, 0x1a][..],
+        DigestAlgorithm::Sha224 => &[
+            0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x04,
+        ],
+        DigestAlgorithm::Sha256 => &[
+            0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01,
+        ],
+        DigestAlgorithm::Sha384 => &[
+            0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x02,
+        ],
+        DigestAlgorithm::Sha512 => &[
+            0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x03,
+        ],
     };
-    let mut encoded = vec![
-        0x30,
-        len,
-        0x30,
-        0x0d,
-        0x06,
-        0x09,
-        0x60,
-        0x86,
-        0x48,
-        0x01,
-        0x65,
-        0x03,
-        0x04,
-        0x02,
-        oid,
-        0x05,
-        0x00,
-        0x04,
-        digest.output_len() as u8,
-    ];
+    let algorithm_len = 2 + oid.len() + 2;
+    let content_len = algorithm_len + 2 + data.len();
+    let mut encoded = Vec::with_capacity(2 + content_len);
+    encoded.extend_from_slice(&[0x30, content_len as u8]);
+    encoded.extend_from_slice(&[0x30, (oid.len() + 2) as u8]);
+    encoded.extend_from_slice(oid);
+    encoded.extend_from_slice(&[0x05, 0x00, 0x04, data.len() as u8]);
     encoded.extend_from_slice(data);
     encoded
+}
+
+pub(crate) fn signature_input<'a>(
+    request: &SignRequest<'a>,
+    hashing: HashLocation,
+) -> Cow<'a, [u8]> {
+    let mut data = match request.input {
+        SignInput::Message(value) if hashing == HashLocation::Software => {
+            Cow::Owned(request.digest.hash(value))
+        }
+        SignInput::Message(value) | SignInput::Digest(value) => Cow::Borrowed(value),
+    };
+    if hashing != HashLocation::Token && request.algorithm == SignatureAlgorithm::RsaPkcs1 {
+        data = Cow::Owned(digest_info(request.digest, &data));
+    }
+    data
 }
 
 pub(crate) fn attribute(
@@ -500,6 +547,14 @@ pub(crate) fn key_kind(object: &Object<'_, '_>) -> Result<KeyKind, Error> {
                 _ => Err(Error::MissingMetadata("EC parameters")),
             }
         }
+        Some(Attribute::KeyType(KeyType::EC_EDWARDS)) => {
+            match attribute(object, AttributeType::EcParams, true)? {
+                Some(Attribute::EcParams(value)) => {
+                    Ok(KeyKind::Edwards(crate::EdDsaCurve::from_ec_params(&value)?))
+                }
+                _ => Err(Error::MissingMetadata("EdDSA curve parameters")),
+            }
+        }
         _ => Err(Error::UnsupportedSigning("key type")),
     }
 }
@@ -541,20 +596,26 @@ fn capabilities(object: &Object<'_, '_>) -> Result<KeyCapabilities, Error> {
         mechanisms,
     })
 }
-fn supported_mechanism(m: MechanismType) -> bool {
+pub(crate) fn supported_mechanism(m: MechanismType) -> bool {
     [
         MechanismType::RSA_PKCS,
         MechanismType::RSA_PKCS_PSS,
         MechanismType::ECDSA,
+        MechanismType::SHA224_RSA_PKCS,
+        MechanismType::SHA1_RSA_PKCS,
         MechanismType::SHA256_RSA_PKCS,
         MechanismType::SHA384_RSA_PKCS,
         MechanismType::SHA512_RSA_PKCS,
+        MechanismType::SHA1_RSA_PKCS_PSS,
         MechanismType::SHA256_RSA_PKCS_PSS,
         MechanismType::SHA384_RSA_PKCS_PSS,
         MechanismType::SHA512_RSA_PKCS_PSS,
+        MechanismType::ECDSA_SHA224,
+        MechanismType::ECDSA_SHA1,
         MechanismType::ECDSA_SHA256,
         MechanismType::ECDSA_SHA384,
         MechanismType::ECDSA_SHA512,
+        MechanismType::EDDSA,
     ]
     .contains(&m)
 }
@@ -634,6 +695,8 @@ impl Session<'_> {
         let expected = match capabilities.key {
             KeyKind::Rsa { bits } => bits.div_ceil(8),
             KeyKind::Ec(curve) => 2 * curve.bits().div_ceil(8),
+            KeyKind::Edwards(curve) => curve.signature_length(),
+            KeyKind::Montgomery(_) => 0,
         };
         if signature.len() != expected {
             return Err(Error::InvalidSignature);
@@ -684,7 +747,7 @@ fn public_metadata(object: &Object<'_, '_>) -> Result<PublicKeyMetadata, Error> 
                 result.public_exponent = Some(v);
             }
         }
-        KeyKind::Ec(_) => {
+        KeyKind::Ec(_) | KeyKind::Edwards(_) | KeyKind::Montgomery(_) => {
             if let Some(Attribute::EcParams(v)) = attribute(object, AttributeType::EcParams, true)?
             {
                 result.ec_params = Some(v);
@@ -714,6 +777,37 @@ impl CertificateRef {
         match attribute(&session.resolve(&self.0)?, AttributeType::Value, true)? {
             Some(Attribute::Value(v)) => Ok(v),
             _ => Err(Error::MissingMetadata("certificate value")),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{DigestAlgorithm, digest_info};
+    use sha1::{Digest, Sha1};
+
+    #[test]
+    fn digest_info_uses_standard_algorithm_identifiers() {
+        let hash = Sha1::digest(b"message");
+        let mut expected = vec![
+            0x30, 0x21, 0x30, 0x09, 0x06, 0x05, 0x2b, 0x0e, 0x03, 0x02, 0x1a, 0x05, 0x00, 0x04,
+            0x14,
+        ];
+        expected.extend_from_slice(&hash);
+        assert_eq!(digest_info(DigestAlgorithm::Sha1, &hash), expected);
+
+        for digest in [
+            DigestAlgorithm::Sha1,
+            DigestAlgorithm::Sha224,
+            DigestAlgorithm::Sha256,
+            DigestAlgorithm::Sha384,
+            DigestAlgorithm::Sha512,
+        ] {
+            let hash = digest.hash(b"message");
+            let encoded = digest_info(digest, &hash);
+            assert_eq!(encoded[0], 0x30);
+            assert_eq!(encoded[1] as usize, encoded.len() - 2);
+            assert_eq!(encoded.last(), hash.last());
         }
     }
 }

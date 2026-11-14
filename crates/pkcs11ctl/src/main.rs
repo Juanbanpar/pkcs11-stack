@@ -3,11 +3,16 @@
 //! PKCS#11 command-line workflows over the client library.
 mod aes_gcm;
 mod args;
+mod eddsa;
 mod generation;
+mod hash_pqc;
 mod inspect;
 mod key_establishment;
 mod ml_dsa;
+mod montgomery;
+mod oasis;
 mod operations;
+mod slh_dsa;
 mod support;
 use secrecy::ExposeSecret;
 use std::process::ExitCode;

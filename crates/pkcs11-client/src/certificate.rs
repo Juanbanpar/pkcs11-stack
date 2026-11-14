@@ -4,7 +4,8 @@ use crate::{
 };
 use p256::ecdsa::signature::hazmat::PrehashVerifier;
 use rsa::{BigUint, Pkcs1v15Sign, Pss, RsaPublicKey, traits::PublicKeyParts};
-use sha2::{Digest, Sha256, Sha384, Sha512};
+use sha1::Sha1;
+use sha2::{Digest, Sha224, Sha256, Sha384, Sha512};
 use x509_cert::der::{
     Decode, Encode,
     asn1::{Null, ObjectIdentifier},
@@ -225,6 +226,8 @@ impl Certificate {
         self.validate_signing_request(request)?;
         let hash = match request.input {
             SignInput::Message(bytes) => match request.digest {
+                DigestAlgorithm::Sha1 => Sha1::digest(bytes).to_vec(),
+                DigestAlgorithm::Sha224 => Sha224::digest(bytes).to_vec(),
                 DigestAlgorithm::Sha256 => Sha256::digest(bytes).to_vec(),
                 DigestAlgorithm::Sha384 => Sha384::digest(bytes).to_vec(),
                 DigestAlgorithm::Sha512 => Sha512::digest(bytes).to_vec(),
@@ -236,6 +239,8 @@ impl Certificate {
             VerificationKey::Rsa(key) => {
                 if let Some(pss) = request.pss {
                     let scheme = match request.digest {
+                        DigestAlgorithm::Sha1 => Pss::new_with_salt::<Sha1>(pss.salt_len),
+                        DigestAlgorithm::Sha224 => Pss::new_with_salt::<Sha224>(pss.salt_len),
                         DigestAlgorithm::Sha256 => Pss::new_with_salt::<Sha256>(pss.salt_len),
                         DigestAlgorithm::Sha384 => Pss::new_with_salt::<Sha384>(pss.salt_len),
                         DigestAlgorithm::Sha512 => Pss::new_with_salt::<Sha512>(pss.salt_len),
@@ -243,6 +248,8 @@ impl Certificate {
                     key.verify(scheme, &hash, signature).map_err(mismatch)
                 } else {
                     let scheme = match request.digest {
+                        DigestAlgorithm::Sha1 => Pkcs1v15Sign::new::<Sha1>(),
+                        DigestAlgorithm::Sha224 => Pkcs1v15Sign::new::<Sha224>(),
                         DigestAlgorithm::Sha256 => Pkcs1v15Sign::new::<Sha256>(),
                         DigestAlgorithm::Sha384 => Pkcs1v15Sign::new::<Sha384>(),
                         DigestAlgorithm::Sha512 => Pkcs1v15Sign::new::<Sha512>(),
@@ -306,6 +313,8 @@ mod tests {
                 ("sha512", DigestAlgorithm::Sha512),
             ] {
                 let hash = match digest {
+                    DigestAlgorithm::Sha1 => Sha1::digest(MESSAGE).to_vec(),
+                    DigestAlgorithm::Sha224 => Sha224::digest(MESSAGE).to_vec(),
                     DigestAlgorithm::Sha256 => Sha256::digest(MESSAGE).to_vec(),
                     DigestAlgorithm::Sha384 => Sha384::digest(MESSAGE).to_vec(),
                     DigestAlgorithm::Sha512 => Sha512::digest(MESSAGE).to_vec(),

@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-use crate::{aes_gcm, generation, inspect, key_establishment, ml_dsa, support::*};
+use crate::{
+    aes_gcm, eddsa, generation, hash_pqc, inspect, key_establishment, ml_dsa, montgomery, oasis,
+    slh_dsa, support::*,
+};
 use clap::ArgMatches;
 use pkcs11_client::{
     AttributeType, DigestAlgorithm, HashingPolicy, Provider, PssParameters, RandomRequest,
@@ -16,20 +19,29 @@ pub(crate) enum Output {
 }
 pub(crate) fn digest(value: &str) -> DigestAlgorithm {
     match value {
+        "sha1" => DigestAlgorithm::Sha1,
+        "sha224" => DigestAlgorithm::Sha224,
         "sha256" => DigestAlgorithm::Sha256,
         "sha384" => DigestAlgorithm::Sha384,
         _ => DigestAlgorithm::Sha512,
     }
 }
 fn policy(m: &ArgMatches) -> SigningPolicy {
-    SigningPolicy {
+    let mut policy = SigningPolicy {
         hashing: match get(m, "hashing").unwrap_or("token") {
             "software" => HashingPolicy::SoftwareOnly,
             "allow-software" => HashingPolicy::AllowSoftware,
             _ => HashingPolicy::TokenOnly,
         },
         ..SigningPolicy::default()
+    };
+    if flag(m, "allow-sha1") {
+        policy.digests.push(DigestAlgorithm::Sha1);
     }
+    if flag(m, "allow-sha224") {
+        policy.digests.push(DigestAlgorithm::Sha224);
+    }
+    policy
 }
 fn request<'a>(m: &ArgMatches, bytes: &'a [u8]) -> Result<SignRequest<'a>> {
     let algorithm = match need(m, "algorithm")? {
@@ -80,6 +92,12 @@ pub(crate) struct Inputs {
     pub verification_certificate: Option<VerificationCertificate>,
     pub domain_context: Vec<u8>,
     pub signature: Vec<u8>,
+    pub tag: Vec<u8>,
+    pub kdf_label: Vec<u8>,
+    pub kdf_context: Vec<u8>,
+    pub kdf_iv: Vec<u8>,
+    pub peer: Vec<u8>,
+    pub montgomery_info: Vec<u8>,
     pub random: Option<RandomRequest>,
     pub so: bool,
     pub establishment: key_establishment::Inputs,
@@ -87,8 +105,17 @@ pub(crate) struct Inputs {
 impl Inputs {
     pub fn load(name: &str, m: &ArgMatches) -> Result<Self> {
         let ml_dsa = ml_dsa::selected(m);
+        let slh_dsa = slh_dsa::selected(m);
+        let hash_pqc = hash_pqc::selected(m);
+        let eddsa = eddsa::selected(m);
         if ml_dsa {
             ml_dsa::validate_options(m)?;
+        } else if slh_dsa {
+            slh_dsa::validate_options(m)?;
+        } else if hash_pqc {
+            hash_pqc::validate_options(m)?;
+        } else if eddsa {
+            eddsa::validate_options(m)?;
         } else if get(m, "context-file").is_some() || get(m, "hedging").is_some() {
             return Err(usage(
                 "context-file and hedging require an ML-DSA algorithm",
@@ -136,14 +163,34 @@ impl Inputs {
         if name == "verify" && get(m, "input") == Some("-") && get(m, "signature") == Some("-") {
             return Err(usage("only one verification input may read stdin"));
         }
+        if name == "verify-mac" && get(m, "input") == Some("-") && get(m, "tag") == Some("-") {
+            return Err(usage("only one MAC verification input may read stdin"));
+        }
+        if !flag(m, "allow-sha1")
+            && (get(m, "digest") == Some("sha1") || get(m, "mgf-digest") == Some("sha1"))
+        {
+            return Err(usage("SHA-1 requires --allow-sha1"));
+        }
+        if !flag(m, "allow-sha224")
+            && (get(m, "digest") == Some("sha224") || get(m, "mgf-digest") == Some("sha224"))
+        {
+            return Err(usage("SHA-224 requires --allow-sha224"));
+        }
+        montgomery::validate(name, m)?;
+        oasis::validate(name, m)?;
         let aes_gcm = aes_gcm::Inputs::load(name, m)?;
         let bytes = if aes_gcm::selected(name) {
             vec![]
         } else if let Some(path) = get(m, "input") {
             if let Some(limit) = key_establishment::input_limit(name, m)? {
                 bounded_input(path, limit)?
-            } else if name == "verify" || ml_dsa {
+            } else if name == "verify" || ml_dsa || matches!(name, "digest" | "mac" | "verify-mac")
+            {
                 bounded_input(path, 64 * 1024 * 1024)?
+            } else if matches!(name, "encrypt-aes" | "decrypt-aes") {
+                bounded_input(path, 16 * 1024 * 1024)?
+            } else if name == "import" && get(m, "kind") == Some("public-key") {
+                bounded_input(path, 4096)?
             } else {
                 input(path)?
             }
@@ -158,12 +205,67 @@ impl Inputs {
         if matches!(name, "sign" | "plan" | "verify") {
             if ml_dsa {
                 ml_dsa::request(m, &bytes, &domain_context)?;
+            } else if slh_dsa {
+                slh_dsa::request(m, &bytes, &domain_context)?;
+            } else if hash_pqc {
+                if get(m, "algorithm") == Some("hash-ml-dsa") {
+                    hash_pqc::request_ml(m, &bytes, &domain_context)?;
+                } else {
+                    hash_pqc::request_slh(m, &bytes, &domain_context)?;
+                }
+            } else if eddsa {
+                eddsa::request(m, &bytes)?;
             } else {
                 request(m, &bytes)?;
             }
         }
         let signature = if name == "verify" {
-            bounded_input(need(m, "signature")?, 16 * 1024)?
+            bounded_input(need(m, "signature")?, 64 * 1024)?
+        } else {
+            vec![]
+        };
+        let tag = if name == "verify-mac" {
+            bounded_input(need(m, "tag")?, 16 * 1024)?
+        } else {
+            vec![]
+        };
+        let kdf_label = if name == "derive-kbkdf" {
+            match get(m, "kdf-label-file") {
+                Some("-") => return Err(usage("kdf-label-file requires a file path")),
+                Some(path) => bounded_input(path, 4096)?,
+                None => vec![],
+            }
+        } else {
+            vec![]
+        };
+        let kdf_context = if name == "derive-kbkdf" {
+            match get(m, "kdf-context-file") {
+                Some("-") => return Err(usage("kdf-context-file requires a file path")),
+                Some(path) => bounded_input(path, 4096)?,
+                None => vec![],
+            }
+        } else {
+            vec![]
+        };
+        let peer = if name == "derive-montgomery" {
+            bounded_input(need(m, "peer")?, 4096)?
+        } else {
+            vec![]
+        };
+        let montgomery_info = if name == "derive-montgomery" {
+            match get(m, "shared-info-file") {
+                Some("-") => return Err(usage("shared-info-file requires a file path")),
+                Some(path) => bounded_input(path, 4096)?,
+                None => vec![],
+            }
+        } else {
+            vec![]
+        };
+        let kdf_iv = if name == "derive-kbkdf" {
+            match get(m, "iv") {
+                Some(value) => unhex(value)?,
+                None => vec![],
+            }
         } else {
             vec![]
         };
@@ -172,6 +274,21 @@ impl Inputs {
                 return Err(usage("certificate-file requires a file path"));
             }
             let der = bounded_input(path, 1024 * 1024)?;
+            if slh_dsa {
+                return Err(usage(
+                    "SLH-DSA certificate verification is not exposed by this CLI",
+                ));
+            }
+            if hash_pqc {
+                return Err(usage(
+                    "HashML-DSA/HashSLH-DSA certificate verification is not exposed by this CLI",
+                ));
+            }
+            if eddsa {
+                return Err(usage(
+                    "EdDSA certificate-file verification is not exposed; use a token certificate URI",
+                ));
+            }
             let certificate = if ml_dsa {
                 let certificate = pkcs11_client::MlDsaCertificate::from_der(der)?;
                 certificate.validate_signing_request(&ml_dsa::request(
@@ -205,6 +322,12 @@ impl Inputs {
         if name == "generate" {
             generation::validate(m)?;
         }
+        if name == "import"
+            && get(m, "kind") != Some("public-key")
+            && get(m, "purpose") != Some("verification")
+        {
+            return Err(usage("--purpose applies only to public-key import"));
+        }
         if name == "diagnose" && !(1..=64).contains(&number(m, "pool-size")?) {
             return Err(usage("pool size must be 1..=64"));
         }
@@ -216,8 +339,13 @@ impl Inputs {
         for selector in ["token", "object", "key", "certificate", "post-quantum"] {
             if get(m, selector).is_some() {
                 let parsed = uri(m, selector)?;
-                if selector == "key" && parsed.path_attribute("type") != Some(b"private") {
-                    return Err(usage("key URI requires type=private"));
+                if selector == "key"
+                    && parsed.path_attribute("type") != Some(b"private")
+                    && !(name == "verify" && parsed.path_attribute("type") == Some(b"public"))
+                {
+                    return Err(usage(
+                        "key URI requires type=private, or type=public for verify",
+                    ));
                 }
                 if (selector == "certificate" || (name == "certificate" && selector == "object"))
                     && parsed.path_attribute("type") != Some(b"cert")
@@ -252,6 +380,12 @@ impl Inputs {
             verification_certificate,
             domain_context,
             signature,
+            tag,
+            kdf_label,
+            kdf_context,
+            kdf_iv,
+            peer,
+            montgomery_info,
             random,
             so,
         })
@@ -356,7 +490,11 @@ fn client_command(
     let selector = if name == "certificate" {
         "object"
     } else if name == "verify" {
-        "certificate"
+        if get(m, "key").is_some() {
+            "key"
+        } else {
+            "certificate"
+        }
     } else {
         "key"
     };
@@ -371,11 +509,37 @@ fn client_operation(
     m: &ArgMatches,
     inputs: &Inputs,
 ) -> Result<Output> {
+    if eddsa::selected(m) {
+        return eddsa::client_operation(client, name, m, inputs);
+    }
+    if hash_pqc::selected(m) {
+        return hash_pqc::client_operation(client, name, m, inputs);
+    }
+    if slh_dsa::selected(m) {
+        return slh_dsa::client_operation(client, name, m, inputs);
+    }
     if ml_dsa::selected(m) {
         return ml_dsa::client_operation(client, name, m, inputs);
     }
     let auth = || inputs.credential.auth(false);
     if name == "verify" {
+        if let Some(key_uri) = get(m, "key") {
+            let key = client.public_key(
+                key_uri.parse().map_err(|_| usage("invalid key URI"))?,
+                auth(),
+            )?;
+            client.verify(
+                &key,
+                &pkcs11_client::VerifyRequest {
+                    parameters: request(m, &inputs.bytes)?,
+                    signature: &inputs.signature,
+                },
+                auth(),
+            )?;
+            return Ok(Output::Structured(
+                json!({"verified":true,"trust_validated":false,"verification":"token"}),
+            ));
+        }
         return verify(
             &VerificationCertificate::Classical(
                 client.certificate(uri(m, "certificate")?, auth())?,
@@ -440,12 +604,31 @@ fn management_command(
     if name == "generation-options" {
         return generation::options(module, m).map(Output::Structured);
     }
+    if name == "function-support" {
+        return Ok(Output::Structured(json!(
+            module
+                .function_availability()?
+                .into_iter()
+                .map(|entry| json!({
+                    "function": format!("{:?}", entry.function),
+                    "supported": entry.supported,
+                }))
+                .collect::<Vec<_>>()
+        )));
+    }
     if name == "mechanisms" {
         let mut items = vec![];
-        for entry in module.mechanisms(&location)? {
-            let mechanism = entry.mechanism;
-            let info = entry.info;
-            items.push(json!({"name":format!("{mechanism:?}"),"min_key_size":info.min_key_size(),"max_key_size":info.max_key_size(),"sign":info.sign(),"verify":info.verify(),"encrypt":info.encrypt(),"decrypt":info.decrypt(),"generate":info.generate(),"generate_key_pair":info.generate_key_pair(),"wrap":info.wrap(),"unwrap":info.unwrap(),"derive":info.derive(),"encapsulate":info.encapsulate(),"decapsulate":info.decapsulate(),"hardware":info.hardware()}));
+        for entry in module.mechanism_capabilities(&location)? {
+            items.push(json!({
+                "name": entry.name,
+                "identifier": *entry.mechanism,
+                "family": entry.family.as_str(),
+                "operations": entry.operations.iter().map(|operation| operation.as_str()).collect::<Vec<_>>(),
+                "executable": entry.executable,
+                "min_key_size": entry.minimum_key_size,
+                "max_key_size": entry.maximum_key_size,
+                "hardware": entry.hardware,
+            }));
         }
         return Ok(Output::Structured(json!(items)));
     }
@@ -466,6 +649,8 @@ fn management_command(
         ));
     }
     let mutation = key_establishment::mutation(name)
+        || oasis::mutation(name)
+        || montgomery::mutation(name)
         || matches!(
             name,
             "init-pin" | "set-pin" | "generate" | "import" | "delete" | "set-label"
@@ -496,6 +681,12 @@ fn management_operation(
     }
     if key_establishment::selected(name) {
         return key_establishment::operation(session, name, m, inputs);
+    }
+    if montgomery::selected(name) {
+        return montgomery::operation(session, name, m, inputs);
+    }
+    if oasis::selected(name) {
+        return oasis::operation(session, name, m, inputs);
     }
     let value = match name {
         "random" => {
@@ -534,6 +725,18 @@ fn management_operation(
                 let key = pkcs11_client::PublicKeyRef::new(uri(m, "object")?)
                     .map_err(pkcs11_client::Error::from)?;
                 session.export_ml_kem_public_key(&key)?
+            } else if get(m, "key-family") == Some("slh-dsa") {
+                let key = pkcs11_client::PublicKeyRef::new(uri(m, "object")?)
+                    .map_err(pkcs11_client::Error::from)?;
+                session.export_slh_dsa_public_key(&key)?
+            } else if get(m, "key-family") == Some("eddsa") {
+                let key = pkcs11_client::PublicKeyRef::new(uri(m, "object")?)
+                    .map_err(pkcs11_client::Error::from)?;
+                session.export_eddsa_public_key(&key)?
+            } else if get(m, "key-family") == Some("montgomery") {
+                let key = pkcs11_client::PublicKeyRef::new(uri(m, "object")?)
+                    .map_err(pkcs11_client::Error::from)?;
+                session.export_montgomery_public_key(&key)?
             } else if ml_dsa::selected(m) {
                 let key = pkcs11_client::PublicKeyRef::new(uri(m, "object")?)
                     .map_err(pkcs11_client::Error::from)?;
@@ -569,7 +772,20 @@ fn management_operation(
         "generate" => generation::generate(session, m)?,
         "import" => {
             let id = unhex(need(m, "id")?)?;
-            if need(m, "kind")? == "ml-kem" {
+            if need(m, "kind")? == "public-key" {
+                let key = pkcs11_client::ClassicalPublicKey::from_spki_der(&inputs.bytes)?;
+                let purpose = match need(m, "purpose")? {
+                    "verification" => pkcs11_client::ClassicalPublicKeyPurpose::Verification,
+                    "encryption" => pkcs11_client::ClassicalPublicKeyPurpose::Encryption,
+                    _ => return Err(usage("invalid public-key purpose")),
+                };
+                session.import_public_key(&pkcs11_client::PublicKeyImportRequest {
+                    key: &key,
+                    purpose,
+                    id: &id,
+                    label: need(m, "label")?.as_bytes(),
+                })?;
+            } else if need(m, "kind")? == "ml-kem" {
                 session.import_ml_kem_public_key(
                     inputs
                         .establishment

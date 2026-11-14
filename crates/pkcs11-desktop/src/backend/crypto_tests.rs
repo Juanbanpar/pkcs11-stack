@@ -215,6 +215,8 @@ fn software_token_signing_verification_context_and_file_failures() {
                 panic!("classical choices")
             };
             let digest = match parameters.digest {
+                DigestAlgorithm::Sha1 => "sha1",
+                DigestAlgorithm::Sha224 => "sha224",
                 DigestAlgorithm::Sha256 => "sha256",
                 DigestAlgorithm::Sha384 => "sha384",
                 DigestAlgorithm::Sha512 => "sha512",

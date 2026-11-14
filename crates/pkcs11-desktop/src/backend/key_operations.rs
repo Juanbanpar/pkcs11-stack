@@ -4,7 +4,9 @@ use super::{
     browse::read_session,
 };
 use pkcs11_client::{
-    DeriveRequest, EcdhPeer, KeyOperation, KeyOperationProfile, SecretKeyIdentity, SessionMode,
+    AesKeySize, AttributeType, ClassicalPublicKey, DeriveRequest, EcdhPeer, KeyOperation,
+    KeyOperationProfile, KeyType, MontgomeryCurve, MontgomeryDerivation, MontgomeryKdf,
+    MontgomeryOutput, MontgomeryPublicKey, PrivateKeyRef, SecretKeyIdentity, SessionMode,
     SessionState, UnwrapRequest, WrapRequest,
 };
 use std::{
@@ -14,10 +16,91 @@ use std::{
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MontgomeryKdfChoice {
+    Null,
+    X963Sha256,
+    X963Sha384,
+    X963Sha512,
+    Sp80056aSha256,
+    Sp80056aSha384,
+    Sp80056aSha512,
+}
+impl MontgomeryKdfChoice {
+    pub const ALL: [Self; 7] = [
+        Self::Null,
+        Self::X963Sha256,
+        Self::X963Sha384,
+        Self::X963Sha512,
+        Self::Sp80056aSha256,
+        Self::Sp80056aSha384,
+        Self::Sp80056aSha512,
+    ];
+    pub fn kdf(self) -> MontgomeryKdf {
+        match self {
+            Self::Null => MontgomeryKdf::Null,
+            Self::X963Sha256 => MontgomeryKdf::X963Sha256,
+            Self::X963Sha384 => MontgomeryKdf::X963Sha384,
+            Self::X963Sha512 => MontgomeryKdf::X963Sha512,
+            Self::Sp80056aSha256 => MontgomeryKdf::Sp80056aSha256,
+            Self::Sp80056aSha384 => MontgomeryKdf::Sp80056aSha384,
+            Self::Sp80056aSha512 => MontgomeryKdf::Sp80056aSha512,
+        }
+    }
+}
+impl std::fmt::Display for MontgomeryKdfChoice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Null => "null",
+            Self::X963Sha256 => "X9.63 / SHA-256",
+            Self::X963Sha384 => "X9.63 / SHA-384",
+            Self::X963Sha512 => "X9.63 / SHA-512",
+            Self::Sp80056aSha256 => "SP 800-56A / SHA-256",
+            Self::Sp80056aSha384 => "SP 800-56A / SHA-384",
+            Self::Sp80056aSha512 => "SP 800-56A / SHA-512",
+        })
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MontgomeryOutputChoice {
+    Aes128,
+    Aes192,
+    Aes256,
+    DerivationSecret,
+}
+impl MontgomeryOutputChoice {
+    pub const ALL: [Self; 4] = [
+        Self::Aes128,
+        Self::Aes192,
+        Self::Aes256,
+        Self::DerivationSecret,
+    ];
+    pub fn output(self, length: Option<usize>) -> Result<MontgomeryOutput, BackendError> {
+        Ok(match self {
+            Self::Aes128 => MontgomeryOutput::Aes(AesKeySize::Bits128),
+            Self::Aes192 => MontgomeryOutput::Aes(AesKeySize::Bits192),
+            Self::Aes256 => MontgomeryOutput::Aes(AesKeySize::Bits256),
+            Self::DerivationSecret => MontgomeryOutput::DerivationSecret {
+                length: length.ok_or(BackendError::KeyOperationInput)?,
+            },
+        })
+    }
+}
+impl std::fmt::Display for MontgomeryOutputChoice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Aes128 => "AES-128",
+            Self::Aes192 => "AES-192",
+            Self::Aes256 => "AES-256",
+            Self::DerivationSecret => "derivation secret",
+        })
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum KeyProfile {
     Hkdf(pkcs11_client::HkdfCapabilities),
     Classical(KeyOperationProfile),
     MlKem(pkcs11_client::MlKemParameterSet),
+    Montgomery(MontgomeryCurve),
 }
 impl KeyProfile {
     pub fn supports(self, mode: CryptoMode) -> bool {
@@ -36,6 +119,7 @@ impl KeyProfile {
                     Self::MlKem(_),
                     CryptoMode::Encapsulate | CryptoMode::Decapsulate
                 )
+                | (Self::Montgomery(_), CryptoMode::Derive)
         )
     }
 }
@@ -53,6 +137,15 @@ pub enum KeyJob {
     },
     Derive {
         peer: PathBuf,
+        id: Vec<u8>,
+        label: Vec<u8>,
+    },
+    DeriveMontgomery {
+        peer: PathBuf,
+        kdf: MontgomeryKdfChoice,
+        shared_info: Vec<u8>,
+        output: MontgomeryOutputChoice,
+        length: Option<usize>,
         id: Vec<u8>,
         label: Vec<u8>,
     },
@@ -146,14 +239,85 @@ impl Registry {
                     .map(|caps| KeyProfile::MlKem(caps.parameter_set))
                     .map_err(|e| BackendError::from(&e))
             } else {
-                session
-                    .key_operation_options(&reference, operation(scope.mode)?)
-                    .map(KeyProfile::Classical)
-                    .map_err(|e| BackendError::from(&e))
+                let reads = session
+                    .inspect(&reference, &[AttributeType::KeyType])
+                    .map_err(|e| BackendError::from(&e))?;
+                if super::browse::key_type(&reads) == Some(KeyType::EC_MONTGOMERY) {
+                    let key = PrivateKeyRef::new(
+                        reference
+                            .uri()
+                            .to_string()
+                            .parse()
+                            .map_err(|_| BackendError::KeyOperationUnavailable)?,
+                    )
+                    .map_err(|_| BackendError::KeyOperationUnavailable)?;
+                    session
+                        .montgomery_private_curve(&key)
+                        .map(KeyProfile::Montgomery)
+                        .map_err(|e| BackendError::from(&e))
+                } else {
+                    session
+                        .key_operation_options(&reference, operation(scope.mode)?)
+                        .map(KeyProfile::Classical)
+                        .map_err(|e| BackendError::from(&e))
+                }
             }
         })?;
         Ok(BackendResult::KeyOptions { scope, profile })
     }
+    fn montgomery_action(
+        &self,
+        scope: CryptoScope,
+        curve: MontgomeryCurve,
+        job: KeyJob,
+    ) -> Result<(), BackendError> {
+        let KeyJob::DeriveMontgomery {
+            peer,
+            kdf,
+            shared_info,
+            output,
+            length,
+            id,
+            label,
+        } = job
+        else {
+            return Err(BackendError::KeyOperationUnavailable);
+        };
+        let (index, uri, reference) = self.key_location(scope)?;
+        let bytes = read(&peer, 4096)?;
+        let peer = match MontgomeryPublicKey::from_bytes(curve, &bytes) {
+            Ok(peer) => peer,
+            Err(_) => {
+                let parsed = ClassicalPublicKey::from_spki_der(&bytes)
+                    .map_err(|_| BackendError::KeyOperationInput)?;
+                let peer = parsed
+                    .montgomery_public_key()
+                    .map_err(|_| BackendError::KeyOperationInput)?;
+                if peer.curve() != curve {
+                    return Err(BackendError::KeyOperationInput);
+                }
+                peer
+            }
+        };
+        let output = output.output(length)?;
+        let module = &self.modules[index];
+        read_session(module, &uri, SessionMode::ReadWrite, |session| {
+            session
+                .derive_montgomery(
+                    &reference,
+                    &MontgomeryDerivation {
+                        peer: &peer,
+                        kdf: kdf.kdf(),
+                        shared_info: &shared_info,
+                        output,
+                        id: &id,
+                        label: &label,
+                    },
+                )
+                .map_err(|e| BackendError::from(&e))
+        })
+    }
+
     fn key_action(
         &self,
         scope: CryptoScope,
@@ -167,6 +331,7 @@ impl Registry {
             KeyProfile::Hkdf(profile) => return self.hkdf_action(scope, profile, job),
             KeyProfile::Classical(profile) => profile,
             KeyProfile::MlKem(parameter) => return self.kem_action(scope, parameter, job),
+            KeyProfile::Montgomery(curve) => return self.montgomery_action(scope, curve, job),
         };
         let (index, uri, reference) = self.key_location(scope)?;
         let operation = operation(scope.mode)?;

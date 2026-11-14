@@ -71,6 +71,9 @@ impl EcdhPeer {
     pub fn curve(&self) -> NamedCurve {
         self.curve
     }
+    pub(crate) fn point(&self) -> &[u8] {
+        &self.point
+    }
 }
 /// Persistent identity for a newly created secret key; bounded to 128 bytes per field.
 #[derive(Clone, Copy)]

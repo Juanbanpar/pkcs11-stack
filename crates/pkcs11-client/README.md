@@ -1,14 +1,14 @@
 # pkcs11-client
 
-Synchronous application workflows over [pkcs11-runtime](../pkcs11-runtime/README.md):
-unique token/key/certificate lookup, public metadata, policy-controlled signing,
-explicit key/certificate association, discovery and scoped administration. Part of [pkcs11-stack](../../README.md).
+Synchronous application workflows over [pkcs11-runtime](https://github.com/Juanbanpar/pkcs11-stack/blob/main/crates/pkcs11-runtime/README.md):
+resource discovery, signing, certificate binding, encryption, key derivation and
+scoped administration. Part of [pkcs11-stack](https://github.com/Juanbanpar/pkcs11-stack/blob/main/README.md).
 
 ## Signing with a certificate
 
-The application loads a trusted module and supplies authentication for each call.
-Use stable token serials and binary object IDs where available. Labels are accepted
-but ambiguous matches return errors.
+Load a trusted module and supply authentication per call. Prefer token serials and
+binary object IDs; zero or multiple matches return errors. Binding proves key
+possession with a signature, independently of matching labels or IDs.
 
 ```no_run
 use pkcs11_client::{
@@ -43,29 +43,288 @@ let request = SignRequest {
 };
 let signature = client.sign_identity(&identity, &request, auth(), None)?;
 assert!(!signature.is_empty());
-drop(client);
+client.close()?;
 provider.finalize()?;
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
-The example requires an RSA key and token support for combined SHA-2 signing.
-Callers using `Pin::Value` also depend on `secrecy` 0.10. `Pin::ProtectedPath` is
-available when supported by the token. Always-authenticate keys need a separate
-`Some(Pin::Value(&pin))` or protected-path input to each binding/signing call.
+This requires an RSA key with combined SHA-2 signing support. `Pin::Value` uses
+`secrecy` 0.10; `Pin::ProtectedPath` requires token support. Always-authenticate
+keys need a separate context PIN for each binding/signing call.
+
+## Ownership, authentication and failure handling
+
+| API | Contract |
+| --- | --- |
+| `Provider::load` | Own one explicitly trusted module; a URI never loads code |
+| `Provider::client` / `Client::connect` | Create a read-only pool; `Client::new` accepts an existing pool |
+| `Provider::management` | Open one borrowed session with explicit mode and authentication |
+| `Provider::management_owned` | Retain the module owner across requests without borrowing the provider or retaining a PIN |
+| `Client::close` / session `close` | Report cleanup failures; Drop is best effort |
+| `Provider::finalize` | Requires closed consumers; live owned sessions return `ProviderInUse` |
+
+The complete token URI is checked against the loaded module, slot and token.
+Object criteria, credentials and unsupported token constraints are rejected.
+`object_reference`, `validate_token_uri` and `token_uri` validate/project selectors
+without loading a library. Clients cannot outlive their borrowed module:
+
+```compile_fail,E0505
+use pkcs11_client::{Client, Module, SigningPolicy};
+use std::num::NonZeroUsize;
+fn invalid_shutdown(module: Module) {
+    let client = Client::connect(&module, &"pkcs11:token=test".parse().unwrap(),
+        NonZeroUsize::new(1).unwrap(), SigningPolicy::default()).unwrap();
+    module.finalize().unwrap();
+    drop(client);
+}
+```
+
+Share a client per token and authentication role. Pool exhaustion fails immediately
+with `Error::Runtime(PoolExhausted)`. Authentication ensures a role; an already
+logged-in role may not recheck the supplied PIN. `Authentication::None` leaves
+login state unchanged. Login/logout affect all sessions on the token. Drop never
+explicitly logs out, though closing the last session may reset authentication.
+PINs are borrowed and never retained; SO requires RW mode.
+
+Operations re-resolve selectors and recheck capabilities. Advisory choices and
+plans do not guarantee provider acceptance. Authentication and failed operations
+are never retried; failed sessions follow runtime invalidation rules. Mutations
+have no rollback and may leave persistent objects or partial attribute updates.
+Duplicate-ID checks do not prevent races with concurrent writers.
+
+When cleanup must be verified, capture the operation result, close the client or
+session, finalize the provider, then release output. Cleanup errors take precedence;
+failed management authentication also attempts checked closure. `Error::kind`
+provides semantic categories; diagnostic strings are not a parsing or retry contract.
+
+## Classical signing and certificate binding
+
+| API or option | Behavior |
+| --- | --- |
+| `SigningPolicy::default()` | Token hashing, RSA minimum 2048 bits, SHA-256/384/512 |
+| `HashingPolicy::AllowSoftware` / `SoftwareOnly` | Explicit software hashing selection before signing; no retry after a token failure |
+| `SignInput::Digest` | Already computed digest of the exact selected length; never hashed again |
+| `signing_options` / `plan` | Advisory mechanism and hashing-location selection |
+| `SignatureParameters` | Build requests from borrowed message/digest bytes |
+| `sign` | Raw modulus-width RSA or fixed-width ECDSA `r \|\| s`; no certificate required |
+| `Certificate::verification_options` / `verify_signature` | Software signature verification; mismatch returns `SignatureMismatch` |
+| `bind_identity` / `sign_identity` | Prove association, then verify every signature against the retained certificate |
+
+SHA-1 and SHA-224 require explicit additions to `policy.digests`; software
+certificate verification also requires the SHA-1 opt-in. PSS choices use matching
+MGF1/message digests and digest-length salt. Generic token signing permits
+independent MGF1 parameters; bound signing requires matching digests and rejects
+unsupported requests before checkout.
+
+`CertificateDocument::from_der` parses exact X.509 DER for inspection/import,
+including algorithms outside classical signing support. It retains DER, SPKI,
+subject/issuer Names and serial-number DER. `Certificate::from_der` additionally
+requires rsaEncryption RSA (up to 16384 bits) or named P-256/P-384/P-521 keys;
+malformed keys, restricted RSA-PSS SPKI and trailing bytes fail. `document()`
+exposes the parsed metadata.
+
+`bind_identity` signs `pkcs11-client identity binding v1` followed by NUL, then
+verifies with the certificate. It chooses RSA-PSS, then PKCS#1 (ECDSA for EC),
+and SHA-256/384/512 under policy, executing exactly one probe. No allowed probe
+returns `NoBindingMechanism`. `Certificate::validate_signing_request` checks
+verifier parameters independently of token capability/policy planning.
+
+An `Identity` retains a selector and certificate snapshot, without handles or PINs.
+`sign_identity` detects replacement keys by verifying each signature; mismatch
+discards the lease. Calling generic `sign(identity.key(), ...)` omits that check.
+Parsing, binding and verification do not validate issuer signatures, chains,
+validity, usage, revocation or hostnames. Applications own certificate trust.
+
+## Discovery and administration
+
+`Provider` returns slot, token, mechanism and generation snapshots. Management
+sessions expose inspection, import/export, key generation, relabel/delete and PIN
+administration without raw runtime sessions or object handles.
+
+```no_run
+use pkcs11_client::{Authentication, AttributeType, Provider, SessionMode, object_reference};
+let provider = Provider::load("/absolute/path/to/trusted-pkcs11.so")?;
+let token = "pkcs11:token=production;serial=123".parse()?;
+let mut session = provider.management(&token, SessionMode::ReadOnly, Authentication::None)?;
+let reference = object_reference("pkcs11:serial=123;object=certificate;type=cert".parse()?)?;
+let attributes = session.inspect(&reference, &[AttributeType::Label, AttributeType::Subject])?;
+// AttributeRead Debug redacts values; explicit value access can expose secrets.
+let der = session.export_value(&reference)?;
+session.close()?;
+provider.finalize()?;
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+| Workflow | Contract |
+| --- | --- |
+| `objects` / `inspect` | Read caller-requested persistent-object attributes; distinguish unavailable, sensitive and unsupported values |
+| `attributes` / `public_metadata` / `capabilities` | Typed lookup and inspection; raw requested attributes can expose extractable secrets |
+| `export_value` | Raw certificate/data values; rejects key classes before reading values |
+| `export_public` | Public certificate/data values or validated RSA/EC/ML-DSA/ML-KEM/SLH-DSA SPKI; rejects private objects and private/secret key classes |
+| Typed public-key helpers | EdDSA/Montgomery and family-specific PQC import/export; `export_classical_public_key` restricts to RSA/EC |
+| Certificate/data import | Create persistent public objects; certificate metadata is parsed without a trust decision |
+| `import_public_key` | Validate RSA/named-EC SPKI with explicit verification or RSA-encryption purpose |
+| `object_locator` | Build a selector from available class/label/CKA_ID; preserve empty criteria and module-path constraints |
+| `diagnose` | Explicit bounded-pool capacity, exhaustion and reuse check; not automatic recovery |
+
+Attribute containers redact Debug output; explicit value access can reveal secrets.
+Data IDs use CKA_OBJECT_ID, while selectors use CKA_ID: select data by unique label.
+Locators return `None` for unrepresentable identities and can remain ambiguous.
+Resolve them again before use. Public export validates encoding, not peer identity.
+
+For destructive confirmation flows, capture `TokenSnapshot::initialization_target`
+and call `Provider::initialize_token_checked` after closing all consumers. It
+rechecks slot/token metadata, initialized state and PIN bounds. `accepts_new_pin`
+checks nonempty host PINs against advertised byte bounds; the provider remains
+authoritative. Identical replacement devices and swaps after the check cannot be
+detected; arrange exclusive physical access. Direct `initialize_token` can erase
+an explicit slot and also requires exclusive ownership:
+
+```compile_fail,E0505
+use pkcs11_client::{Authentication, Provider, SessionMode};
+fn invalid_shutdown(provider: Provider) {
+    let session = provider.management(&"pkcs11:token=test".parse().unwrap(),
+        SessionMode::ReadOnly, Authentication::None).unwrap();
+    provider.finalize().unwrap();
+    session.close().unwrap();
+}
+```
+
+## Key generation
+
+`Provider::generation_capabilities` collects advisory choices for frontends;
+missing mechanisms yield empty lists and metadata errors propagate. Generation
+rechecks the selected token. `generation_options` offers common RSA sizes and
+P-256/P-384/P-521; the signing API retains its full RSA range and nonempty-ID rule.
+
+| Request | Generated key permissions |
+| --- | --- |
+| Signing key pair | Sensitive, nonextractable private key for signing |
+| `EcdhKeyPairRequest` | P-256/P-384/P-521 public key plus derivation-only sensitive, nonextractable private key |
+| `AesKeyRequest` | Private, sensitive, nonextractable AES-128/192/256; `Encryption` or `Wrapping` purpose |
+| `generate_mac_key` | Persistent HMAC or AES-CMAC key |
+
+```no_run
+use pkcs11_client::{
+    AesKeyPurpose, AesKeyRequest, AesKeySize, Authentication,
+    EcdhKeyPairRequest, NamedCurve, Pin, Provider, SessionMode,
+};
+use secrecy::SecretString;
+
+let provider = Provider::load("/absolute/path/to/trusted-pkcs11.so")?;
+let token = "pkcs11:serial=123".parse()?;
+let choices = provider.generation_capabilities(&token)?;
+assert!(choices.ecdh.contains(&NamedCurve::P256));
+assert!(choices.aes.contains(&AesKeySize::Bits256));
+// Obtain this from the application's secret source.
+let pin = SecretString::from("example-only");
+let mut session = provider.management(&token, SessionMode::ReadWrite,
+    Authentication::User(Pin::Value(&pin)))?;
+let generated = (|| {
+    session.generate_ecdh_key_pair(&EcdhKeyPairRequest {
+        curve: NamedCurve::P256, id: b"ecdh-1", label: b"agreement key",
+    })?;
+    session.generate_aes_key(&AesKeyRequest {
+        size: AesKeySize::Bits256, purpose: AesKeyPurpose::Wrapping,
+        id: b"wrap-1", label: b"wrapping key",
+    })
+})();
+let closed = session.close();
+let finalized = provider.finalize();
+closed?;
+finalized?;
+generated?;
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+ECDH/AES IDs and labels require 1–128 bytes. Existing public/private IDs are
+rejected for ECDH, secret IDs for AES; concurrent uniqueness is not guaranteed.
+Wrapping keys do not make nonextractable targets exportable.
+
+## Encryption
+
+| API | Profile and constraints |
+| --- | --- |
+| `aes_gcm_capabilities`, `encrypt_aes_gcm`, `decrypt_aes_gcm` | AES secret key with direction permission; 12-byte nonce, separate AAD, ciphertext followed by full 16-byte tag |
+| `oaep_options`, `encrypt`, `decrypt` | RSA 2048–16384 bits, SHA-256/384/512 with matching MGF1 and empty label; one block |
+| `aes_capabilities`, `encrypt_aes`, `decrypt_aes` | ECB/CBC/CBC-PAD; see request rustdoc for IV, padding and input bounds |
+
+AES-GCM permits RO sessions and empty plaintext/AAD; plaintext is limited to
+16 MiB, AAD to 1 MiB. Generated encryption keys and HKDF AES outputs qualify;
+wrapping-only keys and raw shared secrets do not. Callers ensure nonce uniqueness
+per key across writers, restarts and key copies. An encryption error does not
+permit nonce reuse. No nonce tracking or file envelope is supplied.
+
+```no_run
+use pkcs11_client::{
+    AesGcmDecryptRequest, AesGcmEncryptRequest, Authentication, Error,
+    ObjectRef, Pkcs11Uri, Plaintext, Provider, SessionMode,
+};
+
+// The caller supplies a nonce not previously used with this key, including after restart.
+fn round_trip(provider: &Provider, token: &Pkcs11Uri, key: &ObjectRef,
+    request: &AesGcmEncryptRequest<'_>, auth: Authentication<'_>) -> Result<Plaintext, Error> {
+    let mut session = provider.management(token, SessionMode::ReadOnly, auth)?;
+    let outcome = (|| {
+        let ciphertext = session.encrypt_aes_gcm(key, request)?;
+        session.decrypt_aes_gcm(key, &AesGcmDecryptRequest {
+            nonce: request.nonce, aad: request.aad, ciphertext: &ciphertext,
+        })
+    })();
+    let closed = session.close();
+    closed?;
+    outcome
+}
+```
+
+Decryption returns zeroizing, redacted `Plaintext` only after provider success.
+GCM authentication failure returns no plaintext and invalidates the session;
+preflight rejection alone does not. cryptoki's temporary failed-call buffers
+cannot be guaranteed zeroized.
+
+OAEP uses `PublicKeyRef`/`EncryptRequest` and `PrivateKeyRef`/`DecryptRequest`.
+At 2048 bits, SHA-256 allows 190 plaintext bytes and produces 256 ciphertext bytes.
+It provides neither bulk encryption nor sender authentication. Per-operation-
+authenticated decryption keys are rejected before init because the binding cannot
+interleave context login and single-part decryption. No padding downgrade occurs.
+
+## Derivation and key transfer
+
+`key_operation_options` returns advisory permissions/mechanisms/bounds without
+crypto. Execution checks every selector again.
+
+| API | Input and result |
+| --- | --- |
+| `derive` / `DeriveRequest` | Validated P-256/P-384/P-521 `EcdhPeer` SPKI; null KDF; persistent derivation-only generic secret |
+| `wrap` / `WrapRequest` | AES CKA_WRAP key plus extractable AES-128/192/256 target; honor CKA_WRAP_WITH_TRUSTED |
+| `unwrap` / `UnwrapRequest` | AES CKA_UNWRAP key plus 24/32/40-byte RFC 3394 blob; persistent AES encryption/decryption key |
+
+```no_run
+use pkcs11_client::{DeriveRequest, EcdhPeer, ManagementSession, ObjectRef, SecretKeyIdentity};
+fn derive(session: &mut ManagementSession<'_>, base: &ObjectRef, peer_der: &[u8])
+    -> Result<(), pkcs11_client::Error>
+{
+    let peer = EcdhPeer::from_spki_der(peer_der)?;
+    session.derive(base, &DeriveRequest {
+        peer: &peer,
+        identity: SecretKeyIdentity { id: b"agreement-1", label: b"ECDH material" },
+    })
+}
+```
+
+ECDH requires matching curves and rejects per-operation-authenticated base keys.
+Authenticate peers and apply a subsequent KDF. RFC 3394 uses the default IV and
+carries no metadata. Derivation/unwrapping require RW mode and new 1–128-byte
+IDs/labels, rejecting existing secret IDs. Resulting keys are private, sensitive
+and nonextractable; provider templates remain authoritative.
 
 ## ML-DSA
 
-The client exposes pure ML-DSA-44/65/87 with a separate `MlDsaRequest` and explicit
-`MlDsaSigningPolicy`. The classical digest-based `SigningPolicy` does not govern
-these calls. Requests select the expected parameter set, original message, context
-(0 through 255 bytes), and required/preferred/deterministic hedging. Required hedging
-fails if the token cannot supply randomness; there is no software fallback.
-
-Use `Provider::ml_dsa_generation_options` for advisory generation choices and
-`ManagementSession::generate_ml_dsa_key_pair` to create persistent nonextractable
-keys in an RW session. Both pooled clients and management sessions expose
-`ml_dsa_capabilities`, `sign_ml_dsa`, `verify_ml_dsa` and `export_ml_dsa_public_key`.
-Public export returns RFC 9881 SPKI DER with absent algorithm parameters.
+Pure ML-DSA-44/65/87 uses `MlDsaRequest` and `MlDsaSigningPolicy`, independently of
+classical `SigningPolicy`. Requests carry the original message, 0–255-byte context
+and required/preferred/deterministic hedging. Required hedging fails without token
+randomness. Generation is advisory through `Provider::ml_dsa_generation_options`
+and persistent through `ManagementSession::generate_ml_dsa_key_pair`.
 
 ```no_run
 use pkcs11_client::{
@@ -104,453 +363,32 @@ let signature = outcome?;
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
-The example requires an existing ML-DSA-65 key and matching certificate, without
-always-authenticate. Their selectors can use different IDs and labels.
-For always-authenticate keys, supply a separate context PIN to each signing call.
-Policy/context validation precedes pool checkout; capabilities and handles are
-rediscovered for execution. `verify_ml_dsa` runs on the token and maps a mismatch to
-`Error::SignatureMismatch`.
-
-`MlDsaVerifyingKey` verifies in software from raw public bytes or exact RFC 9881
-SPKI DER, without a module or login. `MlDsaCertificate` retains exact X.509 DER and
-a verifier; it requires absent public-key algorithm parameters and byte-aligned,
-correctly sized public keys. Both verify the original message and context, reject
-noncanonical signatures, and report `SignatureMismatch` for malformed or incorrect
-signatures. Verification does not interpret the request's hedging choice.
-
-`bind_ml_dsa_identity` signs a fixed domain-separated probe with required hedging
-and verifies it in software before constructing an `MlDsaIdentity`.
-`sign_ml_dsa_identity` verifies every subsequent signature against that retained
-certificate before returning bytes, detecting replacement keys even under the
-same selector and parameter set. Verification failures discard the lease, with
-no operation retry. Use explicit client/session closure before releasing output
-when cleanup errors must be reported.
-
-Certificate parsing, binding and message verification do not check issuer
-signatures, chains, validity, usage, revocation or hostnames. Applications own
-those trust decisions. The existing `Certificate` and `Identity` types support
-RSA/EC; ML-DSA uses its own certificate, identity and request types.
-
-## Ownership and policy
-
-Prefer `Provider::load` and `Provider::client` for application construction. The
-re-exported runtime types support applications that need direct control of pools
-and sessions; their ownership rules still apply.
-
-`Client::new` accepts an existing runtime pool; `Client::connect` creates one in
-read-only session mode. The full token URI is checked against the explicitly
-loaded module, slot and token. Object criteria, credentials and unsupported URI
-constraints are rejected. A URI never causes module loading.
-
-The client owns its pool and borrows the module. It cannot outlive or finalize its
-module; drop the client before explicit finalization:
-
-```compile_fail,E0505
-use pkcs11_client::{Client, Module, SigningPolicy};
-use std::num::NonZeroUsize;
-fn invalid_shutdown(module: Module) {
-    let client = Client::connect(&module, &"pkcs11:token=test".parse().unwrap(),
-        NonZeroUsize::new(1).unwrap(), SigningPolicy::default()).unwrap();
-    module.finalize().unwrap();
-    drop(client);
-}
-```
-
-Share one client per token and authentication role. Runtime leases provide bounded
-concurrency; exhaustion returns `Error::Runtime(PoolExhausted)` immediately.
-Authentication ensures a role, so an already logged-in token may not recheck the
-supplied PIN. `Authentication::None` leaves token-wide login state unchanged.
-External logout affects all sessions. PINs are borrowed and never retained.
-
-`SigningPolicy::default()` requires token hashing and RSA keys of at least 2048
-bits. Applications can explicitly select `HashingPolicy::AllowSoftware` or
-`SoftwareOnly`. AllowSoftware selects a supported plan before signing; it does
-not retry an operation if an advertised mechanism fails. `plan` is advisory;
-execution resolves the selector and rediscovers capabilities. A failed signature
-or authentication attempt is never retried by the client.
-
-`private_key`, `public_key`, `certificate`, `public_metadata`, `attributes` and
-`capabilities` expose common lookup/inspection workflows. Raw requested attributes
-can include extractable secret data; their Debug container is redacted. `sign`
-returns the runtime's modulus-width RSA or fixed-width ECDSA `r || s` signature.
-It does not require a certificate. `SignInput::Digest` always means an already
-computed digest, distinct from a message that still needs hashing.
-
-## Identity association and verification
-
-`Client::signing_options` offers common SHA-2 message-signing choices under current
-key capabilities and the client's policy, including the planned mechanism and
-hashing boundary. PSS choices use a matching MGF1 digest and digest-length salt.
-Choices are advisory: signing rediscovers capabilities. `SignatureParameters`
-creates a typed request from borrowed message or digest bytes without retaining them.
-
-`Certificate::verification_options` supplies matching SHA-2 parameter choices.
-`verify_signature` independently verifies raw RSA or fixed-width ECDSA `r || s`
-signatures in software, returning `SignatureMismatch` for invalid signatures.
-It does not authenticate the certificate, establish trust, or associate it with
-a token key. Parameter validation remains separate from token signing policy.
-
-`CertificateDocument::from_der` parses exact X.509 DER independently of signing
-support. It provides original DER, SPKI, subject/issuer Names and serial-number DER
-for application inspection and certificate import. It accepts algorithms such as
-Ed25519 without claiming their keys are valid or supported for signing. `Certificate`
-uses the same parser, then validates a supported public key; `document()` exposes
-its metadata. Neither parser makes a certificate trust decision.
-
-`Certificate::from_der` accepts one exact DER X.509 certificate with an
-rsaEncryption RSA key (up to 16384 bits) or a named P-256, P-384 or P-521 key.
-Malformed keys, unknown curves, RSA-PSS-restricted public keys and trailing bytes
-are rejected. `der` retains the certificate; `spki_der` exposes its public key.
-
-`bind_identity` signs `pkcs11-client identity binding v1` followed by a NUL byte,
-then verifies the result with the selected certificate. It does not infer a
-binding from matching labels or IDs. This also works when a token does not expose
-its EC private key's public point. Binding uses the client's policy, tries plans
-in RSA-PSS / PKCS#1 order (ECDSA for EC), then SHA-256 / SHA-384 / SHA-512, with PSS
-salt length equal to digest length. Exactly one selected token operation executes.
-No permitted probe produces `NoBindingMechanism`.
-
-An `Identity` retains the selector and certificate snapshot, with no object handle
-or cached credentials. `sign_identity` verifies every signature before returning
-it, detecting a different key under the same selector. Verification mismatch
-discards the lease. A token signing failure keeps its runtime error. Taking
-`identity.key()` and calling generic `sign` opts out of this association check.
-
-Bound RSA-PSS signing requires the message and MGF1 digests to match because the
-software verifier supports that subset. Unsupported requests fail before session
-checkout. `Certificate::validate_signing_request` validates verifier parameters
-so callers can check requests before performing a binding probe; capability and
-policy planning remain separate. Generic `sign` retains the runtime's independent MGF1 support.
-
-Parsing and association do **not** validate issuer signatures, trust chains,
-validity dates, key usage, revocation or hostnames. The application owns those
-checks. There is no certificate-chain construction, TLS integration or private-key
-import. Administration uses the separate management API described below.
-
-## Discovery and administration
-
-`Provider` owns one explicitly loaded runtime module. It returns slot/token/mechanism
-snapshots, creates signing clients with `client`, and opens a `ManagementSession`
-with explicit token URI, mode and authentication. Sessions expose typed inspection,
-raw certificate/data export, certificate/data import, nonextractable signing-key
-generation, relabel/delete and USER/SO PIN administration. They do not expose raw
-runtime sessions or object handles. Existing `Module`/`Client::connect` APIs remain
-compatible for applications already using them.
-
-```no_run
-use pkcs11_client::{Authentication, AttributeType, Provider, SessionMode, object_reference};
-let provider = Provider::load("/absolute/path/to/trusted-pkcs11.so")?;
-let token = "pkcs11:token=production;serial=123".parse()?;
-let mut session = provider.management(&token, SessionMode::ReadOnly, Authentication::None)?;
-let reference = object_reference("pkcs11:serial=123;object=certificate;type=cert".parse()?)?;
-let attributes = session.inspect(&reference, &[AttributeType::Label, AttributeType::Subject])?;
-// AttributeRead Debug redacts values; explicit value access can expose secrets.
-let der = session.export_value(&reference)?;
-session.close()?;
-provider.finalize()?;
-# Ok::<(), Box<dyn std::error::Error>>(())
-```
-
-`Provider::generation_options` returns common RSA sizes and P-256/P-384/P-521
-choices within the provider's advertised key-pair generation bounds. Choices are
-advisory: a vendor can still reject the requested curve or template. The existing
-generation API keeps its full RSA range and requires a nonempty ID.
-
-`export_public` exports public certificate/data values and supported public keys.
-It rejects CKA_PRIVATE objects and private/secret key classes before reading values.
-The observed key type selects RSA, named EC, ML-DSA or ML-KEM SubjectPublicKeyInfo
-DER encoding. ML-DSA and ML-KEM use their typed export helpers and require valid
-parameter sets and public-key bytes. Unknown types and incomplete or invalid
-attributes fail without trying another encoder. Export does not authenticate a
-peer or establish certificate trust. `export_classical_public_key` restricts
-export to RSA and named EC keys; the typed PQC helpers retain their family checks.
-`export_value` retains its explicit raw certificate/data export behavior.
-
-`objects` reads only caller-requested attributes of persistent objects visible to
-the session. `inspect` reports available, unavailable, sensitive or unsupported
-attributes. `export_value` accepts raw certificate/data values without parsing their
-signing algorithms, and rejects key classes before reading their value. Imports
-create persistent public objects; certificate metadata comes from
-`CertificateDocument`, including for algorithms outside signing support. Data IDs
-use CKA_OBJECT_ID. Selectors still follow the runtime's CKA_ID semantics, so use
-unique labels to select data objects. IDs/labels do not imply uniqueness.
-
-`object_locator(&token, &attributes)` builds an object URI from available class,
-label and CKA_ID reads. Empty label/ID bytes remain exact constraints; token and
-module-path constraints are preserved. It returns `None` for missing identity,
-unsupported classes or labels that cannot be represented as URI text, and rejects
-credential-bearing token URIs. Resolve the resulting selector again before use;
-multiple objects can share the same metadata.
-
-`Provider::diagnose` exercises a fresh bounded runtime pool: simultaneous leases,
-exhaustion and reuse. It accepts an authentication factory called once per initial
-lease and once for reuse; the factory returns borrowed credentials. This is an
-explicit diagnostic, not automatic recovery or a signing retry. CLI limits capacity
-to 1–64; the library accepts any nonzero capacity. Runtime keeps token-wide login
-semantics, so an established role does not validate the PIN again.
-
-`management_owned` returns a session that retains the provider's initialization
-owner without borrowing the provider. Use it to keep authentication active between
-application requests. `state` reads actual session state; `authenticate` applies
-one USER/SO login attempt; `logout` logs out the application's sessions on that
-token. SO requires read-write mode. These methods retain no PIN and never retry.
-Close owned sessions before `initialize_token` or `finalize`; live owned consumers
-return `Error::ProviderInUse`. A consumed or dropped provider does not finalize the
-module while an owned session remains alive.
-
-For confirmation flows, capture `TokenSnapshot::initialization_target` and pass
-it to `Provider::initialize_token_checked` after closing all consumers. It rejects
-changed slot/token metadata, initialized state or PIN bounds before initialization.
-The snapshot contains no live resources or credentials. Identical devices and
-changes between the check and native call cannot be distinguished; callers must
-arrange exclusive physical access. `accepts_new_pin` checks a nonempty host PIN
-against available advertised byte bounds; provider constraints remain authoritative.
-
-Management uses one explicitly authenticated session, not an additional pool.
-Mutations require RW mode and appropriate provider authorization. Failed operations
-retain runtime invalidation semantics and are never retried or rolled back. Drop
-never explicitly logs out; closing the last session may reset token login state.
-
-`Client::close` checks closure of idle pooled sessions and reports earlier
-closure failures from discarded leases. Release leases before calling it, then
-finalize the provider before releasing operation output when cleanup must be
-verified. Drop remains best effort. Management session constructors also attempt
-checked closure after authentication fails; a closure error takes precedence.
-
-`Provider::initialize_token` can erase a selected slot and requires exclusive owner
-access. Drop all sessions/clients before finalizing or initializing a token:
-
-```compile_fail,E0505
-use pkcs11_client::{Authentication, Provider, SessionMode};
-fn invalid_shutdown(provider: Provider) {
-    let session = provider.management(&"pkcs11:token=test".parse().unwrap(),
-        SessionMode::ReadOnly, Authentication::None).unwrap();
-    provider.finalize().unwrap();
-    session.close().unwrap();
-}
-```
-
-`object_reference`, `validate_token_uri` and `token_uri` support provider-independent
-input validation and projection without loading a library. `Error::kind` provides
-semantic error categories so consumers can present errors without matching runtime
-variants. It defines no terminal format or exit codes. Existing detailed errors and
-sources remain available. A missing provider attribute status is a runtime failure,
-not invalid user input. Diagnostic strings are not a parsing contract; categories
-do not authorize retries.
-
-Runnable [signing examples](../../docs/examples.md) demonstrate `Provider::client`,
-generic signing, binding and explicit shutdown with PIN files and raw stdout output.
-
-## ECDH and AES key generation
-
-`Provider::generation_capabilities` collects classical signing, ECDH, AES, ML-DSA
-and ML-KEM generation choices for frontends. Missing mechanisms produce empty
-lists; metadata errors propagate. Choices describe generation only and are not an
-atomic snapshot or a guarantee of subsequent operation support. Generation
-rechecks the selected token before calling the provider.
-
-`generate_ecdh_key_pair` creates a public EC key and a sensitive, nonextractable
-private key permitting only derivation, on P-256/P-384/P-521. Export the public
-key with `export_public` for peer exchange; authenticate that exchange separately.
-`generate_aes_key` creates a private, sensitive, nonextractable AES-128/192/256
-key. Choose `Encryption` for encryption/decryption, or `Wrapping` for
-wrapping/unwrapping. Other operation permissions are disabled.
-
-```no_run
-use pkcs11_client::{
-    AesKeyPurpose, AesKeyRequest, AesKeySize, Authentication,
-    EcdhKeyPairRequest, NamedCurve, Pin, Provider, SessionMode,
-};
-use secrecy::SecretString;
-
-let provider = Provider::load("/absolute/path/to/trusted-pkcs11.so")?;
-let token = "pkcs11:serial=123".parse()?;
-let choices = provider.generation_capabilities(&token)?;
-assert!(choices.ecdh.contains(&NamedCurve::P256));
-assert!(choices.aes.contains(&AesKeySize::Bits256));
-// Obtain this from the application's secret source.
-let pin = SecretString::from("example-only");
-let mut session = provider.management(&token, SessionMode::ReadWrite,
-    Authentication::User(Pin::Value(&pin)))?;
-let generated = (|| {
-    session.generate_ecdh_key_pair(&EcdhKeyPairRequest {
-        curve: NamedCurve::P256, id: b"ecdh-1", label: b"agreement key",
-    })?;
-    session.generate_aes_key(&AesKeyRequest {
-        size: AesKeySize::Bits256, purpose: AesKeyPurpose::Wrapping,
-        id: b"wrap-1", label: b"wrapping key",
-    })
-})();
-let closed = session.close();
-let finalized = provider.finalize();
-closed?;
-finalized?;
-generated?;
-# Ok::<(), Box<dyn std::error::Error>>(())
-```
-
-Both requests require nonempty ID/label fields of at most 128 bytes. Existing
-public/private IDs are rejected for ECDH pairs, and secret IDs for AES. These
-checks do not ensure uniqueness against concurrent writers. There is no retry,
-rollback or software fallback; failures may leave persistent objects. A wrapping
-key does not make nonextractable targets exportable. Existing signing-generation
-APIs retain their signing-only behavior.
-
-## AES-GCM encryption
-
-`ManagementSession::aes_gcm_capabilities` checks an AES secret key's current size,
-permissions, allowed mechanisms and native provider support. `encrypt_aes_gcm`
-and `decrypt_aes_gcm` accept typed requests with a 12-byte nonce, AAD and borrowed
-input. The tag is always 16 bytes and follows the ciphertext. The methods work in
-RO sessions with the required login state; execution rechecks capabilities.
-Encryption keys created by `generate_aes_key` or HKDF can be used directly.
-Wrapping-only keys and raw shared secrets are rejected.
-
-```no_run
-use pkcs11_client::{
-    AesGcmDecryptRequest, AesGcmEncryptRequest, Authentication, Error,
-    ObjectRef, Pkcs11Uri, Plaintext, Provider, SessionMode,
-};
-
-// The caller supplies a nonce not previously used with this key, including after restart.
-fn round_trip(provider: &Provider, token: &Pkcs11Uri, key: &ObjectRef,
-    request: &AesGcmEncryptRequest<'_>, auth: Authentication<'_>) -> Result<Plaintext, Error> {
-    let mut session = provider.management(token, SessionMode::ReadOnly, auth)?;
-    let outcome = (|| {
-        let ciphertext = session.encrypt_aes_gcm(key, request)?;
-        session.decrypt_aes_gcm(key, &AesGcmDecryptRequest {
-            nonce: request.nonce, aad: request.aad, ciphertext: &ciphertext,
-        })
-    })();
-    let closed = session.close();
-    closed?;
-    outcome
-}
-```
-
-Plaintext is limited to 16 MiB and AAD to 1 MiB. Empty input/AAD are supported;
-decryption requires at least the full tag. Successful plaintext zeroizes on drop
-and its Debug is redacted. Authentication failures return no plaintext and make
-the session unusable; native error context is retained. Preflight rejection does
-not itself invalidate the session. cryptoki's transient failed buffers cannot be
-guaranteed zeroized.
-
-Callers manage nonce uniqueness per key across writers, restarts and copies of key
-material. No nonce generation/tracking, retry, software fallback, streaming or file
-format is provided. Keep the nonce, AAD and protocol context with the ciphertext;
-an error does not authorize nonce reuse. The CLI and desktop expose the same raw
-ciphertext/tag profile with an explicit nonce and optional AAD file.
-
-## RSA-OAEP encryption
-
-`ManagementSession::oaep_options` checks a selected key's class, permissions,
-allowed mechanisms and RSA bounds before offering SHA-256/SHA-384/SHA-512 choices.
-Each choice uses matching OAEP/MGF1 digests and an empty label. Providers may still
-reject a digest parameter; advertisement is advisory and no probe operation occurs.
-
-`encrypt` accepts a `PublicKeyRef` and `EncryptRequest`; `decrypt` accepts a
-`PrivateKeyRef` and `DecryptRequest`. Both resolve the selector afresh and execute
-once on the token, with no fallback or padding downgrade. RSA keys must have
-2048–16384 bits. Input is one block: at 2048 bits, SHA-256 OAEP permits 190 plaintext
-bytes and ciphertext is exactly 256 bytes. This is not a bulk-file format or sender
-authentication. Decryption requires a key with CKA_DECRYPT and without
-CKA_ALWAYS_AUTHENTICATE; the current binding cannot perform context login followed
-by single-part OAEP decryption.
-
-Requests redact input in Debug. Successful `Plaintext` uses zeroizing storage;
-no bytes are returned after failure. cryptoki's transient decryption buffers on
-provider errors cannot currently be guaranteed zeroized.
-
-## Derivation and key transfer
-
-`ManagementSession::key_operation_options` checks the selected base/wrapping
-key's class, permissions, allowed mechanisms and advertised provider bounds.
-It returns an advisory `KeyOperationProfile` without performing crypto.
-Each request rechecks these constraints and resolves all selectors afresh.
-
-`derive` accepts a `DeriveRequest` with an `EcdhPeer` parsed from SPKI DER and a
-`SecretKeyIdentity`. The parser validates named-curve points on P-256/P-384/P-521
-and normalizes them to uncompressed SEC1 form. The base must be a private EC key
-with CKA_DERIVE on that curve, without per-operation authentication. The explicit
-null KDF creates raw ECDH material as a persistent private, sensitive,
-nonextractable generic secret with derivation permission only. Raw shared secrets
-never leave the provider. Peer authentication and a subsequent KDF are the
-caller's responsibility. Apply `derive_hkdf` separately with a supported base/hash
-length.
-
-```no_run
-use pkcs11_client::{DeriveRequest, EcdhPeer, ManagementSession, ObjectRef, SecretKeyIdentity};
-fn derive(session: &mut ManagementSession<'_>, base: &ObjectRef, peer_der: &[u8])
-    -> Result<(), pkcs11_client::Error>
-{
-    let peer = EcdhPeer::from_spki_der(peer_der)?;
-    session.derive(base, &DeriveRequest {
-        peer: &peer,
-        identity: SecretKeyIdentity { id: b"agreement-1", label: b"ECDH material" },
-    })
-}
-```
-
-`wrap` accepts a `WrapRequest` naming an extractable AES-128/192/256 target.
-The wrapping key must be AES with CKA_WRAP; CKA_WRAP_WITH_TRUSTED requires a
-trusted wrapping key. The operation never reads CKA_VALUE or changes permissions.
-`unwrap` accepts an `UnwrapRequest` with a 24/32/40-byte RFC 3394 blob and an
-explicit identity. The AES unwrapping key must have CKA_UNWRAP. The created key
-is persistent, private, sensitive and nonextractable, with encryption/decryption
-permission only. Both use the default RFC 3394 IV; blobs contain no metadata.
-Provider wrapping/unwrapping templates remain authoritative.
-
-New identities require nonempty ID/label fields of at most 128 bytes and reject
-existing token secret-key IDs. The check is not atomic against another process.
-Derivation and unwrapping require RW mode and provider authorization. Creation
-has no retry or rollback: a failure may still have persistent effects. Requests
-and peer keys redact their payloads in Debug. No software fallback is used.
-
-## Random bytes
-
-`ManagementSession::generate_random` accepts a `RandomRequest` with a length from
-1 byte to one MiB. `RandomRequest::new` rejects other lengths before allocation
-or token calls. The session requests the token's RNG once, with no automatic login,
-software fallback or retry; the provider may require an authenticated session.
-
-Returned `RandomBytes` use `secrecy::SecretBox<Vec<u8>>`: Debug is redacted and
-storage is zeroized on drop, including partial output discarded after failures.
-Access bytes explicitly through `secrecy::ExposeSecret` when writing an intended
-output. Close the session separately to report lifecycle failures.
-
-## Testing
-
-```sh
-cargo test -p pkcs11-client --locked
-./tools/test-softhsm.sh
-```
-
-Unit tests use independent OpenSSL-generated certificates and signatures. SoftHSM
-tests exercise management, signing, association checks and key replacement.
+The example needs an existing ML-DSA-65 key and matching certificate, without
+always-authenticate. Their IDs/labels can differ. Supply a separate context PIN
+for always-authenticate signing. Validation precedes checkout; execution
+rediscovers capabilities. `verify_ml_dsa` runs on the token and reports
+`SignatureMismatch` for a mismatch.
+
+`MlDsaVerifyingKey` verifies messages/context in software from raw public bytes or
+RFC 9881 SPKI without a module. `MlDsaCertificate` retains exact X.509 DER with
+absent algorithm parameters and a correctly sized, byte-aligned public key.
+Malformed/noncanonical signatures return `SignatureMismatch`; verification does
+not interpret hedging.
+
+`bind_ml_dsa_identity` proves association with a domain-separated probe and required
+hedging. `sign_ml_dsa_identity` checks every signature against the retained leaf,
+detecting replacement under an unchanged selector/parameter set. Mismatch discards
+the lease. These types make no certificate trust decision. Typed public export
+produces RFC 9881 SPKI DER.
 
 ## ML-KEM
 
-The client exposes ML-KEM-512/768/1024 through scoped management sessions.
-`Provider::ml_kem_generation_options` reports advertised choices;
-`ManagementSession::generate_ml_kem_key_pair` creates a persistent pair, and
-`ml_kem_capabilities` checks the selected direction without performing crypto.
-Private decapsulation keys remain sensitive and nonextractable.
-
-`MlKemPublicKey::from_spki_der` accepts RFC 9935 public keys for all three
-parameter sets. It requires absent algorithm parameters, a byte-aligned raw
-public-key BIT STRING, the exact key length and canonical FIPS 203 coefficients.
-`to_spki_der` returns the same standard encoding. The management session's
-`export_ml_kem_public_key` reads only public, non-private objects;
-`import_ml_kem_public_key` creates a persistent public encapsulation key with an
-explicit ID/label in RW mode. It does not overwrite existing objects or establish
-peer trust. Duplicate key IDs make subsequent selection ambiguous.
-
-`encapsulate_ml_kem` returns public ciphertext and creates a persistent token-held
-raw shared secret under the `MlKemRequest` ID/label. `decapsulate_ml_kem` retains
-the corresponding secret under a different explicit identity. Both require RW
-mode, rediscover capabilities, check the expected parameter set and reject an
-existing secret ID. The 32-byte private generic secrets permit only derivation;
-public export helpers reject them. No runtime session or object handle is exposed.
+Management sessions support ML-KEM-512/768/1024 generation, capability inspection,
+public import/export, encapsulation and decapsulation. Private keys are sensitive
+and nonextractable. `MlKemPublicKey::from_spki_der` validates RFC 9935 encoding,
+absent parameters, byte alignment, length and canonical FIPS 203 coefficients;
+`to_spki_der` returns that encoding. Import needs RW mode and explicit ID/label;
+it preserves existing objects but duplicate IDs can make selection ambiguous.
 
 ```no_run
 use pkcs11_client::{Authentication, Error, MlKemParameterSet, MlKemRequest,
@@ -572,22 +410,23 @@ fn encapsulate(
 }
 ```
 
-The caller must authenticate the peer and apply a protocol KDF. Same-length
-ciphertext corruption can succeed with a different secret through ML-KEM implicit
-rejection. Invalid lengths fail before crypto. Always-authenticate decapsulation
-is not implemented. No operation or authentication is retried;
-close the session before releasing ciphertext when cleanup must be checked.
+`encapsulate_ml_kem` returns public ciphertext; `decapsulate_ml_kem` accepts it.
+Both need RW mode, an expected parameter set and a new secret ID/label. They create
+persistent private 32-byte generic secrets, sensitive/nonextractable and permitting
+only derivation. Always-authenticate decapsulation is unsupported.
+
+Authenticate the peer and apply a protocol KDF. ML-KEM implicit rejection can
+produce a different secret for altered same-length ciphertext without an error.
+Invalid lengths fail before crypto; success does not prove peer identity or agreement.
 
 ## HKDF
 
-`ManagementSession::hkdf_options` discovers permitted SHA-2 profiles for a selected
-generic/HKDF secret without deriving or reading key values. The hash-length base
-requirement permits at most one digest. Unsupported profiles are omitted;
-selection and provider failures propagate. `hkdf_capabilities` checks an explicit
-digest, which is useful when the protocol already specifies one.
-`derive_hkdf` takes `HkdfRequest` and performs token-side extract-and-expand with
-SHA-256/384/512. The base must be sensitive, nonextractable, permit derivation
-and match the hash length. Use SHA-256 with a 32-byte ML-KEM shared secret.
+`hkdf_options` returns the base's permitted hash profile without deriving or reading
+values; unsupported profiles are omitted and selection/provider errors propagate.
+`hkdf_capabilities` checks an explicit digest. `derive_hkdf` performs token-side
+extract-and-expand on a sensitive, nonextractable generic/HKDF base with CKA_DERIVE.
+The base must match the hash length: 20/28/32/48/64 bytes for SHA-1/224/256/384/512.
+Use SHA-256 for a 32-byte ML-KEM secret.
 
 ```no_run
 use pkcs11_client::{Authentication, DigestAlgorithm, Error, HkdfOutput,
@@ -612,34 +451,64 @@ fn derive_encryption_key(
 }
 ```
 
-New keys are persistent private, sensitive and nonextractable. AES outputs permit
-only encryption/decryption; `HkdfOutput::DerivationSecret` permits only further
-derivation. IDs and labels are nonempty and at most 128 bytes. Salt/context are
-public and at most 4096 bytes each. Empty salt means zero salt; empty context is
-permitted. Output length must be 1..=255 times the hash length. Existing secret IDs
-are rejected before derivation, without guaranteeing uniqueness against concurrent
-writers. No base/output values leave the token, no base is automatically deleted,
-and no retry, rollback or software fallback occurs.
+| Parameter | Contract |
+| --- | --- |
+| Salt/context | Public; at most 4096 bytes each; empty salt means zero salt and empty context is permitted |
+| Output | AES-128/192/256 for encryption/decryption, or `DerivationSecret` for further derivation |
+| Length | 1 through 255 times the hash length |
+| Identity | New nonempty ID/label, at most 128 bytes each; existing secret IDs rejected |
+| Ownership | Persistent private, sensitive, nonextractable output; bases remain until explicitly deleted |
 
-Peer authentication and protocol context selection remain application concerns.
-An altered ML-KEM ciphertext can produce a different derived key without an error.
-`derive_hkdf` accepts one input; the hybrid combiner below accepts two.
+Peer authentication and context selection belong to the protocol. Single-input
+HKDF does not authenticate ciphertexts or combine classical/PQC inputs.
 
 ## Application hybrid derivation
 
-`ManagementSession::derive_hybrid_hkdf(classical, post_quantum, request)` combines
-P-256 ECDH and ML-KEM-768 token secrets in that order, then runs HKDF-SHA512.
-Use the same management-session lifecycle as the HKDF example above, with two
-distinct 32-byte sensitive, nonextractable generic secrets permitting derivation.
-Set `request.digest` to SHA-512, supply public salt of at most 128 bytes and a
-nonempty protocol context of at most 4096 bytes. Output permissions remain the same.
+`derive_hybrid_hkdf(classical, post_quantum, request)` combines P-256 ECDH then
+ML-KEM-768 token secrets and applies HKDF-SHA512. Use two distinct 32-byte sensitive,
+nonextractable generic secrets permitting derivation and concatenation. Set SHA-512,
+salt of at most 128 bytes and nonempty protocol context of at most 4096 bytes.
+Output permissions follow HKDF.
 
-The caller establishes the origin and independence of both components,
-authenticates peers and binds context to the protocol exchange. Key metadata cannot
-prove provenance. The temporary concatenation is destroyed before return; close the
-session on success and failure, and account for possible persistent output when
-cleanup fails. Inputs are not deleted and values never leave the token.
+The caller establishes component provenance/independence, authenticates peers and
+binds identities, roles, algorithms and transcript in the protocol context.
+The temporary concatenation is destroyed before return; cleanup failure can leave
+a persistent output. Inputs remain on the token. See the
+[runtime contract](https://github.com/Juanbanpar/pkcs11-stack/blob/main/crates/pkcs11-runtime/README.md#application-hybrid-derivation).
+This is not a wire protocol, X-Wing or the TLS key schedule.
 
-This is an application combiner, not a complete hybrid KEM wire protocol, X-Wing
-or the TLS key schedule. See the [runtime contract](../pkcs11-runtime/README.md#application-hybrid-derivation)
-for construction and failure semantics.
+## Additional mechanisms
+
+| Family | Application API |
+| --- | --- |
+| Capabilities | `Provider::mechanism_capabilities`, `function_availability` |
+| Digest/MAC | `digest`, `digest_chunks`, `mac`, `verify_mac`; management also supports multipart MAC |
+| Token verification | `verify`, `verify_signature` and family-specific verification for EdDSA/ML-DSA/SLH-DSA/hash-PQC |
+| SP 800-108 | Management `kbkdf_options`, `kbkdf_capabilities`, `derive_kbkdf` |
+| SLH-DSA/hash-PQC | Generation, signing, verification and public parameter inspection; HashSLH-DSA uses a separate HashSLH-only pair |
+| EdDSA | Pure Ed25519/Ed448 generation, sign/verify, public import/export, `EdDsaVerifyingKey`, `EdDsaCertificate`, `EdDsaIdentity` |
+| Montgomery | X25519/X448 generation, validated RFC 8410 public import/export and `derive_montgomery` |
+
+All reuse runtime permission, mechanism and session-health checks; unsupported
+families return typed errors. EdDSA context authentication is rejected because
+`cryptoki` lacks single-part signing after explicit initialization. Software
+certificate verification supports Ed25519/Ed448; the TLS adapter enables Ed25519.
+See the [mechanism matrix](https://github.com/Juanbanpar/pkcs11-stack/blob/main/docs/oasis-compatibility.md) for application
+coverage and upstream limits; API rustdoc defines individual request contracts.
+
+## Random bytes and examples
+
+`generate_random(RandomRequest)` requests 1–1048576 bytes from the token once.
+Invalid lengths fail before allocation. Authentication is explicit and subject to
+token policy. `RandomBytes` uses zeroizing, redacted `SecretBox<Vec<u8>>`; access
+output through `ExposeSecret` and check session closure before releasing it.
+
+[Runnable examples](https://github.com/Juanbanpar/pkcs11-stack/blob/main/docs/examples.md) cover generic signing, certificate
+binding and shutdown with PIN files.
+
+```sh
+cargo test -p pkcs11-client --locked
+cargo doc -p pkcs11-client --no-deps --locked
+```
+
+See the [test guide](https://github.com/Juanbanpar/pkcs11-stack/blob/main/tests/README.md) for disposable provider suites.
