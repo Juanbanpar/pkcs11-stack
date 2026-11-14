@@ -1,41 +1,55 @@
 # Testing
 
-The default test command includes unit, property, documentation and provider tests,
-including ML-DSA, ML-KEM, hybrid key exchange and the desktop backend. Build the
-trusted software providers once, then run:
+Run commands from the repository root. Provider runners create temporary token
+stores and remove them on exit. Use only the specified trusted software providers;
+never point these runners at hardware or an existing token store. Provider tests
+do not establish formal algorithm validation or hardware compatibility.
+
+## Unit and documentation tests
+
+No PKCS#11 module is required. Native desktop build dependencies are listed in the
+[desktop guide](../crates/pkcs11-desktop/README.md#build-and-run).
+
+```sh
+cargo test --workspace --locked
+RUSTDOCFLAGS='-D warnings' cargo doc --workspace --all-features --no-deps --locked
+python3 tools/check-dependencies.py
+```
+
+Tests cover URI parsing/redaction, ambiguity, signing plans, certificate verification,
+CLI output/exit codes and TLS encoding. Compile-fail examples check owner lifetimes.
+ML-DSA software tests use OpenSSL public fixtures, including malformed encodings
+and the regression described by GHSA-5x2r-hc65-25f9.
+
+## Full provider suite
+
+Build the three pinned, unmodified providers once:
 
 ```sh
 bash tools/build-pqc-softhsm.sh /absolute/path/to/softhsm-pqc
 ./tools/build-kem-hkdf-provider.sh /absolute/path/to/kdf-provider
+./tools/build-pqc-kryoptic-provider.sh /absolute/path/to/pqc-kryoptic
+
 PKCS11_TEST_MODULE=/absolute/path/to/softhsm-pqc/lib/softhsm/libsofthsm2.so \
 SOFTHSM2_UTIL=/absolute/path/to/softhsm-pqc/bin/softhsm2-util \
-PKCS11_TEST_PQC_OPENSSL=/absolute/path/to/softhsm-pqc/openssl/bin/openssl \
 PKCS11_TEST_KDF_MODULE=/absolute/path/to/kdf-provider/libkryoptic_pkcs11.so \
+PKCS11_TEST_KDF_OPENSSL=/absolute/path/to/kdf-provider/openssl/bin/openssl \
 PKCS11_TEST_PQC_MODULE=/absolute/path/to/pqc-kryoptic/libkryoptic_pkcs11.so \
 PKCS11_TEST_PQC_OPENSSL=/absolute/path/to/pqc-kryoptic/openssl/bin/openssl \
 ./tools/test.sh
 ```
 
-Install SoftHSM, OpenSC and OpenSSL for the runners below. Provider
-builds additionally require Git, a C/C++ toolchain, Make, Perl, Autoconf, Automake,
-Libtool, Clang/libclang, pkg-config and SQLite development files. Desktop requires
-its normal native build dependencies. All token stores are temporary. Missing
-PQC support fails the relevant suite; no PQC or desktop opt-in flag is used.
+Install OpenSC (`pkcs11-tool`) and OpenSSL. Provider builds also require Git,
+C/C++, Make, Perl, Autoconf, Automake, Libtool, Clang/libclang, pkg-config and SQLite
+development files; Kryoptic needs stable Rust. Builds link pinned OpenSSL 3.5.9
+without replacing system OpenSSL or changing its library search path. Kryoptic's
+source is pinned, but its Cargo dependencies resolve at build time because upstream
+supplies no lockfile.
 
-Run unit, property and documentation tests without a PKCS#11 module:
-
-```sh
-cargo test --workspace --locked
-python3 tools/check-dependencies.py
-```
-
-Tests cover URI parsing and redaction, selection ambiguity, ownership, signing
-plans, certificate verification, CLI input/output, and TLS signature encoding.
-ML-DSA software tests use public OpenSSL fixtures without a provider. They cover
-message/context mismatches, malformed SPKI/certificates and repeated-hint signature
-encodings, including the regression described by GHSA-5x2r-hc65-25f9.
-Compile-fail examples check that modules, sessions and objects cannot be used
-outside their owner lifetimes.
+`tools/test.sh` runs unit/doctests, SoftHSM, ML-DSA, ML-KEM and KEM/HKDF suites.
+Set `PKCS11_TEST_PQC_MODULE` to include SLH-DSA/hash-PQC/Montgomery; without it that
+lane is reported as not run. Missing required mechanisms/parameter sets fail the
+selected suite. Desktop backend tests run without opening a window.
 
 ## SoftHSM integration
 
@@ -43,43 +57,31 @@ Install SoftHSM, OpenSC and OpenSSL, then run:
 
 ```sh
 ./tools/test-softhsm.sh
+# Override another SoftHSM installation:
+PKCS11_TEST_MODULE=/path/to/libsofthsm2.so \
+SOFTHSM2_UTIL=/path/to/softhsm2-util ./tools/test-softhsm.sh
 ```
 
-The runner creates temporary token storage and removes it on exit. It provisions
-nonextractable RSA/EC keys, runs the ignored integration tests and
-[signing/TLS examples](../docs/examples.md), and verifies signatures independently
-with OpenSSL. It covers authentication, object mutations, pool recovery, key
-replacement, and server/mutual TLS. Generation tests check all three ECDH curves
-and AES sizes, permissions, duplicate identities, public export and rejected secret
-export. ECDH agreement, AES encryption and RFC 3394 round trips verify generated
-key use without exporting private material. CLI and desktop tests cover the new
-generation choices, rejected option combinations, permissions and export rules.
-Desktop tests also exercise generated ECDH and wrapping keys through the worker.
-Use this runner only with SoftHSM, never an existing token store or a hardware module.
+| Area | Coverage |
+| --- | --- |
+| Lifecycle/authentication | Discovery, USER/SO roles, object mutations, pools, recovery and key replacement |
+| Classical crypto | RSA/EC signing, OAEP, digest/MAC/AES, EdDSA, ECDH and RFC 3394 |
+| Generation | ECDH curves, AES sizes/permissions, duplicate identities and public/secret export boundaries |
+| Applications | CLI, headless desktop worker and [signing/TLS examples](../docs/examples.md); independent OpenSSL verification |
+| AES-GCM | 12 NIST CAVP vectors across AES sizes, empty/nonaligned input and AAD, corruption rejection, session invalidation and output preservation |
 
-For another SoftHSM installation:
+`PKCS11_TEST_REQUIRE_EC_MULTIPART=1` requires combined multipart ECDSA support.
+Packaged SoftHSM and the pinned upstream build differ in multipart ECDSA, SHA-2
+OAEP and ML-DSA support; the PQC build can run both classical and ML-DSA suites.
 
-```sh
-PKCS11_TEST_MODULE=/path/to/libsofthsm2.so SOFTHSM2_UTIL=/path/to/softhsm2-util ./tools/test-softhsm.sh
-```
+## PQC provider compatibility
 
-Desktop backend integration runs without opening a window.
-
-Set `PKCS11_TEST_REQUIRE_EC_MULTIPART=1` to require combined multipart ECDSA support.
-CI tests packaged SoftHSM and a pinned upstream build with multipart ECDSA,
-SHA-2 OAEP and ML-DSA enabled. The upstream run reuses one provider build for
-classical and ML-DSA workflows.
-
-### PQC provider compatibility
-
-The ML-DSA runner uses pinned, unmodified OpenSSL 3.5.9 and SoftHSM sources.
-The separate ML-KEM runner uses the unmodified Kryoptic build:
+Use the providers built above for individual suites:
 
 ```sh
-bash tools/build-pqc-softhsm.sh /absolute/path/to/softhsm-pqc
-PKCS11_TEST_PQC_OPENSSL=/absolute/path/to/softhsm-pqc/openssl/bin/openssl \
 PKCS11_TEST_MODULE=/absolute/path/to/softhsm-pqc/lib/softhsm/libsofthsm2.so \
 SOFTHSM2_UTIL=/absolute/path/to/softhsm-pqc/bin/softhsm2-util \
+PKCS11_TEST_PQC_OPENSSL=/absolute/path/to/softhsm-pqc/openssl/bin/openssl \
 ./tools/test-ml-dsa.sh
 
 PKCS11_TEST_KDF_MODULE=/absolute/path/to/kdf-provider/libkryoptic_pkcs11.so \
@@ -87,132 +89,58 @@ PKCS11_TEST_PQC_OPENSSL=/absolute/path/to/kdf-provider/openssl/bin/openssl \
 ./tools/test-ml-kem.sh
 ```
 
-Building requires Git, a C/C++ toolchain, Make, Perl, Autoconf, Automake and
-Libtool. OpenSSL uses static PIC libraries, so the test module does not require
-changes to the system OpenSSL installation or library search path.
+`PKCS11_TEST_PQC_OPENSSL` selects an ML-DSA/ML-KEM-capable OpenSSL executable,
+defaulting to `openssl`; missing support fails. ML-KEM uses Kryoptic because
+SoftHSM advertises incorrect key bounds. No source patch or runtime metadata
+workaround is applied.
 
-The `softhsm-integration` and `kryoptic-integration` CI jobs require ML-DSA-44/65/87 and
-ML-KEM-512/768/1024 across the libraries, CLI and desktop. TLS tests also require
-hybrid key exchange. Missing mechanisms, parameter sets or entry points fail.
-SoftHSM's advertised ML-KEM bounds are incorrect, so ML-KEM runs on Kryoptic;
-no provider source patch or runtime metadata workaround is applied.
+| Suite | Coverage |
+| --- | --- |
+| ML-DSA | All parameter sets; generation, policy, context authentication, binding, replacement keys, empty messages and 255-byte contexts |
+| ML-DSA interoperability | OpenSSL verification of SPKI/signatures; deterministic signing; certificate-file/token verification and CLI file preservation |
+| ML-KEM | All parameter sets; permissions, bounds, RW requirements, duplicate secret IDs, expected parameters and ciphertext lengths |
+| ML-KEM public keys | RFC 9935/FIPS 203 validation, import/export, ambiguous IDs, private-object refusal and independent OpenSSL decoding |
+| Secret agreement | HMAC challenges compare full token-held secrets without export, including implicit rejection of altered ciphertext |
+| TLS PQC | ML-DSA server/mutual TLS 1.3 with ML-DSA issuer and X25519MLKEM768 using application-selected AWS-LC |
+| TLS failures | Missing verifiers, policy rejection before credentials, classical-only peers, trust, TLS 1.2, exhaustion and key replacement |
 
-Typed ML-KEM tests cover all parameter sets, key permissions, allowed mechanisms,
-read-only sessions, duplicate secret IDs, expected-parameter checks and ciphertext
-lengths. HMAC challenges compare full token-held secrets without extracting them,
-including the different secret produced for altered same-length ciphertext.
-Public-key tests check RFC 9935 DER and FIPS 203 coefficient validation, import
-exported keys and use them for the secret-agreement checks. OpenSSL independently
-decodes the exported SPKI. Private public-key objects are refused, and duplicate
-IDs remain ambiguous. Client tests cover persistent secret inspection/deletion, export refusal, explicit
-session closure and semantic error categories.
-
-Runtime/client tests also require typed ML-DSA generation, capability checks,
-policy rejection before checkout, context authentication, signature verification,
-session recovery after mismatches, and detection of a changed parameter set under
-a reused selector. Certificate binding verifies a probe and each subsequent
-signature in software, rejects wrong certificates, and detects replacement keys
-even when the selector and parameter set are unchanged. Software verification
-also covers empty messages and 255-byte binary contexts. Exported SPKI keys and
-token signatures are verified through the pinned OpenSSL command-line tool,
-including always-authenticate keys. CLI tests generate all three parameter sets,
-export SPKI, bind certificates, sign with context authentication and verify using
-both certificate files and token certificates. They check deterministic signing,
-empty messages, binary contexts, mismatches and output preservation/cleanup.
-
-`PKCS11_TEST_PQC_OPENSSL` selects an OpenSSL executable with ML-DSA support; it
-defaults to `openssl`. Missing support fails the tests. These checks do not
-establish formal algorithm validation or hardware compatibility.
-
-The TLS PQC tests use an application-selected AWS-LC provider for peer and local
-signature verification, record encryption and key exchange. All three ML-DSA
-parameter sets authenticate servers and clients with token-held keys, including
-an always-authenticate key. An ML-DSA issuer signs the certificate chain and the
-handshake negotiates X25519MLKEM768. Negative cases cover unsupported verifiers,
-policy rejection before credential acquisition, trust failures, TLS 1.2,
-exhausted pools and replacement keys. The adapter's production graph still
-selects no software crypto provider.
+The adapter's production dependency graph selects no software crypto provider.
 
 ## Persistent ML-KEM and HKDF
 
-Build the pinned Kryoptic and OpenSSL sources, then run runtime/client/CLI/desktop tests:
-
 ```sh
-./tools/build-kem-hkdf-provider.sh /absolute/path/to/kdf-provider
 PKCS11_TEST_KDF_MODULE=/absolute/path/to/kdf-provider/libkryoptic_pkcs11.so \
+PKCS11_TEST_KDF_OPENSSL=/absolute/path/to/kdf-provider/openssl/bin/openssl \
 ./tools/test-kem-hkdf.sh
 ```
 
-Building requires stable Rust, Git, Clang/libclang headers, a C/C++ toolchain,
-Make, Perl, pkg-config and SQLite development files. The module statically links
-the pinned OpenSSL 3.5.9. Kryoptic's source revision is pinned; its upstream Cargo
-dependencies are resolved at build time because upstream does not supply a lockfile.
-`PKCS11_TEST_KDF_OPENSSL` selects the independent OpenSSL HKDF reference command.
+The runner uses disposable Kryoptic SQLite storage and requires both mechanisms.
+It compares SHA-256/384/512 against OpenSSL, including empty salt/context and maximum
+SHA-256 output. Tests reject unsuitable bases, lengths, RO sessions and duplicate
+IDs; inspect output permissions and export refusal; and compare derived AES keys
+without reading secret values. Test-only known-answer keys permit HMAC comparison.
 
-The runner creates a temporary Kryoptic SQLite store and removes it on exit.
-Use it only with Kryoptic. No existing token store is opened or reset.
-The `kryoptic-integration` CI job requires both mechanisms, without skipping missing
-support. It compares SHA-256/384/512 results against OpenSSL using public
-hash-length inputs, including empty salt/context and maximum SHA-256 output.
-Tests inspect output permissions, reject unsuitable bases, wrong hash lengths,
-read-only sessions and duplicate output IDs, and check client export refusal.
-
-For ML-KEM-512/768/1024, each sender/receiver secret feeds typed HKDF-SHA256 on the
-same token. AES challenge comparisons verify matching derived keys and different
-results for altered ciphertext/context. Generic known-answer outputs are compared
-using HMAC after temporarily enabling signing on disposable test keys. No token
-secret value is read; all sessions close before the next module lifecycle.
-
-The same provider also requires P-256 ECDH, concatenation and HKDF-SHA512 for
-application hybrid derivation. Tests compare independent peers, reversed component
-order, changed context and public known-answer inputs; inspect output permissions;
-reject unsuitable inputs; and check that temporary combined secrets are destroyed.
-CLI tests exchange RFC 9935 public keys, persist public ciphertext, derive matching
-keys and preserve existing output files. A separate native lifecycle verifies CLI
-key agreement using AES challenges.
+Each ML-KEM parameter set feeds HKDF-SHA256 and AES-GCM, checking altered ciphertext/
+context and all AES output sizes. Hybrid tests combine independent P-256 ECDH and
+ML-KEM-768 secrets with HKDF-SHA512, check component order/context, reject unsuitable
+inputs and verify temporary-key destruction. CLI exchange/file preservation and
+headless desktop flows use the same token-held profiles.
 
 ## SLH-DSA, HashSLH-DSA, HashML-DSA and Montgomery
 
-Build the pinned all-features Kryoptic module and run the dedicated lane:
-
 ```sh
-./tools/build-pqc-kryoptic-provider.sh /absolute/path/to/pqc-kryoptic
 PKCS11_TEST_PQC_MODULE=/absolute/path/to/pqc-kryoptic/libkryoptic_pkcs11.so \
 PKCS11_TEST_PQC_OPENSSL=/absolute/path/to/pqc-kryoptic/openssl/bin/openssl \
 ./tools/test-pqc-kryoptic.sh
 ```
 
-`tools/test.sh` runs this lane when `PKCS11_TEST_PQC_MODULE` is set. The provider
-build is unmodified and enables SLH-DSA, HashSLH-DSA, HashML-DSA, ML-DSA, ML-KEM,
-ECDH, Montgomery and SQLite. The runner creates a temporary store and removes it
-on exit. Tests cover SLH-DSA generation/signing/verification with independent
-OpenSSL verification, HashSLH-DSA and HashML-DSA message and caller-digest
-signatures, dedicated HashSLH-only key generation, Montgomery X25519/X448
-generation/import/derivation with matching AES-GCM keys, CLI HashSLH signing and
-token verification, CLI Montgomery agreement, and desktop SLH-DSA/HashSLH-DSA/
-HashML-DSA signing and token verification, desktop public-key import, and
-Montgomery agreement.
-
-## AES-GCM provider compatibility
-
-The SoftHSM runner tests AES-GCM with a 96-bit nonce and 128-bit tag. Runtime
-fixtures select 12 NIST CAVP known-answer vectors across AES-128/192/256,
-including empty input/AAD and non-block-aligned messages. Tests reject changes to
-nonce, AAD, ciphertext and tag, and verify failed-session invalidation without
-returning plaintext. They also cover RO execution, permissions, allowed mechanisms,
-wrong key classes/types, generated keys and request/output redaction.
-
-Client tests cover typed requests, bounded preflight, private export refusal and
-checked closure. CLI and desktop file tests cover explicit nonce/AAD parameters,
-raw-format round trips, tampered inputs, empty messages, output preservation and
-no plaintext release on authentication failure. Desktop forms reject stale
-choices/pickers and clear parameters on submission or navigation. Kryoptic additionally exercises ML-KEM → HKDF → AES-GCM for all
-three KEM parameter sets and an application hybrid-derived AES key. These tests do
-not constitute algorithm validation.
+The all-features Kryoptic build enables SLH-DSA, HashSLH-DSA, HashML-DSA, ML-DSA,
+ML-KEM, ECDH, Montgomery and SQLite. Tests cover independent OpenSSL SLH-DSA
+verification, hash-PQC messages/caller digests, HashSLH-only generation, validated
+public import and X25519/X448 agreement checked with matching AES-GCM keys.
+Runtime/client, CLI and headless desktop workflows are included.
 
 ## Dependency advisories
-
-CI audits both lockfiles with cargo-audit 0.22.2. Run from the repository root:
 
 ```sh
 cargo install cargo-audit --version 0.22.2 --locked
@@ -220,24 +148,20 @@ cargo audit --file Cargo.lock
 cargo audit --file fuzz/Cargo.lock
 ```
 
-Vulnerabilities, unsoundness notices and yanked packages fail the check.
-Unmaintained-package notices remain visible as warnings. The repository's
-[Cargo audit configuration](../.cargo/audit.toml) lists advisory-specific exceptions
-for software public-key verification/parsing paths. Reassess these exceptions
-before adding software private-key operations or changing the affected dependency
-families. Token-side private-key operations remain in the provider's scope.
+Vulnerabilities, unsoundness notices and yanked packages fail; unmaintained-package
+notices are warnings. The [audit configuration](../.cargo/audit.toml) documents
+advisory-specific exceptions for software public-key verification/parsing. Reassess
+exceptions before adding software private-key operations or changing those dependency
+families. Token private-key operations remain the provider's responsibility.
 
 ## Property tests and fuzzing
-
-Increase the case count or choose a seed to reproduce a property failure:
 
 ```sh
 PROPTEST_RNG_SEED=42 PROPTEST_CASES=4096 cargo test -p pkcs11-locator --test properties --locked
 PROPTEST_RNG_SEED=42 PROPTEST_CASES=4096 cargo test -p pkcs11-rustls-adapter --lib encoding::properties --locked
 ```
 
-Keep minimized failures as regression tests. The [fuzz guide](../fuzz/README.md)
-provides sanitizer runs, corpus management and artifact replay commands.
-
-CI checks the workspace and each crate independently, tests minimum Rust versions,
-and runs pure tests on Linux, Windows and macOS. SoftHSM and fuzzing run on Linux.
+Retain minimized failures as regression tests. The [fuzz guide](../fuzz/README.md)
+covers sanitizers, corpus management and replay. CI also tests crates independently,
+minimum Rust versions and pure tests on Linux, Windows and macOS; provider/fuzz
+lanes run on Linux.

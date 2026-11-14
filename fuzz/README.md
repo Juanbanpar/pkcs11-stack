@@ -1,9 +1,8 @@
 # Fuzzing
 
-The fuzz workspace uses cargo-fuzz 0.13.2, libfuzzer-sys 0.4.13
-and nightly-2026-09-25. Its lockfile is committed. Fuzz tooling does not enter any
-production crate's dependency graph or change the Rust 1.85 workspace requirement.
-The runner validates the lockfile with `cargo fetch --locked`, then builds offline.
+The separate fuzz workspace pins cargo-fuzz 0.13.2, libfuzzer-sys 0.4.13 and
+nightly-2026-09-25. It does not enter production dependency graphs. The runner
+validates the committed lockfile with `cargo fetch --locked`, then builds offline.
 
 ```sh
 rustup toolchain install nightly-2026-09-25 --profile minimal --component rust-src
@@ -11,11 +10,15 @@ cargo +nightly-2026-09-25 install cargo-fuzz --version 0.13.2 --locked
 bash tools/test-fuzz.sh
 ```
 
-Run from the repository root. Each target runs for 30 seconds with AddressSanitizer,
-debug assertions, seed 20260927, a 4096-byte input limit, five-second per-input
-timeout and 1024 MiB RSS limit. Compilation time is additional. A crash, assertion
-failure, timeout or resource-limit failure fails the job. The complete CI job has
-a twenty-minute deadline.
+Run from the repository root. Compilation time is additional to these per-target
+limits; crashes, assertions, timeouts and resource-limit failures fail the run.
+
+| Setting | Default |
+| --- | --- |
+| Sanitizer | AddressSanitizer with debug assertions |
+| Duration / seed | 30 seconds / 20260927 |
+| Input size / timeout | 4096 bytes / 5 seconds |
+| RSS limit | 1024 MiB |
 
 | Target | Invariants |
 | --- | --- |

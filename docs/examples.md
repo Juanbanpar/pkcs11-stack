@@ -1,10 +1,18 @@
 # Application examples
 
-Four runnable examples demonstrate the public APIs. They use trusted module paths,
-existing ordinary RSA token keys and UTF-8 PIN files (one optional final LF/CRLF is
-removed). PINs are never command-line values. Files are limited to 65536 bytes and
-read into zeroizing buffers; protect the source files with operating-system access
-controls. These small programs have positional arguments; `--help` needs no module.
+Runnable examples use trusted module paths and existing RSA token keys. All take
+positional arguments; `--help` needs no module.
+
+| Example | Purpose |
+| --- | --- |
+| `sign` | Sign a message through `Provider::client` |
+| `bound_sign` | Prove key/certificate association and verify the returned signature |
+| `tls_server` | Accept one loopback TLS connection, optionally requiring client authentication |
+| `tls_client` | Verify a server, optionally authenticating with a token key |
+
+PIN files are UTF-8, limited to 65536 bytes and read into zeroizing buffers. One
+optional final LF/CRLF is removed; PINs are never command-line values. Protect
+source files with operating-system access controls.
 
 ```sh
 cargo build -p pkcs11-client --examples --locked
@@ -14,8 +22,8 @@ cargo build -p pkcs11-rustls-adapter --examples --locked
 ## Signing
 
 Both programs use RSA PKCS#1 v1.5 with SHA-256 and require combined token hashing.
-They write raw signature bytes to stdout. Shell redirection controls output permissions and overwrites. `pkcs11ctl` instead
-creates output files exclusively and provides structured errors.
+They write raw signatures to stdout: shell redirection controls permissions and
+overwriting. `pkcs11ctl` creates outputs exclusively and provides structured errors.
 
 ```sh
 cargo run --quiet -p pkcs11-client --example sign -- \
@@ -33,7 +41,7 @@ cargo run --quiet -p pkcs11-client --example bound_sign -- \
 [sign.rs](../crates/pkcs11-client/examples/sign.rs) uses `Provider::client` and
 `Client::sign`. [bound_sign.rs](../crates/pkcs11-client/examples/bound_sign.rs)
 additionally proves the association and verifies the returned signature. Binding
-does not validate certificate trust. The token URI is derived from the key selector using `token_uri`.
+does not validate certificate trust. `token_uri` derives the token selector from the key.
 
 ## TLS and mutual TLS
 
