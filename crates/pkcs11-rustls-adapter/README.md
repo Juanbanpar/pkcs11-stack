@@ -2,7 +2,7 @@
 
 Token-backed TLS authentication for rustls 0.23. The adapter supplies `SigningKey`,
 `Signer`, server certificate resolution and client certificate resolution over
-[pkcs11-runtime](../pkcs11-runtime/README.md). Private keys stay in the token.
+[pkcs11-runtime](https://github.com/Juanbanpar/pkcs11-stack/blob/main/crates/pkcs11-runtime/README.md). Private keys stay in the token.
 
 The application supplies its software `CryptoProvider` for record encryption,
 key exchange, peer verification and randomness. Production dependencies select no
@@ -50,55 +50,38 @@ fn server_config(
 }
 ```
 
-`server_config_builder` restricts the supplied provider's suites to the enabled
-protocol versions before starting rustls configuration. Use it especially for
-TLS 1.2-only servers with multiple key algorithms. Retaining TLS 1.3 suites can affect credential selection when a dual-version
-client offers only ECDSA suites for TLS 1.2. The builder keeps
-provider algorithms and suite preference order, changes no global state and leaves
-the caller's provider unchanged. Callers using rustls builders directly must apply
-the same suite/version restriction. Normal trust and authentication choices follow
-on the returned rustls builder.
+`server_config_builder` filters the provider's suites to the enabled protocol
+versions without changing the source provider, preference order or global state.
+This matters for TLS 1.2-only servers with mixed key algorithms: retaining TLS 1.3
+suites can affect credential selection. Direct rustls builders need the same filter.
 
-For mutual TLS, construct `ClientResolver::new(vec![credential])` and pass it to
-`ClientConfig`'s `with_client_cert_resolver`. Configure the server's normal client
-certificate verifier and trust roots separately. Empty client credentials send no
-certificate. No verification is bypassed by these resolvers.
+For mutual TLS, pass `ClientResolver::new(vec![credential])` to
+`ClientConfig::with_client_cert_resolver`; configure server client-certificate
+verification and trust roots separately. Empty client credentials send no certificate.
 
 ## Binding, authentication and ownership
 
-`Credential::load` requires a nonempty leaf-first DER chain and explicit private-key
-selector. It parses the chain, checks the leaf's subject key type/curve, signs a
-binding probe and verifies it using the leaf and supplied provider. Matching labels
-or IDs alone never establish binding. Every later signature is verified against
-that retained leaf, rejecting key replacement behind an unchanged selector.
-Loading does not validate chain trust, time, EKU or revocation; the application
-configures rustls's normal peer verification for those decisions.
+| Concern | Contract |
+| --- | --- |
+| Binding | `Credential::load` requires a leaf-first DER chain and explicit key selector; signs a probe and verifies with the leaf/provider |
+| Key replacement | Every later signature is checked against the retained leaf; shared labels/IDs alone never prove binding |
+| Trust | Loading does not check chain trust, time, EKU or revocation; configure normal rustls peer verification |
+| Credentials | Source called once per binding/signature; returns optional USER/context PINs in `SecretString` or `PinInput::ProtectedPath` |
+| Authentication | `None` leaves login unchanged; matching pooled USER role does not revalidate a PIN; always-authenticate needs separate context credentials |
+| Concurrency | Synchronous signing acquires one exclusive nonblocking lease; exhaustion fails immediately |
+| Cleanup | Runtime discards uncertain sessions; encoding/binding failures also discard the lease; failed closure blocks checkout until the pool is replaced |
 
-A credential source is called once per binding or signature operation. It returns
-short-lived `Credentials` with optional USER and context PINs in `SecretString`, or
-`PinInput::ProtectedPath`. `None` leaves authentication unchanged. A runtime pool
-ensures the requested USER role; an already logged-in role does not revalidate the
-PIN. Always-authenticate keys require explicit context credentials. The adapter
-retains the callback, never the returned PINs; application callbacks own their own
-secret-storage and prompting policy. Use `Error::CredentialsUnavailable` to report
-source failure without leaking source diagnostics.
+The adapter retains the credential source, never its returned PINs. Callbacks own
+storage/prompting policy and should report `CredentialsUnavailable` without leaking
+source diagnostics. Scheme selection and resolver filtering neither contact the
+token nor invoke the source. There are no hidden workers, signing retries, logouts
+or secondary pools. Token removal and slot rediscovery remain explicit.
 
-Scheme selection and resolver filtering do not invoke the source or contact the
-token. Signing is synchronous and acquires one exclusive, nonblocking runtime
-lease; exhaustion fails immediately. There are no hidden workers, signing retries,
-logout calls or secondary pools. Failed/uncertain sessions are discarded by runtime;
-encoding or binding failures also discard the lease. Later independent operations
-may acquire a fresh session after successful cleanup. If a discarded session fails
-to close, runtime blocks further checkouts; replace the pool explicitly. Token
-removal and slot rediscovery remain explicit.
-
-An owned runtime pool holds `Arc<Module>` through session closure, satisfying rustls's
-`'static` signing traits without leaking the owner. For explicit shutdown, stop
-connections, drop configs/credentials/signers and pools, then
-`Arc::try_unwrap(module)` on an application-retained module Arc. If unwrapping
-succeeds, call `Module::finalize`; otherwise a consumer still retains the owner.
-The example transfers ownership to the config and uses best-effort Drop cleanup.
-Borrowed runtime APIs remain available to other callers.
+Owned pools retain `Arc<Module>` through session closure. For explicit shutdown,
+stop connections, drop configs/credentials/signers/pools, unwrap an application-
+retained module Arc with `Arc::try_unwrap`, then call `Module::finalize`. A failed
+unwrap means a consumer still owns it. The example transfers ownership to the
+config and uses best-effort Drop cleanup; borrowed runtime APIs remain available.
 
 ## Schemes and routing
 
@@ -108,6 +91,7 @@ Borrowed runtime APIs remain available to other callers.
 | EC P-256 | ECDSA P-256/SHA-256 |
 | EC P-384 | ECDSA P-384/SHA-384 |
 | EC P-521 | ECDSA P-521/SHA-512, when the application provider supports verification |
+| Ed25519 | Ed25519, when the application provider supports verification |
 | ML-DSA-44/65/87 | Matching ML-DSA parameter set; TLS 1.3 only |
 
 Offers intersect runtime capabilities/policy and provider verification algorithms.
@@ -115,7 +99,9 @@ RSA-PSS uses matching MGF1 hash and digest-sized salt. The adapter passes unhash
 TLS messages to runtime, which re-resolves the key and replans each operation.
 Runtime policy defaults to token hashing; applications may explicitly allow or
 require software SHA-2. ECDSA `r || s` is converted to canonical DER using the known
-curve width. Restricted RSA-PSS SPKI, EdDSA and SHA-1 are outside this implementation.
+curve width. Restricted RSA-PSS SPKI, Ed448 and SHA-1 are unsupported.
+Ed25519 uses `Credential::load` with pure original-message signing;
+context-authenticated EdDSA is rejected.
 
 `ServerResolver` checks registered names against leaf SANs and routes exact DNS
 names case-insensitively. Multiple credentials for one name retain application
@@ -145,7 +131,7 @@ Rustls supplies the complete CertificateVerify message, including its TLS contex
 the adapter does not prehash it. Required hedging has no deterministic fallback.
 Always-authenticate keys use the credential source's separate context PIN.
 
-ML-DSA authentication and hybrid key exchange are separate choices. Configure
+ML-DSA authentication and hybrid key exchange are separate choices.
 `hybrid_tls13_provider(&provider)` clones the application's provider, retaining
 only X25519MLKEM768 and TLS 1.3 cipher suites. It fails when either is unavailable.
 Use the returned provider in both client and server builders with TLS 1.3:
@@ -171,41 +157,24 @@ runtime/client application combiner.
 
 ## Examples and tests
 
-Runnable [TLS server and client examples](../../docs/examples.md) use loopback
-connections, optional mutual authentication and an explicit ring provider.
+[Runnable TLS server/client examples](https://github.com/Juanbanpar/pkcs11-stack/blob/main/docs/examples.md) use loopback,
+optional mutual authentication and an explicit ring provider.
 
 ```sh
 cargo test -p pkcs11-rustls-adapter --locked
+cargo doc -p pkcs11-rustls-adapter --all-features --no-deps --locked
 cargo check -p pkcs11-rustls-adapter --lib --no-default-features --locked
 cargo check -p pkcs11-rustls-adapter --lib --features tls12 --locked
-./tools/test-softhsm.sh
 ```
 
-Unit tests cover scheme selection, ML-DSA certificate parameters, encoding and
-redaction. AWS-LC is enabled only as a development dependency for ML-DSA tests;
-production still selects no provider. Classical SoftHSM tests perform TLS 1.2/1.3
-handshakes, including trust failures, concurrent connections, pool exhaustion and
-key replacement. Those tests use ring, which does not verify P-521; P-521
-credentials require a provider that does.
+| Suite | Coverage |
+| --- | --- |
+| Unit | Scheme selection, ML-DSA certificate parameters, encoding and redaction |
+| SoftHSM | TLS 1.2/1.3, trust failures, concurrency, exhaustion and key replacement; ring does not verify P-521 |
+| ML-DSA provider | All parameter sets, server/mutual TLS 1.3, ML-DSA issuer and X25519MLKEM768; authentication, policy, trust and replacement failures |
 
-The required PQC lane tests all ML-DSA parameter sets with token-backed server and
-mutual TLS 1.3 authentication, an ML-DSA certificate issuer and X25519MLKEM768
-key exchange. It also covers always-authenticate keys, missing provider support,
-policy rejection before credentials, classical-only peer rejection in both
-directions, trust failure, TLS 1.2 rejection, pool
-exhaustion and key replacement. Run it with the provider configuration in the
-[workspace test instructions](../../tests/README.md#pqc-provider-compatibility).
-
-## OASIS scope and TLS
-
-Only signature schemes that rustls, the configured crypto provider, the token
-and the application policy all accept are selected. Ed25519 is enabled when the
-provider verifies it and the token key is an Ed25519 Edwards key; Ed448 is not
-enabled for TLS. The adapter reuses runtime
-signing for RSA-PSS, RSA PKCS#1, ECDSA and ML-DSA where the provider supports
-verification. It does not add AES-CCM, ChaCha20-Poly1305, SHA-3 signatures or
-other OASIS mechanisms to TLS merely because the standard defines them: TLS
-record protection and key exchange stay with rustls, and token delegation is
-limited to authentication signatures. EdDSA is not enabled because the runtime
-key-kind and certificate model does not yet represent Edwards keys across the
-client and adapter.
+AWS-LC is a development dependency for ML-DSA tests; production selects no provider.
+See the [provider setup](https://github.com/Juanbanpar/pkcs11-stack/blob/main/tests/README.md#pqc-provider-compatibility).
+Token delegation covers authentication signatures; record protection, key exchange
+and the TLS key schedule remain in the application's rustls provider, independently
+of the runtime/client hybrid combiner.

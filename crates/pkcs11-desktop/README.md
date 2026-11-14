@@ -1,417 +1,250 @@
 # pkcs11-desktop
 
-Native PKCS#11 browser and object manager built with Iced and `pkcs11-client`.
-Load trusted vendor libraries, inspect module and slot metadata, and view token
-identity, initialization, authentication flags and PIN limits. Log in as USER or
-SO to browse visible persistent objects. Filter object lists and advertised
-mechanisms, then select an entry for metadata details.
+Native Iced application for PKCS#11 token browsing, object management, signing,
+verification, encryption and key derivation through `pkcs11-client`.
 
-## Usage
+## Build and run
 
-Select **Add Module**, choose a library with **Browse**, or enter its path, then
-select **Load**.
-The sidebar lists loaded modules and their tokens. Select a module for library and
-slot information, or a token for its overview. The token header identifies the
-provider, serial number and current login role. **Show PKCS#11 locator** expands
-the technical identifier when needed.
-
-Tab and Shift+Tab move between enabled controls. Enter or Space activates buttons;
-arrows, Home and End move within navigation, resource lists, tabs and choices.
-Moving focus through resources does not read details until activation. Escape
-closes the current dialog or form. Ctrl+O opens Add Module, Ctrl+F focuses the
-resource filter, Ctrl+R refreshes the current resource and Ctrl+Q quits. Use
-Command instead of Ctrl on macOS.
-
-**Appearance** offers System, Light and Dark. System follows the desktop theme
-when available and otherwise uses Light. Appearance is not saved. Resource lists
-and details appear side by side in wider windows; smaller windows show a separate
-detail view with **Back to List**, which returns focus to the selected row.
-Column headings sort without reading the token. The object inspector shows its
-identity, actions and attributes; locators are collapsed initially.
-
-**Refresh** on the module overview re-enumerates the selected module's slots and
-tokens. Removed or replaced tokens clear their selection. **Unload** finalizes the selected module;
-quitting finalizes all loaded modules.
-
-If a session cannot be closed, the module's tokens and cached objects are cleared
-and further token operations are blocked. Unload the module before using it again.
-This also applies when the operation itself failed; a change may still have applied.
-
-Select **Objects** to list persistent objects visible to the current role. Filter by
-label, class, hexadecimal ID or locator, then select an object to read its metadata.
-Listing requests only class, label and ID; detail reads use a small metadata
-allowlist and never fetch object values or private key material. Missing,
-sensitive and unsupported attributes remain distinguishable. Objects with
-duplicate locators or unsupported identities show their summary without a detail
-read. **Refresh** on Objects clears selection and reads a new list.
-
-Use **USER login** or **SO login** on the selected token, enter its PIN and select
-**Login**. Locked or uninitialized PINs disable their role; SO also needs writable
-session support. A token that advertises a protected authentication path defaults
-to that path; complete authentication on the token, or switch to host PIN entry.
-Each submission makes one attempt. The form clears after submission, cancellation
-or navigation. **Logout** clears object selections and details before the worker
-logs out. Refresh the object list after changing authentication.
-
-PINs are held in zeroizing application state and worker commands, excluded from
-diagnostics and never saved. Masked input disables copying and cutting. Iced's
-text editing internals create transient plaintext copies that are not guaranteed
-to be zeroized.
-
-Select **Mechanisms** to browse provider-advertised names, identifiers, flags and
-key-size bounds. Filter by name, hexadecimal identifier or flag, and use
-**Refresh** on Mechanisms to re-enumerate. Bounds retain the provider's units;
-the browser does not plan or execute cryptographic operations.
-
-Linux requires Wayland; X11 is not built. The native file picker uses the desktop
-portal, with a Zenity fallback.
-Manual path entry also works when no picker service is available. Modules are
-loaded only after an explicit Load action; paths are not saved or loaded on startup.
-
-Use **Operations** to choose a key generation, certificate import or random
-generation task. Each task opens its own form. Key generation and certificate
-import require USER login on a writable token. Generation uses the client's shared
-capability query to offer RSA/EC and ML-DSA-44/65/87 signing pairs,
-ML-KEM-512/768/1024 encapsulation/decapsulation pairs, P-256/P-384/P-521 ECDH pairs
-and AES-128/192/256 keys. Unsupported choices are omitted. Each choice names its
-purpose. ECDH private keys permit only derivation; AES keys permit either
-encryption/decryption or wrapping/unwrapping.
-Private and secret keys are sensitive and nonextractable. Per-signature
-authentication is available only for signing keys and clears when another purpose
-is selected. A provider may reject an advertised choice or template; operations
-are never retried automatically.
-
-Supply a label and hexadecimal ID. ECDH/AES identity fields each require 1–128
-bytes. Existing public/private IDs are rejected for ECDH pairs, and secret IDs for
-AES, without a uniqueness guarantee against concurrent writers. Signing pairs
-and ML-KEM pairs permit duplicate IDs; ambiguous selectors are rejected. Key
-pairs share their ID and label. ML-KEM does not permit per-operation PIN
-authentication.
-
-Use **Import ML-KEM Public Key** on **Operations** for one ML-KEM-512/768/1024
-SPKI DER file up to 2048 bytes. The parameter set comes from the encoded key;
-the client rejects other algorithms and noncanonical encodings. Supply a label
-of 1–128 UTF-8 bytes and an ID of 1–128 hexadecimal bytes. USER login and a
-writable token are required. Import preserves existing objects; duplicate IDs
-can make selection ambiguous. Authenticate the peer separately: parsing does
-not prove identity or private-key possession. Export from **Objects** uses the
-same SPKI format.
-
-Certificate import accepts one X.509 DER file up to 16 MiB and an explicit label/ID.
-It parses certificate metadata without establishing trust or binding the
-certificate to a key. PEM, bundles and private-key import are not supported.
-
-On **Objects**, select an unambiguous object and use **Delete object**. Confirm the
-shown locator to permanently delete that single object. Related keys and
-certificates are kept. **Export public object** saves public certificate/data
-values, or RSA, P-256/P-384/P-521, ML-DSA-44/65/87 and ML-KEM-512/768/1024 public
-keys as SPKI DER. The client selects the encoder from token metadata and validates
-the public key. Public export does not require login or authenticate a peer.
-Private objects and private/secret key classes cannot be exported. Export creates a new file and
-never overwrites one; a write failure can leave a partial file. On Unix, new
-export files are created with permissions 0600.
-
-Management clears selections and refreshes the object list, including after a
-failure that might have partial effects. Labels can collide, and existing signing
-generation permits duplicate IDs; ambiguous selectors are rejected. Mutation commands
-and export finish before another operation can start; navigation remains available.
-
-Key actions follow the key type read with the selected object's attributes:
-RSA offers signing and OAEP, EC offers signing and ECDH, ML-DSA offers signing,
-AES offers GCM and wrapping, and ML-KEM offers encapsulation or decapsulation
-according to the object class. Generic/HKDF secrets offer HKDF derivation.
-Permissions and provider capabilities are checked again in the worker.
-
-To sign a file, log in as USER and select an unambiguous private key on **Objects**.
-For RSA/EC, choose **Sign file**, select a client-provided SHA-2 signature choice, and provide
-a message file and a new signature output path. Token hashing is required by
-default; **Allow software hashing** permits a fallback planned before signing.
-The displayed mechanism and hashing location are advisory and checked again at
-execution. PSS choices use a matching MGF1 digest and digest-length salt.
-
-For ML-DSA-44/65/87, **Sign file** uses the observed parameter set and the original
-message, up to 16 MiB, including an empty file. Pure ML-DSA requires fresh token
-randomness and has no prehash, deterministic or software-hashing fallback. An
-optional domain context accepts up to 255 UTF-8 bytes; this is separate from the
-per-operation PIN. Always-authenticate keys use the same one-attempt PIN or
-protected-path form as classical signing. Protected-path behavior requires a
-supporting token and has not been tested with hardware.
-
-The output is a raw ML-DSA signature. Keep the domain context with the message for
-verification: the signature file contains no context or metadata. Existing files
-are never overwritten. The worker checks session closure before writing the
-signature; a failed signing operation may leave an empty file.
-
-Keys with CKA_ALWAYS_AUTHENTICATE require a per-operation PIN or supported
-protected authentication path. This credential is cleared on submission,
-cancellation or navigation. Each submission signs once; failures are never retried.
-The worker reserves a new output file before signing and checks session closure
-before writing the signature. Existing files are preserved;
-a failed signature or write can leave an empty or partial file. Signing refreshes
-token status and object inventories, including after authentication failures.
-
-Select a supported certificate and choose **Verify signature** to check a message
-and signature in software using its RSA/EC or ML-DSA public key. ML-DSA uses the
-parameter set encoded in the certificate and the original message, with the exact
-domain context used for signing (empty unless one was supplied). No login,
-per-operation PIN or token verification mechanism is required for a visible public
-certificate. Both input files are read without modification. Verification does not establish
-certificate trust or prove association with a token key. Editing the form or
-changing selection invalidates pending verification results, including changes to
-the ML-DSA domain context.
-
-Message files are limited to 16 MiB and signature inputs to 16 KiB. RSA signatures
-use raw modulus-width bytes; EC signatures use fixed-width `r || s`, not ASN.1 DER.
-File contents, signature bytes and credentials remain on the worker.
-
-For AES-GCM, log in as USER and select an AES secret key on **Objects**. Choose
-**Encrypt AES-GCM** or **Decrypt AES-GCM**. Supply exactly 24 hexadecimal nonce
-digits, an input file, a new output path and, optionally, an AAD file. The worker
-checks key permissions and provider support again before execution. Wrapping-only
-keys cannot encrypt/decrypt.
-
-Output/input is raw ciphertext followed by a full 16-byte tag. Nonce and AAD are
-separate: retain them for decryption. Plaintext is limited to 16 MiB and AAD to
-1 MiB; empty files and absent AAD are supported. Nonces must never repeat for the
-same key, including across applications, restarts and copies of key material.
-After an encryption error, use a new nonce. This interface does not generate or
-track nonces and does not define a file envelope.
-
-Decryption writes no plaintext before successful authentication and checked
-session closure. Altered nonce, AAD, ciphertext or tag fails. Existing output files
-are preserved; failures can leave an empty output, or a partial file after a write
-error. Input and plaintext use zeroizing storage on the worker. Parameter forms
-clear after submission or navigation, and stale capability/picker results are
-ignored. Operations are not retried.
-
-On **Objects**, select a public RSA key and choose **Encrypt RSA OAEP**, or log in
-as USER and select a private RSA key for **Decrypt RSA OAEP**. Client-provided
-choices display SHA-2 digest and byte limits. OAEP uses a matching MGF1 digest and
-empty label; output is one raw RSA block, with no header. Select the same digest
-when decrypting. This handles small payloads, not bulk files or sender authentication.
-
-Permissions, allowed mechanisms and bounds are checked again at execution. Keys
-requiring authentication for each decrypt operation are unsupported by the binding
-and rejected before decrypt init. Vendor digest-parameter rejection never causes
-a retry, SHA-1 fallback or padding downgrade. Input and successful plaintext stay
-in zeroizing storage on the worker; cryptoki's transient buffers after a failed
-provider call cannot currently be guaranteed zeroized.
-
-The worker creates a new output file before the token call and reports session
-close failures before writing bytes. Existing files are preserved. Failures may
-leave an empty or partial file. Operations finish before another command can start;
-navigation remains available, and inventories refresh after failures as well as success.
-
-On **Operations**, use **Generate token random bytes** for an initialized token
-that advertises its own RNG. Enter a byte count from 1 to 1048576 and a new output
-path, then select **Generate and save**. The provider may require USER login; no
-authentication attempt or software fallback is made automatically.
-
-Random output stays in redacted, zeroizing storage on the worker and is written
-only to the requested file. The worker reserves the file before generation and
-reports session-close failures before writing bytes. Unix output permissions are
-0600. Existing files are never overwritten; failures can leave an empty or partial
-file. Generation and its file write finish before another operation can start;
-navigation remains available.
-
-## Development
-
-Rust 1.88 or newer. Iced 0.14 uses `tiny-skia`, `thread-pool`, `wayland`, `advanced`
-and `linux-theme-detection`, with default features disabled. `iced_aw` enables only `badge` and `spinner`.
-`iced_fonts` enables only the Lucide icon font.
+Rust 1.88 or newer. Linux requires Wayland; X11 is not built. The file picker uses
+the desktop portal with a Zenity fallback; manual path entry is also available.
 
 ```sh
-cargo run -p pkcs11-desktop --locked
-cargo test -p pkcs11-desktop --locked
-```
-
-Linux build dependencies on Ubuntu:
-
-```sh
+# Ubuntu build dependencies
 sudo apt-get install pkg-config libxkbcommon-dev libwayland-dev libegl1-mesa-dev
+cargo run --release -p pkcs11-desktop --locked
 ```
+
+Iced defaults are disabled; enabled features are `tiny-skia`, `thread-pool`,
+`wayland`, `advanced` and `linux-theme-detection`. `iced_aw` enables `badge` and
+`spinner`; `iced_fonts` enables the Lucide icon font.
+
+## Navigation and browsing
+
+Choose **Add Module**, browse or enter a trusted library path, then **Load**.
+Modules are executable code; loading is explicit and paths are not saved or
+loaded on startup. The sidebar lists modules and tokens. Module overviews show
+library/slot metadata; token overviews show identity, initialization, authentication
+flags and PIN limits. **Show PKCS#11 locator** expands the technical identifier.
+
+| View or control | Behavior |
+| --- | --- |
+| **Objects** | List visible persistent objects; filter by label, class, hexadecimal ID or locator |
+| Object details | Read a metadata allowlist; distinguish missing, sensitive and unsupported attributes; no object values/private key material |
+| **Mechanisms** | Filter advertised names, IDs and flags; show provider bounds, family, typed operations and executable-path support |
+| Column headings | Sort locally without reading the token |
+| Module **Refresh** | Re-enumerate slots/tokens; clear removed or replaced selections |
+| Objects **Refresh** | Clear selection and read a new inventory |
+| **Unload** / quit | Close sessions and finalize the selected/all modules |
+| **Appearance** | System, Light or Dark; System falls back to Light; choice is not saved |
+
+Duplicate locators or unsupported object identities retain summaries without
+performing a detail read. Wider windows show list/details side by side; narrower
+windows use **Back to List**, returning focus to the selected row. Mechanism
+advertisement alone does not imply executable support or parameter acceptance.
+
+| Key | Action |
+| --- | --- |
+| Tab / Shift+Tab | Move through enabled controls |
+| Enter / Space | Activate focused control |
+| Arrows / Home / End | Navigate lists, tabs and choices; activate a resource to read details |
+| Escape | Close dialog/form |
+| Ctrl+O / Ctrl+F | Add Module / focus resource filter |
+| Ctrl+R / Ctrl+Q | Refresh / quit |
+
+Use Command instead of Ctrl on macOS.
+
+## Authentication and execution
+
+Choose **USER login** or **SO login**, then submit once. Locked/uninitialized PINs
+disable their role; SO also requires writable sessions. Protected-path tokens
+default to on-token authentication, with host entry available. **Logout** clears
+object selection/details; refresh the inventory after authentication changes.
+
+PINs are zeroizing, excluded from diagnostics and never saved. Masked inputs
+disable copying/cutting; forms clear on submission, cancellation or navigation.
+Iced's transient text-editing copies cannot be guaranteed zeroized. Protected-path
+behavior requires a supporting token and has not been verified on hardware.
+
+One worker owns providers, sessions and file operations. A retained authenticated
+session per token keeps the role active without retaining its PIN. Scoped browsing
+sessions report explicit close failures. The UI receives metadata and local IDs,
+not handles or live providers; details resolve selectors again. Changed selections
+invalidate pending reads and picker results.
+
+Submitted mutations and cryptographic/file operations finish before another can
+start; navigation remains available. They are not retried or rolled back and cannot
+be cancelled after submission. Inventories refresh after success or failure because
+changes may have applied. Shutdown drains work, closes sessions and finalizes
+providers off the UI thread. If a session cannot close, further operations on that
+module are blocked and its cached resources are cleared; unload it before reuse.
+
+## Generation, import and object management
+
+**Operations** opens generation, import and random-byte forms. Key generation and
+imports require USER login on a writable token. Choices come from client capability
+queries; unsupported choices are omitted and execution checks capabilities again.
+An advertised choice does not guarantee provider template acceptance.
+
+| Key family | Choices and permissions |
+| --- | --- |
+| Classical signing | RSA, P-256/P-384/P-521 signing pairs |
+| ML-DSA | ML-DSA-44/65/87 signing pairs |
+| EdDSA | Pure Ed25519/Ed448 signing pairs; no per-operation authentication |
+| SLH-DSA / HashSLH-DSA | Separate pure and HashSLH-only signing pairs |
+| ECDH | P-256/P-384/P-521 derivation-only private keys |
+| Montgomery | X25519/X448 agreement pairs |
+| ML-KEM | ML-KEM-512/768/1024 encapsulation/decapsulation pairs; no per-operation authentication |
+| AES | AES-128/192/256 for encryption/decryption or wrapping/unwrapping |
+
+Private/secret keys are sensitive and nonextractable. Supply a label and hexadecimal
+ID; pairs share both. ECDH/AES identity fields require 1–128 bytes, with existing
+pair/secret IDs rejected respectively. Classical/ML-DSA and ML-KEM pairs can have duplicate
+IDs; all selectors must resolve uniquely. Duplicate checks are not atomic against
+concurrent writers. Per-signature authentication is available only where supported
+and clears when another purpose is selected.
+
+| Action | Input and result |
+| --- | --- |
+| Import certificate | One X.509 DER file up to 16 MiB, label and ID; parse metadata without trust/binding; no PEM or bundles |
+| Import public key | RSA, named EC, EdDSA or Montgomery SPKI DER; explicit verification or RSA-encryption purpose |
+| **Import ML-KEM Public Key** | Validated ML-KEM SPKI DER up to 2048 bytes; 1–128-byte label/ID; parameter set comes from key |
+| **Delete object** | Confirm the shown locator; delete one object, retaining related keys/certificates |
+| **Export public object** | Raw public certificate/data values or validated RSA/EC/ML-DSA/ML-KEM/SLH-DSA SPKI; no login required |
+
+Imports preserve existing objects. Public-key validation does not establish peer
+identity or private-key possession. Private objects and private/secret-key classes
+cannot be exported. Related objects are never inferred from shared IDs/labels.
+
+## Signing and verification
+
+On **Objects**, select an unambiguous private key and **Sign file** after USER login.
+Supply a message file and new signature output path. Permissions and mechanism
+choices are advisory and checked again by the worker.
+
+| Family | Signing profile |
+| --- | --- |
+| RSA/EC | Client-provided SHA-2 choices; token hashing by default; **Allow software hashing** selects an allowed plan before signing; PSS uses matching MGF1 and digest-length salt |
+| ML-DSA | Observed parameter set, original message, required fresh token randomness, optional context up to 255 UTF-8 bytes; no prehash/deterministic fallback |
+| EdDSA | Original message; no external digest, domain context or hashing policy |
+| SLH-DSA / hash-PQC | Pure SLH-DSA, HashSLH-DSA or HashML-DSA; SHA-256/384/512 message or caller-digest choices and bounded context |
+
+CKA_ALWAYS_AUTHENTICATE keys require a separate per-operation PIN/protected-path
+submission where supported. RSA signatures are modulus-width; ECDSA is fixed-width
+`r || s`, without ASN.1 DER. PQC files are raw signatures without context/metadata;
+retain the exact domain context for verification.
+
+Select a classical, ML-DSA or EdDSA certificate and **Verify signature** for software
+verification. Public-key verification uses the selected token key, including
+SLH-DSA/hash-PQC. Certificate verification needs no login for a visible public
+certificate and makes no trust or key-association decision. Input files are read
+without modification. Editing parameters or changing selection invalidates results.
+Messages are limited to 16 MiB and signature inputs to 64 KiB.
+
+## Encryption
+
+| Action on selected key | Profile |
+| --- | --- |
+| **Encrypt AES-GCM** / **Decrypt AES-GCM** | USER login; AES secret key; exactly 24 hexadecimal nonce digits, optional AAD file, input and new output path |
+| **Encrypt RSA OAEP** | Public RSA key; client-provided SHA-2 digest and payload limits |
+| **Decrypt RSA OAEP** | USER login; private RSA key without per-operation authentication |
+
+GCM uses ciphertext followed by a full 16-byte tag; retain the separate nonce/AAD
+for decryption. Plaintext is limited to 16 MiB and AAD to 1 MiB; empty input and
+absent AAD are accepted. Wrapping-only keys cannot encrypt/decrypt.
+
+**Never repeat a GCM nonce for the same key**, across applications, restarts or key
+copies. Use a new nonce after an encryption error. The app does not generate/track
+nonces or define an envelope format. Decryption releases no plaintext before
+successful authentication and checked session closure.
+
+OAEP uses matching SHA-2/MGF1 digests and an empty label, producing one raw RSA
+block. Choose the same digest for decryption. This handles small payloads, not bulk
+files or sender authentication; provider rejection never causes a padding downgrade.
 
 ## Derivation and key transfer
 
-After USER login on a writable token, select an ML-KEM public key and choose
-**Encapsulate ML-KEM secret**. Enter a new secret label, hexadecimal ID and
-ciphertext output path. To receive a ciphertext, select the corresponding ML-KEM
-private key and choose **Decapsulate ML-KEM secret**, then provide the ciphertext
-file and a new secret label/ID. The key determines ML-KEM-512/768/1024; the worker
-checks its current parameter set, permissions and provider capabilities before use.
+After USER login on a writable token, select the base/public/private key on
+**Objects**. New secret identities require 1–128-byte labels and hexadecimal IDs;
+existing secret IDs are rejected. Derived secrets remain private, sensitive and
+nonextractable on the token. Authenticate peers separately and agree on protocol
+inputs; successful derivation alone does not establish peer identity.
 
-Both operations create a persistent private, sensitive, nonextractable 32-byte
-generic secret with derivation permission only. Labels and IDs require 1–128
-bytes; existing secret IDs are rejected. Shared-secret bytes never leave the
-token. Encapsulation writes only raw public ciphertext, after checked session
-closure, to a new file. Decapsulation requires exactly 768, 1088 or 1568 bytes
-for ML-KEM-512, 768 or 1024 respectively and reads the input without modification.
-ML-KEM implicit rejection can accept a changed ciphertext of the correct length
-and produce a different secret. Completion does not confirm agreement or
-peer identity. Always-authenticate decapsulation keys are unsupported.
+| Action | Input and output |
+| --- | --- |
+| **Encapsulate ML-KEM secret** | ML-KEM public key; new secret identity and ciphertext output path |
+| **Decapsulate ML-KEM secret** | Matching private key and ciphertext file; new secret identity |
+| **Derive HKDF key** | Generic/HKDF derivation base; AES encryption key or further derivation secret |
+| **Derive ECDH secret** | Derivation-enabled EC private key and validated same-curve SPKI peer; raw null-KDF generic secret |
+| Montgomery agreement | X25519/X448 private key, raw/SPKI peer, X9.63/SP 800-56A KDF, shared info and AES/derivation-secret output |
+| **Wrap AES key** | AES CKA_WRAP key, extractable AES-128/192/256 target, new output path; honor CKA_WRAP_WITH_TRUSTED |
+| **Unwrap AES key** | AES CKA_UNWRAP key, 24/32/40-byte RFC 3394 file; AES encryption/decryption key |
 
-Authenticate the peer and apply the protocol's KDF before using a raw secret.
-Use the client or CLI for hybrid KEM workflows; these are not exposed in the
-desktop. Failed encapsulation, session closure or
-output writes may leave a token object and an empty or partial ciphertext file.
-Existing files are preserved. Refresh the inventory before retrying.
+ML-KEM creates a 32-byte derivation-only generic secret and writes only public
+ciphertext. Input lengths are 768/1088/1568 bytes for ML-KEM-512/768/1024. Implicit
+rejection can accept altered same-length ciphertext and produce a different secret;
+completion does not confirm agreement. Apply a protocol KDF before use.
+Always-authenticate decapsulation is unsupported. Use the client/CLI for hybrid
+combining; it is not exposed here.
 
-Select a generic/HKDF secret on **Objects** and choose **Derive HKDF key**. The
-client discovers a permitted SHA-2 profile: 32-byte bases use SHA-256, 48-byte
-bases SHA-384 and 64-byte bases SHA-512. Other lengths have no profile; values
-are never truncated or padded. The base must be sensitive, nonextractable and
-permit derivation. USER login on a writable token is required.
+HKDF requires a hash-length, sensitive, nonextractable derivation base: SHA-1/224/
+256/384/512 for 20/28/32/48/64 bytes respectively. Values are never padded/truncated.
+Choose AES-128/192/256 or a derivation secret of 1–255 times the hash length. Salt
+is hexadecimal and context UTF-8, each up to 4096 bytes; empty salt means zero salt.
+HKDF is extract-and-expand, without a file output, hybrid combiner or TLS schedule.
 
-Choose AES-128/192/256 for encryption/decryption, or a generic secret for further
-derivation with a length from 1 through 255 times the hash length. Outputs are
-persistent, private, sensitive and nonextractable. The provider may reject a
-specific output template. Provide a new label/ID of 1–128 bytes each; duplicate
-secret IDs are rejected. Optional salt uses hexadecimal bytes and protocol
-context uses UTF-8, each limited to 4096 bytes. Empty salt uses RFC 5869 zero
-salt. Agree on exact protocol inputs and output parameters with the peer; HKDF
-does not establish peer identity and this form is not a hybrid combiner or TLS
-key schedule. Base and output values remain on the token; there is no output
-file or software fallback.
+Raw ECDH supports P-256/P-384/P-521 and needs a subsequent KDF compatible with the
+base length. Per-operation-authenticated base keys are unsupported. RFC 3394 uses
+the default IV and carries no metadata; wrapping does not change extractability
+or trust policy. Failed creation/cleanup can leave objects; inspect the inventory
+before submitting another operation.
 
-After USER login, select an EC private key with derivation permission and choose
-**Derive ECDH secret**. Supply a peer public key in SPKI DER, a new label and a
-hexadecimal ID. The client validates the peer point and requires the same named
-curve as the base key. P-256/P-384/P-521 use the explicitly selected null KDF.
-The result is a persistent private, sensitive, nonextractable generic secret,
-with derivation permission only. It cannot be encrypted, signed or wrapped.
-A subsequent KDF is required before cryptographic use; HKDF is available for
-base lengths supported by its PKCS#11 profile. Authenticate the peer separately; ECDH alone does not establish
-its identity. Per-operation-authentication base keys are unsupported.
+## Random bytes and file output
 
-Select an AES key with wrapping permission and choose **Wrap AES key**. Select
-another secret key as the target and a new output file. The client requires an
-extractable AES-128/192/256 target and honors CKA_WRAP_WITH_TRUSTED. Candidates
-are checked on submission; the app never changes a key's extractability or trust
-policy. Wrapped output uses RFC 3394 with the default IV and contains no object
-metadata. Files are never overwritten; a failed operation may leave an empty or
-partial file.
+**Generate token random bytes** requires an initialized token advertising RNG
+support. Request 1–1048576 bytes and a new path. The provider may require USER
+login; no automatic login, software fallback or seeding is added.
 
-Choose **Unwrap AES key** on an AES key with unwrapping permission, select a
-24/32/40-byte wrapped file, and provide a new label and hexadecimal ID. It creates
-an AES-128/192/256 token key with encryption/decryption permission only. The key
-is private, sensitive and nonextractable. Existing secret key IDs are rejected.
-Unwrapping and derivation require a writable token. Generate ECDH and AES wrapping
-keys from **Operations** when the provider advertises those choices.
-
-All key operations execute once on the worker and refresh inventories on
-success or failure. Once submitted, they cannot be cancelled or superseded.
-Navigation remains available. There is no retry or rollback: a failed provider
-call or session close may still leave a created object. Refresh before retrying.
+All output files are created exclusively with Unix mode 0600; existing files are
+preserved. Crypto/random output follows checked session closure. Failures can leave
+empty or partial files, and token mutations may already have occurred. Export write
+failures can also leave partial files. File contents and credentials remain on the
+worker. Random output, encryption inputs and plaintext use zeroizing storage;
+cryptoki's failed-call temporary buffers cannot be guaranteed zeroized.
 
 ## Administration
 
-Select **Administration** on a writable token. **Initialize / erase token** sets
-its label and SO PIN on first initialization. For an initialized token it requires
-the current SO PIN, erases its objects and resets USER PIN initialization. The
-review shows the module path, slot, token identity and role; type `ERASE` to apply.
-All of this app's sessions for that module close first, including other tokens.
-The client rechecks the confirmed slot, identity, initialized state and PIN bounds
-before the call. Identical replacement devices or a swap after the check cannot
-be detected; ensure exclusive physical access. Refresh and select the resulting
-token before initializing its USER PIN.
+Select **Administration** on a writable token. Review the module path, slot, token
+identity and role before submitting.
 
-After SO login, **Initialize / reset USER PIN** sets a new USER PIN. After USER
-or SO login, **Change current role's PIN** changes that role's credential using
-its current PIN. New PINs require a matching confirmation and available provider
-byte bounds. Review the target and type `CHANGE` to submit. Successful and failed
-PIN attempts close this app's authenticated session on that token; log in again
-with the applicable PIN. Failed calls may still apply changes; no retry or rollback
-occurs. If session cleanup fails, unload the module before using it again.
+| Action | Requirements and effects |
+| --- | --- |
+| **Initialize / erase token** | Establish label/SO PIN for a new token, or use current SO PIN to erase objects/reset USER PIN state; type `ERASE` |
+| **Initialize / reset USER PIN** | SO login, new PIN and confirmation; type `CHANGE` |
+| **Change current role's PIN** | USER/SO login, current PIN, new PIN and confirmation; type `CHANGE` |
 
-Administration accepts host PINs only. Protected-path tokens, read-only tokens,
-and locked roles are disabled, except that an uninitialized token can establish
-its first SO PIN. PIN forms clear on submission, cancellation, navigation and
-shutdown. Confirmation is invalidated by role or target changes. Submitted
-administration cannot be cancelled or superseded; navigation remains available.
+Initialization closes all app sessions for the module and rechecks captured token
+identity, initialized state and PIN bounds. Identical replacements or swaps after
+the check cannot be detected; ensure exclusive physical access. Refresh/select the
+resulting token before initializing USER PIN.
 
-## Execution
+Administration accepts host PINs only. Protected-path/read-only tokens and locked
+roles are disabled, except first SO PIN establishment on an uninitialized token.
+Available byte bounds are checked. PIN changes close this app's authenticated
+session on success or failure; log in again with the applicable PIN. Forms clear on
+submission, cancellation, navigation and shutdown; role/target changes invalidate
+confirmation. Failed calls may still apply changes and are not retried.
 
-One worker owns all client providers and performs module loading, discovery,
-refresh, inspection, authentication, object management, signing, verification, derivation, key transfer,
-file reads/writes and finalization. One client-owned session per logged-in token
-keeps its role active without storing its PIN. Object browsing
-opens scoped read-only sessions, or read-write sessions while SO is active, and
-reports explicit close failures. The UI receives metadata snapshots and local
-resource IDs, without providers, sessions or raw handles. An unchanged token keeps
-its ID across module refreshes; a replacement receives a new ID. Object IDs last
-for one list snapshot. Details resolve their client locator again in a fresh session.
-
-Request IDs reject cancelled or superseded results. Refresh cancellation ignores
-its eventual result. Token/page/object changes invalidate pending reads. Load,
-unload, login, logout, management, signing, encryption, key transfer and random-file generation finish before
-another operation can start; navigation remains available. Closing the window
-drains queued work, closes authentication sessions, finalizes providers and joins
-the worker off the UI thread.
-
-## Pure EdDSA
-
-Advertised generation choices include Ed25519 and Ed448 signing pairs. Private
-keys are sensitive and nonextractable. Selecting an Edwards private key offers
-signing over the original message; selecting an EdDSA certificate offers software
-verification. No external digest, domain context or software-hashing policy is
-accepted. Context-authenticated EdDSA is not offered: published `cryptoki` has no
-single-part signing call after `C_SignInit`, and SoftHSM rejects multipart EdDSA.
-
-## SLH-DSA, hash-PQC and Montgomery
-
-The Operations view imports RSA, named-EC, EdDSA and Montgomery SPKI DER
-public keys with an explicit verification or RSA-encryption purpose. The client
-rechecks canonical encoding, duplicate IDs, permissions and provider support.
-
-Generation choices include pure SLH-DSA, HashSLH-DSA-only and X25519/X448 pairs.
-Signing forms offer pure SLH-DSA, HashSLH-DSA and HashML-DSA choices with
-SHA-256/384/512 message or caller-digest input and a bounded domain context.
-Public-key verification uses the selected token key; certificate verification
-remains available for classical, ML-DSA and EdDSA certificates. Signature files
-are bounded to 64 KiB so the largest SLH-DSA signatures are accepted.
-
-Montgomery private keys open an agreement form with explicit X9.63/SP 800-56A
-KDF, public shared info, AES or derivation-secret output and raw/SPKI peer input.
-The derived key stays on the token. The pinned Kryoptic provider lane exercises
-desktop SLH-DSA/HashSLH-DSA/HashML-DSA signing, token verification and
-Montgomery agreement with matching AES-GCM keys.
-
-Tests cover state transitions, stale responses, picker results, backend errors,
-shutdown, lazy details, ambiguous objects, metadata redaction and isolated SoftHSM
-module/object/mechanism, USER/SO authentication, object management, signing/verification, AES-GCM, RSA-OAEP, ECDH, EdDSA, SLH-DSA, hash-PQC, Montgomery and RFC 3394 workflows:
+## Tests
 
 ```sh
-./tools/test-softhsm.sh
+cargo test -p pkcs11-desktop --locked
 ```
 
-The workspace [default test suite](../../tests/README.md) includes desktop tests
-without opt-in flags. Required ML-DSA and ML-KEM provider jobs cover all six
-ML-DSA/ML-KEM parameter sets, private-key permissions, authentication settings and
-public export without login. ML-KEM operation tests cover ciphertext lengths,
-implicit rejection, derivation-only secret permissions, duplicate IDs, authentication
-and file preservation. Import tests check bounded SPKI files, authentication,
-round-trip export and ambiguous duplicate IDs. Export tests also reject private keys and stale
-object IDs, preserve existing files and check Unix file permissions.
-
-The Kryoptic CI job also runs the desktop flow from public-key export/import
-through ML-KEM and HKDF to AES-GCM, for all three ML-KEM parameter sets, all AES
-output sizes and further derivation using SHA-384/SHA-512. It checks output
-permissions, duplicate IDs, login requirements and stale references. Run it with
-a trusted provider supporting persistent ML-KEM, HKDF and AES-GCM:
-
-```sh
-PKCS11_TEST_KDF_MODULE=/path/to/libkryoptic_pkcs11.so ./tools/test-kem-hkdf.sh
-```
+The [test guide](https://github.com/Juanbanpar/pkcs11-stack/blob/main/tests/README.md) covers headless worker tests and disposable
+SoftHSM/Kryoptic suites for management, classical/PQC cryptography, authentication,
+file preservation and stale UI responses. Provider tests do not establish hardware
+compatibility.
 
 ## License
 
-This application is available under either [MIT](../../LICENSE-MIT) or
-[Apache-2.0](../../LICENSE-APACHE), at your option.
-
-## Mechanism capabilities
-
-The token **Mechanisms** tab now shows each advertised mechanism's family,
-typed operations and whether this application has an executable path. It still
-shows the provider's raw flags and bounds, and it never presents an advertised
-mechanism as executable merely because the provider lists it. The mapping comes
-from the client capability model, not a GUI-specific table.
+[MIT](https://github.com/Juanbanpar/pkcs11-stack/blob/main/LICENSE-MIT) OR [Apache-2.0](https://github.com/Juanbanpar/pkcs11-stack/blob/main/LICENSE-APACHE), at your option.
