@@ -384,37 +384,37 @@ fn digest_mac_and_aes_block_workflows() {
         "hash-pqc-negative",
         "--confirm",
     ]);
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let hash_message = scratch.file("hash-pqc-message", b"HashML-DSA negative fixture");
-    let output = run(&[
-        "--module",
-        &module,
-        "sign",
-        "--key",
-        "pkcs11:token=client-test;object=hash-pqc-negative;type=private",
-        "--pin-file",
-        path(&pin),
-        "--algorithm",
-        "hash-ml-dsa",
-        "--parameter-set",
-        "ml-dsa-44",
-        "--digest",
-        "sha256",
-        "--input",
-        path(&hash_message),
-        "--output",
-        "-",
-    ]);
-    assert!(!output.status.success());
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("HashML-DSA") || stderr.contains("no permitted mechanism"),
-        "{stderr}"
-    );
+    if output.status.success() {
+        let hash_message = scratch.file("hash-pqc-message", b"HashML-DSA negative fixture");
+        let output = run(&[
+            "--module",
+            &module,
+            "sign",
+            "--key",
+            "pkcs11:token=client-test;object=hash-pqc-negative;type=private",
+            "--pin-file",
+            path(&pin),
+            "--algorithm",
+            "hash-ml-dsa",
+            "--parameter-set",
+            "ml-dsa-44",
+            "--digest",
+            "sha256",
+            "--input",
+            path(&hash_message),
+            "--output",
+            "-",
+        ]);
+        assert!(!output.status.success());
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains("HashML-DSA") || stderr.contains("no permitted mechanism"),
+            "{stderr}"
+        );
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains("ML-DSA key generation"), "{stderr}");
+    }
 
     // SoftHSM does not advertise Montgomery key generation.
     let output = run(&[

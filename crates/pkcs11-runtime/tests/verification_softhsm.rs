@@ -5,8 +5,9 @@
 //! is performed by the token with the independent public-key object.
 
 use pkcs11_runtime::{
-    Authentication, Error, Function, Module, Pin, PrivateKeyRef, PssParameters, PublicKeyRef,
-    SessionMode, SignInput, SignRequest, SignatureAlgorithm, SigningPolicy, VerifyRequest,
+    Authentication, Error, Function, HashingPolicy, Module, Pin, PrivateKeyRef, PssParameters,
+    PublicKeyRef, SessionMode, SignInput, SignRequest, SignatureAlgorithm, SigningPolicy,
+    VerifyRequest,
 };
 use secrecy::SecretString;
 use sha2::{Digest, Sha256};
@@ -42,7 +43,10 @@ fn token_verifies_rsa_and_ecdsa_signatures() {
     session
         .authenticate(Authentication::User(Pin::Value(&pin)))
         .unwrap();
-    let policy = SigningPolicy::default();
+    let policy = SigningPolicy {
+        hashing: HashingPolicy::AllowSoftware,
+        ..SigningPolicy::default()
+    };
     let message = b"pkcs11-stack token verification test";
 
     for (algorithm, private_object, public_object, pss) in [

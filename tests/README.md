@@ -73,6 +73,8 @@ SOFTHSM2_UTIL=/path/to/softhsm2-util ./tools/test-softhsm.sh
 `PKCS11_TEST_REQUIRE_EC_MULTIPART=1` requires combined multipart ECDSA support.
 Packaged SoftHSM and the pinned upstream build differ in multipart ECDSA, SHA-2
 OAEP and ML-DSA support; the PQC build can run both classical and ML-DSA suites.
+Packaged CI sets `PKCS11_TEST_SKIP_EDDSA=1` for SoftHSM 2.6.1's incorrect EdDSA bounds;
+Ed25519/Ed448 workflows remain required on the unmodified upstream build.
 
 ## PQC provider compatibility
 

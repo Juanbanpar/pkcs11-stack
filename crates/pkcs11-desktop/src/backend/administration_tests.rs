@@ -388,6 +388,10 @@ fn desktop_public_key_import_round_trip() {
         entry.label == "desktop-import-p256" && entry.class == Some(ObjectClass::PUBLIC_KEY)
     }));
 
+    if std::env::var("PKCS11_TEST_SKIP_EDDSA").as_deref() == Ok("1") {
+        return;
+    }
+
     let objects = match registry.manage(
         module,
         token,
