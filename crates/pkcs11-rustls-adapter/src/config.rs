@@ -6,16 +6,12 @@ use std::sync::Arc;
 
 /// Start a server configuration with suites restricted to the enabled TLS versions.
 ///
-/// Use this before selecting client authentication and attaching `ServerResolver`.
-/// The application still supplies the crypto provider, protocol versions and trust
-/// policy. The provider is cloned; its algorithms, suite order and other consumers
-/// are unchanged. No global provider is selected or installed.
+/// Attach client authentication and `ServerResolver` to the returned builder.
+/// The application supplies provider, versions and trust policy. Cloning preserves
+/// the source provider and suite order; no global provider is installed.
 ///
-/// Rustls 0.23.43 filters resolver signature schemes against provider suites before
-/// filtering those suites by the negotiated version. Keeping disabled-version
-/// suites can therefore select an RSA credential for a TLS 1.2 client that offers
-/// only ECDSA TLS 1.2 suites alongside TLS 1.3 suites. This builder excludes such
-/// disabled suites before rustls performs certificate selection.
+/// Filtering before certificate selection avoids choosing an RSA credential for
+/// a TLS 1.2 client offering only ECDSA suites alongside TLS 1.3 suites.
 pub fn server_config_builder(
     provider: Arc<CryptoProvider>,
     versions: &[&'static SupportedProtocolVersion],

@@ -9,7 +9,8 @@ signatures are intentionally outside the client trust boundary.
 `rsa-*.sig` use PKCS#1 v1.5 unless named `rsa-pss-*` (20-byte salt, matching MGF1).
 EC signatures use ASN.1 DER; unit tests convert to the runtime's fixed-width format.
 Every signature covers the exact bytes of `message.txt`, including its newline.
-Ed25519 supplies an unsupported-key certificate case.
+The Ed25519 certificate is an unsupported-key case for the classical `Certificate`
+parser; EdDSA verification uses the separate `EdDsaCertificate` API.
 
 `mldsa44`, `mldsa65` and `mldsa87` contain ML-DSA certificates, SPKI public keys,
 and raw message signatures generated with OpenSSL 3.5.9 by

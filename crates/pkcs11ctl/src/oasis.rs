@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! CLI workflows for mechanisms added in the OASIS support branch.
+//! Token digest, MAC, AES and SP 800-108 CLI workflows.
 
 use crate::{operations::Inputs, operations::Output, support::*};
 use clap::ArgMatches;

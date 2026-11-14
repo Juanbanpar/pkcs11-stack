@@ -45,7 +45,7 @@ impl HkdfOutput {
 /// All output keys are persistent, private, sensitive and nonextractable.
 #[derive(Clone, Copy)]
 pub struct HkdfRequest<'a> {
-    /// SHA-256, SHA-384 or SHA-512. PKCS#11 requires a hash-length base key.
+    /// SHA-1 or SHA-224/256/384/512; the base key must match the hash length.
     pub digest: DigestAlgorithm,
     /// Non-secret extraction salt, at most 4096 bytes. Empty means RFC 5869 zero salt.
     pub salt: &'a [u8],
@@ -150,7 +150,7 @@ pub(crate) fn permits(object: &Object<'_, '_>, mechanism: MechanismType) -> Resu
     Ok(())
 }
 impl Session<'_> {
-    /// Discover the SHA-2 HKDF profile permitted by a uniquely selected base.
+    /// Discover the SHA-1/SHA-2 HKDF profile permitted by a uniquely selected base.
     /// Reads one object and its metadata once. Unsupported bases/mechanisms produce
     /// no choices; selection, missing metadata and provider errors propagate.
     pub fn hkdf_options(&mut self, base: &ObjectRef) -> Result<Vec<HkdfCapabilities>, Error> {

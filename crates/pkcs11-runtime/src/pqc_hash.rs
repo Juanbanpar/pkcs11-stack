@@ -2,10 +2,8 @@
 //! HashML-DSA and HashSLH-DSA prehash signatures through published upstream
 //! `cryptoki` variants.
 //!
-//! Fixed-output SHA-2/SHA-3 prehashes support both token hashing and caller
-//! digests. SHAKE prehashes are available only as token-hashed message
-//! mechanisms; there is no standalone SHAKE digest mechanism to pass as a
-//! prehash parameter.
+//! SHA-2/SHA-3/SHAKE support token-hashed messages. Caller digests are limited
+//! to SHA-2 because the binding has no standalone SHA-3/SHAKE digest mechanism.
 
 use crate::{
     AttributeType, Error, Function, MechanismType, MlDsaHedging, MlDsaParameterSet, Object,
@@ -48,7 +46,8 @@ pub enum PrehashAlgorithm {
 }
 
 impl PrehashAlgorithm {
-    /// Fixed-output prehash algorithms usable with caller-supplied digests.
+    /// Fixed-output prehash algorithms; [`Self::mechanism`] identifies those usable
+    /// with caller-supplied digests.
     pub const FIXED: [Self; 8] = [
         Self::Sha224,
         Self::Sha256,
@@ -135,9 +134,9 @@ pub enum HashInput<'a> {
         /// Original message, at most 64 MiB.
         message: &'a [u8],
     },
-    /// Supply an already computed fixed-output digest.
+    /// Supply an already computed SHA-2 digest.
     Digest {
-        /// Fixed-output prehash algorithm.
+        /// SHA-224, SHA-256, SHA-384 or SHA-512; other algorithms are rejected.
         hash: PrehashAlgorithm,
         /// Exactly `hash.output_len()` bytes.
         bytes: &'a [u8],

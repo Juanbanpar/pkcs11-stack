@@ -27,7 +27,7 @@ pub struct GenerationCapabilities {
 impl Provider {
     /// Collect classical, PQC, ECDH and AES generation choices without opening
     /// sessions or generating keys. Unknown/unsupported mechanisms yield empty
-    /// choices; provider errors propagate. No mechanism planning belongs in a UI.
+    /// choices; provider errors propagate.
     pub fn generation_capabilities(
         &self,
         token: &Pkcs11Uri,

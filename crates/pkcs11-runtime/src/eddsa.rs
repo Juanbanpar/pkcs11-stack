@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! Pure RFC 8032 EdDSA (Ed25519/Ed448) through published upstream types.
 //!
-//! The OID-based RFC 8410 profile is implemented. Explicit RFC 8032 curveName
-//! profiles and prehash/context schemes are not exposed by this module.
+//! Accepts RFC 8410 OID and RFC 8032 curveName parameters. Prehash/context
+//! schemes and per-operation authentication are unsupported.
 
 use crate::{
     Attribute, AttributeType, Error, MechanismType, Object, ObjectClass, Pin, PrivateKeyRef,
