@@ -139,7 +139,8 @@ impl NonceSequence {
             return Err(Error::InvalidNonceState);
         }
         self.file.try_lock_exclusive().map_err(|error| {
-            if error.kind() == std::io::ErrorKind::WouldBlock {
+            // Windows lock contention is not classified as std WouldBlock.
+            if error.raw_os_error() == fs2::lock_contended_error().raw_os_error() {
                 Error::NonceStateBusy
             } else {
                 Error::NonceStateIo(error)
@@ -293,7 +294,7 @@ mod tests {
         let mut children: Vec<_> = (0..8)
             .map(|_| {
                 Command::new(std::env::current_exe().unwrap())
-                    .args(["--exact", "nonce::tests::process_writer"])
+                    .args(["--exact", "nonce::tests::process_writer", "--nocapture"])
                     .env("PKCS11_NONCE_TEST_STATE", store.path())
                     .stdout(std::process::Stdio::null())
                     .spawn()
