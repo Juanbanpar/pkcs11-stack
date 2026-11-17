@@ -9,6 +9,7 @@ description = "Ergonomic PKCS#11 application API"
 readme = "README.md"
 
 [dependencies]
+fs2.workspace = true
 pkcs11-runtime.workspace = true
 pkcs11-locator.workspace = true
 thiserror.workspace = true

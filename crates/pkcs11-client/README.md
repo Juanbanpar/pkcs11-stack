@@ -245,15 +245,29 @@ Wrapping keys do not make nonextractable targets exportable.
 
 | API | Profile and constraints |
 | --- | --- |
+| `encrypt_aes_gcm_envelope`, `decrypt_aes_gcm_envelope` | Version 1 envelope with a nonce reserved in a state file |
 | `aes_gcm_capabilities`, `encrypt_aes_gcm`, `decrypt_aes_gcm` | AES secret key with direction permission; 12-byte nonce, separate AAD, ciphertext followed by full 16-byte tag |
 | `oaep_options`, `encrypt`, `decrypt` | RSA 2048–16384 bits, SHA-256/384/512 with matching MGF1 and empty label; one block |
 | `aes_capabilities`, `encrypt_aes`, `decrypt_aes` | ECB/CBC/CBC-PAD; see request rustdoc for IV, padding and input bounds |
 
-AES-GCM permits RO sessions and empty plaintext/AAD; plaintext is limited to
-16 MiB, AAD to 1 MiB. Generated encryption keys and HKDF AES outputs qualify;
-wrapping-only keys and raw shared secrets do not. Callers ensure nonce uniqueness
-per key across writers, restarts and key copies. An encryption error does not
-permit nonce reuse. No nonce tracking or file envelope is supplied.
+AES-GCM accepts empty plaintext and AAD in read-only sessions. The limits are
+16 MiB of plaintext and 1 MiB of AAD. Generated encryption keys and HKDF AES
+outputs qualify. Wrapping-only keys and raw shared secrets do not.
+
+Call `NonceSequence::create` only for a new, unused key. Use `NonceSequence::open`
+with the same file for later encryptions. All writers must use that file on one
+host. Retire the key for encryption if state is lost or rolled back. The
+[envelope and nonce state guide](https://github.com/Juanbanpar/pkcs11-stack/blob/main/docs/aes-gcm-envelope.md)
+describes the file format and when to use the explicit-nonce API.
+
+```no_run
+use pkcs11_client::{ManagementSession, NonceSequence, ObjectRef, Plaintext};
+fn envelope_round_trip(session: &mut ManagementSession<'_>, key: &ObjectRef,
+    state: &mut NonceSequence) -> Result<Plaintext, pkcs11_client::Error> {
+    let encoded = session.encrypt_aes_gcm_envelope(key, state, b"context", b"message")?;
+    session.decrypt_aes_gcm_envelope(key, b"context", &encoded)
+}
+```
 
 ```no_run
 use pkcs11_client::{

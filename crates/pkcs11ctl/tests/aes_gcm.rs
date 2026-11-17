@@ -24,7 +24,13 @@ impl Fixture {
     }
     fn ok(&self, args: &[&str]) -> Vec<u8> {
         let out = self.run(args);
-        assert!(out.status.success(), "CLI status {}", out.status);
+        assert!(
+            out.status.success(),
+            "CLI {} status {}: {}",
+            args[0],
+            out.status,
+            String::from_utf8_lossy(&out.stderr)
+        );
         assert!(out.stderr.is_empty());
         out.stdout
     }
@@ -218,5 +224,131 @@ fn file_encryption_authentication_and_output_contracts() {
             &f.pin,
         ]);
         assert!(out.is_empty());
+        managed_roundtrip(&f, kind, index, &input);
+    }
+}
+
+fn managed_roundtrip(f: &Fixture, kind: &str, index: usize, input: &str) {
+    let label = format!("cli-managed-{index}");
+    f.ok(&[
+        "generate",
+        "--token",
+        &f.token,
+        "--kind",
+        kind,
+        "--purpose",
+        "encryption",
+        "--id",
+        &format!("ce{index:02x}"),
+        "--label",
+        &label,
+        "--pin-file",
+        &f.pin,
+        "--confirm",
+    ]);
+    let object = format!("{};object={label};type=secret-key", f.token);
+    let state = f.path(&format!("state-{index}"));
+    let cipher = f.path(&format!("envelope-{index}"));
+    f.ok(&[
+        "encrypt-aes-gcm",
+        "--object",
+        &object,
+        "--nonce-state",
+        &state,
+        "--initialize-nonce-state",
+        "--input",
+        input,
+        "--output",
+        &cipher,
+        "--pin-file",
+        &f.pin,
+    ]);
+    let encoded = std::fs::read(&cipher).unwrap();
+    assert_eq!(&encoded[..7], b"P11GCM\x01");
+    assert_eq!(encoded.len(), 35 + std::fs::read(input).unwrap().len());
+    assert_eq!(
+        f.ok(&[
+            "decrypt-aes-gcm",
+            "--object",
+            &object,
+            "--input",
+            &cipher,
+            "--output",
+            "-",
+            "--pin-file",
+            &f.pin
+        ]),
+        std::fs::read(input).unwrap()
+    );
+    // Each invocation is a separate process; the existing journal resumes at one.
+    let next = f.path(&format!("next-envelope-{index}"));
+    f.ok(&[
+        "encrypt-aes-gcm",
+        "--object",
+        &object,
+        "--nonce-state",
+        &state,
+        "--input",
+        input,
+        "--output",
+        &next,
+        "--pin-file",
+        &f.pin,
+    ]);
+    assert_ne!(&std::fs::read(&next).unwrap()[7..19], &encoded[7..19]);
+    let before = std::fs::read(&state).unwrap();
+    let out = f.run(&[
+        "encrypt-aes-gcm",
+        "--object",
+        &object,
+        "--nonce-state",
+        &state,
+        "--initialize-nonce-state",
+        "--input",
+        input,
+        "--output",
+        "-",
+        "--pin-file",
+        &f.pin,
+    ]);
+    assert!(!out.status.success());
+    assert!(out.stdout.is_empty());
+    assert_eq!(std::fs::read(&state).unwrap(), before);
+    for offset in [0, 6, 7, 19, encoded.len() - 1] {
+        let damaged = f.path(&format!("bad-envelope-{index}-{offset}"));
+        let mut bytes = encoded.clone();
+        bytes[offset] ^= 1;
+        std::fs::write(&damaged, bytes).unwrap();
+        let output = f.path(&format!("bad-envelope-output-{index}-{offset}"));
+        let out = f.run(&[
+            "decrypt-aes-gcm",
+            "--object",
+            &object,
+            "--input",
+            &damaged,
+            "--output",
+            &output,
+            "--pin-file",
+            &f.pin,
+        ]);
+        assert!(!out.status.success());
+        assert!(out.stdout.is_empty());
+        assert!(!std::path::Path::new(&output).exists());
+        assert!(!String::from_utf8_lossy(&out.stderr).contains("canary"));
+        // Existing output is always preserved, even on malformed/authentication failures.
+        std::fs::write(&output, b"preserve").unwrap();
+        let out = f.run(&[
+            "decrypt-aes-gcm",
+            "--object",
+            &object,
+            "--input",
+            &damaged,
+            "--output",
+            &output,
+            "--pin-file",
+            &f.pin,
+        ]);
+        assert!(!out.status.success());
+        assert_eq!(std::fs::read(&output).unwrap(), b"preserve");
     }
 }

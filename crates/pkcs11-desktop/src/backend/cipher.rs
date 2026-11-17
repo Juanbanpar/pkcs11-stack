@@ -4,9 +4,10 @@ use super::{
     browse::read_session,
 };
 use pkcs11_client::{
-    AES_GCM_MAXIMUM_AAD, AES_GCM_MAXIMUM_PLAINTEXT, AES_GCM_TAG_LENGTH, AesGcmCapabilities,
-    AesGcmDecryptRequest, AesGcmEncryptRequest, AesGcmOperation, DecryptRequest, EncryptRequest,
-    OaepChoice, ObjectClass, PrivateKeyRef, PublicKeyRef, RsaCipherOperation, SessionState,
+    AES_GCM_MAXIMUM_AAD, AES_GCM_MAXIMUM_ENVELOPE, AES_GCM_MAXIMUM_PLAINTEXT, AES_GCM_TAG_LENGTH,
+    AesGcmCapabilities, AesGcmDecryptRequest, AesGcmEncryptRequest, AesGcmEnvelope,
+    AesGcmOperation, DecryptRequest, EncryptRequest, NonceSequence, OaepChoice, ObjectClass,
+    PrivateKeyRef, PublicKeyRef, RsaCipherOperation, SessionState,
 };
 use secrecy::{ExposeSecret, ExposeSecretMut, SecretBox};
 use std::{
@@ -25,8 +26,14 @@ enum CipherTarget {
     Rsa(RsaCipherOperation),
     AesGcm(AesGcmOperation),
 }
+#[derive(Debug, PartialEq, Eq)]
+pub enum AesGcmNonce {
+    Explicit([u8; 12]),
+    Managed { path: PathBuf, initialize: bool },
+    Envelope,
+}
 pub struct AesGcmFiles {
-    pub nonce: [u8; 12],
+    pub nonce: AesGcmNonce,
     pub aad: Option<PathBuf>,
 }
 pub struct CipherJob {
@@ -124,12 +131,20 @@ impl Registry {
             (CipherTarget::AesGcm(direction), CipherParameters::AesGcm(_))
                 if job.aes_gcm.is_some() =>
             {
-                AES_GCM_MAXIMUM_PLAINTEXT
-                    + if direction == AesGcmOperation::Decrypt {
-                        AES_GCM_TAG_LENGTH
-                    } else {
-                        0
+                match (
+                    &job.aes_gcm.as_ref().ok_or(BackendError::CipherInput)?.nonce,
+                    direction,
+                ) {
+                    (AesGcmNonce::Explicit(_), AesGcmOperation::Encrypt)
+                    | (AesGcmNonce::Managed { .. }, AesGcmOperation::Encrypt) => {
+                        AES_GCM_MAXIMUM_PLAINTEXT
                     }
+                    (AesGcmNonce::Explicit(_), AesGcmOperation::Decrypt) => {
+                        AES_GCM_MAXIMUM_PLAINTEXT + AES_GCM_TAG_LENGTH
+                    }
+                    (AesGcmNonce::Envelope, AesGcmOperation::Decrypt) => AES_GCM_MAXIMUM_ENVELOPE,
+                    _ => return Err(BackendError::CipherInput),
+                }
             }
             _ => return Err(BackendError::CipherInput),
         };
@@ -171,6 +186,13 @@ impl Registry {
         {
             return Err(BackendError::CipherInput);
         }
+        if job
+            .aes_gcm
+            .as_ref()
+            .is_some_and(|gcm| matches!(gcm.nonce, AesGcmNonce::Envelope))
+        {
+            AesGcmEnvelope::parse(input.expose_secret()).map_err(|_| BackendError::CipherInput)?;
+        }
         // Reserve a new output before the token operation, then close its session before saving.
         let mut output = super::management::create_output(&job.output)?;
         let bytes = read_session(module, &uri, module.read_mode(scope.token)?, |session| {
@@ -182,25 +204,46 @@ impl Registry {
                     return Err(BackendError::CipherUnavailable);
                 }
                 let gcm = job.aes_gcm.as_ref().ok_or(BackendError::CipherInput)?;
-                return match direction {
-                    AesGcmOperation::Encrypt => session
+                return match (&gcm.nonce, direction) {
+                    (AesGcmNonce::Explicit(nonce), AesGcmOperation::Encrypt) => session
                         .encrypt_aes_gcm(
                             &reference,
                             &AesGcmEncryptRequest {
-                                nonce: &gcm.nonce,
+                                nonce,
                                 aad: &aad,
                                 plaintext: input.expose_secret(),
                             },
                         )
                         .map(|bytes| SecretBox::new(Box::new(bytes))),
-                    AesGcmOperation::Decrypt => session.decrypt_aes_gcm(
-                        &reference,
-                        &AesGcmDecryptRequest {
-                            nonce: &gcm.nonce,
-                            aad: &aad,
-                            ciphertext: input.expose_secret(),
-                        },
-                    ),
+                    (AesGcmNonce::Explicit(nonce), AesGcmOperation::Decrypt) => session
+                        .decrypt_aes_gcm(
+                            &reference,
+                            &AesGcmDecryptRequest {
+                                nonce,
+                                aad: &aad,
+                                ciphertext: input.expose_secret(),
+                            },
+                        ),
+                    (AesGcmNonce::Managed { path, initialize }, AesGcmOperation::Encrypt) => {
+                        let mut sequence = if *initialize {
+                            NonceSequence::create(path, &reference)
+                        } else {
+                            NonceSequence::open(path, &reference)
+                        }
+                        .map_err(|e| cipher_error(&e))?;
+                        session
+                            .encrypt_aes_gcm_envelope(
+                                &reference,
+                                &mut sequence,
+                                &aad,
+                                input.expose_secret(),
+                            )
+                            .map(|bytes| SecretBox::new(Box::new(bytes)))
+                    }
+                    (AesGcmNonce::Envelope, AesGcmOperation::Decrypt) => {
+                        session.decrypt_aes_gcm_envelope(&reference, &aad, input.expose_secret())
+                    }
+                    _ => return Err(BackendError::CipherInput),
                 }
                 .map_err(|e| cipher_error(&e));
             }

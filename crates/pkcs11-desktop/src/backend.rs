@@ -18,7 +18,7 @@ pub use hkdf::HkdfJob;
 mod key_operations;
 pub use key_operations::{KeyJob, KeyProfile, MontgomeryKdfChoice, MontgomeryOutputChoice};
 mod crypto;
-pub use cipher::{AesGcmFiles, CipherJob, CipherParameters};
+pub use cipher::{AesGcmFiles, AesGcmNonce, CipherJob, CipherParameters};
 mod management;
 mod random;
 pub use authentication::{LoginRole, LoginState, SecretInput};

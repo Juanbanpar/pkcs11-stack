@@ -1221,7 +1221,12 @@ fn aes_gcm_file_form_accepts_nonce_and_aad_without_running_crypto() {
         state
     }
     let app = run_focused(
-        gcm,
+        || {
+            let mut state = gcm();
+            let id = state.cipher_form.as_ref().unwrap().id;
+            state.cipher_format(id, true);
+            state
+        },
         &[
             "type \"0102030405060708090a0b0c\"",
             "type tab",
@@ -1233,6 +1238,16 @@ fn aes_gcm_file_form_accepts_nonce_and_aad_without_running_crypto() {
     assert_eq!(form.nonce, "0102030405060708090a0b0c");
     assert_eq!(form.aad, "context.bin");
     assert!(app.state.current_operation.is_none());
+    let managed = run_focused(
+        gcm,
+        &[r#"type "new-key.state""#],
+        Some("input-Persistent nonce state file"),
+    );
+    assert!(!managed.state.cipher_form.as_ref().unwrap().raw);
+    assert_eq!(
+        managed.state.cipher_form.as_ref().unwrap().nonce,
+        "new-key.state"
+    );
     for dark in [false, true] {
         render_screen(&app.state, "aes-gcm-encrypt", 1060, 720, dark);
     }

@@ -73,6 +73,14 @@ pub enum Message {
         field: CipherField,
         value: String,
     },
+    CipherFormat {
+        id: RequestId,
+        raw: bool,
+    },
+    CipherInitialize {
+        id: RequestId,
+        initialize: bool,
+    },
     CipherChoice {
         id: RequestId,
         choice: CipherChoice,
@@ -219,6 +227,8 @@ impl std::fmt::Debug for Message {
             Self::SubmitKeyOperation(_) => "SubmitKeyOperation",
             Self::DismissKeyOperation(_) => "DismissKeyOperation",
             Self::OpenCipher(_) => "OpenCipher",
+            Self::CipherFormat { .. } => "CipherFormat",
+            Self::CipherInitialize { .. } => "CipherInitialize",
             Self::CipherEdit { .. } => "CipherEdit",
             Self::CipherChoice { .. } => "CipherChoice",
             Self::CipherBrowse { .. } => "CipherBrowse",
@@ -400,6 +410,10 @@ impl App {
                 self.submit(command);
             }
             Message::CipherEdit { id, field, value } => self.state.cipher_edit(id, field, value),
+            Message::CipherFormat { id, raw } => self.state.cipher_format(id, raw),
+            Message::CipherInitialize { id, initialize } => {
+                self.state.cipher_initialize(id, initialize)
+            }
             Message::CipherChoice { id, choice } => self.state.cipher_choice(id, choice),
             Message::CipherPicked { id, path } => self.state.cipher_picked(id, path),
             Message::SubmitCipher(id) => {

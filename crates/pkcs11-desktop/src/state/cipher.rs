@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use super::*;
-use crate::backend::{AesGcmFiles, CipherJob, CipherParameters, CryptoMode, CryptoScope};
+use crate::backend::{
+    AesGcmFiles, AesGcmNonce, CipherJob, CipherParameters, CryptoMode, CryptoScope,
+};
 use pkcs11_client::{DigestAlgorithm, KeyType, ObjectClass};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CipherChoice(pub CipherParameters);
@@ -37,6 +39,8 @@ pub struct CipherForm {
     pub input: String,
     pub output: String,
     pub nonce: String,
+    pub raw: bool,
+    pub initialize_state: bool,
     pub aad: String,
     picked_aad: Option<PathBuf>,
     picked_input: Option<PathBuf>,
@@ -94,6 +98,8 @@ impl UiState {
             input: String::new(),
             output: String::new(),
             nonce: String::new(),
+            raw: false,
+            initialize_state: false,
             aad: String::new(),
             picked_aad: None,
             picked_input: None,
@@ -129,6 +135,30 @@ impl UiState {
                 }
             }
             form.picker = None;
+        }
+    }
+    pub fn cipher_format(&mut self, id: RequestId, raw: bool) {
+        if !self.can_submit() {
+            return;
+        }
+        if let Some(form) = &mut self.cipher_form
+            && form.id == id
+        {
+            form.raw = raw;
+            form.nonce.clear();
+            form.initialize_state = false;
+        }
+    }
+    pub fn cipher_initialize(&mut self, id: RequestId, initialize: bool) {
+        if !self.can_submit() {
+            return;
+        }
+        if let Some(form) = &mut self.cipher_form
+            && form.id == id
+            && !form.raw
+            && form.scope.mode == CryptoMode::Encrypt
+        {
+            form.initialize_state = initialize;
         }
     }
     pub fn cipher_choice(&mut self, id: RequestId, choice: CipherChoice) {
@@ -213,13 +243,27 @@ impl UiState {
             return None;
         }
         let aes_gcm = if matches!(form.choice?.0, CipherParameters::AesGcm(_)) {
-            let nonce = (form.nonce.len() == 24)
-                .then(|| management::identifier(&form.nonce))
-                .flatten()
-                .and_then(|bytes| bytes.try_into().ok());
-            let Some(nonce) = nonce else {
-                self.notification = Some(Notification::Error(BackendError::CipherInput));
-                return None;
+            let nonce = if form.raw {
+                let parsed = (form.nonce.len() == 24)
+                    .then(|| management::identifier(&form.nonce))
+                    .flatten()
+                    .and_then(|bytes| bytes.try_into().ok());
+                let Some(nonce) = parsed else {
+                    self.notification = Some(Notification::Error(BackendError::CipherInput));
+                    return None;
+                };
+                AesGcmNonce::Explicit(nonce)
+            } else if form.scope.mode == CryptoMode::Encrypt {
+                if form.nonce.is_empty() || form.nonce == "-" {
+                    self.notification = Some(Notification::Error(BackendError::CipherInput));
+                    return None;
+                }
+                AesGcmNonce::Managed {
+                    path: PathBuf::from(&form.nonce),
+                    initialize: form.initialize_state,
+                }
+            } else {
+                AesGcmNonce::Envelope
             };
             Some(AesGcmFiles {
                 nonce,
