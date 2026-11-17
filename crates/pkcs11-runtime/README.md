@@ -216,7 +216,7 @@ message/digest buffers are not zeroizing. `PrivateKeyRef`, `PublicKeyRef` and
 | --- | --- |
 | `rsa_oaep_capabilities`, `encrypt_rsa_oaep`, `decrypt_rsa_oaep` | RSA 2048–16384 bits; SHA-256/384/512 with matching MGF1 and empty label; plaintext must fit OAEP, ciphertext is modulus-width |
 | `aes_gcm_capabilities`, `encrypt_aes_gcm`, `decrypt_aes_gcm` | AES-128/192/256; 12-byte nonce, separate AAD and full 16-byte tag appended to ciphertext; RO or RW session |
-| `aes_capabilities`, `encrypt_aes`, `decrypt_aes` | ECB/CBC/CBC-PAD, single-part and multipart; request rustdoc defines IV, padding and bounds |
+| `aes_capabilities`, `encrypt_aes`, `decrypt_aes` | ECB/CBC/CBC-PAD without authentication, single-part or multipart. See rustdoc for IV, padding, and length requirements. |
 
 OAEP rejects per-operation-authenticated decryption before init. GCM requires a
 secret AES key with direction permission, allowed mechanisms, advertised bounds

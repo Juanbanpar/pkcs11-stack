@@ -260,3 +260,23 @@ fn typed_references_and_inputs_keep_identity_and_redaction() {
     let req = request(SignInput::Message(b"signing-canary"));
     assert!(!format!("{req:?}").contains("signing-canary"));
 }
+
+#[test]
+fn legacy_digests_require_opt_in_and_never_substitute_a_mechanism() {
+    for (digest, mechanism) in [
+        (DigestAlgorithm::Sha1, MechanismType::SHA1_RSA_PKCS),
+        (DigestAlgorithm::Sha224, MechanismType::SHA224_RSA_PKCS),
+    ] {
+        let key = rsa(&[mechanism]);
+        let req = SignRequest {
+            digest,
+            ..request(SignInput::Message(b"public fixture"))
+        };
+        assert!(key.plan(&req, &SigningPolicy::default()).is_err());
+        let mut opted_in = SigningPolicy::default();
+        opted_in.digests.push(digest);
+        assert_eq!(key.plan(&req, &opted_in).unwrap().mechanism(), mechanism);
+        let unsupported = rsa(&[MechanismType::SHA256_RSA_PKCS]);
+        assert!(unsupported.plan(&req, &opted_in).is_err());
+    }
+}
