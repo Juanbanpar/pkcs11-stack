@@ -247,7 +247,7 @@ jobs:
           rustup default stable
           rustup toolchain install 1.99.0 --no-self-update --profile minimal
           sudo apt-get update
-          sudo apt-get install --yes clang libclang-dev pkg-config libsqlite3-dev g++ make perl openssl opensc libxkbcommon-dev libwayland-dev libegl1-mesa-dev
+          sudo apt-get install --yes clang libclang-dev pkg-config libsqlite3-dev softhsm2 g++ make perl openssl opensc libxkbcommon-dev libwayland-dev libegl1-mesa-dev
       - name: Build pinned Kryoptic and OpenSSL with ML-KEM, ECDH and HKDF
         run: ./tools/build-kem-hkdf-provider.sh "$RUNNER_TEMP/kdf-provider"
       - name: Build pinned all-features Kryoptic provider
@@ -262,6 +262,7 @@ jobs:
         run: |
           ./tools/test-ml-kem.sh
           ./tools/test-kem-hkdf.sh
+          ./tools/test-envelope-interop.sh
       - name: Require SLH-DSA, HashSLH-DSA, HashML-DSA and Montgomery workflows
         env:
           PKCS11_TEST_PQC_MODULE: ${{ runner.temp }}/pqc-kryoptic/libkryoptic_pkcs11.so
