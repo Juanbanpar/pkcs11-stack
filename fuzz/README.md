@@ -24,11 +24,13 @@ limits; crashes, assertions, timeouts and resource-limit failures fail the run.
 | --- | --- |
 | `uri_parser` | Accepted UTF-8 input reparses from its explicit secret serialization without losing path criteria or changing canonical/redacted output |
 | `binary_selectors` | Every input byte survives ID construction/parsing; absent or different IDs fail exact matching; PIN canaries remain redacted |
+| `application_parsers` | AES-GCM envelope headers and lengths, X.509 certificates, and EdDSA, ML-KEM, and ML-DSA public keys |
 | `ecdsa_encoding` | Wrong widths and zero scalars fail; accepted fixed-width scalars become canonical positive DER integers with unchanged values |
 
 The ECDSA harness compiles the actual private `src/encoding.rs` from the adapter.
-RustCrypto's DER decoder independently checks the output representation. These
-targets run without a PKCS#11 module.
+RustCrypto's DER decoder independently checks the output representation.
+All targets run without a PKCS#11 module. The application parser seeds include
+public certificates, public keys, and synthetic AES-GCM envelopes.
 
 `seeds/` contains original synthetic inputs: URI grammar/escape boundaries, all ID
 octets and ECDSA width/zero/sign-padding cases. ECDSA input starts with a curve byte

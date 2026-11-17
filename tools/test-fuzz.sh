@@ -9,9 +9,9 @@ if [[ $# -gt 1 || ! "$seconds" =~ ^[1-9][0-9]*$ || ${#seconds} -gt 3 || "$second
     echo 'Use at most one target, FUZZ_SECONDS=1..600 and FUZZ_SEED=1..4294967295.' >&2
     exit 2
 fi
-targets=(uri_parser binary_selectors ecdsa_encoding)
+targets=(uri_parser binary_selectors ecdsa_encoding application_parsers)
 if [[ $# -gt 0 ]]; then
-    case $1 in uri_parser|binary_selectors|ecdsa_encoding) targets=("$1") ;;
+    case $1 in uri_parser|binary_selectors|ecdsa_encoding|application_parsers) targets=("$1") ;;
         *) echo 'Unknown fuzz target' >&2; exit 2 ;; esac
 fi
 # Validate and fetch the committed graph before cargo-fuzz's offline build.

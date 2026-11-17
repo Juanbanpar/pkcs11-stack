@@ -12,6 +12,7 @@ cargo-fuzz = true
 resolver = "3"
 
 [dependencies]
+pkcs11-client = { path = "../crates/pkcs11-client" }
 libfuzzer-sys = "=0.4.13"
 pkcs11-locator = { path = "../crates/pkcs11-locator" }
 pkcs11-runtime = { path = "../crates/pkcs11-runtime" }
@@ -36,6 +37,13 @@ bench = false
 [[bin]]
 name = "ecdsa_encoding"
 path = "fuzz_targets/ecdsa_encoding.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "application_parsers"
+path = "fuzz_targets/application_parsers.rs"
 test = false
 doc = false
 bench = false
