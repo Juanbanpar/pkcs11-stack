@@ -511,8 +511,7 @@ fn token_ml_dsa_tls13_authentication_and_hybrid_exchange() {
         );
         if index == 0 {
             let wrong = certificate(
-                &PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                    .join("../pkcs11-client/tests/fixtures/mldsa44.der"),
+                &PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/mldsa44.der"),
             );
             assert!(matches!(
                 Credential::load_ml_dsa(

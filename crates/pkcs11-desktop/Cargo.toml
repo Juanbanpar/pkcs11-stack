@@ -4,9 +4,13 @@ version.workspace = true
 edition.workspace = true
 rust-version = "1.88"
 license.workspace = true
-publish.workspace = true
+publish = false
 description = "Native PKCS#11 desktop application over pkcs11-client"
 readme = "README.md"
+repository.workspace = true
+documentation = "https://github.com/Juanbanpar/pkcs11-stack/blob/main/crates/pkcs11-desktop/README.md"
+keywords = ["pkcs11", "cryptography", "hsm", "security"]
+categories = ["cryptography", "hardware-support"]
 
 [dependencies]
 pkcs11-client.workspace = true

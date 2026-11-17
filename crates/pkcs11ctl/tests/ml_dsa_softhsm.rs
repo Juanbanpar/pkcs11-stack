@@ -323,7 +323,7 @@ fn ml_dsa_cli_generation_signing_binding_and_verification() {
         assert!(!PathBuf::from(&failed).exists());
         // A certificate with the same parameter set but a different public key must fail binding.
         let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../pkcs11-client/tests/fixtures")
+            .join("tests/fixtures")
             .join(format!("mldsa{}.der", [44, 65, 87][index]));
         let wrong_id = format!("d3{index:02x}");
         let wrong_cert = format!("pkcs11:token=pqc-test;id=%D3%{index:02X};type=cert");

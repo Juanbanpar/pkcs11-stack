@@ -4,9 +4,14 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-publish.workspace = true
+publish = true
 description = "Hardware-independent RFC 7512 locators"
 readme = "README.md"
+repository.workspace = true
+documentation = "https://docs.rs/pkcs11-locator"
+keywords = ["pkcs11", "cryptography", "hsm", "security"]
+categories = ["cryptography", "hardware-support"]
+include = ["src/**", "tests/**", "examples/**", "README.md", "Cargo.toml", "Cargo.lock", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [dependencies]
 secrecy.workspace = true
