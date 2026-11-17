@@ -11,11 +11,7 @@ mkdir -p "$prefix"
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/pkcs11-pqc-build.XXXXXXXX")
 trap 'rm -rf -- "$scratch"' EXIT
 
-fetch() {
-    git init "$scratch/$1"
-    git -C "$scratch/$1" fetch --depth 1 "$2" "$3"
-    git -C "$scratch/$1" checkout --detach FETCH_HEAD
-}
+source "$(dirname "$(realpath "$0")")/provider-common.sh"
 
 # OpenSSL 3.5.9; static PIC libraries keep this test module independent of the
 # runner's OpenSSL version without changing its library search path.
@@ -24,6 +20,7 @@ cd "$scratch/openssl"
 ./Configure --prefix="$prefix/openssl" --libdir=lib no-shared no-tests -fPIC
 make -j2
 make install_sw
+record_openssl
 
 fetch softhsm https://github.com/softhsm/SoftHSMv2.git 884cb38f3d2012a0447bd5f50dbd29c429987c41
 cd "$scratch/softhsm"
@@ -32,3 +29,5 @@ sh autogen.sh
     --with-openssl="$prefix/openssl" --disable-gost --enable-mldsa
 make -j2
 make install
+
+record_provider softhsm 884cb38f3d2012a0447bd5f50dbd29c429987c41 "$prefix/lib/softhsm/libsofthsm2.so" "openssl,disable-gost,enable-mldsa"

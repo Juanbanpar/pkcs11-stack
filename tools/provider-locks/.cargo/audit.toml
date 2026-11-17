@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: MIT OR Apache-2.0
+# RUSTSEC-2026-0459 concerns crafted SQLite database/WAL pairs. These test
+# builds link system SQLite and use new, private temporary stores.
+[advisories]
+ignore = ["RUSTSEC-2026-0459"]
+[output]
+quiet = false
+deny = ["unsound", "yanked"]
