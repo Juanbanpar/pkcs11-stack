@@ -420,8 +420,8 @@ pub(crate) fn command() -> Command {
         .arg(value("nonce-state", "Existing nonce state for managed envelope encryption; all writers must share it"))
         .arg(flag("initialize-nonce-state", "Create state exclusively for a new, previously unused key; never reuse after state loss").requires("nonce-state"))
         .arg(value("aad-file", "Additional authenticated data file, at most 1 MiB; omitted means empty; no stdin"))
-        .arg(required("input", "Input file; - reads stdin; ciphertext includes the full 16-byte tag"))
-        .arg(required("output", "New output file, or - for binary stdout; versioned envelope unless --nonce selects raw mode"))))
+        .arg(required("input", "Input file or - for stdin; decrypt expects an envelope, or raw ciphertext/tag with --nonce"))
+        .arg(required("output", "New output file or - for binary stdout; encryption writes an envelope by default, decryption writes plaintext"))))
     };
     let digest = Command::new("digest")
         .about("Digest a file or stdin on the token")
@@ -589,7 +589,7 @@ pub(crate) fn command() -> Command {
         auth(token(random)),
         gcm(
             "encrypt-aes-gcm",
-            "Encrypt at most 16 MiB once; output is ciphertext followed by a full tag",
+            "Encrypt at most 16 MiB once into a managed envelope; --nonce selects raw interoperability",
         ),
         gcm(
             "decrypt-aes-gcm",
