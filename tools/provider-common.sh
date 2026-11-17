@@ -18,6 +18,7 @@ install_provider_lock() {
     rustc +"$provider_rust" --version
 }
 record_openssl() {
+    install -m 644 "$scratch/openssl/LICENSE.txt" "$prefix/openssl/LICENSE.txt"
     python3 - "$prefix/openssl" "$openssl_commit" <<'PY'
 import hashlib,json,pathlib,sys
 root=pathlib.Path(sys.argv[1])

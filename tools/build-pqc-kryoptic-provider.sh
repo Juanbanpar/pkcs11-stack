@@ -23,7 +23,8 @@ else
     openssl_sources="$scratch/openssl"
 fi
 # ossl-sys expects libcrypto.a and include/ at the root of the source path.
-# Accept an installed OpenSSL prefix as well as a built source tree.
+# Stage a verified installed prefix without changing its provenance.
+openssl_license="$openssl_sources/LICENSE.txt"
 if [[ ! -f "$openssl_sources/libcrypto.a" && -f "$openssl_sources/lib/libcrypto.a" ]]; then
     stage="$scratch/openssl-prefix"
     mkdir -p "$stage"
@@ -39,8 +40,6 @@ KRYOPTIC_OPENSSL_SOURCES="$openssl_sources" \
     --features kryoptic-lib/aes,kryoptic-lib/mlkem,kryoptic-lib/mldsa,kryoptic-lib/slhdsa,kryoptic-lib/sqlitedb,kryoptic-lib/ecc_all,kryoptic-lib/simplekdf,ossl/ossl-sys
 install -m 755 "$scratch/target/release/libkryoptic_pkcs11.so" "$prefix/libkryoptic_pkcs11.so"
 install -m 644 LICENSE.txt "$prefix/LICENSE-kryoptic"
-if [[ -f "$prefix/openssl/LICENSE.txt" ]]; then
-    install -m 644 "$prefix/openssl/LICENSE.txt" "$prefix/LICENSE-openssl"
-fi
+install -m 644 "$openssl_license" "$prefix/LICENSE-openssl"
 
 record_provider kryoptic "$kryoptic_commit" "$prefix/libkryoptic_pkcs11.so" "aes,mlkem,mldsa,slhdsa,sqlitedb,ecc_all,simplekdf"
