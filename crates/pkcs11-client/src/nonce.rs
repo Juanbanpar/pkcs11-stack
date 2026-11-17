@@ -19,7 +19,8 @@ pub const AES_GCM_NONCE_BUDGET: u64 = 1 << 32;
 /// All writers of the actual key must share this file on a trusted local filesystem.
 /// Never reset, copy or restore the state while retaining the key. Renamed selectors,
 /// copied keys, uncoordinated hosts and malicious directory owners are outside this
-/// contract. Missing/corrupt state fails closed; retire the key if state is lost.
+/// contract. Missing state or an invalid header/tail fails closed; retire the key
+/// if state is lost. Historical record contents are not scanned during allocation.
 /// File locks coordinate processes; reservations are flushed before encryption.
 #[derive(Debug)]
 pub struct NonceSequence {

@@ -13,7 +13,8 @@ pub const AES_GCM_MAXIMUM_ENVELOPE: usize =
     AES_GCM_ENVELOPE_HEADER + AES_GCM_MAXIMUM_PLAINTEXT + AES_GCM_TAG_LENGTH;
 
 /// Validated borrowed AES-GCM envelope. Parsing authenticates no data.
-/// Debug omits the nonce and ciphertext. See `docs/aes-gcm-envelope.md` for the format.
+/// Debug omits the nonce and ciphertext. See the
+/// [wire format](https://github.com/Juanbanpar/pkcs11-stack/blob/main/docs/aes-gcm-envelope.md).
 pub struct AesGcmEnvelope<'a> {
     nonce: &'a [u8; 12],
     ciphertext: &'a [u8],
