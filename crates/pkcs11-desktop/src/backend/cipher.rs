@@ -219,7 +219,8 @@ impl Registry {
             }
             let selector = reference
                 .uri()
-                .to_string()
+                .to_secret_uri()
+                .expose_secret()
                 .parse()
                 .map_err(|_| BackendError::CipherUnavailable)?;
             match operation {

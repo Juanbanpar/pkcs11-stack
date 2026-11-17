@@ -4,6 +4,7 @@ use pkcs11_client::{
     Attribute, AttributeInfo, AttributeRead, AttributeType, KeyKind, ObjectClass, TokenSnapshot,
 };
 use pkcs11_locator::Pkcs11Uri;
+use secrecy::ExposeSecret;
 use serde_json::{Map, Value, json};
 
 pub(crate) fn token_info(token: &TokenSnapshot) -> Result<Value> {
@@ -98,6 +99,7 @@ pub(crate) fn attributes(reads: &[AttributeRead], names: &[&str]) -> Result<Valu
 }
 pub(crate) fn object_summary(object: &[AttributeRead], token: &Pkcs11Uri) -> Result<Value> {
     let attrs = attributes(object, &["class", "label", "id"])?;
-    let uri = pkcs11_client::object_locator(token, object)?.map(|uri| uri.to_string());
+    let uri = pkcs11_client::object_locator(token, object)?
+        .map(|uri| uri.to_secret_uri().expose_secret().to_owned());
     Ok(json!({"uri":uri,"attributes":attrs}))
 }

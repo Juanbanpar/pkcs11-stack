@@ -41,10 +41,9 @@ proptest! {
     }
 
     #[test]
-    fn secret_queries_round_trip_only_through_explicit_secret_output(value in text(), source in any::<bool>()) {
+    fn secret_queries_round_trip_only_through_explicit_secret_output(value in text(), name in prop::sample::select(vec!["pin-source", "pin-value", "vendor-password", "vendor-token", "module-name"])) {
         // The canary cannot occur elsewhere: this URI has only a secret query.
         let value = format!("pin-canary-{value}");
-        let name = if source { "pin-source" } else { "pin-value" };
         let builder = Pkcs11Uri::builder().query_attribute(name, SecretString::from(value.as_str())).unwrap();
         let debug = format!("{builder:?}");
         prop_assert!(!debug.contains("pin-canary-"));

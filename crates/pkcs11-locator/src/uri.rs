@@ -108,7 +108,7 @@ pub(crate) const PATH_NAMES: &[&str] = &[
 ];
 const QUERY_NAMES: &[&str] = &["pin-source", "pin-value", "module-name", "module-path"];
 
-/// Validated URI data. Display and Debug redact PIN values and sources.
+/// Validated URI data. Display and Debug redact every query value.
 ///
 /// No implicit secret-bearing Clone, equality or full URI comparison is provided.
 /// Query values are protected even for vendor attributes. No I/O is performed.
@@ -221,7 +221,7 @@ impl Pkcs11Uri {
                 delimiter = '&';
                 out.push_str(name);
                 out.push('=');
-                if !secrets && matches!(name.as_str(), "pin-value" | "pin-source") {
+                if !secrets {
                     out.push_str("[REDACTED]");
                 } else {
                     codec::encode(out, value.expose_secret().as_bytes(), false);

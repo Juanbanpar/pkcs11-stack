@@ -335,7 +335,8 @@ impl ManagementSession<'_> {
                 let key = crate::PublicKeyRef::new(
                     reference
                         .uri()
-                        .to_string()
+                        .to_secret_uri()
+                        .expose_secret()
                         .parse()
                         .map_err(pkcs11_runtime::Error::from)?,
                 )?;

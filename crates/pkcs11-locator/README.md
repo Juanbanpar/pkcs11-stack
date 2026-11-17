@@ -76,9 +76,8 @@ resource-identity or full URI-equivalence guarantee.
 | --- | --- |
 | `pin-value` / `pin-source` | Mutually exclusive; redacted in URI, builder and selector Display/Debug |
 | Query storage | `SecretString`; access requires explicit `ExposeSecret` |
-| URI Display | Diagnostic `[REDACTED]` markers; unsuitable for credential persistence |
+| URI `Display` and `Debug` | Show query names and replace every query value with `[REDACTED]` |
 | `to_secret_uri` | Full serialization in zeroizing, Debug-redacted storage |
-| Unknown query attributes | Visible in Display; callers must supply their own redaction if storing secrets |
 
 Decoding uses zeroizing scratch storage; full serialization reserves encoded size
 before writing secrets. Errors omit input values and attacker-controlled names.

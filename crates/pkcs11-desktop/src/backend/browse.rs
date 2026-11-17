@@ -4,6 +4,7 @@ use pkcs11_client::{
     Attribute, AttributeInfo, AttributeRead, AttributeType, Authentication, KeyType,
     ManagementSession, MechanismType, ObjectClass, Pkcs11Uri, SessionMode,
 };
+use secrecy::ExposeSecret;
 
 #[derive(Clone, Debug)]
 pub struct MetadataField {
@@ -282,7 +283,7 @@ impl Registry {
                 class,
                 label,
                 identifier,
-                uri: locator.map(|uri| uri.to_string()),
+                uri: locator.map(|uri| uri.to_secret_uri().expose_secret().to_owned()),
                 ambiguous: false,
                 fields: reads
                     .iter()

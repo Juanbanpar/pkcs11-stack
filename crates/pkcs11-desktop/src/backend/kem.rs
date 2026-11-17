@@ -1,3 +1,4 @@
+use secrecy::ExposeSecret;
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use super::{BackendError, CryptoMode, CryptoScope, KeyJob, Registry, browse::read_session};
 use pkcs11_client::{
@@ -35,7 +36,8 @@ impl Registry {
                 let key = PublicKeyRef::new(
                     reference
                         .uri()
-                        .to_string()
+                        .to_secret_uri()
+                        .expose_secret()
                         .parse()
                         .map_err(|_| BackendError::KeyOperationUnavailable)?,
                 )
@@ -80,7 +82,8 @@ impl Registry {
                 let key = PrivateKeyRef::new(
                     reference
                         .uri()
-                        .to_string()
+                        .to_secret_uri()
+                        .expose_secret()
                         .parse()
                         .map_err(|_| BackendError::KeyOperationUnavailable)?,
                 )
