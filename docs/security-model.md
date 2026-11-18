@@ -17,6 +17,7 @@ Applications still validate trust chains, names, expiry, usage, and revocation.
 The rustls adapter signs with the token. The application selects the rustls
 crypto provider and trust configuration.
 
-For file encryption, use AES-GCM and follow the [nonce state rules](aes-gcm-envelope.md).
+For file encryption, use AES-GCM with a nonce unique to each encryption under
+the same key, including across writers, restarts, and failed attempts.
 ECB exposes repeated blocks. CBC and CBC-PAD provide no integrity protection.
 SHA-1 and SHA-224 signatures require explicit opt-in.

@@ -4,15 +4,11 @@
 
 mod administration;
 mod aes_gcm;
-mod envelope;
-mod nonce;
 pub use administration::TokenInitializationTarget;
 pub use aes_gcm::{
     AES_GCM_MAXIMUM_AAD, AES_GCM_MAXIMUM_PLAINTEXT, AES_GCM_NONCE_LENGTH, AES_GCM_TAG_LENGTH,
     AesGcmCapabilities, AesGcmDecryptRequest, AesGcmEncryptRequest, AesGcmOperation,
 };
-pub use envelope::{AES_GCM_ENVELOPE_HEADER, AES_GCM_MAXIMUM_ENVELOPE, AesGcmEnvelope};
-pub use nonce::{AES_GCM_NONCE_BUDGET, NonceSequence};
 mod certificate;
 mod eddsa;
 mod eddsa_certificate;

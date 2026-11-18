@@ -3,21 +3,6 @@
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum Error {
-    /// Envelope header, version or bounded length is invalid.
-    #[error("invalid AES-GCM envelope")]
-    InvalidEnvelope,
-    /// Nonce state is corrupt, truncated or belongs to another selector.
-    #[error("invalid nonce state; do not reset it for an existing key")]
-    InvalidNonceState,
-    /// Another process holds the nonce journal; no encryption was started.
-    #[error("nonce state is busy")]
-    NonceStateBusy,
-    /// The key's managed nonce lifetime is exhausted.
-    #[error("nonce reservation budget exhausted; rotate the key")]
-    NonceBudgetExhausted,
-    /// Nonce state could not be opened, locked or durably updated.
-    #[error("nonce state I/O failed")]
-    NonceStateIo(#[source] std::io::Error),
     /// A random request is empty or exceeds the client allocation bound.
     #[error("random output length must be between 1 and 1048576 bytes")]
     InvalidRandomLength,
@@ -81,12 +66,7 @@ impl Error {
     pub fn kind(&self) -> ErrorKind {
         use pkcs11_runtime::Error as Runtime;
         match self {
-            Self::UnsupportedExport
-            | Self::InvalidRandomLength
-            | Self::InvalidEnvelope
-            | Self::InvalidNonceState => ErrorKind::Input,
-            Self::NonceBudgetExhausted => ErrorKind::Policy,
-            Self::NonceStateBusy | Self::NonceStateIo(_) => ErrorKind::Runtime,
+            Self::UnsupportedExport | Self::InvalidRandomLength => ErrorKind::Input,
             Self::MissingAttributeStatus | Self::ProviderInUse => ErrorKind::Runtime,
             Self::Runtime(error) => match error {
                 Runtime::SignatureMismatch => ErrorKind::Client,

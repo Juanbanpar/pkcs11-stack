@@ -61,9 +61,6 @@ mechanisms and where each is available. The
 [security model](docs/security-model.md) explains which protections depend on
 the provider or application.
 
-The CLI and desktop use [AES-GCM envelopes](docs/aes-gcm-envelope.md) by default.
-In managed mode, all writers of a key share one state file on the same host.
-
 ## Documentation and checks
 
 Crate READMEs are also the library rustdoc landing pages. Build API documentation

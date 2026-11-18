@@ -1,4 +1,3 @@
-use crate::backend::AesGcmNonce;
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use super::*;
 use crate::backend::{
@@ -374,7 +373,7 @@ fn persistent_hkdf_desktop_peer_exchange_output_profiles_and_failures() {
                         CipherJob {
                             choice: CipherParameters::AesGcm(AesGcmCapabilities { key_size: size }),
                             aes_gcm: Some(AesGcmFiles {
-                                nonce: AesGcmNonce::Explicit([0x80 + index; 12]),
+                                nonce: [0x80 + index; 12],
                                 aad: None,
                             }),
                             input,
@@ -421,7 +420,7 @@ fn persistent_hkdf_desktop_peer_exchange_output_profiles_and_failures() {
                                 key_size: AesKeySize::Bits128,
                             }),
                             aes_gcm: Some(AesGcmFiles {
-                                nonce: AesGcmNonce::Explicit([0x80 + index; 12]),
+                                nonce: [0x80 + index; 12],
                                 aad: None,
                             }),
                             input: encrypted.clone(),

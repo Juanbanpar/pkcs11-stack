@@ -52,10 +52,6 @@ the PQC provider. The script checks the manifest and library hash.
 `PKCS11_TEST_PQC_MODULE` to include the SLH-DSA, hash-PQC, and Montgomery tests.
 Desktop backend tests run without a window.
 
-With both SoftHSM and the KDF provider configured as above, run
-`./tools/test-envelope-interop.sh` to encrypt on one provider and decrypt on the
-other using AES-128, AES-192, and AES-256 test keys.
-
 ## SoftHSM integration
 
 Install SoftHSM, OpenSC and OpenSSL, then run:

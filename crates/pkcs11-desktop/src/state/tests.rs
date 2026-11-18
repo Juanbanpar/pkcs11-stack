@@ -2023,7 +2023,6 @@ fn aes_cipher_state() -> (UiState, RequestId, crate::backend::CryptoScope) {
 #[test]
 fn aes_gcm_forms_validate_nonce_and_clear_parameters_after_submission() {
     let (mut state, id, scope) = aes_cipher_state();
-    state.cipher_format(id, true);
     state.cipher_edit(id, CipherField::Input, "plain".into());
     state.cipher_edit(id, CipherField::Output, "encrypted".into());
     for nonce in [
@@ -2048,7 +2047,7 @@ fn aes_gcm_forms_validate_nonce_and_clear_parameters_after_submission() {
     };
     assert_eq!(actual, scope);
     let gcm = job.aes_gcm.unwrap();
-    assert_eq!(gcm.nonce, crate::backend::AesGcmNonce::Explicit([1; 12]));
+    assert_eq!(gcm.nonce, [1; 12]);
     assert_eq!(gcm.aad, Some("context".into()));
     assert!(state.cipher_form.is_none());
     assert!(!state.can_cancel());
@@ -2505,32 +2504,4 @@ fn hkdf_authentication_scope_and_stale_choices_are_rechecked_before_submission()
     };
     assert!(job.salt.is_empty());
     assert!(job.info.is_empty());
-}
-
-#[test]
-fn aes_envelope_is_default_and_raw_mode_clears_managed_state() {
-    let (mut state, id, _) = aes_cipher_state();
-    assert!(!state.cipher_form.as_ref().unwrap().raw);
-    state.cipher_edit(id, CipherField::Input, "plain".into());
-    state.cipher_edit(id, CipherField::Output, "envelope".into());
-    assert!(state.submit_cipher(id).is_none());
-    state.cipher_edit(id, CipherField::Nonce, "new-key.state".into());
-    state.cipher_initialize(id, true);
-    let BackendCommand::Cipher { job, .. } = state.submit_cipher(id).unwrap() else {
-        panic!("cipher")
-    };
-    assert_eq!(
-        job.aes_gcm.unwrap().nonce,
-        crate::backend::AesGcmNonce::Managed {
-            path: "new-key.state".into(),
-            initialize: true
-        }
-    );
-    let (mut state, id, _) = aes_cipher_state();
-    state.cipher_edit(id, CipherField::Nonce, "state".into());
-    state.cipher_initialize(id, true);
-    state.cipher_format(id, true);
-    let form = state.cipher_form.as_ref().unwrap();
-    assert!(form.nonce.is_empty());
-    assert!(!form.initialize_state);
 }

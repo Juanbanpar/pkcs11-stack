@@ -262,7 +262,6 @@ jobs:
         run: |
           ./tools/test-ml-kem.sh
           ./tools/test-kem-hkdf.sh
-          ./tools/test-envelope-interop.sh
       - name: Require SLH-DSA, HashSLH-DSA, HashML-DSA and Montgomery workflows
         env:
           PKCS11_TEST_PQC_MODULE: ${{ runner.temp }}/pqc-kryoptic/libkryoptic_pkcs11.so

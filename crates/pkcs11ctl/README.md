@@ -39,7 +39,7 @@ Use `pkcs11ctl COMMAND --help` for complete options.
 | `capabilities`, `plan`, `bind`, `sign` | Inspect a signing key, plan, prove certificate association or sign |
 | `verify` | Software certificate verification or token verification with `--key` |
 | `digest`, `mac`, `verify-mac` | Token digest and full-tag MAC operations |
-| `aes-gcm-capabilities`, `encrypt-aes-gcm`, `decrypt-aes-gcm` | Authenticated envelopes; raw format with explicit nonce |
+| `aes-gcm-capabilities`, `encrypt-aes-gcm`, `decrypt-aes-gcm` | Authenticated encryption with explicit nonce/AAD |
 | `encrypt-aes`, `decrypt-aes` | ECB/CBC/CBC-PAD; single-part or `--multipart` |
 | `kem-capabilities`, `encapsulate`, `decapsulate` | ML-KEM capability checks and persistent shared secrets |
 | `hkdf-capabilities`, `derive-hkdf`, `derive-hybrid`, `derive-kbkdf`, `derive-montgomery` | Token-held key derivation |
@@ -219,29 +219,25 @@ zeroizing until output completes or fails.
 ## AES-GCM files
 
 ```sh
-# First use of a new key. Choose a state path that does not exist.
+# NONCE_HEX must be a nonce not previously used with this key.
 pkcs11ctl --module /path/to/module.so encrypt-aes-gcm \
-  --object 'pkcs11:serial=123;id=%31;type=secret-key' \
-  --nonce-state /trusted/local/key31.state --initialize-nonce-state \
-  --aad-file context.bin --input message.bin --output envelope.bin --pin-file user.pin
-# Later encryptions use the same state path without --initialize-nonce-state.
+  --object 'pkcs11:serial=123;id=%31;type=secret-key' --nonce "$NONCE_HEX" \
+  --aad-file context.bin --input message.bin --output ciphertext.bin --pin-file user.pin
 pkcs11ctl --module /path/to/module.so decrypt-aes-gcm \
-  --object 'pkcs11:serial=123;id=%31;type=secret-key' \
-  --aad-file context.bin --input envelope.bin --output recovered.bin --pin-file user.pin
+  --object 'pkcs11:serial=123;id=%31;type=secret-key' --nonce "$NONCE_HEX" \
+  --aad-file context.bin --input ciphertext.bin --output recovered.bin --pin-file user.pin
 ```
 
-Initialize the file only for a new, unused key. Reuse it for every encryption
-with that key on one host. If state is lost or rolled back, retire the key for
-encryption. For format details and deployments with multiple hosts, see the
-[envelope and nonce state guide](https://github.com/Juanbanpar/pkcs11-stack/blob/main/docs/aes-gcm-envelope.md).
+Use an AES `type=secret-key` URI, a 12-byte nonce as exactly 24 hexadecimal digits,
+input and output. Optional `--aad-file` needs a path; omit it for empty AAD.
+The raw format is ciphertext followed by the full 16-byte tag, without nonce/AAD/
+header. Retain nonce and AAD separately. Plaintext is at most 16 MiB, AAD 1 MiB;
+empty input is valid and decryption requires at least the tag.
 
-Supply `--nonce "$NONCE_HEX"` (24 hexadecimal digits) to select raw ciphertext
-followed by a 16-byte tag. Use a fresh nonce for every encryption with the key,
-including after a failure. Keep the nonce for raw decryption.
-
-Plaintext can be empty and is limited to 16 MiB. AAD is limited to 1 MiB. Omit
-`--aad-file` for empty AAD and supply the original AAD when decrypting.
-Use `aes-gcm-capabilities` to check whether the provider and key support AES-GCM.
+**Never reuse a nonce with the same key**, including across applications, restarts
+or key copies. An encryption error does not permit reuse. No nonce generation,
+tracking or envelope is provided. Generated encryption keys and HKDF AES outputs
+qualify; wrapping-only keys do not. `aes-gcm-capabilities` checks advisory support.
 
 Authentication and checked cleanup precede plaintext output. Inputs/plaintext
 zeroize on drop; cryptoki failed-call temporary buffers cannot be guaranteed wiped.

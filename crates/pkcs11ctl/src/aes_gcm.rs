@@ -2,13 +2,12 @@
 use crate::{operations::Output, support::*};
 use clap::ArgMatches;
 use pkcs11_client::{
-    AES_GCM_MAXIMUM_AAD, AES_GCM_MAXIMUM_ENVELOPE, AES_GCM_MAXIMUM_PLAINTEXT, AES_GCM_TAG_LENGTH,
-    AesGcmDecryptRequest, AesGcmEncryptRequest, AesGcmEnvelope, AesGcmOperation, ManagementSession,
-    NonceSequence, Plaintext, object_reference,
+    AES_GCM_MAXIMUM_AAD, AES_GCM_MAXIMUM_PLAINTEXT, AES_GCM_TAG_LENGTH, AesGcmDecryptRequest,
+    AesGcmEncryptRequest, AesGcmOperation, ManagementSession, Plaintext, object_reference,
 };
 use secrecy::{ExposeSecret, ExposeSecretMut, SecretBox};
 use serde_json::json;
-use std::{fs::File, io::Read, path::PathBuf};
+use std::{fs::File, io::Read};
 
 pub(crate) fn selected(name: &str) -> bool {
     matches!(
@@ -16,13 +15,8 @@ pub(crate) fn selected(name: &str) -> bool {
         "aes-gcm-capabilities" | "encrypt-aes-gcm" | "decrypt-aes-gcm"
     )
 }
-enum GcmMode {
-    Raw([u8; 12]),
-    Envelope,
-    Managed { state: PathBuf, initialize: bool },
-}
 pub(crate) struct Inputs {
-    mode: GcmMode,
+    nonce: [u8; 12],
     aad: Vec<u8>,
     input: Plaintext,
 }
@@ -59,62 +53,46 @@ impl Inputs {
         if name == "aes-gcm-capabilities" {
             return Ok(None);
         }
-        let mode = if let Some(value) = get(m, "nonce") {
-            if value.len() != 24 {
-                return Err(usage("nonce must contain exactly 24 hexadecimal digits"));
-            }
-            GcmMode::Raw(
-                unhex(value)
-                    .map_err(|_| usage("invalid AES GCM nonce"))?
-                    .try_into()
-                    .map_err(|_| usage("invalid AES GCM nonce"))?,
-            )
-        } else if name == "encrypt-aes-gcm" {
-            let state = need(m, "nonce-state")?;
-            if state == "-" {
-                return Err(usage("nonce-state requires a file path"));
-            }
-            GcmMode::Managed {
-                state: state.into(),
-                initialize: flag(m, "initialize-nonce-state"),
-            }
-        } else {
-            if get(m, "nonce-state").is_some() || flag(m, "initialize-nonce-state") {
-                return Err(usage("nonce state applies only to encryption"));
-            }
-            GcmMode::Envelope
-        };
+        let value = need(m, "nonce")?;
+        if value.len() != 24 {
+            return Err(usage("nonce must contain exactly 24 hexadecimal digits"));
+        }
+        let nonce = unhex(value)
+            .map_err(|_| usage("invalid AES GCM nonce"))?
+            .try_into()
+            .map_err(|_| usage("invalid AES GCM nonce"))?;
         let aad = match get(m, "aad-file") {
             Some("-") => return Err(usage("aad-file requires a file path")),
             Some(path) => bounded_input(path, AES_GCM_MAXIMUM_AAD)?,
             None => Vec::new(),
         };
-        let maximum = if name == "decrypt-aes-gcm" {
-            if matches!(mode, GcmMode::Raw(_)) {
-                AES_GCM_MAXIMUM_PLAINTEXT + AES_GCM_TAG_LENGTH
-            } else {
-                AES_GCM_MAXIMUM_ENVELOPE
-            }
-        } else {
+        let input = secret_input(
+            need(m, "input")?,
             AES_GCM_MAXIMUM_PLAINTEXT
-        };
-        let input = secret_input(need(m, "input")?, maximum)?;
-        match &mode {
-            GcmMode::Raw(nonce) if name == "decrypt-aes-gcm" => {
-                AesGcmDecryptRequest {
-                    nonce,
-                    aad: &aad,
-                    ciphertext: input.expose_secret(),
-                }
-                .validate()
-                .map_err(pkcs11_client::Error::from)?;
+                + if name == "decrypt-aes-gcm" {
+                    AES_GCM_TAG_LENGTH
+                } else {
+                    0
+                },
+        )?;
+        if name == "decrypt-aes-gcm" {
+            AesGcmDecryptRequest {
+                nonce: &nonce,
+                aad: &aad,
+                ciphertext: input.expose_secret(),
             }
-            GcmMode::Envelope => {
-                AesGcmEnvelope::parse(input.expose_secret())?;
+            .validate()
+            .map_err(pkcs11_client::Error::from)?;
+        } else {
+            AesGcmEncryptRequest {
+                nonce: &nonce,
+                aad: &aad,
+                plaintext: input.expose_secret(),
             }
-            _ => {}
+            .validate()
+            .map_err(pkcs11_client::Error::from)?;
         }
-        Ok(Some(Self { mode, aad, input }))
+        Ok(Some(Self { nonce, aad, input }))
     }
 }
 pub(crate) fn operation(
@@ -136,42 +114,23 @@ pub(crate) fn operation(
         ));
     }
     let inputs = inputs.ok_or_else(|| usage("missing AES GCM input"))?;
-    match &inputs.mode {
-        GcmMode::Managed { state, initialize } => {
-            let mut sequence = if *initialize {
-                NonceSequence::create(state, &key)?
-            } else {
-                NonceSequence::open(state, &key)?
-            };
-            Ok(Output::Binary(session.encrypt_aes_gcm_envelope(
-                &key,
-                &mut sequence,
-                &inputs.aad,
-                inputs.input.expose_secret(),
-            )?))
-        }
-        GcmMode::Envelope => Ok(Output::SecretBinary(session.decrypt_aes_gcm_envelope(
+    if name == "encrypt-aes-gcm" {
+        Ok(Output::Binary(session.encrypt_aes_gcm(
             &key,
-            &inputs.aad,
-            inputs.input.expose_secret(),
-        )?)),
-        GcmMode::Raw(nonce) if name == "encrypt-aes-gcm" => {
-            Ok(Output::Binary(session.encrypt_aes_gcm(
-                &key,
-                &AesGcmEncryptRequest {
-                    nonce,
-                    aad: &inputs.aad,
-                    plaintext: inputs.input.expose_secret(),
-                },
-            )?))
-        }
-        GcmMode::Raw(nonce) => Ok(Output::SecretBinary(session.decrypt_aes_gcm(
+            &AesGcmEncryptRequest {
+                nonce: &inputs.nonce,
+                aad: &inputs.aad,
+                plaintext: inputs.input.expose_secret(),
+            },
+        )?))
+    } else {
+        Ok(Output::SecretBinary(session.decrypt_aes_gcm(
             &key,
             &AesGcmDecryptRequest {
-                nonce,
+                nonce: &inputs.nonce,
                 aad: &inputs.aad,
                 ciphertext: inputs.input.expose_secret(),
             },
-        )?)),
+        )?))
     }
 }

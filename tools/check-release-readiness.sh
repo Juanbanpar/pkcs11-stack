@@ -36,7 +36,6 @@ case "${1:-}" in
         bash tools/test-ml-kem.sh
         bash tools/test-kem-hkdf.sh
         bash tools/test-pqc-kryoptic.sh
-        bash tools/test-envelope-interop.sh
         ;;
     *) echo 'Usage: check-release-readiness.sh [--packages|--providers]' >&2; exit 2 ;;
 esac

@@ -19,7 +19,6 @@ publish = false
 repository = "https://github.com/Juanbanpar/pkcs11-stack"
 
 [workspace.dependencies]
-fs2 = "0.4.3"
 iced = { version = "0.14.0", default-features = false, features = ["tiny-skia", "thread-pool", "wayland", "advanced", "linux-theme-detection"] }
 pkcs11-locator = { path = "crates/pkcs11-locator", version = "0.1.0" }
 pkcs11-runtime = { path = "crates/pkcs11-runtime", version = "0.1.0" }

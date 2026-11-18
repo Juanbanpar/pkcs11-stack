@@ -14,7 +14,6 @@ categories = ["cryptography", "hardware-support"]
 include = ["src/**", "tests/**", "examples/**", "README.md", "Cargo.toml", "Cargo.lock", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [dependencies]
-fs2.workspace = true
 pkcs11-runtime.workspace = true
 pkcs11-locator.workspace = true
 thiserror.workspace = true

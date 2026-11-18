@@ -144,23 +144,18 @@ Messages are limited to 16 MiB and signature inputs to 64 KiB.
 
 | Action on selected key | Profile |
 | --- | --- |
-| **Encrypt AES-GCM** / **Decrypt AES-GCM** | USER login; AES secret key; managed envelope by default; optional AAD file, input and new output path |
+| **Encrypt AES-GCM** / **Decrypt AES-GCM** | USER login; AES secret key; exactly 24 hexadecimal nonce digits, optional AAD file, input and new output path |
 | **Encrypt RSA OAEP** | Public RSA key; client-provided SHA-2 digest and payload limits |
 | **Decrypt RSA OAEP** | USER login; private RSA key without per-operation authentication |
 
-For a new, unused key, choose **Initialize state** and enter a new state file.
-Use that same file on every later encryption and share it with all writers of
-the key on one host. If state is lost or rolled back, retire the key for
-encryption.
+GCM uses ciphertext followed by a full 16-byte tag; retain the separate nonce/AAD
+for decryption. Plaintext is limited to 16 MiB and AAD to 1 MiB; empty input and
+absent AAD are accepted. Wrapping-only keys cannot encrypt/decrypt.
 
-Choose **Raw interoperability format** to supply a nonce as 24 hexadecimal
-digits. Use a fresh nonce for each encryption with the key, including after a
-failure. See the [envelope and nonce state guide](https://github.com/Juanbanpar/pkcs11-stack/blob/main/docs/aes-gcm-envelope.md)
-for deployments with multiple hosts.
-
-The limits are 16 MiB of plaintext and 1 MiB of AAD. Empty inputs are allowed.
-Supply the original AAD when decrypting. Wrapping-only keys cannot encrypt or
-decrypt. The app writes plaintext after authentication and session closure succeed.
+**Never repeat a GCM nonce for the same key**, across applications, restarts or key
+copies. Use a new nonce after an encryption error. The app does not generate/track
+nonces or define an envelope format. Decryption releases no plaintext before
+successful authentication and checked session closure.
 
 OAEP uses matching SHA-2/MGF1 digests and an empty label, producing one raw RSA
 block. Choose the same digest for decryption. This handles small payloads, not bulk

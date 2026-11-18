@@ -97,7 +97,7 @@ fn software_token_gcm_files_known_answers_tampering_and_failure_cleanup() {
                     key_size: AesKeySize::Bits128,
                 }),
                 aes_gcm: Some(AesGcmFiles {
-                    nonce: AesGcmNonce::Explicit(hex(vector.nonce).try_into().unwrap()),
+                    nonce: hex(vector.nonce).try_into().unwrap(),
                     aad: Some(aad.clone()),
                 }),
                 input: input.clone(),
@@ -142,10 +142,7 @@ fn software_token_gcm_files_known_answers_tampering_and_failure_cleanup() {
         let output = root.join(format!("plain-{index}"));
         let job = |input: PathBuf, output: PathBuf, nonce, aad: Option<PathBuf>| CipherJob {
             choice: caps,
-            aes_gcm: Some(AesGcmFiles {
-                nonce: AesGcmNonce::Explicit(nonce),
-                aad,
-            }),
+            aes_gcm: Some(AesGcmFiles { nonce, aad }),
             input,
             output,
         };
@@ -222,89 +219,6 @@ fn software_token_gcm_files_known_answers_tampering_and_failure_cleanup() {
             Some(BackendError::CipherInput),
         );
         assert!(!rejected.exists());
-    }
-    // A distinct, freshly generated key exercises the default managed workflow.
-    let label = "desktop-managed-gcm";
-    managed(
-        registry.manage(
-            module,
-            token,
-            ManagementAction::Generate {
-                kind: GenerationKind::Aes(AesKeySize::Bits256, AesKeyPurpose::Encryption),
-                id: vec![0xBE, 0x01],
-                label: label.as_bytes().to_vec(),
-                always_authenticate: false,
-            },
-        ),
-        None,
-    );
-    objects = registry.objects(module, token).unwrap();
-    let state = root.join("managed.state");
-    let choice = CipherParameters::AesGcm(AesGcmCapabilities {
-        key_size: AesKeySize::Bits256,
-    });
-    let mut previous = None;
-    for initialize in [true, false] {
-        let cipher = root.join(format!("managed-{initialize}"));
-        let output = root.join(format!("managed-plain-{initialize}"));
-        objects = managed(
-            registry.cipher(
-                scope(module, token, &objects, label, CryptoMode::Encrypt),
-                CipherJob {
-                    choice,
-                    aes_gcm: Some(AesGcmFiles {
-                        nonce: AesGcmNonce::Managed {
-                            path: state.clone(),
-                            initialize,
-                        },
-                        aad: None,
-                    }),
-                    input: input.clone(),
-                    output: cipher.clone(),
-                },
-            ),
-            None,
-        );
-        let bytes = std::fs::read(&cipher).unwrap();
-        let envelope = pkcs11_client::AesGcmEnvelope::parse(&bytes).unwrap();
-        assert_ne!(previous, Some(*envelope.nonce()));
-        previous = Some(*envelope.nonce());
-        objects = managed(
-            registry.cipher(
-                scope(module, token, &objects, label, CryptoMode::Decrypt),
-                CipherJob {
-                    choice,
-                    aes_gcm: Some(AesGcmFiles {
-                        nonce: AesGcmNonce::Envelope,
-                        aad: None,
-                    }),
-                    input: cipher.clone(),
-                    output: output.clone(),
-                },
-            ),
-            None,
-        );
-        assert_eq!(std::fs::read(output).unwrap(), b"GUI plaintext canary");
-        let mut damaged = bytes;
-        *damaged.last_mut().unwrap() ^= 1;
-        std::fs::write(&cipher, damaged).unwrap();
-        let output = root.join(format!("managed-bad-{initialize}"));
-        objects = managed(
-            registry.cipher(
-                scope(module, token, &objects, label, CryptoMode::Decrypt),
-                CipherJob {
-                    choice,
-                    aes_gcm: Some(AesGcmFiles {
-                        nonce: AesGcmNonce::Envelope,
-                        aad: None,
-                    }),
-                    input: cipher,
-                    output: output.clone(),
-                },
-            ),
-            Some(BackendError::Client(pkcs11_client::ErrorKind::Runtime)),
-        );
-        assert!(std::fs::read(output).unwrap().is_empty());
     }
     registry.close().unwrap();
     std::fs::remove_dir_all(root).unwrap();

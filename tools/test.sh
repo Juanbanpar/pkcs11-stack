@@ -9,7 +9,6 @@ bash tools/test-softhsm.sh
 bash tools/test-ml-dsa.sh
 bash tools/test-ml-kem.sh
 bash tools/test-kem-hkdf.sh
-bash tools/test-envelope-interop.sh
 
 if [[ -n ${PKCS11_TEST_PQC_MODULE:-} ]]; then
     bash tools/test-pqc-kryoptic.sh

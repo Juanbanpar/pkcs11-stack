@@ -1362,6 +1362,23 @@ fn aes_gcm_preflight_rejects_invalid_parameters_before_provider_or_output() {
     let input = dir.0.join("input");
     std::fs::write(&input, [0; 15]).unwrap();
     let output = dir.0.join("output");
+    for command in ["encrypt-aes-gcm", "decrypt-aes-gcm"] {
+        let out = run(&[
+            "--module",
+            "/missing",
+            command,
+            "--object",
+            "pkcs11:token=x;object=k;type=secret-key",
+            "--input",
+            input.to_str().unwrap(),
+            "--output",
+            output.to_str().unwrap(),
+        ]);
+        assert_eq!(out.status.code(), Some(2));
+        assert!(out.stderr.starts_with(b"invalid command line"));
+        assert!(out.stdout.is_empty());
+        assert!(!output.exists());
+    }
     for (command, nonce, object, extra) in [
         (
             "encrypt-aes-gcm",
