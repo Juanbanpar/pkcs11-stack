@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-use crate::{Error, ObjectRef, envelope::selector_binding};
+use crate::{AES_GCM_NONCE_LENGTH, Error, ObjectRef};
 use fs2::FileExt;
+use secrecy::ExposeSecret;
 use sha2::{Digest, Sha256};
 use std::{
     fs::{File, OpenOptions},
@@ -9,8 +10,8 @@ use std::{
 };
 
 const MAGIC: &[u8; 8] = b"P11NSEQ1";
-const HEADER: u64 = 40;
-const RECORD: u64 = 40;
+const HEADER_LEN: usize = MAGIC.len() + 32;
+const RECORD_LEN: usize = 8 + 32;
 /// Maximum reservations per nonce state/key lifetime, including failed encryptions.
 pub const AES_GCM_NONCE_BUDGET: u64 = 1 << 32;
 
@@ -49,23 +50,24 @@ impl NonceSequence {
             .file
             .try_lock_exclusive()
             .map_err(Error::NonceStateIo)?;
-        let result = (|| {
-            sequence.file.write_all(MAGIC)?;
-            sequence.file.write_all(&sequence.binding)?;
-            sequence.append(0)?;
-            #[cfg(unix)]
-            {
-                let parent = path
-                    .parent()
-                    .filter(|p| !p.as_os_str().is_empty())
-                    .unwrap_or(Path::new("."));
-                File::open(parent)?.sync_all()?;
-            }
-            Ok::<_, std::io::Error>(())
-        })();
-        let unlock = FileExt::unlock(&sequence.file);
-        result.map_err(Error::NonceStateIo)?;
-        unlock.map_err(Error::NonceStateIo)?;
+        // Until initialization succeeds, any early return closes the locked file.
+        sequence
+            .file
+            .write_all(MAGIC)
+            .and_then(|()| sequence.file.write_all(&sequence.binding))
+            .and_then(|()| sequence.append(0))
+            .map_err(Error::NonceStateIo)?;
+        #[cfg(unix)]
+        {
+            let parent = path
+                .parent()
+                .filter(|p| !p.as_os_str().is_empty())
+                .unwrap_or(Path::new("."));
+            File::open(parent)
+                .and_then(|directory| directory.sync_all())
+                .map_err(Error::NonceStateIo)?;
+        }
+        FileExt::unlock(&sequence.file).map_err(Error::NonceStateIo)?;
         Ok(sequence)
     }
     /// Open existing state. Opening never creates or repairs a missing/corrupt journal.
@@ -83,44 +85,46 @@ impl NonceSequence {
             binding: selector_binding(key),
         })
     }
-    fn append(&mut self, next: u64) -> std::io::Result<()> {
+    fn record(&self, next: u64) -> [u8; RECORD_LEN] {
         let count = next.to_be_bytes();
-        let digest = Sha256::digest([self.binding.as_slice(), count.as_slice()].concat());
+        let digest = Sha256::new()
+            .chain_update(self.binding)
+            .chain_update(count)
+            .finalize();
+        let mut record = [0; RECORD_LEN];
+        record[..count.len()].copy_from_slice(&count);
+        record[count.len()..].copy_from_slice(&digest);
+        record
+    }
+    fn append(&mut self, next: u64) -> std::io::Result<()> {
+        let record = self.record(next);
         self.file.seek(SeekFrom::End(0))?;
-        self.file.write_all(&count)?;
-        self.file.write_all(&digest)?;
+        self.file.write_all(&record)?;
         self.file.sync_all()
     }
     fn next(&mut self, budget: u64) -> Result<u64, Error> {
         let length = self.file.metadata().map_err(Error::NonceStateIo)?.len();
-        if length < HEADER + RECORD || (length - HEADER) % RECORD != 0 {
+        let header_len = HEADER_LEN as u64;
+        let record_len = RECORD_LEN as u64;
+        if length < header_len + record_len || (length - header_len) % record_len != 0 {
             return Err(Error::InvalidNonceState);
         }
+        let mut header = [0; HEADER_LEN];
         self.file
-            .seek(SeekFrom::Start(0))
+            .rewind()
+            .and_then(|()| self.file.read_exact(&mut header))
             .map_err(Error::NonceStateIo)?;
-        let mut header = [0; 40];
-        self.file
-            .read_exact(&mut header)
-            .map_err(Error::NonceStateIo)?;
-        if &header[..8] != MAGIC || header[8..] != self.binding {
+        if header.strip_prefix(MAGIC) != Some(self.binding.as_slice()) {
             return Err(Error::InvalidNonceState);
         }
+        // The initial record holds zero. File length determines the last counter.
+        let next = (length - header_len) / record_len - 1;
+        let mut record = [0; RECORD_LEN];
         self.file
-            .seek(SeekFrom::Start(length - RECORD))
+            .seek(SeekFrom::Start(length - record_len))
+            .and_then(|_| self.file.read_exact(&mut record))
             .map_err(Error::NonceStateIo)?;
-        let mut count = [0; 8];
-        let mut checksum = [0; 32];
-        self.file
-            .read_exact(&mut count)
-            .map_err(Error::NonceStateIo)?;
-        self.file
-            .read_exact(&mut checksum)
-            .map_err(Error::NonceStateIo)?;
-        let expected: [u8; 32] =
-            Sha256::digest([self.binding.as_slice(), count.as_slice()].concat()).into();
-        let next = u64::from_be_bytes(count);
-        if checksum != expected || next != (length - HEADER) / RECORD - 1 {
+        if record != self.record(next) {
             return Err(Error::InvalidNonceState);
         }
         if next >= budget {
@@ -131,10 +135,14 @@ impl NonceSequence {
     /// Persist one reservation before returning it. Provider/output failures do not
     /// roll it back. A busy lock, malformed state, exhausted budget or I/O error
     /// returns no nonce; no cryptographic operation has started in this method.
-    pub fn reserve(&mut self, key: &ObjectRef) -> Result<[u8; 12], Error> {
+    pub fn reserve(&mut self, key: &ObjectRef) -> Result<[u8; AES_GCM_NONCE_LENGTH], Error> {
         self.reserve_with_budget(key, AES_GCM_NONCE_BUDGET)
     }
-    fn reserve_with_budget(&mut self, key: &ObjectRef, budget: u64) -> Result<[u8; 12], Error> {
+    fn reserve_with_budget(
+        &mut self,
+        key: &ObjectRef,
+        budget: u64,
+    ) -> Result<[u8; AES_GCM_NONCE_LENGTH], Error> {
         if selector_binding(key) != self.binding {
             return Err(Error::InvalidNonceState);
         }
@@ -146,17 +154,19 @@ impl NonceSequence {
                 Error::NonceStateIo(error)
             }
         })?;
-        let result = (|| {
-            let next = self.next(budget)?;
+        let result = self.next(budget).and_then(|next| {
             self.append(next + 1).map_err(Error::NonceStateIo)?;
-            u128::from(next).to_be_bytes()[4..]
-                .try_into()
-                .map_err(|_| Error::InvalidNonceState)
-        })();
-        let unlocked = FileExt::unlock(&self.file).map_err(Error::NonceStateIo);
-        unlocked?;
+            let mut nonce = [0; AES_GCM_NONCE_LENGTH];
+            nonce[4..].copy_from_slice(&next.to_be_bytes());
+            Ok(nonce)
+        });
+        FileExt::unlock(&self.file).map_err(Error::NonceStateIo)?;
         result
     }
+}
+
+fn selector_binding(key: &ObjectRef) -> [u8; 32] {
+    Sha256::digest(key.uri().to_secret_uri().expose_secret().as_bytes()).into()
 }
 
 #[cfg(test)]

@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use crate::{
-    AES_GCM_MAXIMUM_AAD, AES_GCM_MAXIMUM_PLAINTEXT, AES_GCM_TAG_LENGTH, AesGcmDecryptRequest,
-    AesGcmEncryptRequest, Error, ManagementSession, ObjectRef, Plaintext,
+    AES_GCM_MAXIMUM_AAD, AES_GCM_MAXIMUM_PLAINTEXT, AES_GCM_NONCE_LENGTH, AES_GCM_TAG_LENGTH,
+    AesGcmDecryptRequest, AesGcmEncryptRequest, Error, ManagementSession, NonceSequence, ObjectRef,
+    Plaintext,
 };
-use secrecy::ExposeSecret;
 
 const MAGIC: &[u8; 7] = b"P11GCM\x01";
 /// Version-1 envelope header length: magic/version followed by a 12-byte nonce.
-pub const AES_GCM_ENVELOPE_HEADER: usize = 19;
+pub const AES_GCM_ENVELOPE_HEADER: usize = MAGIC.len() + AES_GCM_NONCE_LENGTH;
 /// Maximum encoded envelope length, including nonce and authentication tag.
 pub const AES_GCM_MAXIMUM_ENVELOPE: usize =
     AES_GCM_ENVELOPE_HEADER + AES_GCM_MAXIMUM_PLAINTEXT + AES_GCM_TAG_LENGTH;
@@ -16,7 +16,7 @@ pub const AES_GCM_MAXIMUM_ENVELOPE: usize =
 /// Debug omits the nonce and ciphertext. See the
 /// [wire format](https://github.com/Juanbanpar/pkcs11-stack/blob/main/docs/aes-gcm-envelope.md).
 pub struct AesGcmEnvelope<'a> {
-    nonce: &'a [u8; 12],
+    nonce: &'a [u8; AES_GCM_NONCE_LENGTH],
     ciphertext: &'a [u8],
 }
 impl std::fmt::Debug for AesGcmEnvelope<'_> {
@@ -29,20 +29,15 @@ impl<'a> AesGcmEnvelope<'a> {
     pub fn parse(bytes: &'a [u8]) -> Result<Self, Error> {
         if !(AES_GCM_ENVELOPE_HEADER + AES_GCM_TAG_LENGTH..=AES_GCM_MAXIMUM_ENVELOPE)
             .contains(&bytes.len())
-            || bytes.get(..MAGIC.len()) != Some(MAGIC.as_slice())
         {
             return Err(Error::InvalidEnvelope);
         }
-        let nonce = bytes[MAGIC.len()..AES_GCM_ENVELOPE_HEADER]
-            .try_into()
-            .map_err(|_| Error::InvalidEnvelope)?;
-        Ok(Self {
-            nonce,
-            ciphertext: &bytes[AES_GCM_ENVELOPE_HEADER..],
-        })
+        let payload = bytes.strip_prefix(MAGIC).ok_or(Error::InvalidEnvelope)?;
+        let (nonce, ciphertext) = payload.split_first_chunk().ok_or(Error::InvalidEnvelope)?;
+        Ok(Self { nonce, ciphertext })
     }
     /// Borrow the nonce; it is not secret and is authenticated by GCM at decryption.
-    pub fn nonce(&self) -> &[u8; 12] {
+    pub fn nonce(&self) -> &[u8; AES_GCM_NONCE_LENGTH] {
         self.nonce
     }
     /// Borrow the ciphertext and full authentication tag.
@@ -58,7 +53,7 @@ impl ManagementSession<'_> {
     pub fn encrypt_aes_gcm_envelope(
         &mut self,
         key: &ObjectRef,
-        sequence: &mut crate::NonceSequence,
+        sequence: &mut NonceSequence,
         aad: &[u8],
         plaintext: &[u8],
     ) -> Result<Vec<u8>, Error> {
@@ -98,11 +93,6 @@ impl ManagementSession<'_> {
             },
         )
     }
-}
-
-pub(crate) fn selector_binding(key: &ObjectRef) -> [u8; 32] {
-    use sha2::{Digest, Sha256};
-    Sha256::digest(key.uri().to_secret_uri().expose_secret().as_bytes()).into()
 }
 
 #[cfg(test)]
