@@ -62,6 +62,7 @@ pub use slh_dsa::{
 mod error;
 mod module;
 mod pool;
+mod secret;
 mod session;
 mod signing;
 pub use pool::{SessionLease, SessionPool};
@@ -71,6 +72,8 @@ pub use verification::{VerificationCapabilities, VerifyRequest};
 
 pub use error::Error;
 pub use module::{Module, Token, validate_token_uri};
+pub use pkcs11_locator::SecretText;
+pub use secret::SecretBytes;
 pub use session::{AttributeValues, Authentication, Object, ObjectRef, Pin, Session, SessionMode};
 // Reuse cryptoki's domain representations, without exposing lifecycle or handles.
 pub use cryptoki::{

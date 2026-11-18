@@ -7,8 +7,8 @@ use cryptoki::{
     session::UserType,
 };
 use pkcs11_locator::Pkcs11Uri;
+use pkcs11_runtime::SecretText;
 use pkcs11_runtime::*;
-use secrecy::SecretString;
 use sha1::Sha1;
 use sha2::{Digest, Sha224, Sha256, Sha384, Sha512};
 use std::{
@@ -223,7 +223,7 @@ fn pooled_signing_and_recovery() {
     let path = std::env::var("PKCS11_TEST_MODULE").unwrap();
     let config = std::env::var("SOFTHSM2_CONF").unwrap();
     let root = Path::new(&config).parent().unwrap();
-    let user = SecretString::from("12345678");
+    let user = SecretText::from("12345678");
     let fixture = Pkcs11::new(&path).unwrap();
     fixture
         .initialize(CInitializeArgs::new(CInitializeFlags::OS_LOCKING_OK))
@@ -235,7 +235,11 @@ fn pooled_signing_and_recovery() {
         .serial_number()
         .to_owned();
     let raw = fixture.open_rw_session(slot).unwrap();
-    raw.login(UserType::User, Some(&user)).unwrap();
+    raw.login(
+        UserType::User,
+        Some(&cryptoki::types::AuthPin::from(user.expose_secret())),
+    )
+    .unwrap();
     let rsa = make_key(&raw, "signing-rsa", None, &[]);
     let restricted = make_key(
         &raw,
@@ -662,7 +666,7 @@ fn pooled_signing_and_recovery() {
     ));
     // Failed context login leaves an initialized operation. It must be discarded.
     let generation = lease.generation();
-    let wrong = SecretString::from("wrong-canary");
+    let wrong = SecretText::from("wrong-canary");
     assert!(matches!(
         lease.session().sign(
             &auth_key,
@@ -723,7 +727,7 @@ fn pooled_signing_and_recovery() {
     let module = Module::load(&path).unwrap();
     let token = module.resolve_token(selector.token_selector()).unwrap();
     let pool = SessionPool::new(token, SessionMode::ReadOnly, NonZeroUsize::new(1).unwrap());
-    let wrong = SecretString::from("wrong-canary");
+    let wrong = SecretText::from("wrong-canary");
     assert!(
         pool.try_acquire(Authentication::User(Pin::Value(&wrong)))
             .is_err()

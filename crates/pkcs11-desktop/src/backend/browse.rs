@@ -4,7 +4,6 @@ use pkcs11_client::{
     Attribute, AttributeInfo, AttributeRead, AttributeType, Authentication, KeyType,
     ManagementSession, MechanismType, ObjectClass, Pkcs11Uri, SessionMode,
 };
-use secrecy::ExposeSecret;
 
 #[derive(Clone, Debug)]
 pub struct MetadataField {

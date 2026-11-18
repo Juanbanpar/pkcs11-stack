@@ -6,9 +6,9 @@ use super::{
 use pkcs11_client::{
     AES_GCM_MAXIMUM_AAD, AES_GCM_MAXIMUM_PLAINTEXT, AES_GCM_TAG_LENGTH, AesGcmCapabilities,
     AesGcmDecryptRequest, AesGcmEncryptRequest, AesGcmOperation, DecryptRequest, EncryptRequest,
-    OaepChoice, ObjectClass, PrivateKeyRef, PublicKeyRef, RsaCipherOperation, SessionState,
+    OaepChoice, ObjectClass, PrivateKeyRef, PublicKeyRef, RsaCipherOperation, SecretBytes,
+    SessionState,
 };
-use secrecy::{ExposeSecret, ExposeSecretMut, SecretBox};
 use std::{
     fs::File,
     io::{Read, Write},
@@ -149,7 +149,7 @@ impl Registry {
             None => Vec::new(),
         };
         // A fixed allocation prevents plaintext copies during Vec growth.
-        let mut input = SecretBox::new(Box::new(vec![0; limit + 1]));
+        let mut input = SecretBytes::from(vec![0; limit + 1]);
         let mut file = File::open(&job.input).map_err(|_| BackendError::CipherInput)?;
         let mut length = 0;
         loop {
@@ -164,7 +164,7 @@ impl Registry {
                 return Err(BackendError::CipherInput);
             }
         }
-        input.expose_secret_mut().truncate(length);
+        input.truncate(length);
         if (matches!(operation, CipherTarget::Rsa(RsaCipherOperation::Decrypt)) && length != limit)
             || (matches!(operation, CipherTarget::AesGcm(AesGcmOperation::Decrypt))
                 && length < AES_GCM_TAG_LENGTH)
@@ -192,7 +192,7 @@ impl Registry {
                                 plaintext: input.expose_secret(),
                             },
                         )
-                        .map(|bytes| SecretBox::new(Box::new(bytes))),
+                        .map(SecretBytes::from),
                     AesGcmOperation::Decrypt => session.decrypt_aes_gcm(
                         &reference,
                         &AesGcmDecryptRequest {
@@ -235,7 +235,7 @@ impl Registry {
                                 plaintext: input.expose_secret(),
                             },
                         )
-                        .map(|bytes| SecretBox::new(Box::new(bytes)))
+                        .map(SecretBytes::from)
                         .map_err(|e| cipher_error(&e))
                 }
                 RsaCipherOperation::Decrypt => {

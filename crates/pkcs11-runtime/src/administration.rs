@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use crate::{
-    Attribute, Error, KeyKind, Object, Session, SessionMode,
+    Attribute, Error, KeyKind, Object, SecretText, Session, SessionMode,
     error::{backend, function_not_supported},
 };
-use cryptoki::mechanism::Mechanism;
-use secrecy::SecretString;
+use cryptoki::{mechanism::Mechanism, types::AuthPin};
 
 impl<'m> Session<'m> {
     /// Run one read-only native operation with session health tracking.
@@ -47,13 +46,20 @@ impl<'m> Session<'m> {
     }
     /// Initialize/reset the USER PIN. Requires an RW session logged in as SO.
     /// Uses a host PIN; the upstream API does not support a null/protected-path PIN.
-    pub fn initialize_pin(&mut self, pin: &SecretString) -> Result<(), Error> {
-        self.write_operation("initialize user PIN", |raw| raw.init_pin(pin))
+    pub fn initialize_pin(&mut self, pin: &SecretText) -> Result<(), Error> {
+        self.write_operation("initialize user PIN", |raw| {
+            raw.init_pin(&AuthPin::from(pin.expose_secret()))
+        })
     }
     /// Change the current role's PIN once. No credentials are retained or retried.
     /// Host PINs are required by the upstream safe mutation API.
-    pub fn change_pin(&mut self, old: &SecretString, new: &SecretString) -> Result<(), Error> {
-        self.write_operation("change PIN", |raw| raw.set_pin(old, new))
+    pub fn change_pin(&mut self, old: &SecretText, new: &SecretText) -> Result<(), Error> {
+        self.write_operation("change PIN", |raw| {
+            raw.set_pin(
+                &AuthPin::from(old.expose_secret()),
+                &AuthPin::from(new.expose_secret()),
+            )
+        })
     }
     /// Create an object from an explicit template. Template data may contain secrets.
     /// Persistence, privacy and sensitivity are chosen by the caller's template.

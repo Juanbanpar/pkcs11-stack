@@ -66,7 +66,7 @@ verification and trust roots separately. Empty client credentials send no certif
 | Binding | `Credential::load` requires a leaf-first DER chain and explicit key selector; signs a probe and verifies with the leaf/provider |
 | Key replacement | Every later signature is checked against the retained leaf; shared labels/IDs alone never prove binding |
 | Trust | Loading does not check chain trust, time, EKU or revocation; configure normal rustls peer verification |
-| Credentials | Source called once per binding/signature; returns optional USER/context PINs in `SecretString` or `PinInput::ProtectedPath` |
+| Credentials | Source called once per binding/signature; returns optional USER/context PINs in `SecretText` or `PinInput::ProtectedPath` |
 | Authentication | `None` leaves login unchanged; matching pooled USER role does not revalidate a PIN; always-authenticate needs separate context credentials |
 | Concurrency | Synchronous signing acquires one exclusive nonblocking lease; exhaustion fails immediately |
 | Cleanup | Runtime discards uncertain sessions; encoding/binding failures also discard the lease; failed closure blocks checkout until the pool is replaced |

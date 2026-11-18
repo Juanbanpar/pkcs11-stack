@@ -14,7 +14,6 @@ categories = ["cryptography", "hardware-support"]
 
 [dependencies]
 pkcs11-client.workspace = true
-secrecy.workspace = true
 iced.workspace = true
 iced_fonts = { version = "0.3.0", default-features = false, features = ["lucide"] }
 iced_aw = { version = "0.14.1", default-features = false, features = ["badge", "spinner"] }

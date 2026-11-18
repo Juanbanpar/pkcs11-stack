@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use crate::{
     Attribute, AttributeType, DigestAlgorithm, Error, KeyKind, MechanismType, ObjectClass,
-    ObjectRef, PrivateKeyRef, PublicKeyRef, Session,
+    ObjectRef, PrivateKeyRef, PublicKeyRef, SecretBytes, Session,
     error::backend,
     signing::{attribute, key_kind},
 };
@@ -9,7 +9,6 @@ use cryptoki::mechanism::{
     Mechanism,
     rsa::{PkcsMgfType, PkcsOaepParams, PkcsOaepSource},
 };
-use secrecy::{ExposeSecret, SecretBox};
 
 /// Direction of a token RSA-OAEP operation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -144,7 +143,7 @@ impl Session<'_> {
         key: &PrivateKeyRef,
         digest: DigestAlgorithm,
         ciphertext: &[u8],
-    ) -> Result<SecretBox<Vec<u8>>, Error> {
+    ) -> Result<SecretBytes, Error> {
         let object = self.resolve(key.as_object_ref())?;
         let caps = capabilities(&object, RsaCipherOperation::Decrypt)?;
         if ciphertext.len() != caps.ciphertext_length() {
@@ -152,10 +151,10 @@ impl Session<'_> {
         }
         let raw = object.session.raw()?;
         object.session.healthy.set(false);
-        let plaintext = SecretBox::new(Box::new(
+        let plaintext = SecretBytes::from(
             raw.decrypt(&mechanism(digest), object.handle, ciphertext)
                 .map_err(|e| backend("RSA OAEP decrypt", e))?,
-        ));
+        );
         if plaintext.expose_secret().len() > caps.maximum_plaintext(digest) {
             return Err(Error::InvalidCiphertext);
         }

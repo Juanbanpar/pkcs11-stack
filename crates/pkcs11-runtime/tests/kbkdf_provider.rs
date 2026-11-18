@@ -7,9 +7,9 @@
 use pkcs11_runtime::{
     AES_GCM_NONCE_LENGTH, AesDecryptRequest, AesEncryptRequest, AesGcmDecryptRequest,
     AesGcmEncryptRequest, AesGcmOperation, AesMode, Attribute, Authentication, Error, KbkdfMode,
-    KbkdfOutput, KbkdfPrf, KbkdfRequest, KeyType, Module, ObjectClass, ObjectRef, Pin, SessionMode,
+    KbkdfOutput, KbkdfPrf, KbkdfRequest, KeyType, Module, ObjectClass, ObjectRef, Pin, SecretText,
+    SessionMode,
 };
-use secrecy::{ExposeSecret, SecretString};
 
 fn reference(id: &[u8], kind: &str) -> ObjectRef {
     let id: String = id.iter().map(|byte| format!("%{byte:02X}")).collect();
@@ -58,7 +58,7 @@ fn sp800108_modes_are_deterministic_and_usable() {
     let token = module
         .resolve_token_uri(&"pkcs11:token=kdf-test".parse().unwrap())
         .unwrap();
-    let pin = SecretString::from("12345678");
+    let pin = SecretText::from("12345678");
     let mut setup = token.open_session(SessionMode::ReadWrite).unwrap();
     setup
         .authenticate(Authentication::User(Pin::Value(&pin)))
@@ -116,7 +116,7 @@ fn sp800108_modes_are_deterministic_and_usable() {
                 },
             )
             .unwrap();
-        assert_eq!(recovered.expose_secret().as_slice(), plaintext);
+        assert_eq!(recovered.expose_secret(), plaintext);
         session.close().unwrap();
     }
 
@@ -151,7 +151,7 @@ fn sp800108_modes_are_deterministic_and_usable() {
             },
         )
         .unwrap();
-    assert_eq!(recovered.expose_secret().as_slice(), &plaintext);
+    assert_eq!(recovered.expose_secret(), &plaintext);
     assert!(
         session
             .aes_cipher_capabilities(&key, AesMode::Cbc, pkcs11_runtime::AesDirection::Encrypt)

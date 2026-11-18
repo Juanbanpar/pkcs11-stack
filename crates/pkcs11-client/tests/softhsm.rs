@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! Run only through tools/test-softhsm.sh with its disposable token store.
+use pkcs11_client::SecretText;
 use pkcs11_client::*;
 use pkcs11_runtime::Error as RuntimeError;
-use secrecy::SecretString;
 use sha1::Sha1;
 use sha2::{Digest, Sha224, Sha256, Sha384, Sha512};
 use std::{num::NonZeroUsize, path::PathBuf, process::Command};
@@ -12,7 +12,7 @@ fn uri(label: &str, class: &str) -> Pkcs11Uri {
         .parse()
         .unwrap()
 }
-fn auth(pin: &SecretString) -> Authentication<'_> {
+fn auth(pin: &SecretText) -> Authentication<'_> {
     Authentication::User(Pin::Value(pin))
 }
 fn connect(module: &Module, hashing: HashingPolicy) -> Client<'_> {
@@ -55,8 +55,8 @@ fn application_workflows() {
     assert_eq!(std::env::var("PKCS11_TEST_ISOLATED").as_deref(), Ok("1"));
     let path = std::env::var("PKCS11_TEST_MODULE").unwrap();
     let scratch = PathBuf::from(std::env::var("PKCS11_CLIENT_TEST_DIR").unwrap());
-    let pin = SecretString::from("12345678");
-    let bad_pin = SecretString::from("incorrect");
+    let pin = SecretText::from("12345678");
+    let bad_pin = SecretText::from("incorrect");
     let module = Module::load(&path).unwrap();
     for selector in [
         "pkcs11:token=client-test;library-description=wrong",
@@ -324,7 +324,7 @@ fn runtime_mutation_guards(path: &str) {
     let token = module
         .resolve_token_uri(&"pkcs11:token=client-test".parse().unwrap())
         .unwrap();
-    let pin = secrecy::SecretString::from("12345678");
+    let pin = pkcs11_client::SecretText::from("12345678");
     let mut session = token.open_session(SessionMode::ReadOnly).unwrap();
     assert!(matches!(
         session.create_object(&[]),
@@ -361,8 +361,8 @@ fn management_workflows() {
     let path = std::env::var("PKCS11_TEST_MODULE").unwrap();
     let provider = Provider::load(&path).unwrap();
     let location: Pkcs11Uri = "pkcs11:token=client-test".parse().unwrap();
-    let pin = SecretString::from("12345678");
-    let bad_pin = SecretString::from("incorrect");
+    let pin = SecretText::from("12345678");
+    let bad_pin = SecretText::from("incorrect");
     let tokens = provider.tokens().unwrap();
     let token = tokens
         .iter()
@@ -415,7 +415,7 @@ fn management_workflows() {
         let bytes = ro
             .generate_random(RandomRequest::new(length).unwrap())
             .unwrap();
-        assert_eq!(secrecy::ExposeSecret::expose_secret(&bytes).len(), length);
+        assert_eq!(bytes.expose_secret().len(), length);
         assert!(format!("{bytes:?}").contains("REDACTED"));
     }
     ro.close().unwrap();
@@ -564,7 +564,7 @@ fn management_workflows() {
     assert_eq!(owned.state().unwrap(), SessionState::RwUser);
     owned.logout().unwrap();
     assert_eq!(owned.state().unwrap(), SessionState::RwPublic);
-    let so = SecretString::from("87654321");
+    let so = SecretText::from("87654321");
     owned
         .authenticate(Authentication::SecurityOfficer(Pin::Value(&so)))
         .unwrap();
@@ -595,7 +595,7 @@ fn management_workflows() {
 fn scoped_signing_choices_signature_and_explicit_close() {
     assert_eq!(std::env::var("PKCS11_TEST_ISOLATED").as_deref(), Ok("1"));
     let provider = Provider::load(std::env::var_os("PKCS11_TEST_MODULE").unwrap()).unwrap();
-    let pin = SecretString::from("12345678");
+    let pin = SecretText::from("12345678");
     let token = "pkcs11:token=client-test".parse().unwrap();
     let key = PrivateKeyRef::new(uri("p256", "private")).unwrap();
     let certificate = object_reference(uri("p256", "cert")).unwrap();
@@ -632,7 +632,7 @@ fn checked_client_shutdown_closes_idle_and_discarded_sessions_without_logout() {
     assert_eq!(std::env::var("PKCS11_TEST_ISOLATED").as_deref(), Ok("1"));
     let provider = Provider::load(std::env::var_os("PKCS11_TEST_MODULE").unwrap()).unwrap();
     let token = "pkcs11:token=client-test".parse().unwrap();
-    let pin = SecretString::from("12345678");
+    let pin = SecretText::from("12345678");
     let mut anchor = provider
         .management(&token, SessionMode::ReadOnly, auth(&pin))
         .unwrap();
@@ -662,7 +662,7 @@ fn checked_client_shutdown_closes_idle_and_discarded_sessions_without_logout() {
         client
             .private_key(
                 uri("p256", "private"),
-                auth(&SecretString::from("invalid-fixture-pin"))
+                auth(&SecretText::from("invalid-fixture-pin"))
             )
             .is_err()
     );

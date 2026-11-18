@@ -25,7 +25,7 @@ pub enum Message {
     AdministrationPin {
         id: RequestId,
         field: AdministrationPinField,
-        pin: secrecy::SecretString,
+        pin: pkcs11_client::SecretText,
     },
     AdministrationEdit {
         id: RequestId,
@@ -108,7 +108,7 @@ pub enum Message {
     },
     CryptoPin {
         id: RequestId,
-        pin: secrecy::SecretString,
+        pin: pkcs11_client::SecretText,
     },
     CryptoProtected {
         id: RequestId,
@@ -142,7 +142,7 @@ pub enum Message {
     OpenLogin(LoginRole),
     PinInput {
         id: RequestId,
-        pin: secrecy::SecretString,
+        pin: pkcs11_client::SecretText,
     },
     ProtectedPath {
         id: RequestId,
@@ -1002,7 +1002,6 @@ mod tests {
 
     #[test]
     fn cancelling_a_pin_form_discards_secret_and_ignores_older_form_messages() {
-        use secrecy::ExposeSecret;
         let mut app = App {
             state: UiState::default(),
             worker: None,

@@ -9,9 +9,8 @@ use cryptoki::{
 use pkcs11_runtime::{
     AesKeyPurpose, AesKeyRequest, AesKeySize, Attribute, AttributeInfo, AttributeType,
     Authentication, EcdhDerivation, EcdhKeyPairRequest, Error, KeyOperation, Module, NamedCurve,
-    ObjectClass, ObjectRef, Pin, SessionMode,
+    ObjectClass, ObjectRef, Pin, SecretText, SessionMode,
 };
-use secrecy::SecretString;
 fn reference(id: &[u8], kind: &str) -> ObjectRef {
     let id: String = id.iter().map(|b| format!("%{b:02X}")).collect();
     ObjectRef::new(
@@ -64,7 +63,7 @@ fn generation_permissions_ecdh_agreement_and_aes_key_use() {
         Err(Error::ReadWriteRequired)
     ));
     ro.close().unwrap();
-    let pin = SecretString::from("12345678");
+    let pin = SecretText::from("12345678");
     let mut session = token.open_session(SessionMode::ReadWrite).unwrap();
     session
         .authenticate(Authentication::User(Pin::Value(&pin)))
@@ -295,7 +294,12 @@ fn generation_permissions_ecdh_agreement_and_aes_key_use() {
         .find(|slot| module.get_token_info(*slot).unwrap().label() == "client-test")
         .unwrap();
     let session = module.open_rw_session(slot).unwrap();
-    session.login(UserType::User, Some(&pin)).unwrap();
+    session
+        .login(
+            UserType::User,
+            Some(&cryptoki::types::AuthPin::from(pin.expose_secret())),
+        )
+        .unwrap();
     let find = |id: &[u8]| -> ObjectHandle {
         let keys = session
             .find_objects(&[

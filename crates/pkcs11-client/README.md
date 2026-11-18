@@ -12,10 +12,10 @@ possession with a signature, independently of matching labels or IDs.
 
 ```no_run
 use pkcs11_client::{
+    SecretText,
     Authentication, DigestAlgorithm, Provider, Pin, SignInput,
     SignRequest, SignatureAlgorithm, SigningPolicy,
 };
-use secrecy::SecretString;
 use std::num::NonZeroUsize;
 
 let provider = Provider::load("/absolute/path/to/trusted-pkcs11.so")?;
@@ -25,7 +25,7 @@ let client = provider.client(
     SigningPolicy::default(),
 )?;
 // Example only: obtain this from the application's secret source.
-let pin = SecretString::from("example-only");
+let pin = SecretText::from("example-only");
 let auth = || Authentication::User(Pin::Value(&pin));
 let key = client.private_key(
     "pkcs11:serial=123;id=%01;type=private".parse()?, auth(),
@@ -48,9 +48,9 @@ provider.finalize()?;
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
-This requires an RSA key with combined SHA-2 signing support. `Pin::Value` uses
-`secrecy` 0.10; `Pin::ProtectedPath` requires token support. Always-authenticate
-keys need a separate context PIN for each binding/signing call.
+This requires an RSA key with combined SHA-2 signing support. `Pin::Value` borrows
+a `SecretText`. `Pin::ProtectedPath` requires token support. Always-authenticate
+keys need a separate context PIN for each binding or signing call.
 
 ## Ownership, authentication and failure handling
 
@@ -206,10 +206,10 @@ P-256/P-384/P-521; the signing API retains its full RSA range and nonempty-ID ru
 
 ```no_run
 use pkcs11_client::{
+    SecretText,
     AesKeyPurpose, AesKeyRequest, AesKeySize, Authentication,
     EcdhKeyPairRequest, NamedCurve, Pin, Provider, SessionMode,
 };
-use secrecy::SecretString;
 
 let provider = Provider::load("/absolute/path/to/trusted-pkcs11.so")?;
 let token = "pkcs11:serial=123".parse()?;
@@ -217,7 +217,7 @@ let choices = provider.generation_capabilities(&token)?;
 assert!(choices.ecdh.contains(&NamedCurve::P256));
 assert!(choices.aes.contains(&AesKeySize::Bits256));
 // Obtain this from the application's secret source.
-let pin = SecretString::from("example-only");
+let pin = SecretText::from("example-only");
 let mut session = provider.management(&token, SessionMode::ReadWrite,
     Authentication::User(Pin::Value(&pin)))?;
 let generated = (|| {
@@ -328,17 +328,17 @@ and persistent through `ManagementSession::generate_ml_dsa_key_pair`.
 
 ```no_run
 use pkcs11_client::{
+    SecretText,
     Authentication, MlDsaHedging, MlDsaParameterSet, MlDsaRequest,
     MlDsaSigningPolicy, Pin, Provider, SigningPolicy,
 };
-use secrecy::SecretString;
 use std::num::NonZeroUsize;
 
 let provider = Provider::load("/absolute/path/to/trusted-pkcs11.so")?;
 let client = provider.client(&"pkcs11:serial=123".parse()?,
     NonZeroUsize::new(1).unwrap(), SigningPolicy::default())?;
 // Obtain this from the application's secret source.
-let pin = SecretString::from("example-only");
+let pin = SecretText::from("example-only");
 let key = client.private_key("pkcs11:serial=123;id=%01;type=private".parse()?,
     Authentication::User(Pin::Value(&pin)))?;
 let certificate = client.ml_dsa_certificate(
@@ -391,12 +391,11 @@ absent parameters, byte alignment, length and canonical FIPS 203 coefficients;
 it preserves existing objects but duplicate IDs can make selection ambiguous.
 
 ```no_run
-use pkcs11_client::{Authentication, Error, MlKemParameterSet, MlKemRequest,
+use pkcs11_client::{ SecretText, Authentication, Error, MlKemParameterSet, MlKemRequest,
     Pin, Pkcs11Uri, Provider, PublicKeyRef, SessionMode};
-use secrecy::SecretString;
 
 fn encapsulate(
-    provider: &Provider, token: &Pkcs11Uri, key: &PublicKeyRef, pin: &SecretString,
+    provider: &Provider, token: &Pkcs11Uri, key: &PublicKeyRef, pin: &SecretText,
 ) -> Result<Vec<u8>, Error> {
     let mut session = provider.management(
         token, SessionMode::ReadWrite, Authentication::User(Pin::Value(pin)),
@@ -429,12 +428,11 @@ The base must match the hash length: 20/28/32/48/64 bytes for SHA-1/224/256/384/
 Use SHA-256 for a 32-byte ML-KEM secret.
 
 ```no_run
-use pkcs11_client::{Authentication, DigestAlgorithm, Error, HkdfOutput,
+use pkcs11_client::{ SecretText, Authentication, DigestAlgorithm, Error, HkdfOutput,
     HkdfRequest, ObjectRef, Pin, Pkcs11Uri, Provider, SessionMode};
-use secrecy::SecretString;
 
 fn derive_encryption_key(
-    provider: &Provider, token: &Pkcs11Uri, base: &ObjectRef, pin: &SecretString,
+    provider: &Provider, token: &Pkcs11Uri, base: &ObjectRef, pin: &SecretText,
     public_salt: &[u8], protocol_context: &[u8],
 ) -> Result<(), Error> {
     let mut session = provider.management(
@@ -500,8 +498,8 @@ coverage and upstream limits; API rustdoc defines individual request contracts.
 
 `generate_random(RandomRequest)` requests 1–1048576 bytes from the token once.
 Invalid lengths fail before allocation. Authentication is explicit and subject to
-token policy. `RandomBytes` uses zeroizing, redacted `SecretBox<Vec<u8>>`; access
-output through `ExposeSecret` and check session closure before releasing it.
+token policy. `RandomBytes` zeroizes on drop and redacts its debug output.
+Borrow the bytes with `expose_secret()` and check session closure before releasing them.
 
 [Runnable examples](https://github.com/Juanbanpar/pkcs11-stack/blob/main/docs/examples.md) cover generic signing, certificate
 binding and shutdown with PIN files.

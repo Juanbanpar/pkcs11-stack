@@ -7,7 +7,7 @@ use crate::backend::{
 #[cfg(test)]
 use crate::backend::{MetadataField, SyntheticOutcome};
 use pkcs11_client::MechanismType;
-use secrecy::SecretString;
+use pkcs11_client::SecretText;
 use std::path::PathBuf;
 mod administration;
 pub use administration::{AdministrationField, AdministrationForm, AdministrationPinField};
@@ -98,7 +98,7 @@ pub struct LoginForm {
     pub token: ResourceId,
     pub role: LoginRole,
     pub protected_path: bool,
-    pub pin: SecretString,
+    pub pin: SecretText,
 }
 
 /// UI metadata and identifiers. Providers and live PKCS#11 resources stay on the worker.
@@ -185,7 +185,7 @@ impl UiState {
         }
         self.login_form = None;
         if let Some(form) = &mut self.crypto_form {
-            form.pin = SecretString::default();
+            form.pin = SecretText::default();
             form.picker = None;
         }
         self.management.file_request = None;
@@ -213,11 +213,11 @@ impl UiState {
                 token: self.token().unwrap().id,
                 role,
                 protected_path: self.token().unwrap().protected_path,
-                pin: SecretString::default(),
+                pin: SecretText::default(),
             });
         }
     }
-    pub fn edit_pin(&mut self, id: RequestId, pin: SecretString) {
+    pub fn edit_pin(&mut self, id: RequestId, pin: SecretText) {
         if let Some(form) = &mut self.login_form
             && form.id == id
             && !form.protected_path
@@ -232,7 +232,7 @@ impl UiState {
         if let Some(form) = &mut self.login_form
             && form.id == id
         {
-            form.pin = SecretString::default();
+            form.pin = SecretText::default();
             form.protected_path = enabled;
         }
     }
@@ -508,7 +508,7 @@ impl UiState {
     pub fn cancel(&mut self) {
         if self.can_cancel() {
             if let Some(form) = &mut self.crypto_form {
-                form.pin = SecretString::default();
+                form.pin = SecretText::default();
                 form.picker = None;
             }
             self.current_operation = None;
@@ -690,7 +690,7 @@ impl UiState {
                             form.options = options.into_iter().map(SignatureChoice).collect();
                             form.choice = form.options.first().copied();
                             form.context_required = context;
-                            form.pin = SecretString::default();
+                            form.pin = SecretText::default();
                             form.loaded = true;
                         }
                         None

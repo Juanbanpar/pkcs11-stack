@@ -663,7 +663,6 @@ dependencies = [
  "pkcs11-locator",
  "pkcs11-runtime",
  "rsa",
- "secrecy",
  "sha1",
  "sha2",
  "thiserror",
@@ -701,7 +700,6 @@ dependencies = [
  "rustls",
  "rustls-pki-types",
  "rustls-webpki",
- "secrecy",
  "thiserror",
  "x509-cert",
 ]
@@ -716,7 +714,6 @@ dependencies = [
  "pkcs11-locator",
  "pkcs11-runtime",
  "pkcs11-rustls-adapter",
- "secrecy",
 ]
 
 [[package]]

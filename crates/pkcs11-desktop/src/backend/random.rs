@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use super::{BackendError, Registry, ResourceId, browse::read_session};
 use pkcs11_client::RandomRequest;
-use secrecy::ExposeSecret;
 use std::{io::Write, path::Path};
 
 impl Registry {

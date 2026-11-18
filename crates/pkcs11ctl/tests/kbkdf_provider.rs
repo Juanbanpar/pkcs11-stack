@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! CLI SP 800-108 derivation on a disposable Kryoptic store.
 
-use pkcs11_client::{Attribute, Authentication, KeyType, Module, ObjectClass, Pin, SessionMode};
-use secrecy::SecretString;
+use pkcs11_client::{
+    Attribute, Authentication, KeyType, Module, ObjectClass, Pin, SecretText, SessionMode,
+};
 use std::{
     path::{Path, PathBuf},
     process::Command,
@@ -49,7 +50,7 @@ fn create_base(module_path: &str) {
     let token = module
         .resolve_token_uri(&"pkcs11:token=kdf-test".parse().unwrap())
         .unwrap();
-    let pin = SecretString::from("12345678");
+    let pin = SecretText::from("12345678");
     let mut session = token.open_session(SessionMode::ReadWrite).unwrap();
     session
         .authenticate(Authentication::User(Pin::Value(&pin)))

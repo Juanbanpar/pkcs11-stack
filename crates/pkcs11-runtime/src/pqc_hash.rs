@@ -583,7 +583,7 @@ fn sign_ml_dsa(
     let signature = if caps.always_authenticate {
         raw.sign_init(&mechanism, object.handle)
             .map_err(|e| backend("HashML-DSA sign init", e))?;
-        raw.login(UserType::ContextSpecific, pin)
+        crate::session::login_with_pin(raw, UserType::ContextSpecific, pin)
             .map_err(|e| backend("HashML-DSA context login", e))?;
         raw.sign_update(request.input.bytes())
             .map_err(|e| backend("HashML-DSA sign update", e))?;
@@ -677,7 +677,7 @@ fn sign_slh_dsa(
     let signature = if caps.always_authenticate {
         raw.sign_init(&mechanism, object.handle)
             .map_err(|e| backend("HashSLH-DSA sign init", e))?;
-        raw.login(UserType::ContextSpecific, pin)
+        crate::session::login_with_pin(raw, UserType::ContextSpecific, pin)
             .map_err(|e| backend("HashSLH-DSA context login", e))?;
         raw.sign_update(request.input.bytes())
             .map_err(|e| backend("HashSLH-DSA sign update", e))?;

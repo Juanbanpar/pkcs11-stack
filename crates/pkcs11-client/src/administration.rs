@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-use crate::{Error, Provider, TokenSnapshot};
-use secrecy::{ExposeSecret, SecretString};
+use crate::{Error, Provider, SecretText, TokenSnapshot};
 
 /// Metadata that must still match before initializing one explicitly selected slot.
 /// This is a snapshot, not an authorization token or physical device identity.
@@ -26,7 +25,7 @@ pub struct TokenInitializationTarget {
 impl TokenInitializationTarget {
     /// Validate a nonempty new host PIN against available advertised byte bounds.
     /// A provider may impose additional constraints; no PIN is formatted or retained.
-    pub fn accepts_new_pin(&self, pin: &SecretString) -> bool {
+    pub fn accepts_new_pin(&self, pin: &SecretText) -> bool {
         let length = pin.expose_secret().len();
         length != 0
             && (self.minimum_pin_length == usize::MAX || length >= self.minimum_pin_length)
@@ -56,7 +55,7 @@ impl Provider {
     pub fn initialize_token_checked(
         &mut self,
         target: &TokenInitializationTarget,
-        so_pin: &SecretString,
+        so_pin: &SecretText,
         label: &str,
     ) -> Result<(), Error> {
         if std::sync::Arc::get_mut(&mut self.module).is_none() {

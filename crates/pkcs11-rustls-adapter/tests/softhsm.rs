@@ -7,14 +7,14 @@ use pkcs11_runtime::{
     ObjectRef, Pin, PrivateKeyRef, PublicKeyRef, SessionMode, SessionPool, SigningPolicy,
 };
 use pkcs11_rustls_adapter::{
-    ClientResolver, Credential, CredentialSource, Credentials, Error, PinInput, ServerResolver,
+    ClientResolver, Credential, CredentialSource, Credentials, Error, PinInput, SecretText,
+    ServerResolver,
 };
 use rustls::{
     ClientConfig, ClientConnection, RootCertStore, ServerConfig, ServerConnection, SignatureScheme,
     client::ResolvesClientCert, crypto::CryptoProvider,
 };
 use rustls_pki_types::{CertificateDer, ServerName};
-use secrecy::SecretString;
 use std::{
     io::{Read, Write},
     num::NonZeroUsize,
@@ -36,8 +36,8 @@ use x509_cert::{
 fn source(context: bool) -> Arc<dyn CredentialSource> {
     Arc::new(move || {
         Ok(Credentials {
-            user: Some(PinInput::Value(SecretString::from("12345678"))),
-            context: context.then(|| PinInput::Value(SecretString::from("12345678"))),
+            user: Some(PinInput::Value(SecretText::from("12345678"))),
+            context: context.then(|| PinInput::Value(SecretText::from("12345678"))),
         })
     })
 }
@@ -158,7 +158,7 @@ fn token_tls_handshakes_and_lifecycle() {
             .unwrap(),
         );
         {
-            let pin = SecretString::from("12345678");
+            let pin = SecretText::from("12345678");
             let mut lease = pool
                 .try_acquire(Authentication::User(Pin::Value(&pin)))
                 .unwrap();
@@ -503,8 +503,8 @@ fn token_tls_handshakes_and_lifecycle() {
         let changing: Arc<dyn CredentialSource> = Arc::new(move || {
             let n = counter.fetch_add(1, Ordering::SeqCst);
             Ok(Credentials {
-                user: Some(PinInput::Value(SecretString::from("12345678"))),
-                context: Some(PinInput::Value(SecretString::from(if n == 1 {
+                user: Some(PinInput::Value(SecretText::from("12345678"))),
+                context: Some(PinInput::Value(SecretText::from(if n == 1 {
                     "incorrect"
                 } else {
                     "12345678"
@@ -607,7 +607,7 @@ fn token_ed25519_tls13_handshake() {
     let root = PathBuf::from(std::env::var("PKCS11_TLS_TEST_DIR").unwrap());
     let module = Arc::new(Module::load(&path).unwrap());
     let token_uri: pkcs11_locator::Pkcs11Uri = "pkcs11:token=tls-test".parse().unwrap();
-    let pin = SecretString::from("12345678");
+    let pin = SecretText::from("12345678");
     {
         let token = module.resolve_token_uri(&token_uri).unwrap();
         let mut session = token.open_session(SessionMode::ReadWrite).unwrap();

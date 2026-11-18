@@ -1,14 +1,13 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use crate::{
-    CertificateDocument, Client, Error, Pin, Pkcs11Uri, PrivateKeyRef, SignRequest, SigningOptions,
-    SigningPolicy,
+    CertificateDocument, Client, Error, Pin, Pkcs11Uri, PrivateKeyRef, SecretText, SignRequest,
+    SigningOptions, SigningPolicy,
 };
 use pkcs11_runtime::{
     Attribute, AttributeInfo, AttributeType, AttributeValues, Authentication, CertificateType,
     KeyKind, KeyType, LibraryInfo, MechanismInfo, MechanismType, Module, Object, ObjectClass,
     ObjectRef, Session, SessionMode, SessionPool, SessionState, SlotInfo, TokenInfo,
 };
-use secrecy::{ExposeSecret, SecretString};
 use std::{num::NonZeroUsize, path::Path, sync::Arc};
 
 /// Explicit owner of one trusted module, shared by signing and management workflows.
@@ -205,7 +204,7 @@ impl Provider {
     pub fn initialize_token(
         &mut self,
         slot_id: u64,
-        so_pin: &SecretString,
+        so_pin: &SecretText,
         label: &str,
     ) -> Result<(), Error> {
         let module = Arc::get_mut(&mut self.module).ok_or(Error::ProviderInUse)?;
@@ -423,11 +422,11 @@ impl ManagementSession<'_> {
             .ok_or_else(|| pkcs11_runtime::Error::MissingMetadata("object value").into())
     }
     /// Initialize/reset USER PIN with an RW SO session. No PIN is retained.
-    pub fn initialize_pin(&mut self, pin: &SecretString) -> Result<(), Error> {
+    pub fn initialize_pin(&mut self, pin: &SecretText) -> Result<(), Error> {
         Ok(self.session.initialize_pin(pin)?)
     }
     /// Change the authenticated role's host PIN once. No retry or rollback occurs.
-    pub fn change_pin(&mut self, old: &SecretString, new: &SecretString) -> Result<(), Error> {
+    pub fn change_pin(&mut self, old: &SecretText, new: &SecretText) -> Result<(), Error> {
         Ok(self.session.change_pin(old, new)?)
     }
     /// Generate a persistent sensitive, nonextractable signing pair with explicit identity.
@@ -515,7 +514,7 @@ pub fn token_uri(uri: Pkcs11Uri) -> Result<Pkcs11Uri, Error> {
     }
     if let Some(value) = uri.query_values("module-path").next() {
         builder = builder
-            .query_attribute("module-path", SecretString::from(value.expose_secret()))
+            .query_attribute("module-path", SecretText::from(value.expose_secret()))
             .map_err(pkcs11_runtime::Error::from)?;
     }
     Ok(builder.build().map_err(pkcs11_runtime::Error::from)?)

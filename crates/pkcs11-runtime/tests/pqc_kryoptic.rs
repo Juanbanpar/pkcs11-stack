@@ -6,10 +6,10 @@ use pkcs11_runtime::{
     AesGcmDecryptRequest, AesGcmEncryptRequest, AesKeySize, Authentication, HashInput,
     HashMlDsaRequest, HashMlDsaSigningPolicy, HashSlhDsaRequest, HashSlhDsaSigningPolicy,
     MlDsaHedging, MlDsaParameterSet, Module, MontgomeryCurve, MontgomeryDerivation, MontgomeryKdf,
-    MontgomeryOutput, ObjectRef, Pin, PrehashAlgorithm, PrivateKeyRef, PublicKeyRef, SessionMode,
-    SlhDsaHedging, SlhDsaKeyPairRequest, SlhDsaParameterSet, SlhDsaRequest, SlhDsaSigningPolicy,
+    MontgomeryOutput, ObjectRef, Pin, PrehashAlgorithm, PrivateKeyRef, PublicKeyRef, SecretText,
+    SessionMode, SlhDsaHedging, SlhDsaKeyPairRequest, SlhDsaParameterSet, SlhDsaRequest,
+    SlhDsaSigningPolicy,
 };
-use secrecy::{ExposeSecret, SecretString};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
@@ -116,8 +116,8 @@ fn slh_hash_pqc_and_montgomery_provider_workflows() {
         Ok("1")
     );
     let root = PathBuf::from(std::env::var_os("PKCS11_TEST_PQC_DIR").unwrap());
-    let pin = SecretString::from("12345678");
-    let so = SecretString::from("87654321");
+    let pin = SecretText::from("12345678");
+    let so = SecretText::from("87654321");
     let mut module = Module::load(std::env::var_os("PKCS11_TEST_PQC_MODULE").unwrap()).unwrap();
     let slots = module.slots(true).unwrap();
     assert_eq!(slots.len(), 1);

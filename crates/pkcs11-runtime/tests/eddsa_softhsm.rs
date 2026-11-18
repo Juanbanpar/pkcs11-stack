@@ -3,9 +3,8 @@
 
 use pkcs11_runtime::{
     Authentication, EdDsaCurve, EdDsaRequest, Error, Module, Pin, PrivateKeyRef, PublicKeyRef,
-    SessionMode,
+    SecretText, SessionMode,
 };
-use secrecy::SecretString;
 
 fn private(token: &str, object: &str) -> PrivateKeyRef {
     PrivateKeyRef::new(
@@ -39,7 +38,7 @@ fn eddsa_generation_signing_verification_and_curve_checks() {
             .unwrap()
             .contains(&EdDsaCurve::Ed25519)
     );
-    let pin = SecretString::from("12345678");
+    let pin = SecretText::from("12345678");
     let mut session = token.open_session(SessionMode::ReadWrite).unwrap();
     session
         .authenticate(Authentication::User(Pin::Value(&pin)))

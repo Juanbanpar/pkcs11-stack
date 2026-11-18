@@ -2584,7 +2584,6 @@ dependencies = [
  "pkcs11-locator",
  "pkcs11-runtime",
  "rsa",
- "secrecy",
  "sha1",
  "sha2",
  "thiserror 2.0.20",
@@ -2602,7 +2601,6 @@ dependencies = [
  "iced_test",
  "pkcs11-client",
  "rfd",
- "secrecy",
 ]
 
 [[package]]
@@ -2640,7 +2638,6 @@ dependencies = [
  "rustls",
  "rustls-pki-types",
  "rustls-webpki",
- "secrecy",
  "thiserror 2.0.20",
  "x509-cert",
  "zeroize",
@@ -2654,7 +2651,6 @@ dependencies = [
  "der 0.7.10",
  "pkcs11-client",
  "pkcs11-locator",
- "secrecy",
  "serde_json",
  "zeroize",
 ]

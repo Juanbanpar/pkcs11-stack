@@ -10,7 +10,6 @@ use pkcs11_client::{
     HashSlhDsaRequest, MlDsaHedging, MlDsaParameterSet, ObjectRef, Pin, PrehashAlgorithm,
     PublicKeyRef, SessionMode, SigningPolicy, SlhDsaHedging, SlhDsaParameterSet,
 };
-use secrecy::ExposeSecret;
 
 fn job(parameters: SignatureProfile, input: &Path, signature: &Path, context: &[u8]) -> CryptoJob {
     CryptoJob {
@@ -265,7 +264,7 @@ fn slh_and_hash_pqc_desktop_signing() {
             SigningPolicy::default(),
         )
         .unwrap();
-    let pin = secrecy::SecretString::from("12345678");
+    let pin = pkcs11_client::SecretText::from("12345678");
     client
         .verify_hash_slh_dsa(
             &public_key,

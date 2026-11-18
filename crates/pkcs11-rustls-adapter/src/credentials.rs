@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-use crate::Error;
+use crate::{Error, SecretText};
 use pkcs11_runtime::{Authentication, Pin};
-use secrecy::SecretString;
 
 /// Owned per-operation PIN input, dropped after authentication/signing completes.
 #[derive(Debug)]
 pub enum PinInput {
     /// Host-provided PIN in redacted, zeroizing storage.
-    Value(SecretString),
+    Value(SecretText),
     /// Use the token's protected authentication path.
     ProtectedPath,
 }
@@ -61,8 +60,8 @@ mod tests {
     #[test]
     fn credentials_debug_redacts_both_secrets() {
         let credentials = Credentials {
-            user: Some(PinInput::Value(SecretString::from("user-secret"))),
-            context: Some(PinInput::Value(SecretString::from("context-secret"))),
+            user: Some(PinInput::Value(SecretText::from("user-secret"))),
+            context: Some(PinInput::Value(SecretText::from("context-secret"))),
         };
         let debug = format!("{credentials:?}");
         assert!(!debug.contains("user-secret"));

@@ -4,7 +4,6 @@ use pkcs11_client::{
     Attribute, AttributeInfo, AttributeRead, AttributeType, KeyKind, ObjectClass, TokenSnapshot,
 };
 use pkcs11_locator::Pkcs11Uri;
-use secrecy::ExposeSecret;
 use serde_json::{Map, Value, json};
 
 pub(crate) fn token_info(token: &TokenSnapshot) -> Result<Value> {

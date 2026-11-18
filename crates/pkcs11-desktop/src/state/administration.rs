@@ -2,7 +2,6 @@
 use super::*;
 use crate::backend::{AdministrationAction, AdministrationKind};
 use pkcs11_client::TokenInitializationTarget;
-use secrecy::ExposeSecret;
 #[derive(Clone, Copy)]
 pub enum AdministrationPinField {
     Current,
@@ -21,9 +20,9 @@ pub struct AdministrationForm {
     pub expected: TokenInitializationTarget,
     pub role: LoginState,
     pub kind: AdministrationKind,
-    pub old_pin: SecretString,
-    pub new_pin: SecretString,
-    pub confirm_pin: SecretString,
+    pub old_pin: SecretText,
+    pub new_pin: SecretText,
+    pub confirm_pin: SecretText,
     pub label: String,
     pub confirmation: String,
     pub reviewing: bool,
@@ -50,9 +49,9 @@ impl AdministrationForm {
             && self.new_pin.expose_secret() == self.confirm_pin.expose_secret()
     }
     fn clear_secrets(&mut self) {
-        self.old_pin = SecretString::default();
-        self.new_pin = SecretString::default();
-        self.confirm_pin = SecretString::default();
+        self.old_pin = SecretText::default();
+        self.new_pin = SecretText::default();
+        self.confirm_pin = SecretText::default();
     }
 }
 impl UiState {
@@ -82,9 +81,9 @@ impl UiState {
             expected: token.initialization.clone(),
             role: token.login,
             kind,
-            old_pin: SecretString::default(),
-            new_pin: SecretString::default(),
-            confirm_pin: SecretString::default(),
+            old_pin: SecretText::default(),
+            new_pin: SecretText::default(),
+            confirm_pin: SecretText::default(),
             label: String::new(),
             confirmation: String::new(),
             reviewing: false,
@@ -105,7 +104,7 @@ impl UiState {
         &mut self,
         id: RequestId,
         field: AdministrationPinField,
-        pin: SecretString,
+        pin: SecretText,
     ) {
         if !self.administration_in_scope(id) {
             return;

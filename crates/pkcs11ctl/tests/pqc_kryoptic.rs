@@ -2,10 +2,9 @@
 //! CLI HashSLH-DSA and Montgomery workflows on disposable Kryoptic.
 
 use pkcs11_client::{
-    Authentication, HashInput, HashSlhDsaRequest, Pin, Provider, PublicKeyRef, SigningPolicy,
-    SlhDsaHedging, SlhDsaParameterSet,
+    Authentication, HashInput, HashSlhDsaRequest, Pin, Provider, PublicKeyRef, SecretText,
+    SigningPolicy, SlhDsaHedging, SlhDsaParameterSet,
 };
-use secrecy::SecretString;
 use std::{
     num::NonZeroUsize,
     path::{Path, PathBuf},
@@ -147,7 +146,7 @@ fn hash_slh_dsa_and_montgomery_cli_workflows() {
             .unwrap(),
     )
     .unwrap();
-    let user_pin = SecretString::from("12345678");
+    let user_pin = SecretText::from("12345678");
     client
         .verify_hash_slh_dsa(
             &public,

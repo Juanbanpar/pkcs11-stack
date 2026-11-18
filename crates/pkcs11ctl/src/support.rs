@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use clap::ArgMatches;
-use pkcs11_client::{Authentication, Pin};
+use pkcs11_client::{Authentication, Pin, SecretText};
 use pkcs11_locator::Pkcs11Uri;
-use secrecy::SecretString;
 use serde_json::{Value, json};
 use std::{
     fs::{File, OpenOptions},
@@ -142,7 +141,7 @@ pub(crate) fn bounded_input(path: &str, maximum: usize) -> Result<Vec<u8>> {
     }
     Ok(bytes)
 }
-fn pin_file(path: &str) -> Result<SecretString> {
+fn pin_file(path: &str) -> Result<SecretText> {
     let mut bytes = Zeroizing::new(Vec::new());
     File::open(path)?.take(65537).read_to_end(&mut bytes)?;
     if bytes.len() > 65536 {
@@ -155,11 +154,11 @@ fn pin_file(path: &str) -> Result<SecretString> {
         }
     }
     let value = std::str::from_utf8(&bytes).map_err(|_| usage("PIN file is not UTF-8"))?;
-    Ok(SecretString::from(value))
+    Ok(SecretText::from(value))
 }
 pub(crate) enum Credential {
     None,
-    Value(SecretString),
+    Value(SecretText),
     Protected,
 }
 impl Credential {
@@ -172,7 +171,7 @@ impl Credential {
             Ok(Self::None)
         }
     }
-    pub fn host_file(m: &ArgMatches, name: &str) -> Result<SecretString> {
+    pub fn host_file(m: &ArgMatches, name: &str) -> Result<SecretText> {
         pin_file(need(m, name)?)
     }
     pub fn pin(&self) -> Option<Pin<'_>> {
@@ -189,7 +188,7 @@ impl Credential {
             Some(p) => Authentication::User(p),
         }
     }
-    pub fn host(&self) -> Result<&SecretString> {
+    pub fn host(&self) -> Result<&SecretText> {
         match self {
             Self::Value(v) => Ok(v),
             _ => Err(usage("this operation requires a host PIN file")),

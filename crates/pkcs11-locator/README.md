@@ -20,17 +20,16 @@ assert!(uri.matches(&discovered));
 ## Model and construction
 
 `Pkcs11Uri` stores validated decoded attributes. Its builder accepts decoded path
-bytes and owned `SecretString` query values, applying the same validation as parsing.
+bytes and owned `SecretText` query values, applying the same validation as parsing.
 Attribute setters return typed errors rather than silently replacing values.
 
 ```rust
-use pkcs11_locator::Pkcs11Uri;
-use secrecy::{ExposeSecret, SecretString};
+use pkcs11_locator::{Pkcs11Uri, SecretText};
 
 let uri = Pkcs11Uri::builder()
     .path_attribute("token", b"production")?
     .path_attribute("id", &[0, 255])?
-    .query_attribute("pin-value", SecretString::from("example-only"))?
+    .query_attribute("pin-value", SecretText::from("example-only"))?
     .build()?;
 assert!(!uri.to_string().contains("example-only"));
 let serialized = uri.to_secret_uri(); // protected, zeroized storage
@@ -75,7 +74,7 @@ resource-identity or full URI-equivalence guarantee.
 | Surface | Secret handling |
 | --- | --- |
 | `pin-value` / `pin-source` | Mutually exclusive; redacted in URI, builder and selector Display/Debug |
-| Query storage | `SecretString`; access requires explicit `ExposeSecret` |
+| Query storage | `SecretText` with explicit access via `expose_secret()` |
 | URI `Display` and `Debug` | Show query names and replace every query value with `[REDACTED]` |
 | `to_secret_uri` | Full serialization in zeroizing, Debug-redacted storage |
 

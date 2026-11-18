@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use pkcs11_runtime::{Module, PrivateKeyRef, SessionMode, SessionPool, SigningPolicy};
-use pkcs11_rustls_adapter::{Credential, Credentials, PinInput};
+use pkcs11_rustls_adapter::{Credential, Credentials, PinInput, SecretText};
 use rustls::{RootCertStore, crypto::CryptoProvider};
 use rustls_pki_types::CertificateDer;
-use secrecy::SecretString;
 use std::{io::Read, num::NonZeroUsize, sync::Arc};
 use zeroize::Zeroizing;
 
@@ -31,7 +30,7 @@ pub fn roots(path: &str) -> Result<RootCertStore> {
     Ok(roots)
 }
 
-fn pin_file(path: &str) -> Result<SecretString> {
+fn pin_file(path: &str) -> Result<SecretText> {
     let mut bytes = Zeroizing::new(Vec::new());
     std::fs::File::open(path)?
         .take(65537)
@@ -46,7 +45,7 @@ fn pin_file(path: &str) -> Result<SecretString> {
     } else {
         text
     };
-    Ok(SecretString::from(text))
+    Ok(SecretText::from(text))
 }
 
 pub fn credential(

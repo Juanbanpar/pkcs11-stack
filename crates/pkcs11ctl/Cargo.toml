@@ -16,7 +16,6 @@ include = ["src/**", "tests/**", "examples/**", "README.md", "Cargo.toml", "Carg
 [dependencies]
 pkcs11-client.workspace = true
 pkcs11-locator.workspace = true
-secrecy.workspace = true
 zeroize.workspace = true
 serde_json.workspace = true
 clap.workspace = true

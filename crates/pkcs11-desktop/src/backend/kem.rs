@@ -1,4 +1,3 @@
-use secrecy::ExposeSecret;
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use super::{BackendError, CryptoMode, CryptoScope, KeyJob, Registry, browse::read_session};
 use pkcs11_client::{

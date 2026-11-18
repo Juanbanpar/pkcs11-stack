@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use super::{BackendError, BackendResult, LoginState, Registry, ResourceId, TokenEntry};
-use pkcs11_client::{Authentication, SessionMode, SessionState, TokenInitializationTarget};
-use secrecy::{ExposeSecret, SecretString};
+use pkcs11_client::{
+    Authentication, SecretText, SessionMode, SessionState, TokenInitializationTarget,
+};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AdministrationKind {
     InitializeToken,
@@ -37,15 +38,15 @@ impl TokenEntry {
 // Owned one-shot credentials; no Debug or Clone and no payload in results.
 pub enum AdministrationAction {
     InitializeToken {
-        so_pin: SecretString,
+        so_pin: SecretText,
         label: String,
     },
     InitializeUserPin {
-        new_pin: SecretString,
+        new_pin: SecretText,
     },
     ChangePin {
-        old_pin: SecretString,
-        new_pin: SecretString,
+        old_pin: SecretText,
+        new_pin: SecretText,
     },
 }
 impl AdministrationAction {

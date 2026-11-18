@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! Generated cases supplement the fixed RFC and boundary regressions.
-use pkcs11_locator::{ObjectIdentity, Pkcs11Uri, ResourceIdentity};
+use pkcs11_locator::{ObjectIdentity, Pkcs11Uri, ResourceIdentity, SecretText};
 use proptest::prelude::*;
-use secrecy::{ExposeSecret, SecretString};
 
 fn text() -> impl Strategy<Value = String> {
     prop::collection::vec(any::<char>(), 0..128).prop_map(|chars| chars.into_iter().collect())
@@ -44,7 +43,7 @@ proptest! {
     fn secret_queries_round_trip_only_through_explicit_secret_output(value in text(), name in prop::sample::select(vec!["pin-source", "pin-value", "vendor-password", "vendor-token", "module-name"])) {
         // The canary cannot occur elsewhere: this URI has only a secret query.
         let value = format!("pin-canary-{value}");
-        let builder = Pkcs11Uri::builder().query_attribute(name, SecretString::from(value.as_str())).unwrap();
+        let builder = Pkcs11Uri::builder().query_attribute(name, SecretText::from(value.as_str())).unwrap();
         let debug = format!("{builder:?}");
         prop_assert!(!debug.contains("pin-canary-"));
         let uri = builder.build().unwrap();

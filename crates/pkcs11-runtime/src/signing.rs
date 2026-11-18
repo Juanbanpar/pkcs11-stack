@@ -683,7 +683,7 @@ impl Session<'_> {
         let signature = if plan.multipart {
             raw.sign_init(&mechanism, object.handle)
                 .map_err(|e| backend("sign init", e))?;
-            raw.login(UserType::ContextSpecific, pin)
+            crate::session::login_with_pin(raw, UserType::ContextSpecific, pin)
                 .map_err(|e| backend("context login", e))?;
             raw.sign_update(&data)
                 .map_err(|e| backend("sign update", e))?;

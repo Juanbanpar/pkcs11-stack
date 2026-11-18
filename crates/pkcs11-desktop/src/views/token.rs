@@ -15,7 +15,6 @@ use iced::{
     widget::{column, container, row, scrollable, text},
 };
 use iced_fonts::lucide;
-use secrecy::ExposeSecret;
 
 pub fn view<'a>(state: &'a UiState, token: &'a TokenEntry) -> Element<'a, Message> {
     let mut tabs = row![].spacing(4);

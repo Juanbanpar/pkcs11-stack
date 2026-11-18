@@ -1,4 +1,3 @@
-use secrecy::ExposeSecret;
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use super::{
     BackendError, BackendResult, LoginState, Registry, ResourceId, SecretInput,

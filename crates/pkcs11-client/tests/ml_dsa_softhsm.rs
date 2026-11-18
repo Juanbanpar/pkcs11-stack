@@ -3,9 +3,8 @@
 use pkcs11_client::{
     Authentication, Error, ErrorKind, MlDsaCertificate, MlDsaHedging, MlDsaParameterSet,
     MlDsaRequest, MlDsaSigningPolicy, MlDsaVerifyingKey, Pin, PrivateKeyRef, Provider,
-    PublicKeyRef, SessionMode, SigningPolicy,
+    PublicKeyRef, SecretText, SessionMode, SigningPolicy,
 };
-use secrecy::SecretString;
 use std::{num::NonZeroUsize, path::PathBuf, process::Command};
 
 fn openssl(args: &[&str]) {
@@ -34,7 +33,7 @@ fn client_ml_dsa_signing_binding_and_public_export() {
         provider.ml_dsa_generation_options(&token).unwrap(),
         parameters
     );
-    let pin = SecretString::from("12345678");
+    let pin = SecretText::from("12345678");
     let auth = || Authentication::User(Pin::Value(&pin));
     let issuer_key = root.join("mldsa-issuer.key");
     let issuer_cert = root.join("mldsa-issuer.pem");
