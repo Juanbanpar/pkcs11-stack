@@ -33,23 +33,25 @@ loads a library. Use stable token serials and object IDs; ambiguous matches fail
 | [pkcs11-rustls-adapter](crates/pkcs11-rustls-adapter/README.md) | Token-backed rustls signing and certificate resolvers |
 | [pkcs11-desktop](crates/pkcs11-desktop/README.md) | Native Iced token browser, cryptographic operations and object manager |
 
-Direct dependencies:
+Direct production dependencies
 
 ```mermaid
 flowchart TD
     cli[pkcs11ctl] --> client[pkcs11-client]
     cli --> locator[pkcs11-locator]
-    client --> runtime[pkcs11-runtime]
+    client -->|token operations| runtime[pkcs11-runtime]
     client --> locator
     runtime --> locator
     runtime --> cryptoki
-    adapter[pkcs11-rustls-adapter] --> runtime
+    adapter[pkcs11-rustls-adapter] -->|token-backed signing| runtime
     adapter --> rustls
     desktop[pkcs11-desktop] --> client
 ```
 
-Runtime owns initialization, sessions, authentication and mechanism planning.
-Selectors identify persistent objects; raw handles stay within their sessions.
+The runtime owns the PKCS#11 lifecycle and executes token operations. Its internal
+modules follow operation families such as signing, encryption, key establishment
+and derivation. The client composes those operations into application workflows.
+Library callers use the crate-root exports.
 Applications choose the software crypto provider used by rustls for record
 protection, key exchange and peer verification.
 
