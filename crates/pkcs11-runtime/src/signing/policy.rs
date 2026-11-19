@@ -70,10 +70,10 @@ impl SigningPolicy {
                 if bits >= self.minimum_rsa_bits => {}
             _ => return Err(Error::UnsupportedSigning("key type or size")),
         }
-        if let SignInput::Digest(value) = request.input {
-            if value.len() != request.digest.output_len() {
-                return Err(Error::InvalidParameters("digest length"));
-            }
+        if let SignInput::Digest(value) = request.input
+            && value.len() != request.digest.output_len()
+        {
+            return Err(Error::InvalidParameters("digest length"));
         }
         match (request.algorithm, request.pss) {
             (SignatureAlgorithm::RsaPss, Some(pss)) => {

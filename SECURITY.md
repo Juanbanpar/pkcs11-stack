@@ -11,12 +11,8 @@ and the application each protect.
 
 ## Dependency advisories
 
-| Advisory | How the dependency is used |
-| --- | --- |
-| [RUSTSEC-2023-0071](https://rustsec.org/advisories/RUSTSEC-2023-0071.html) (`rsa`) | Public-key parsing, export, and software verification. The provider performs private RSA operations. |
-| [RUSTSEC-2026-0387](https://rustsec.org/advisories/RUSTSEC-2026-0387.html) (`crypto-bigint`) | Public EC point validation and signature verification. The provider performs secret-key operations. |
-| [RUSTSEC-2026-0385](https://rustsec.org/advisories/RUSTSEC-2026-0385.html) (`ctutils`) | Public ML-DSA key decoding and verification. The workspace uses 0.4.2 for Rust 1.85. The fuzz workspace uses patched 0.4.8. |
-
-These uses account for the exceptions in the [workspace audit configuration](.cargo/audit.toml).
-Changes to advisory exclusions require explicit review and a written justification
-for each new exception.
+CI audits the workspace, fuzz and pinned provider lockfiles. The
+[workspace audit configuration](.cargo/audit.toml) keeps unmaintained-package
+notices visible and treats unsoundness and yanked packages as failures.
+Changes to advisory exclusions require explicit review and a written
+justification for each new exception.

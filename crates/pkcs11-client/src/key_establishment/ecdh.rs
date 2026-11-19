@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use crate::{Error, ManagementSession, NamedCurve, ObjectRef, SecretKeyIdentity};
-use p256::elliptic_curve::sec1::ToEncodedPoint;
+use p256::elliptic_curve::sec1::ToSec1Point;
 use x509_cert::{
     der::{Decode, Encode, asn1::ObjectIdentifier},
     spki::SubjectPublicKeyInfoOwned,
@@ -43,7 +43,7 @@ impl EcdhPeer {
                     .map_err(|_| Error::InvalidPublicKey)?;
                 (
                     NamedCurve::P256,
-                    key.to_encoded_point(false).as_bytes().to_vec(),
+                    key.to_sec1_point(false).as_bytes().to_vec(),
                 )
             }
             "1.3.132.0.34" => {
@@ -51,7 +51,7 @@ impl EcdhPeer {
                     .map_err(|_| Error::InvalidPublicKey)?;
                 (
                     NamedCurve::P384,
-                    key.to_encoded_point(false).as_bytes().to_vec(),
+                    key.to_sec1_point(false).as_bytes().to_vec(),
                 )
             }
             "1.3.132.0.35" => {
@@ -59,7 +59,7 @@ impl EcdhPeer {
                     .map_err(|_| Error::InvalidPublicKey)?;
                 (
                     NamedCurve::P521,
-                    key.to_encoded_point(false).as_bytes().to_vec(),
+                    key.to_sec1_point(false).as_bytes().to_vec(),
                 )
             }
             _ => return Err(Error::InvalidPublicKey),

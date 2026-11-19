@@ -49,10 +49,9 @@ impl ObjectRef {
             .path_attribute("type")
             .and_then(|v| std::str::from_utf8(v).ok())
             .and_then(|v| v.parse::<ObjectType>().ok())
+            && let Some(class) = object_class(kind)
         {
-            if let Some(class) = object_class(kind) {
-                template.push(Attribute::Class(class));
-            }
+            template.push(Attribute::Class(class));
         }
         template
     }

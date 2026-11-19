@@ -4,7 +4,7 @@
 use crate::{
     Attribute, EcdhPeer, Error, KeyKind, KeyType, ManagementSession, ObjectClass, PublicKeyMetadata,
 };
-use rsa::BigUint;
+use rsa::BoxedUint;
 use x509_cert::der::{
     Decode, Encode,
     asn1::{Null, ObjectIdentifier, OctetString},
@@ -72,9 +72,10 @@ impl ClassicalPublicKey {
                 {
                     return Err(Error::InvalidPublicKey);
                 }
-                let public = rsa::pkcs1::RsaPublicKey::from_der(encoded)
+                let public = rsa::pkcs1::RsaPublicKeyRef::from_der(encoded)
                     .map_err(|_| Error::InvalidPublicKey)?;
-                let bits = BigUint::from_bytes_be(public.modulus.as_bytes()).bits();
+                let bits = BoxedUint::from_be_slice_vartime(public.modulus.as_bytes())
+                    .bit_width_vartime() as usize;
                 if !(2048..=16384).contains(&bits) {
                     return Err(Error::InvalidPublicKey);
                 }
@@ -283,8 +284,8 @@ mod tests {
     fn spki(fixture: &[u8]) -> Vec<u8> {
         Certificate::from_der(fixture)
             .unwrap()
-            .tbs_certificate
-            .subject_public_key_info
+            .tbs_certificate()
+            .subject_public_key_info()
             .to_der()
             .unwrap()
     }

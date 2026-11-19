@@ -87,24 +87,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install native build dependencies
-        run: sudo apt-get update && sudo apt-get install --yes cmake
-      - name: Install minimum Rust
-        run: rustup toolchain install 1.85.0 --no-self-update --profile minimal
-      - name: Check minimum Rust
-        run: cargo +1.85.0 check --workspace --exclude pkcs11-desktop --all-targets --locked
-
-  desktop-msrv:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install desktop native dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --yes pkg-config libxkbcommon-dev libwayland-dev libegl1-mesa-dev
-      - name: Install desktop minimum Rust
+          sudo apt-get install --yes cmake pkg-config libxkbcommon-dev libwayland-dev libegl1-mesa-dev
+      - name: Install minimum Rust
         run: rustup toolchain install 1.88.0 --no-self-update --profile minimal
-      - name: Check desktop minimum Rust
-        run: cargo +1.88.0 check -p pkcs11-desktop --all-targets --locked
+      - name: Check minimum Rust
+        run: cargo +1.88.0 check --workspace --all-targets --locked
 
   softhsm-integration:
     runs-on: ubuntu-latest

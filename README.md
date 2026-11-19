@@ -9,7 +9,7 @@ The rustls adapter provides token-backed TLS client and server authentication.
 
 | Component | Minimum Rust | Requirements |
 | --- | --- | --- |
-| Libraries and CLI | 1.85 | A trusted PKCS#11 module for token operations |
+| Libraries and CLI | 1.88 | A trusted PKCS#11 module for token operations |
 | Desktop and full workspace | 1.88 | Wayland on Linux; [native build dependencies](crates/pkcs11-desktop/README.md#build-and-run) |
 
 ```sh
@@ -92,4 +92,4 @@ Run `./tools/test.sh --providers` for the provider suites or
 
 [MIT](LICENSE-MIT) OR [Apache-2.0](LICENSE-APACHE), at your option.
 
-[Report a vulnerability](SECURITY.md) · [Changelog](CHANGELOG.md)
+[Report a vulnerability](SECURITY.md)

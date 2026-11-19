@@ -123,7 +123,7 @@ fn validate_length(mode: AesMode, length: usize) -> Result<(), Error> {
     if length > AES_MAXIMUM_INPUT {
         return Err(Error::InvalidParameters("AES input exceeds bound"));
     }
-    if !matches!(mode, AesMode::CbcPad) && length % AES_BLOCK_SIZE != 0 {
+    if !matches!(mode, AesMode::CbcPad) && !length.is_multiple_of(AES_BLOCK_SIZE) {
         return Err(Error::InvalidParameters("AES input is not block aligned"));
     }
     Ok(())
@@ -191,10 +191,10 @@ fn capabilities(
     }
     if let Some(Attribute::AllowedMechanisms(allowed)) =
         attribute(object, AttributeType::AllowedMechanisms, false)?
+        && !allowed.is_empty()
+        && !allowed.contains(&mode.mechanism())
     {
-        if !allowed.is_empty() && !allowed.contains(&mode.mechanism()) {
-            return Err(Error::UnsupportedCipherMode);
-        }
+        return Err(Error::UnsupportedCipherMode);
     }
     let token = object.session.token();
     let raw = token.module.raw()?;

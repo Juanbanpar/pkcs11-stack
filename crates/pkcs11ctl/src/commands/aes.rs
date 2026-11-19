@@ -62,7 +62,7 @@ pub(super) fn run(
             let mode = mode(need(m, "mode")?)?;
             let iv = iv(m)?;
             if flag(m, "multipart") {
-                if !matches!(mode, AesMode::CbcPad) && bytes.len() % 16 != 0 {
+                if !matches!(mode, AesMode::CbcPad) && !bytes.len().is_multiple_of(16) {
                     return Err(usage("AES input is not block aligned"));
                 }
                 Ok(Output::Binary(session.encrypt_aes_chunks(
@@ -85,7 +85,7 @@ pub(super) fn run(
             let mode = mode(need(m, "mode")?)?;
             let iv = iv(m)?;
             if flag(m, "multipart") {
-                if !matches!(mode, AesMode::CbcPad) && bytes.len() % 16 != 0 {
+                if !matches!(mode, AesMode::CbcPad) && !bytes.len().is_multiple_of(16) {
                     return Err(usage("AES input is not block aligned"));
                 }
                 Ok(Output::SecretBinary(session.decrypt_aes_chunks(

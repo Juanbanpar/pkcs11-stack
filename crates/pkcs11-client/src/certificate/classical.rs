@@ -5,7 +5,7 @@ use crate::{
     DigestAlgorithm, Error, KeyKind, NamedCurve, SignInput, SignRequest, SignatureAlgorithm,
 };
 use p256::ecdsa::signature::hazmat::PrehashVerifier;
-use rsa::{BigUint, Pkcs1v15Sign, Pss, RsaPublicKey, traits::PublicKeyParts};
+use rsa::{BoxedUint, Pkcs1v15Sign, Pss, PublicKey as RsaPublicKey, traits::PublicKeyParts};
 use sha1::Sha1;
 use sha2::{Digest, Sha224, Sha256, Sha384, Sha512};
 use x509_cert::der::{
@@ -43,7 +43,7 @@ impl Certificate {
     /// algorithm restrictions. PEM and certificate bundles are not accepted.
     pub fn from_der(der: Vec<u8>) -> Result<Self, Error> {
         let (document, certificate) = CertificateDocument::parse(der)?;
-        let spki = &certificate.tbs_certificate.subject_public_key_info;
+        let spki = certificate.tbs_certificate().subject_public_key_info();
         let bytes = spki
             .subject_public_key
             .as_bytes()
@@ -58,12 +58,12 @@ impl Certificate {
                 {
                     return Err(Error::InvalidCertificate);
                 }
-                let public = rsa::pkcs1::RsaPublicKey::from_der(bytes)
+                let public = rsa::pkcs1::RsaPublicKeyRef::from_der(bytes)
                     .map_err(|_| Error::InvalidCertificate)?;
-                let key = RsaPublicKey::new_with_max_size(
-                    BigUint::from_bytes_be(public.modulus.as_bytes()),
-                    BigUint::from_bytes_be(public.public_exponent.as_bytes()),
-                    16384,
+                let key = RsaPublicKey::new_with_size_limits(
+                    BoxedUint::from_be_slice_vartime(public.modulus.as_bytes()),
+                    BoxedUint::from_be_slice_vartime(public.public_exponent.as_bytes()),
+                    1..=16384,
                 )
                 .map_err(|_| Error::InvalidCertificate)?;
                 VerificationKey::Rsa(Box::new(key))
@@ -117,7 +117,7 @@ impl Certificate {
     pub fn key_kind(&self) -> KeyKind {
         match &self.key {
             VerificationKey::Rsa(key) => KeyKind::Rsa {
-                bits: key.n().bits(),
+                bits: key.n().bit_width_vartime() as usize,
             },
             VerificationKey::P256(_) => KeyKind::Ec(NamedCurve::P256),
             VerificationKey::P384(_) => KeyKind::Ec(NamedCurve::P384),
@@ -135,10 +135,10 @@ impl Certificate {
                 if pss.mgf_digest == request.digest => {}
             _ => return Err(Error::UnsupportedVerification),
         }
-        if let SignInput::Digest(bytes) = request.input {
-            if bytes.len() != request.digest.output_len() {
-                return Err(Error::UnsupportedVerification);
-            }
+        if let SignInput::Digest(bytes) = request.input
+            && bytes.len() != request.digest.output_len()
+        {
+            return Err(Error::UnsupportedVerification);
         }
         Ok(())
     }
@@ -176,14 +176,25 @@ impl Certificate {
         match &self.key {
             VerificationKey::Rsa(key) => {
                 if let Some(pss) = request.pss {
-                    let scheme = match request.digest {
-                        DigestAlgorithm::Sha1 => Pss::new_with_salt::<Sha1>(pss.salt_len),
-                        DigestAlgorithm::Sha224 => Pss::new_with_salt::<Sha224>(pss.salt_len),
-                        DigestAlgorithm::Sha256 => Pss::new_with_salt::<Sha256>(pss.salt_len),
-                        DigestAlgorithm::Sha384 => Pss::new_with_salt::<Sha384>(pss.salt_len),
-                        DigestAlgorithm::Sha512 => Pss::new_with_salt::<Sha512>(pss.salt_len),
-                    };
-                    key.verify(scheme, &hash, signature).map_err(mismatch)
+                    let salt_len = pss.salt_len;
+                    match request.digest {
+                        DigestAlgorithm::Sha1 => {
+                            key.verify(Pss::<Sha1>::new_with_salt(salt_len), &hash, signature)
+                        }
+                        DigestAlgorithm::Sha224 => {
+                            key.verify(Pss::<Sha224>::new_with_salt(salt_len), &hash, signature)
+                        }
+                        DigestAlgorithm::Sha256 => {
+                            key.verify(Pss::<Sha256>::new_with_salt(salt_len), &hash, signature)
+                        }
+                        DigestAlgorithm::Sha384 => {
+                            key.verify(Pss::<Sha384>::new_with_salt(salt_len), &hash, signature)
+                        }
+                        DigestAlgorithm::Sha512 => {
+                            key.verify(Pss::<Sha512>::new_with_salt(salt_len), &hash, signature)
+                        }
+                    }
+                    .map_err(mismatch)
                 } else {
                     let scheme = match request.digest {
                         DigestAlgorithm::Sha1 => Pkcs1v15Sign::new::<Sha1>(),
@@ -227,7 +238,12 @@ impl Certificate {
 }
 
 #[cfg(test)]
+#[path = "../../tests/support/certificate.rs"]
+mod certificate_fixture;
+
+#[cfg(test)]
 mod tests {
+    use super::certificate_fixture::replace_spki;
     use super::*;
     use crate::PssParameters;
     use x509_cert::der::Encode;
@@ -343,21 +359,21 @@ mod tests {
         assert_eq!(document.der(), der);
         assert_eq!(
             document.subject_der(),
-            parsed.tbs_certificate.subject.to_der().unwrap()
+            parsed.tbs_certificate().subject().to_der().unwrap()
         );
         assert_eq!(
             document.issuer_der(),
-            parsed.tbs_certificate.issuer.to_der().unwrap()
+            parsed.tbs_certificate().issuer().to_der().unwrap()
         );
         assert_eq!(
             document.serial_der(),
-            parsed.tbs_certificate.serial_number.to_der().unwrap()
+            parsed.tbs_certificate().serial_number().to_der().unwrap()
         );
         assert_eq!(
             document.spki_der(),
             parsed
-                .tbs_certificate
-                .subject_public_key_info
+                .tbs_certificate()
+                .subject_public_key_info()
                 .to_der()
                 .unwrap()
         );
@@ -386,27 +402,25 @@ mod tests {
             Certificate::from_der(fixture("ed25519.der")),
             Err(Error::UnsupportedCertificateKey)
         ));
-        let mut cert = x509_cert::Certificate::from_der(&fixture("rsa.der")).unwrap();
-        cert.tbs_certificate.subject_public_key_info.algorithm.oid =
-            ObjectIdentifier::new_unwrap("1.2.840.113549.1.1.10");
+        let der = fixture("rsa.der");
+        let cert = x509_cert::Certificate::from_der(&der).unwrap();
+        let mut spki = cert.tbs_certificate().subject_public_key_info().clone();
+        spki.algorithm.oid = ObjectIdentifier::new_unwrap("1.2.840.113549.1.1.10");
         assert!(matches!(
-            Certificate::from_der(cert.to_der().unwrap()),
+            Certificate::from_der(replace_spki(&der, &spki)),
             Err(Error::UnsupportedCertificateKey)
         ));
-        let mut cert = x509_cert::Certificate::from_der(&fixture("p256.der")).unwrap();
-        cert.tbs_certificate
-            .subject_public_key_info
-            .subject_public_key = x509_cert::der::asn1::BitString::from_bytes(&[4; 65]).unwrap();
+        let der = fixture("p256.der");
+        let cert = x509_cert::Certificate::from_der(&der).unwrap();
+        let mut spki = cert.tbs_certificate().subject_public_key_info().clone();
+        spki.subject_public_key = x509_cert::der::asn1::BitString::from_bytes(&[4; 65]).unwrap();
         assert!(matches!(
-            Certificate::from_der(cert.to_der().unwrap()),
+            Certificate::from_der(replace_spki(&der, &spki)),
             Err(Error::InvalidCertificate)
         ));
-        cert.tbs_certificate
-            .subject_public_key_info
-            .algorithm
-            .parameters = None;
+        spki.algorithm.parameters = None;
         assert!(matches!(
-            Certificate::from_der(cert.to_der().unwrap()),
+            Certificate::from_der(replace_spki(&der, &spki)),
             Err(Error::UnsupportedCertificateKey)
         ));
     }

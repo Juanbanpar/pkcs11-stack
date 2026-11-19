@@ -179,7 +179,7 @@ impl Credential {
         let leaf = chain.first().ok_or(Error::EmptyChain)?.clone();
         let parsed = x509_cert::Certificate::from_der(leaf.as_ref())
             .map_err(|_| Error::InvalidCertificate)?;
-        let public = &parsed.tbs_certificate.subject_public_key_info;
+        let public = parsed.tbs_certificate().subject_public_key_info();
         let algorithm = &public.algorithm;
         let rsa = algorithm.oid == ObjectIdentifier::new_unwrap("1.2.840.113549.1.1.1");
         let ec = algorithm.oid == ObjectIdentifier::new_unwrap("1.2.840.10045.2.1");
@@ -290,8 +290,8 @@ pub(crate) fn chain_issuers(chain: &[CertificateDer<'_>]) -> Result<Vec<Vec<u8>>
         .map(|cert| {
             x509_cert::Certificate::from_der(cert.as_ref())
                 .map_err(|_| Error::InvalidCertificate)?
-                .tbs_certificate
-                .issuer
+                .tbs_certificate()
+                .issuer()
                 .to_der()
                 .map_err(|_| Error::InvalidCertificate)
         })
