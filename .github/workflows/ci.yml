@@ -127,11 +127,12 @@ jobs:
           sudo apt-get install --yes autoconf automake libtool g++ make perl pkg-config
           prefix="$RUNNER_TEMP/softhsm-upstream"
           bash tools/build-pqc-softhsm.sh "$prefix"
-          echo "PKCS11_TEST_MODULE=$prefix/lib/softhsm/libsofthsm2.so" >> "$GITHUB_ENV"
-          echo "SOFTHSM2_UTIL=$prefix/bin/softhsm2-util" >> "$GITHUB_ENV"
-          echo "PKCS11_TEST_PQC_OPENSSL=$prefix/openssl/bin/openssl" >> "$GITHUB_ENV"
-          echo 'PKCS11_TEST_REQUIRE_EC_MULTIPART=1' >> "$GITHUB_ENV"
-          echo 'PKCS11_TEST_REQUIRE_RSA_OAEP_SHA2=1' >> "$GITHUB_ENV"
+          printf '%s\n' \
+            "PKCS11_TEST_MODULE=$prefix/lib/softhsm/libsofthsm2.so" \
+            "SOFTHSM2_UTIL=$prefix/bin/softhsm2-util" \
+            "PKCS11_TEST_PQC_OPENSSL=$prefix/openssl/bin/openssl" \
+            'PKCS11_TEST_REQUIRE_EC_MULTIPART=1' \
+            'PKCS11_TEST_REQUIRE_RSA_OAEP_SHA2=1' >> "$GITHUB_ENV"
       - name: Install desktop native dependencies
         run: |
           sudo apt-get install --yes cmake pkg-config libxkbcommon-dev libwayland-dev libegl1-mesa-dev

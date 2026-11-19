@@ -14,7 +14,7 @@ fi
 export PKCS11_TEST_OPENSSL=${PKCS11_TEST_OPENSSL:-${PKCS11_TEST_PQC_OPENSSL:-openssl}}
 # Deliberately duplicated labels exercise ambiguity. PINs are public disposable
 # fixture values, not a model for production PIN input.
-for number in 1 2; do
+for _ in 1 2; do
     "$util" --module "$module" --init-token --free --label runtime-test --so-pin 87654321 --pin 12345678 >/dev/null
 done
 cargo test -p pkcs11-runtime --lib --test softhsm --test signing_softhsm --locked -- --ignored --test-threads=1
