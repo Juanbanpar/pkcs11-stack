@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-use super::{BackendError, Registry, ResourceId};
+use super::{BackendError, ResourceId, registry::Registry};
 use pkcs11_client::{
     Attribute, AttributeInfo, AttributeRead, AttributeType, Authentication, KeyType,
     ManagementSession, MechanismType, ObjectClass, Pkcs11Uri, SessionMode,
@@ -201,7 +201,7 @@ fn detail_attributes(class: Option<ObjectClass>) -> Vec<(AttributeType, &'static
 }
 
 pub(super) fn read_session<T>(
-    module: &super::LoadedModule,
+    module: &super::registry::LoadedModule,
     token: &Pkcs11Uri,
     mode: SessionMode,
     operation: impl FnOnce(&mut ManagementSession<'_>) -> Result<T, BackendError>,
@@ -212,7 +212,7 @@ pub(super) fn read_session<T>(
         .map_err(|e| BackendError::from(&e))?;
     let result = operation(&mut session);
     let closed = session.close().map_err(|e| BackendError::from(&e));
-    super::finish_session(result, closed, &module.cleanup_failed)
+    super::registry::finish_session(result, closed, &module.cleanup_failed)
 }
 
 impl Registry {

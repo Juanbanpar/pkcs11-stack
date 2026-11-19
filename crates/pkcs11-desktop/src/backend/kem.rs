@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-use super::{BackendError, CryptoMode, CryptoScope, KeyJob, Registry, browse::read_session};
+use super::{
+    BackendError, CryptoMode, CryptoScope, KeyJob, browse::read_session, registry::Registry,
+};
 use pkcs11_client::{
     MlKemOperation, MlKemParameterSet, MlKemRequest, PrivateKeyRef, PublicKeyRef, SessionMode,
 };

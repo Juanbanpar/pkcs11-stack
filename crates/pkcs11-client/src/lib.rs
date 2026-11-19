@@ -3,62 +3,47 @@
 #![doc = include_str!("../README.md")]
 
 mod administration;
-mod aes_gcm;
+mod capability;
+mod certificate;
+mod client;
+mod derivation;
+mod digest;
+mod encryption;
+mod error;
+mod key_establishment;
+mod key_management;
+mod mac;
+mod management;
+mod object_locator;
+mod objects;
+mod public_key;
+mod random;
+mod signing;
+
 pub use administration::TokenInitializationTarget;
-pub use aes_gcm::{
+pub use certificate::{
+    Certificate, CertificateDocument, EdDsaCertificate, EdDsaIdentity, MlDsaCertificate,
+    MlDsaIdentity,
+};
+pub use client::{Client, Identity};
+pub use encryption::{
     AES_GCM_MAXIMUM_AAD, AES_GCM_MAXIMUM_PLAINTEXT, AES_GCM_NONCE_LENGTH, AES_GCM_TAG_LENGTH,
     AesGcmCapabilities, AesGcmDecryptRequest, AesGcmEncryptRequest, AesGcmOperation,
+    DecryptRequest, EncryptRequest, OaepChoice, Plaintext,
 };
-mod certificate;
-mod eddsa;
-mod eddsa_certificate;
-pub use eddsa::EdDsaVerifyingKey;
-pub use eddsa_certificate::{EdDsaCertificate, EdDsaIdentity};
-mod encryption;
-mod key_operations;
-pub use encryption::{DecryptRequest, EncryptRequest, OaepChoice, Plaintext};
-pub use key_operations::{
-    DeriveRequest, EcdhPeer, KeyOperation, KeyOperationProfile, SecretKeyIdentity, UnwrapRequest,
-    WrapRequest,
-};
-pub use pkcs11_runtime::RsaCipherOperation;
-mod client;
-mod error;
-mod generation;
-pub use generation::{
-    AesKeyPurpose, AesKeyRequest, AesKeySize, EcdhKeyPairRequest, GenerationCapabilities,
-};
-mod hkdf;
-mod management;
-mod mechanisms;
-mod ml_dsa;
-mod ml_dsa_certificate;
-mod ml_kem;
-mod montgomery;
-pub use ml_dsa_certificate::{MlDsaCertificate, MlDsaIdentity, MlDsaVerifyingKey};
-pub use ml_kem::MlKemPublicKey;
-pub use pkcs11_runtime::{HkdfCapabilities, HkdfOutput, HkdfRequest};
-pub use pkcs11_runtime::{
-    MlDsaCapabilities, MlDsaHedging, MlDsaParameterSet, MlDsaPublicKey, MlDsaRequest,
-    MlDsaSigningPolicy,
-};
-pub use pkcs11_runtime::{MlKemCapabilities, MlKemOperation, MlKemParameterSet, MlKemRequest};
-mod object_locator;
-mod public_export;
-mod public_import;
-pub use public_import::{ClassicalPublicKey, ClassicalPublicKeyPurpose, PublicKeyImportRequest};
-mod random;
-mod signature_options;
-
-pub use certificate::{Certificate, CertificateDocument};
-pub use client::{Client, Identity};
 pub use error::{Error, ErrorKind};
+pub use key_establishment::{DeriveRequest, EcdhPeer, MlKemPublicKey};
+pub use key_management::{
+    AesKeyPurpose, AesKeyRequest, AesKeySize, EcdhKeyPairRequest, GenerationCapabilities,
+    KeyOperation, KeyOperationProfile, SecretKeyIdentity, UnwrapRequest, WrapRequest,
+};
 pub use management::{
     AttributeRead, ManagementSession, MechanismSnapshot, PoolDiagnostic, Provider, SlotSnapshot,
     TokenSnapshot, object_reference, token_uri, validate_token_uri,
 };
 pub use object_locator::object_locator;
 pub use pkcs11_locator::Pkcs11Uri;
+pub use pkcs11_runtime::RsaCipherOperation;
 pub use pkcs11_runtime::{
     AES_BLOCK_SIZE, AES_MAXIMUM_INPUT, AesCipherCapabilities, AesDecryptRequest, AesDirection,
     AesEncryptRequest, AesMode, FunctionAvailability, HashAlgorithm, HashInput,
@@ -78,6 +63,15 @@ pub use pkcs11_runtime::{
     PublicKeyMetadata, PublicKeyRef, SessionMode, SessionPool, SessionState, SignInput, SignPlan,
     SignRequest, SignatureAlgorithm, SigningMechanism, SigningPolicy, SlotInfo, TokenInfo,
 };
+pub use pkcs11_runtime::{HkdfCapabilities, HkdfOutput, HkdfRequest};
+pub use pkcs11_runtime::{
+    MlDsaCapabilities, MlDsaHedging, MlDsaParameterSet, MlDsaPublicKey, MlDsaRequest,
+    MlDsaSigningPolicy,
+};
+pub use pkcs11_runtime::{MlKemCapabilities, MlKemOperation, MlKemParameterSet, MlKemRequest};
 pub use pkcs11_runtime::{SecretBytes, SecretText};
+pub use public_key::{ClassicalPublicKey, ClassicalPublicKeyPurpose, PublicKeyImportRequest};
 pub use random::{RandomBytes, RandomRequest};
-pub use signature_options::{SignatureParameters, SigningChoice, SigningOptions};
+pub use signing::{
+    EdDsaVerifyingKey, MlDsaVerifyingKey, SignatureParameters, SigningChoice, SigningOptions,
+};

@@ -4,6 +4,11 @@ Synchronous application workflows over [pkcs11-runtime](https://github.com/Juanb
 resource discovery, signing, certificate binding, encryption, key derivation and
 scoped administration. Part of [pkcs11-stack](https://github.com/Juanbanpar/pkcs11-stack/blob/main/README.md).
 
+The client groups workflows by operation family. Certificate parsing shares an
+exact DER document model, with algorithm-specific verification and binding.
+Public-key import and export share SPKI encoding helpers. Selected session
+operations are delegated to the runtime. Public imports use the crate root.
+
 ## Signing with a certificate
 
 Load a trusted module and supply authentication per call. Prefer token serials and

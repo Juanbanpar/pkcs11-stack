@@ -28,6 +28,25 @@ module.finalize()?;
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
+## Internal architecture
+
+- `signing` owns signature request validation, policy, planning and execution.
+  RSA and ECDSA planning works from a capability snapshot without loading a
+  provider. Each of ML-DSA and SLH-DSA owns its prehash profile.
+- `encryption` owns RSA-OAEP and AES cipher operations. `key_establishment`
+  owns ECDH, Montgomery agreement and ML-KEM. `derivation` owns HKDF,
+  SP 800-108 and the hybrid HKDF combiner. `digest`, `mac` and
+  `key_management` own their operations and key templates.
+- `module` owns provider and token identity. `capability` reports advertised
+  mechanisms and entry points. Live operations check their own prerequisites
+  against the selected object and token.
+- `objects` owns persistent selectors, attribute reads and public metadata.
+  `session` owns authentication, native session health and pool reuse.
+  Each operation decides which terminal results permit reuse.
+
+These module boundaries are private. Public types remain available at the crate
+root.
+
 ## Ownership and shutdown
 
 `Module::load` canonicalizes an explicit trusted library path and initializes with

@@ -53,6 +53,10 @@ jobs:
           cargo check -p pkcs11-rustls-adapter --lib --features tls12 --locked
       - name: Dependency boundaries
         run: python3 tools/check-dependencies.py
+      - name: Module entry points
+        run: |
+          python3 tools/check-module-entrypoints.py
+          python3 tools/test-module-entrypoints.py
       - name: Clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Unit and documentation tests

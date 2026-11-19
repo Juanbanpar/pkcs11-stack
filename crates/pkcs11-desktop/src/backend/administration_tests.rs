@@ -4,6 +4,7 @@ use crate::backend::{
     BackendCommand, BackendEvent, LoginRole, ManagementAction, RequestId, SecretInput,
 };
 use pkcs11_client::Provider;
+use std::path::PathBuf;
 #[track_caller]
 fn inventory(result: BackendResult, expected: Option<BackendError>) {
     match result {
@@ -319,7 +320,6 @@ fn software_token_initialization_pin_roles_stale_targets_and_reauthentication() 
 fn desktop_public_key_import_round_trip() {
     use crate::backend::{GenerationKind, ObjectEntry};
     use pkcs11_client::{ClassicalPublicKeyPurpose, ObjectClass, PublicKeyRef};
-    use std::path::PathBuf;
 
     assert_eq!(std::env::var("PKCS11_TEST_ISOLATED").as_deref(), Ok("1"));
     let root = PathBuf::from(std::env::var_os("PKCS11_CLIENT_TEST_DIR").unwrap())

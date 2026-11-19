@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
+use super::registry::Registry;
 use super::*;
 use pkcs11_client::{AesKeyPurpose, AesKeySize, NamedCurve, ObjectClass};
+use std::path::PathBuf;
 
 fn objects(result: BackendResult, expected: Option<BackendError>) -> Vec<ObjectEntry> {
     match result {
