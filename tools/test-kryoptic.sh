@@ -25,19 +25,20 @@ new_store() {
     local slot store
     scratch=$(mktemp -d "${TMPDIR:-/tmp}/pkcs11-kryoptic.XXXXXXXX")
     trap 'rm -rf -- "$scratch"' EXIT
-    store=$(realpath "$scratch")
+    store=$(realpath -- "$scratch")
     case $store in
         *\"*|*\\*|*[[:cntrl:]]*)
             echo 'The temporary directory path cannot be represented in the Kryoptic configuration.' >&2
             exit 2 ;;
     esac
+    scratch=$store
     export KRYOPTIC_CONF="$scratch/token.conf"
     for slot in "$@"; do
         cat >> "$KRYOPTIC_CONF" <<CONFIG
 [[slots]]
 slot = $slot
 dbtype = "sqlite"
-dbargs = "$store/token-$slot.sql"
+dbargs = "$scratch/token-$slot.sql"
 CONFIG
     done
 }

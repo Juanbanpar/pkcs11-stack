@@ -28,16 +28,17 @@ util=$(realpath "$util")
 export SOFTHSM2_UTIL="$util"
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/pkcs11-stack.XXXXXXXX")
 trap 'rm -rf -- "$scratch"' EXIT
-store=$(realpath "$scratch")
+store=$(realpath -- "$scratch")
 case $store in
     *[[:cntrl:]]*)
         echo 'The temporary directory path cannot be represented in the SoftHSM configuration.' >&2
         exit 2 ;;
 esac
+scratch=$store
 mkdir "$scratch/tokens"
 export SOFTHSM2_CONF="$scratch/softhsm2.conf"
 cat > "$SOFTHSM2_CONF" <<CONFIG
-directories.tokendir = $store/tokens
+directories.tokendir = $scratch/tokens
 objectstore.backend = file
 log.level = ERROR
 slots.removable = false
