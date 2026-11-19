@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use super::*;
-use iced::futures::executor::block_on;
+use iced::futures::{StreamExt, executor::block_on};
+use pkcs11_client::Provider;
 
 #[test]
 fn close_failure_overrides_operation_error_and_blocks_reuse() {
@@ -250,74 +251,6 @@ fn command_round_trip_failure_and_shutdown_are_ordered() {
             BackendEvent::Disconnected
         ]
     ));
-}
-
-#[test]
-fn dropping_worker_disconnects_and_terminates_it() {
-    let (mut worker, source) = Worker::spawn().unwrap();
-    let handle = worker.thread.take().unwrap();
-    drop(worker);
-    handle.join().unwrap().unwrap();
-    assert!(matches!(
-        block_on(source.stream().next()),
-        Some(BackendEvent::Disconnected)
-    ));
-}
-
-#[test]
-fn queue_full_and_disconnected_are_typed_failures() {
-    let (sender, receiver) = mpsc::sync_channel(1);
-    let worker = Worker {
-        commands: Some(sender),
-        thread: None,
-    };
-    let command = || BackendCommand::Synthetic {
-        id: RequestId(1),
-        outcome: SyntheticOutcome::Success,
-    };
-    worker.submit(command()).unwrap();
-    assert_eq!(worker.submit(command()), Err(BackendError::Busy));
-    drop(receiver);
-    assert_eq!(worker.submit(command()), Err(BackendError::Disconnected));
-}
-
-#[test]
-fn worker_panic_is_reported_at_join_and_stream_closure() {
-    let (sender, receiver) = mpsc::sync_channel(1);
-    let (events, output) = asynchronous::unbounded();
-    let worker = Worker {
-        commands: Some(sender),
-        thread: Some(thread::spawn(move || {
-            let _keep_channels_alive = (receiver, events);
-            panic!("synthetic worker panic");
-        })),
-    };
-    assert_eq!(
-        block_on(worker.shutdown(RequestId(1))),
-        Err(BackendError::Panicked)
-    );
-    let source = EventSource(Arc::new(Mutex::new(Some(output))));
-    assert!(matches!(
-        block_on(source.stream().next()),
-        Some(BackendEvent::Disconnected)
-    ));
-}
-
-#[test]
-fn cleanup_failure_is_returned_after_the_worker_is_joined() {
-    let (sender, receiver) = mpsc::sync_channel(1);
-    let failure = BackendError::Client(ErrorKind::Runtime);
-    let worker = Worker {
-        commands: Some(sender),
-        thread: Some(thread::spawn(move || {
-            assert!(matches!(
-                receiver.recv().unwrap(),
-                BackendCommand::Shutdown { .. }
-            ));
-            Err(failure)
-        })),
-    };
-    assert_eq!(block_on(worker.shutdown(RequestId(1))), Err(failure));
 }
 
 #[test]

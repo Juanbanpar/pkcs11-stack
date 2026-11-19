@@ -2,6 +2,7 @@
 use super::tests::{choices, managed, scope};
 use super::*;
 use crate::backend::{GenerationKind, LoginRole, ManagementAction};
+use pkcs11_client::KeyType;
 use pkcs11_client::{Authentication, MlDsaVerifyingKey, PublicKeyRef, SessionMode};
 
 fn job(
