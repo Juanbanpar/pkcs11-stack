@@ -80,6 +80,8 @@ Packaged SoftHSM and the pinned upstream build differ in multipart ECDSA, SHA-2
 OAEP and ML-DSA support; the PQC build can run both classical and ML-DSA suites.
 The packaged compatibility run skips EdDSA for SoftHSM 2.6.1's incorrect key
 bounds. Ed25519 and Ed448 remain mandatory on the pinned upstream build.
+If the system OpenSSL blocks SHA-1 signature verification, set
+`PKCS11_TEST_OPENSSL` to the pinned OpenSSL executable for this partial run.
 
 ## PQC provider compatibility
 

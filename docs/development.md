@@ -9,6 +9,8 @@
 - Keep software public-key verification in the client. Keep TLS dependencies in
   the adapter, CLI and desktop framework dependencies in their applications, and
   testing dependencies in development or fuzz targets.
+- Keep the desktop's Wayland backend and Iced thread-pool executor. Review the
+  enabled widget and icon-font features when changing desktop dependencies.
 - Keep `mod.rs` files limited to module declarations and re-exports, with optional
   documentation and attributes. Put implementations in named sibling files.
 - Preserve public API compatibility when moving code. Review public paths,
