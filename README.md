@@ -65,6 +65,11 @@ the provider or application.
 
 ## Documentation and checks
 
+Keep `mod.rs` files declaration-only across library, application, example, and
+test code. They contain external module declarations and re-exports, with
+optional comments and attributes. Put implementations in named sibling files.
+The module entry-point check enforces this convention in CI.
+
 Crate READMEs are also the library rustdoc landing pages. Build API documentation
 and run checks from the repository root:
 
@@ -75,6 +80,7 @@ cargo check --workspace --all-targets --locked
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
 python3 tools/check-dependencies.py
+python3 tools/check-module-entrypoints.py
 ```
 
 - [Application examples](docs/examples.md): signing, certificate binding and TLS.
