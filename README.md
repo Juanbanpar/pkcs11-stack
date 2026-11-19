@@ -92,4 +92,4 @@ Run `./tools/test.sh --providers` for the provider suites or
 
 [MIT](LICENSE-MIT) OR [Apache-2.0](LICENSE-APACHE), at your option.
 
-[Report a vulnerability](SECURITY.md) · [Changelog](CHANGELOG.md)
+[Report a vulnerability](SECURITY.md)
