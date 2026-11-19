@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
+use super::certificate::VerificationCertificate;
 use super::*;
+use crate::backend::{BackendError, BackendResult, SecretInput, registry::Registry};
+use pkcs11_client::{EdDsaCurve, EdDsaRequest, ObjectClass};
+use std::path::{Path, PathBuf};
 
 fn fixture(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))

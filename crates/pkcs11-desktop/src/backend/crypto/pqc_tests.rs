@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use super::tests::{choices, managed};
+use crate::backend::{ResourceId, SecretInput, registry::Registry};
+use pkcs11_client::ObjectClass;
+use std::path::{Path, PathBuf};
+
 use super::*;
 use crate::backend::{
     BackendResult, GenerationKind, KeyJob, KeyProfile, LoginRole, ManagementAction,

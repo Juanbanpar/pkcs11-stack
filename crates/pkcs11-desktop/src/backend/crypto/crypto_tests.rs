@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
+use super::operations::read_bounded;
 use super::*;
 use crate::backend::{BackendCommand, BackendEvent, LoginRole, ObjectEntry, RequestId};
+use crate::backend::{BackendError, BackendResult, ResourceId, SecretInput, registry::Registry};
+use pkcs11_client::ObjectClass;
 use pkcs11_client::{DigestAlgorithm, SignatureAlgorithm};
+use std::path::{Path, PathBuf};
 
 #[test]
 fn crypto_file_limits_and_unknown_targets_report_fixed_errors() {

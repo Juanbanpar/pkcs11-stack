@@ -30,10 +30,6 @@ pub use protocol::{
 };
 pub use worker::{EventSource, Worker};
 
-use registry::{LoadedModule, Registry, finish_session};
-#[cfg(test)]
-use std::path::PathBuf;
-
 #[cfg(test)]
 mod tests;
 

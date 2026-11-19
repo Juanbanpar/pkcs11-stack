@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
+use super::registry::{Registry, finish_session};
 use super::*;
 use iced::futures::{StreamExt, executor::block_on};
 use pkcs11_client::Provider;
+use std::path::PathBuf;
 
 #[test]
 fn close_failure_overrides_operation_error_and_blocks_reuse() {

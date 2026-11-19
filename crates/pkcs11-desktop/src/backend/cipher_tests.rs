@@ -4,6 +4,7 @@ use crate::backend::{
     BackendCommand, BackendEvent, LoginRole, ObjectEntry, RequestId, SecretInput,
 };
 use pkcs11_client::{DigestAlgorithm, ObjectClass, Provider};
+use std::path::PathBuf;
 fn scope(
     module: super::super::ResourceId,
     token: super::super::ResourceId,

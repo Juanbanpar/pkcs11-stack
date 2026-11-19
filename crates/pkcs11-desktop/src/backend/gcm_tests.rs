@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
+use super::registry::Registry;
 use super::*;
 use pkcs11_client::{AesGcmCapabilities, AesKeyPurpose, AesKeySize, ObjectClass};
+use std::path::PathBuf;
 #[path = "../../../pkcs11-runtime/tests/fixtures/aes_gcm_vectors.rs"]
 mod vectors;
 fn managed(result: BackendResult, error: Option<BackendError>) -> Vec<ObjectEntry> {

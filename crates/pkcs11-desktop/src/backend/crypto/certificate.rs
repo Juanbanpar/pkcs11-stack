@@ -4,7 +4,9 @@ use pkcs11_client::{
     SignInput,
 };
 
-use super::{BackendError, CryptoJob, SignatureOption, SignatureProfile, read_bounded};
+use super::super::BackendError;
+
+use super::{CryptoJob, SignatureOption, SignatureProfile, operations::read_bounded};
 
 pub(super) enum VerificationCertificate {
     Classical(Certificate),

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-use super::{BackendError, LoadedModule, Registry, ResourceId};
+use super::{BackendError, ResourceId, registry::LoadedModule, registry::Registry};
 use pkcs11_client::{Authentication, Pin, SecretText, SessionMode, SessionState};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -58,7 +58,7 @@ impl LoadedModule {
                 error.get_or_insert(BackendError::from(&failure));
             }
         }
-        super::finish_session(Ok(()), error.map_or(Ok(()), Err), &self.cleanup_failed)
+        super::registry::finish_session(Ok(()), error.map_or(Ok(()), Err), &self.cleanup_failed)
     }
     pub(super) fn refresh_authentication(&mut self) -> Result<(), BackendError> {
         let mut retained = Vec::new();
@@ -70,9 +70,11 @@ impl LoadedModule {
                         token.login = LoginState::from_session(state);
                         if token.login == LoginState::Public {
                             let closed = session.close().map_err(|e| BackendError::from(&e));
-                            if let Err(failure) =
-                                super::finish_session(Ok(()), closed, &self.cleanup_failed)
-                            {
+                            if let Err(failure) = super::registry::finish_session(
+                                Ok(()),
+                                closed,
+                                &self.cleanup_failed,
+                            ) {
                                 error = Some(failure);
                             }
                             continue;
@@ -87,7 +89,9 @@ impl LoadedModule {
                 retained.push((id, session));
             } else {
                 let closed = session.close().map_err(|e| BackendError::from(&e));
-                if let Err(failure) = super::finish_session(Ok(()), closed, &self.cleanup_failed) {
+                if let Err(failure) =
+                    super::registry::finish_session(Ok(()), closed, &self.cleanup_failed)
+                {
                     error = Some(failure);
                 }
             }
@@ -157,7 +161,8 @@ impl Registry {
         } else {
             session.close().map_err(|e| BackendError::from(&e))
         };
-        let result = super::finish_session(result, closed, &self.modules[index].cleanup_failed);
+        let result =
+            super::registry::finish_session(result, closed, &self.modules[index].cleanup_failed);
         let refreshed = self.discover(index);
         result.and(refreshed)
     }
@@ -181,7 +186,11 @@ impl Registry {
             self.modules[index].authentication.push((token, session));
             Ok(())
         };
-        let result = super::finish_session(logged_out, closed, &self.modules[index].cleanup_failed);
+        let result = super::registry::finish_session(
+            logged_out,
+            closed,
+            &self.modules[index].cleanup_failed,
+        );
         let refreshed = self.discover(index);
         result.and(refreshed)
     }

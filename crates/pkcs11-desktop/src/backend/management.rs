@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-use super::{BackendError, BackendResult, Registry, ResourceId, browse::read_session};
+use super::{BackendError, BackendResult, ResourceId, browse::read_session, registry::Registry};
 use pkcs11_client::{
     AesKeyPurpose, AesKeyRequest, AesKeySize, Authentication, CertificateDocument,
     ClassicalPublicKey, ClassicalPublicKeyPurpose, EcdhKeyPairRequest, KeyKind, MlDsaParameterSet,
@@ -339,7 +339,7 @@ impl Registry {
             .map_err(|e| BackendError::from(&e))
         })();
         let closed = session.close().map_err(|e| BackendError::from(&e));
-        super::finish_session(result, closed, &self.modules[index].cleanup_failed)
+        super::registry::finish_session(result, closed, &self.modules[index].cleanup_failed)
     }
     pub(super) fn manage(
         &mut self,

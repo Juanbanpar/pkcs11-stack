@@ -6,7 +6,7 @@ use std::{
     thread::{self, JoinHandle},
 };
 
-use super::{BackendCommand, BackendError, BackendEvent, Registry, RequestId};
+use super::{BackendCommand, BackendError, BackendEvent, RequestId, registry::Registry};
 
 /// One receiver per application; clones preserve the subscription's identity.
 #[derive(Clone)]

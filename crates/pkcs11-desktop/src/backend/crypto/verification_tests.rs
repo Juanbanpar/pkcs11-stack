@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
+use super::certificate::VerificationCertificate;
 use super::tests::{choices, managed, scope};
 use super::*;
 use crate::backend::{BackendCommand, BackendEvent, LoginRole, ManagementAction, RequestId};
+use crate::backend::{BackendError, BackendResult, SecretInput, registry::Registry};
+use pkcs11_client::{EdDsaCurve, MlDsaParameterSet};
+use std::path::{Path, PathBuf};
 
 const PARAMETERS: [(MlDsaParameterSet, &str); 3] = [
     (MlDsaParameterSet::MlDsa44, "mldsa44"),

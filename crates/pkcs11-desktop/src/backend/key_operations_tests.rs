@@ -2,6 +2,7 @@
 use super::*;
 use crate::backend::{LoginRole, ObjectEntry, SecretInput};
 use pkcs11_client::{ObjectClass, Provider};
+use std::path::PathBuf;
 fn object(objects: &[ObjectEntry], label: &str, class: ObjectClass) -> ResourceId {
     objects
         .iter()

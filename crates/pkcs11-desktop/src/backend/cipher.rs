@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use super::{
-    BackendError, BackendResult, CryptoMode, CryptoScope, LoginState, Registry,
-    browse::read_session,
+    BackendError, BackendResult, CryptoMode, CryptoScope, LoginState, browse::read_session,
+    registry::Registry,
 };
 use pkcs11_client::{
     AES_GCM_MAXIMUM_AAD, AES_GCM_MAXIMUM_PLAINTEXT, AES_GCM_TAG_LENGTH, AesGcmCapabilities,

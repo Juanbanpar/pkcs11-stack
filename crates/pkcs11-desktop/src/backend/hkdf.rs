@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-use super::{BackendError, CryptoScope, KeyJob, Registry, browse::read_session};
+use super::{BackendError, CryptoScope, KeyJob, browse::read_session, registry::Registry};
 use pkcs11_client::{HkdfCapabilities, HkdfOutput, HkdfRequest, SessionMode};
 
 pub struct HkdfJob {

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-use super::{BackendError, BackendResult, LoginState, Registry, ResourceId, TokenEntry};
+use super::{BackendError, BackendResult, LoginState, ResourceId, TokenEntry, registry::Registry};
 use pkcs11_client::{
     Authentication, SecretText, SessionMode, SessionState, TokenInitializationTarget,
 };
@@ -149,7 +149,7 @@ impl Registry {
                 .map_err(|_| BackendError::AdministrationFailed)
             })();
             let closed = session.close().map_err(|_| BackendError::SessionCleanup);
-            super::finish_session(result, closed, &self.modules[index].cleanup_failed)
+            super::registry::finish_session(result, closed, &self.modules[index].cleanup_failed)
         })();
         // End this token's local authenticated lifetime after any PIN attempt.
         let mut cleanup = Ok(());
@@ -161,7 +161,7 @@ impl Registry {
             let (_, session) = self.modules[index].authentication.remove(position);
             cleanup = session.close().map_err(|_| BackendError::SessionCleanup);
         }
-        super::finish_session(result, cleanup, &self.modules[index].cleanup_failed)
+        super::registry::finish_session(result, cleanup, &self.modules[index].cleanup_failed)
     }
     pub(super) fn administer(
         &mut self,

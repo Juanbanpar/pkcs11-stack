@@ -4,7 +4,9 @@ use pkcs11_client::{
     PublicKeyRef, SignatureAlgorithm, SignatureParameters,
 };
 
-use super::{BackendError, SignatureOption, SignatureProfile, policy};
+use super::super::BackendError;
+
+use super::{SignatureOption, SignatureProfile, operations::policy};
 
 pub(super) fn public_verification_options(
     session: &mut ManagementSession<'_>,
