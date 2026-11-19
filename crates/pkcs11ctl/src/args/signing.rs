@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-use super::{flag, required, value};
+use super::options::{flag, required, value};
 use clap::Command;
 
 pub(super) fn context(command: Command) -> Command {

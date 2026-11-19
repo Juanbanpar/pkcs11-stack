@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! CLI HashML-DSA and HashSLH-DSA signing workflows.
 
-use super::{Inputs, Output};
+use super::Inputs;
+use crate::commands::Output;
 use crate::support::*;
 use clap::ArgMatches;
 use pkcs11_client::{

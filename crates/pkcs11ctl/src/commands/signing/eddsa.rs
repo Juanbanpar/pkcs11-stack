@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! CLI EdDSA (Ed25519/Ed448) workflows.
 
-use super::{Inputs, Output};
+use super::Inputs;
+use crate::commands::Output;
 use crate::support::*;
 use clap::ArgMatches;
 use pkcs11_client::{Client, EdDsaCurve, EdDsaRequest};

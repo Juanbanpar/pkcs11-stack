@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-use super::{required, value};
+use super::options::{required, value};
 use clap::Command;
 
 pub(super) fn kem_parameter(command: Command) -> Command {

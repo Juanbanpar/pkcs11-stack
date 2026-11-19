@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! SLH-DSA CLI signing workflows over `pkcs11-client`.
 
-use super::{Inputs, Output};
+use super::Inputs;
+use crate::commands::Output;
 use crate::support::*;
 use clap::ArgMatches;
 use pkcs11_client::{

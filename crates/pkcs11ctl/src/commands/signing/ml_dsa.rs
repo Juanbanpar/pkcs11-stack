@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-use super::{Inputs, Output, VerificationCertificate, verify};
+use super::{Inputs, VerificationCertificate, verify};
+use crate::commands::Output;
 use crate::support::*;
 use clap::ArgMatches;
 use pkcs11_client::{Client, MlDsaHedging, MlDsaParameterSet, MlDsaRequest, MlDsaSigningPolicy};
