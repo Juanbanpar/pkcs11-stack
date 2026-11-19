@@ -36,7 +36,7 @@ fn algorithm_id(parameter: MlDsaParameterSet) -> AlgorithmIdentifier {
 fn leaf_key(leaf: &CertificateDer<'_>) -> Result<(MlDsaParameterSet, Vec<u8>), Error> {
     let parsed =
         x509_cert::Certificate::from_der(leaf.as_ref()).map_err(|_| Error::InvalidCertificate)?;
-    let public = parsed.tbs_certificate.subject_public_key_info;
+    let public = parsed.tbs_certificate().subject_public_key_info();
     let parameter = [
         ("2.16.840.1.101.3.4.3.17", MlDsaParameterSet::MlDsa44),
         ("2.16.840.1.101.3.4.3.18", MlDsaParameterSet::MlDsa65),
@@ -222,7 +222,10 @@ impl Credential {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use x509_cert::der::asn1::{Any, BitString};
+    use x509_cert::der::{
+        Tagged,
+        asn1::{Any, BitString},
+    };
     #[test]
     fn ml_dsa_requires_exact_parameters_and_matching_provider_verification() {
         let fixtures = [
@@ -257,25 +260,23 @@ mod tests {
             assert!(request.context.is_empty());
             assert_eq!(request.hedging, MlDsaHedging::Required);
             let parsed = x509_cert::Certificate::from_der(der).unwrap();
-            let mut null = parsed.clone();
-            null.tbs_certificate
-                .subject_public_key_info
-                .algorithm
-                .parameters = Some(Any::from_der(&[5, 0]).unwrap());
-            let mut truncated = parsed.clone();
-            truncated
-                .tbs_certificate
-                .subject_public_key_info
-                .subject_public_key = BitString::from_bytes(&[0; 32]).unwrap();
-            let mut unaligned = parsed;
-            unaligned
-                .tbs_certificate
-                .subject_public_key_info
-                .subject_public_key =
+            let spki = parsed.tbs_certificate().subject_public_key_info();
+            let mut null = spki.clone();
+            null.algorithm.parameters = Some(Any::from_der(&[5, 0]).unwrap());
+            let mut truncated = spki.clone();
+            truncated.subject_public_key = BitString::from_bytes(&[0; 32]).unwrap();
+            let mut unaligned = spki.clone();
+            unaligned.subject_public_key =
                 BitString::new(1, vec![0; parameter.public_key_length()]).unwrap();
+            let mut certificate = Vec::<Any>::from_der(der).unwrap();
+            let mut tbs = certificate[0].decode_as::<Vec<Any>>().unwrap();
+            // TBSCertificate's explicit version field may be omitted.
+            let spki_index = 5 + usize::from(tbs[0].tag().is_context_specific());
             for bad in [null, truncated, unaligned] {
+                tbs[spki_index] = Any::encode_from(&bad).unwrap();
+                certificate[0] = Any::encode_from(&tbs).unwrap();
                 assert!(matches!(
-                    leaf_key(&CertificateDer::from(bad.to_der().unwrap())),
+                    leaf_key(&CertificateDer::from(certificate.to_der().unwrap())),
                     Err(Error::InvalidCertificate)
                 ));
             }

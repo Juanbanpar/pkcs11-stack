@@ -508,10 +508,10 @@ impl<'m> Session<'m> {
         }
         if let Some(Attribute::AllowedMechanisms(allowed)) =
             attribute(&object, AttributeType::AllowedMechanisms, false)?
+            && !allowed.is_empty()
+            && !allowed.contains(&MechanismType::ECDH1_DERIVE)
         {
-            if !allowed.is_empty() && !allowed.contains(&MechanismType::ECDH1_DERIVE) {
-                return Err(Error::UnsupportedKeyOperation);
-            }
+            return Err(Error::UnsupportedKeyOperation);
         }
         let mechanism = Mechanism::Ecdh1Derive(Ecdh1DeriveParams::new(
             request.kdf.params(request.shared_info),

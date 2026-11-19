@@ -158,12 +158,12 @@ impl<'a> HashInput<'a> {
     }
 
     pub(super) fn validate(self) -> Result<(), Error> {
-        if let Self::Digest { hash, bytes } = self {
-            if hash.mechanism().is_none() || bytes.len() != hash.output_len() {
-                return Err(Error::InvalidParameters(
-                    "prehash digest length or unsupported prehash",
-                ));
-            }
+        if let Self::Digest { hash, bytes } = self
+            && (hash.mechanism().is_none() || bytes.len() != hash.output_len())
+        {
+            return Err(Error::InvalidParameters(
+                "prehash digest length or unsupported prehash",
+            ));
         }
         Ok(())
     }

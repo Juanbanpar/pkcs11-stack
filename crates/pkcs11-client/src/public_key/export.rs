@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use crate::{Error, KeyKind, NamedCurve, PublicKeyMetadata};
-use rsa::{BigUint, RsaPublicKey, pkcs8::EncodePublicKey};
+use rsa::{BoxedUint, PublicKey as RsaPublicKey, pkcs8::EncodePublicKey};
 use x509_cert::{
     der::{
         Decode, Encode,
@@ -15,10 +15,10 @@ pub(crate) fn encode_public_key(metadata: PublicKeyMetadata) -> Result<Vec<u8>, 
         KeyKind::Rsa { .. } => {
             let modulus = metadata.modulus.ok_or_else(invalid)?;
             let exponent = metadata.public_exponent.ok_or_else(invalid)?;
-            let key = RsaPublicKey::new_with_max_size(
-                BigUint::from_bytes_be(&modulus),
-                BigUint::from_bytes_be(&exponent),
-                16384,
+            let key = RsaPublicKey::new_with_size_limits(
+                BoxedUint::from_be_slice_vartime(&modulus),
+                BoxedUint::from_be_slice_vartime(&exponent),
+                1..=16384,
             )
             .map_err(|_| invalid())?;
             Ok(key
@@ -123,7 +123,7 @@ mod tests {
             let der = fixture(&format!("{name}.der"));
             let certificate = crate::Certificate::from_der(der.clone()).unwrap();
             let parsed = x509_cert::Certificate::from_der(&der).unwrap();
-            let spki = parsed.tbs_certificate.subject_public_key_info;
+            let spki = parsed.tbs_certificate().subject_public_key_info();
             let mut metadata = PublicKeyMetadata {
                 key: certificate.key_kind(),
                 spki: Some(b"untrusted-spki".to_vec()),
@@ -135,11 +135,19 @@ mod tests {
             match metadata.key {
                 KeyKind::Rsa { .. } => {
                     let key = RsaPublicKey::from_public_key_der(certificate.spki_der()).unwrap();
-                    metadata.modulus = Some(key.n().to_bytes_be());
-                    metadata.public_exponent = Some(key.e().to_bytes_be());
+                    metadata.modulus = Some(key.n().to_be_bytes_trimmed_vartime().into_vec());
+                    metadata.public_exponent =
+                        Some(key.e().to_be_bytes_trimmed_vartime().into_vec());
                 }
                 KeyKind::Ec(_) => {
-                    metadata.ec_params = Some(spki.algorithm.parameters.unwrap().to_der().unwrap());
+                    metadata.ec_params = Some(
+                        spki.algorithm
+                            .parameters
+                            .as_ref()
+                            .unwrap()
+                            .to_der()
+                            .unwrap(),
+                    );
                     metadata.ec_point = Some(
                         OctetString::new(spki.subject_public_key.as_bytes().unwrap().to_vec())
                             .unwrap()
@@ -160,5 +168,29 @@ mod tests {
                 Err(Error::InvalidPublicKey)
             ));
         }
+    }
+
+    #[test]
+    fn rsa_export_supports_moduli_up_to_the_explicit_size_limit() {
+        let mut metadata = PublicKeyMetadata {
+            key: KeyKind::Rsa { bits: 16384 },
+            spki: None,
+            modulus: Some(vec![0xa5; 2048]),
+            public_exponent: Some(vec![1, 0, 1]),
+            ec_params: None,
+            ec_point: None,
+        };
+        let spki = encode_public_key(metadata.clone()).unwrap();
+        assert_eq!(
+            crate::ClassicalPublicKey::from_spki_der(&spki)
+                .unwrap()
+                .key_kind(),
+            metadata.key,
+        );
+        metadata.modulus.as_mut().unwrap().insert(0, 1);
+        assert!(matches!(
+            encode_public_key(metadata),
+            Err(Error::InvalidPublicKey)
+        ));
     }
 }

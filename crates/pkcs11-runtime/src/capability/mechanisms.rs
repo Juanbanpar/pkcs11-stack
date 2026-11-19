@@ -388,10 +388,10 @@ pub(crate) fn check_key_mechanism(
 
     if let Some(Attribute::AllowedMechanisms(allowed)) =
         attribute(object, AttributeType::AllowedMechanisms, false)?
+        && !allowed.is_empty()
+        && !allowed.contains(&mechanism)
     {
-        if !allowed.is_empty() && !allowed.contains(&mechanism) {
-            return Err(Error::UnsupportedKeyOperation);
-        }
+        return Err(Error::UnsupportedKeyOperation);
     }
     let token = object.session.token();
     if !token.mechanisms()?.contains(&mechanism) {

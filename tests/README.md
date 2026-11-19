@@ -165,11 +165,9 @@ cargo audit --file fuzz/Cargo.lock
 (cd tools/provider-locks && cargo audit --file kryoptic.Cargo.lock)
 ```
 
-Vulnerabilities, unsoundness notices and yanked packages fail; unmaintained-package
-notices are warnings. The [audit configuration](../.cargo/audit.toml) documents
-advisory-specific exceptions for software public-key verification/parsing. Reassess
-exceptions before adding software private-key operations or changing those dependency
-families. Token private-key operations remain the provider's responsibility.
+Vulnerabilities, unsoundness notices and yanked packages fail the audit.
+Unmaintained-package notices are warnings. See the
+[advisory policy](../SECURITY.md#dependency-advisories) for reviewing exclusions.
 
 ## Property tests and fuzzing
 
@@ -181,6 +179,5 @@ PROPTEST_RNG_SEED=42 PROPTEST_CASES=4096 cargo test -p pkcs11-rustls-adapter --l
 Retain minimized failures as regression tests. The [fuzz guide](../fuzz/README.md)
 covers sanitizers, corpus management and replay. Linux CI runs the full workspace
 and provider suites. Windows and macOS compile all targets and run representative
-CLI file-handling tests. Separate compile checks cover Rust 1.85 for core
-targets and Rust 1.88 for the desktop, alongside stable standalone adapter
-production checks.
+CLI file-handling tests. The workspace also compiles all targets on Rust 1.88.
+Stable CI checks the adapter's standalone production configurations.

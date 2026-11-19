@@ -299,7 +299,7 @@ fn token_tls_handshakes_and_lifecycle() {
                 .is_none()
         );
         let ca = x509_cert::Certificate::from_der(cert(&root, "ca").as_ref()).unwrap();
-        let hint = ca.tbs_certificate.subject.to_der().unwrap();
+        let hint = ca.tbs_certificate().subject().to_der().unwrap();
         assert!(
             clients
                 .resolve(&[&hint], &[SignatureScheme::ECDSA_NISTP256_SHA256])

@@ -17,7 +17,7 @@ libfuzzer-sys = "=0.4.13"
 pkcs11-locator = { path = "../crates/pkcs11-locator" }
 pkcs11-runtime = { path = "../crates/pkcs11-runtime" }
 pkcs11-rustls-adapter = { path = "../crates/pkcs11-rustls-adapter" }
-der = { version = "0.7.10", features = ["std", "derive"] }
+der = { version = "0.8.3", features = ["std", "derive"] }
 
 [[bin]]
 name = "uri_parser"

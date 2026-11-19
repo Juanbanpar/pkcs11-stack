@@ -80,10 +80,10 @@ fn capabilities(
     }
     if let Some(Attribute::AllowedMechanisms(allowed)) =
         attribute(object, AttributeType::AllowedMechanisms, false)?
+        && !allowed.is_empty()
+        && !allowed.contains(&MechanismType::RSA_PKCS_OAEP)
     {
-        if !allowed.is_empty() && !allowed.contains(&MechanismType::RSA_PKCS_OAEP) {
-            return Err(Error::UnsupportedCipher);
-        }
+        return Err(Error::UnsupportedCipher);
     }
     let token = object.session.token();
     if !token.mechanisms()?.contains(&MechanismType::RSA_PKCS_OAEP) {

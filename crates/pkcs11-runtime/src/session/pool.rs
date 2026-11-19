@@ -138,16 +138,16 @@ impl<'m> SessionPool<'m> {
             Authentication::User(_) => Some(false),
             Authentication::SecurityOfficer(_) => Some(true),
         };
-        if let Some(so) = desired {
-            if !role_matches(session.info()?.session_state(), so) {
-                match session.authenticate(authentication) {
-                    Ok(()) => {}
-                    Err(Error::Backend {
-                        source: cryptoki::error::Error::Pkcs11(RvError::UserAlreadyLoggedIn, _),
-                        ..
-                    }) if role_matches(session.info()?.session_state(), so) => {}
-                    Err(e) => return Err(e),
-                }
+        if let Some(so) = desired
+            && !role_matches(session.info()?.session_state(), so)
+        {
+            match session.authenticate(authentication) {
+                Ok(()) => {}
+                Err(Error::Backend {
+                    source: cryptoki::error::Error::Pkcs11(RvError::UserAlreadyLoggedIn, _),
+                    ..
+                }) if role_matches(session.info()?.session_state(), so) => {}
+                Err(e) => return Err(e),
             }
         }
         lease.reusable = true;
@@ -230,13 +230,12 @@ impl Drop for SessionLease<'_, '_> {
                     && crate::module::same_token(e.session.token().info(), self.pool.token.info())
                     && e.session.mode == self.pool.mode
             });
-        if healthy {
-            if let Ok(mut state) = self.pool.state.lock() {
-                if let Some(entry) = self.entry.take() {
-                    state.idle.push(entry);
-                    return;
-                }
-            }
+        if healthy
+            && let Ok(mut state) = self.pool.state.lock()
+            && let Some(entry) = self.entry.take()
+        {
+            state.idle.push(entry);
+            return;
         }
         // Keep it counted until close completes; no module call under the mutex.
         let closed = self.close_entry();

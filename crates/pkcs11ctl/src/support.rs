@@ -105,12 +105,14 @@ pub(crate) fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 pub(crate) fn unhex(value: &str) -> Result<Vec<u8>> {
-    if value.is_empty() || value.len() % 2 != 0 || !value.is_ascii() {
+    if value.is_empty() || !value.len().is_multiple_of(2) || !value.is_ascii() {
         return Err(usage("ID must be nonempty even-length hexadecimal"));
     }
     value
         .as_bytes()
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|c| {
             std::str::from_utf8(c)
                 .ok()

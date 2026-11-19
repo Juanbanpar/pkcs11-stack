@@ -21,19 +21,22 @@ impl CertificateDocument {
     pub(super) fn parse(der: Vec<u8>) -> Result<(Self, x509_cert::Certificate), Error> {
         let parsed =
             x509_cert::Certificate::from_der(&der).map_err(|_| Error::InvalidCertificate)?;
-        let tbs = &parsed.tbs_certificate;
+        let tbs = parsed.tbs_certificate();
         let document = Self {
             spki: tbs
-                .subject_public_key_info
+                .subject_public_key_info()
                 .to_der()
                 .map_err(|_| Error::InvalidCertificate)?,
             subject: tbs
-                .subject
+                .subject()
                 .to_der()
                 .map_err(|_| Error::InvalidCertificate)?,
-            issuer: tbs.issuer.to_der().map_err(|_| Error::InvalidCertificate)?,
+            issuer: tbs
+                .issuer()
+                .to_der()
+                .map_err(|_| Error::InvalidCertificate)?,
             serial: tbs
-                .serial_number
+                .serial_number()
                 .to_der()
                 .map_err(|_| Error::InvalidCertificate)?,
             der,

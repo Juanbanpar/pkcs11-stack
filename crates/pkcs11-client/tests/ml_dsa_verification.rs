@@ -12,6 +12,9 @@ use x509_cert::{
     spki::SubjectPublicKeyInfoOwned,
 };
 
+#[path = "support/certificate.rs"]
+mod certificate_fixture;
+
 fn fixture(name: &str) -> Vec<u8> {
     std::fs::read(
         Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -136,11 +139,11 @@ fn spki_and_certificate_parsing_reject_nonstandard_encodings() {
                 MlDsaVerifyingKey::from_spki_der(&bad.to_der().unwrap()),
                 Err(Error::InvalidPublicKey)
             ));
-            let mut certificate =
-                x509_cert::Certificate::from_der(&fixture(&format!("{name}.der"))).unwrap();
-            certificate.tbs_certificate.subject_public_key_info = bad;
             assert!(matches!(
-                MlDsaCertificate::from_der(certificate.to_der().unwrap()),
+                MlDsaCertificate::from_der(certificate_fixture::replace_spki(
+                    &fixture(&format!("{name}.der")),
+                    &bad,
+                )),
                 Err(Error::InvalidCertificate)
             ));
         }
@@ -201,8 +204,8 @@ fn repeated_hint_indices_do_not_create_an_alternate_valid_signature() {
 
 #[test]
 fn parsing_and_message_verification_do_not_assert_issuer_trust() {
-    let mut certificate = x509_cert::Certificate::from_der(&fixture("mldsa44.der")).unwrap();
-    certificate.signature = BitString::from_bytes(&vec![0; 2420]).unwrap();
+    let mut certificate = Vec::<Any>::from_der(&fixture("mldsa44.der")).unwrap();
+    certificate[2] = Any::encode_from(&BitString::from_bytes(&[0; 2420]).unwrap()).unwrap();
     let certificate = MlDsaCertificate::from_der(certificate.to_der().unwrap()).unwrap();
     let request = MlDsaRequest {
         parameter_set: MlDsaParameterSet::MlDsa44,

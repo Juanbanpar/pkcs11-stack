@@ -76,11 +76,15 @@ impl MlKemPublicKey {
     /// Does not authenticate the owner or prove possession of the decapsulation key.
     pub fn from_bytes(parameter_set: MlKemParameterSet, bytes: Vec<u8>) -> Result<Self, Error> {
         if bytes.len() != parameter_set.public_key_length()
-            || bytes[..bytes.len() - 32].chunks_exact(3).any(|chunk| {
-                let first = u16::from(chunk[0]) | ((u16::from(chunk[1]) & 15) << 8);
-                let second = (u16::from(chunk[1]) >> 4) | (u16::from(chunk[2]) << 4);
-                first >= 3329 || second >= 3329
-            })
+            || bytes[..bytes.len() - 32]
+                .as_chunks::<3>()
+                .0
+                .iter()
+                .any(|chunk| {
+                    let first = u16::from(chunk[0]) | ((u16::from(chunk[1]) & 15) << 8);
+                    let second = (u16::from(chunk[1]) >> 4) | (u16::from(chunk[2]) << 4);
+                    first >= 3329 || second >= 3329
+                })
         {
             return Err(Error::InvalidParameters("ML-KEM public-key encoding"));
         }
