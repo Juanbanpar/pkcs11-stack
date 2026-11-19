@@ -1,17 +1,12 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! Application wrappers for X25519/X448 generation, import, export and derivation.
 
+use crate::public_key::encode_raw_spki;
 use crate::{Error, ManagementSession, ObjectRef, Pkcs11Uri, Provider, PublicKeyRef};
 use pkcs11_runtime::{
     MontgomeryCapabilities, MontgomeryCurve, MontgomeryDerivation, MontgomeryPublicKey,
 };
-use x509_cert::{
-    der::{
-        Encode,
-        asn1::{BitString, ObjectIdentifier},
-    },
-    spki::{AlgorithmIdentifierOwned, SubjectPublicKeyInfoOwned},
-};
+use x509_cert::der::asn1::ObjectIdentifier;
 
 fn oid(curve: MontgomeryCurve) -> ObjectIdentifier {
     ObjectIdentifier::new_unwrap(match curve {
@@ -21,16 +16,7 @@ fn oid(curve: MontgomeryCurve) -> ObjectIdentifier {
 }
 
 fn spki(key: &MontgomeryPublicKey) -> Result<Vec<u8>, Error> {
-    SubjectPublicKeyInfoOwned {
-        algorithm: AlgorithmIdentifierOwned {
-            oid: oid(key.curve()),
-            parameters: None,
-        },
-        subject_public_key: BitString::from_bytes(key.as_bytes())
-            .map_err(|_| Error::InvalidPublicKey)?,
-    }
-    .to_der()
-    .map_err(|_| Error::InvalidPublicKey)
+    encode_raw_spki(oid(key.curve()), key.as_bytes())
 }
 
 impl Provider {

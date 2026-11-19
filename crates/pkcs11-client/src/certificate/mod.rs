@@ -1,4 +1,12 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
+mod document;
+mod eddsa;
+mod ml_dsa;
+pub use document::CertificateDocument;
+
+pub use eddsa::{EdDsaCertificate, EdDsaIdentity};
+pub use ml_dsa::{MlDsaCertificate, MlDsaIdentity};
+
 use crate::{
     DigestAlgorithm, Error, KeyKind, NamedCurve, SignInput, SignRequest, SignatureAlgorithm,
 };
@@ -7,73 +15,9 @@ use rsa::{BigUint, Pkcs1v15Sign, Pss, RsaPublicKey, traits::PublicKeyParts};
 use sha1::Sha1;
 use sha2::{Digest, Sha224, Sha256, Sha384, Sha512};
 use x509_cert::der::{
-    Decode, Encode,
+    Decode,
     asn1::{Null, ObjectIdentifier},
 };
-
-/// Exact X.509 DER and public metadata, independent of supported signing algorithms.
-/// Parsing alone does not validate certificate trust or the subject public key.
-/// Useful for importing certificates whose key algorithm cannot be used by this client.
-pub struct CertificateDocument {
-    der: Vec<u8>,
-    spki: Vec<u8>,
-    subject: Vec<u8>,
-    issuer: Vec<u8>,
-    serial: Vec<u8>,
-}
-impl std::fmt::Debug for CertificateDocument {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("CertificateDocument { contents: [REDACTED] }")
-    }
-}
-impl CertificateDocument {
-    fn parse(der: Vec<u8>) -> Result<(Self, x509_cert::Certificate), Error> {
-        let parsed =
-            x509_cert::Certificate::from_der(&der).map_err(|_| Error::InvalidCertificate)?;
-        let tbs = &parsed.tbs_certificate;
-        let document = Self {
-            spki: tbs
-                .subject_public_key_info
-                .to_der()
-                .map_err(|_| Error::InvalidCertificate)?,
-            subject: tbs
-                .subject
-                .to_der()
-                .map_err(|_| Error::InvalidCertificate)?,
-            issuer: tbs.issuer.to_der().map_err(|_| Error::InvalidCertificate)?,
-            serial: tbs
-                .serial_number
-                .to_der()
-                .map_err(|_| Error::InvalidCertificate)?,
-            der,
-        };
-        Ok((document, parsed))
-    }
-    /// Parse one exact DER X.509 certificate, including unsupported key algorithms.
-    pub fn from_der(der: Vec<u8>) -> Result<Self, Error> {
-        Ok(Self::parse(der)?.0)
-    }
-    /// Original certificate DER.
-    pub fn der(&self) -> &[u8] {
-        &self.der
-    }
-    /// SubjectPublicKeyInfo DER; no public-key validity or support check is implied.
-    pub fn spki_der(&self) -> &[u8] {
-        &self.spki
-    }
-    /// Subject Name DER, suitable for CKA_SUBJECT.
-    pub fn subject_der(&self) -> &[u8] {
-        &self.subject
-    }
-    /// Issuer Name DER, suitable for CKA_ISSUER.
-    pub fn issuer_der(&self) -> &[u8] {
-        &self.issuer
-    }
-    /// Serial number DER INTEGER, suitable for CKA_SERIAL_NUMBER.
-    pub fn serial_der(&self) -> &[u8] {
-        &self.serial
-    }
-}
 
 enum VerificationKey {
     Rsa(Box<RsaPublicKey>),
@@ -207,7 +151,7 @@ impl Certificate {
     /// Common SHA-2 verification choices for this certificate's public key.
     /// PSS uses matching MGF1 digest and digest-length salt; no trust is asserted.
     pub fn verification_options(&self) -> Vec<crate::SignatureParameters> {
-        crate::signature_options::candidates(self.key_kind())
+        crate::signing::candidates(self.key_kind())
     }
     /// Verify a raw RSA or fixed-width ECDSA r || s signature in software.
     /// This proves signature validity against this key, not certificate trust.
@@ -292,8 +236,9 @@ impl Certificate {
 mod tests {
     use super::*;
     use crate::PssParameters;
+    use x509_cert::der::Encode;
 
-    const MESSAGE: &[u8] = include_bytes!("../tests/fixtures/message.txt");
+    const MESSAGE: &[u8] = include_bytes!("../../tests/fixtures/message.txt");
     fn fixture(name: &str) -> Vec<u8> {
         std::fs::read(
             std::path::Path::new(env!("CARGO_MANIFEST_DIR"))

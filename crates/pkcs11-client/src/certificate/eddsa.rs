@@ -20,12 +20,8 @@ impl EdDsaCertificate {
     /// Parse exactly one DER X.509 certificate with an RFC 8410 EdDSA public key.
     /// Rejects algorithm parameters, wrong key sizes, trailing bytes and other algorithms.
     pub fn from_der(der: Vec<u8>) -> Result<Self, Error> {
-        let document = CertificateDocument::from_der(der)?;
-        let key =
-            EdDsaVerifyingKey::from_spki_der(document.spki_der()).map_err(|error| match error {
-                Error::InvalidPublicKey => Error::InvalidCertificate,
-                other => other,
-            })?;
+        let (document, key) =
+            super::document::parse_with_verifier(der, EdDsaVerifyingKey::from_spki_der)?;
         Ok(Self { document, key })
     }
     /// Original certificate document, with no trust assertion.

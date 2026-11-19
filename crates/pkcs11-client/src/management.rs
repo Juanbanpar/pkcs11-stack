@@ -67,7 +67,7 @@ impl Provider {
             .mechanisms(uri)?
             .into_iter()
             .flat_map(|entry| {
-                crate::generation::choices(
+                crate::key_management::choices(
                     entry.mechanism,
                     entry.info.generate_key_pair(),
                     entry.info.min_key_size(),
@@ -270,7 +270,7 @@ impl ManagementSession<'_> {
         key: &PrivateKeyRef,
         policy: &SigningPolicy,
     ) -> Result<SigningOptions, Error> {
-        Ok(crate::signature_options::options(
+        Ok(crate::signing::options(
             &self.session.key_capabilities(key)?,
             policy,
         ))
@@ -368,7 +368,7 @@ impl ManagementSession<'_> {
             return Err(Error::UnsupportedExport);
         }
         let metadata = key.public_metadata(&mut self.session)?;
-        crate::public_export::encode_public_key(metadata)
+        crate::public_key::encode_public_key(metadata)
     }
     /// Query actual token-wide login state through this live session.
     pub fn state(&self) -> Result<SessionState, Error> {

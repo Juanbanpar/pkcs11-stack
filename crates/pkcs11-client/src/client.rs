@@ -122,7 +122,7 @@ impl<'m> Client<'m> {
         key: &PrivateKeyRef,
         authentication: Authentication<'_>,
     ) -> Result<SigningOptions, Error> {
-        Ok(crate::signature_options::options(
+        Ok(crate::signing::options(
             &self.capabilities(key, authentication)?,
             &self.policy,
         ))

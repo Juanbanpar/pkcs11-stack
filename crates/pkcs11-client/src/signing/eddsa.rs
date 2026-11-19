@@ -1,15 +1,13 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
+use crate::public_key::{decode_canonical_spki, encode_raw_spki, raw_key_bytes};
 use crate::{
     Attribute, Authentication, Client, EdDsaCapabilities, EdDsaCurve, EdDsaRequest, Error, KeyType,
     ManagementSession, MechanismType, ObjectClass, Pin, Pkcs11Uri, PrivateKeyRef, Provider,
     PublicKeyRef,
 };
-use x509_cert::{
-    der::{
-        Decode, Encode,
-        asn1::{BitString, ObjectIdentifier, OctetString},
-    },
-    spki::{AlgorithmIdentifierOwned, SubjectPublicKeyInfoOwned},
+use x509_cert::der::{
+    Encode,
+    asn1::{ObjectIdentifier, OctetString},
 };
 
 enum VerificationKey {
@@ -75,23 +73,12 @@ impl EdDsaVerifyingKey {
         if der.len() > 4096 {
             return Err(Error::InvalidPublicKey);
         }
-        let spki = SubjectPublicKeyInfoOwned::from_der(der).map_err(|_| Error::InvalidPublicKey)?;
-        if spki.to_der().map_err(|_| Error::InvalidPublicKey)? != der {
-            return Err(Error::InvalidPublicKey);
-        }
+        let spki = decode_canonical_spki(der)?;
         let curve = [EdDsaCurve::Ed25519, EdDsaCurve::Ed448]
             .into_iter()
             .find(|&curve| oid(curve) == spki.algorithm.oid)
             .ok_or(Error::UnsupportedCertificateKey)?;
-        if spki.algorithm.parameters.is_some() {
-            return Err(Error::InvalidPublicKey);
-        }
-        Self::from_bytes(
-            curve,
-            spki.subject_public_key
-                .as_bytes()
-                .ok_or(Error::InvalidPublicKey)?,
-        )
+        Self::from_bytes(curve, raw_key_bytes(&spki)?)
     }
     /// Public-key curve.
     pub fn curve(&self) -> EdDsaCurve {
@@ -106,16 +93,7 @@ impl EdDsaVerifyingKey {
     }
     /// Encode an RFC 8410 SPKI with absent parameters.
     pub fn to_spki_der(&self) -> Result<Vec<u8>, Error> {
-        SubjectPublicKeyInfoOwned {
-            algorithm: AlgorithmIdentifierOwned {
-                oid: oid(self.curve()),
-                parameters: None,
-            },
-            subject_public_key: BitString::from_bytes(self.as_bytes())
-                .map_err(|_| Error::InvalidPublicKey)?,
-        }
-        .to_der()
-        .map_err(|_| Error::InvalidPublicKey)
+        encode_raw_spki(oid(self.curve()), self.as_bytes())
     }
     /// Check the explicit request curve without authentication or token access.
     pub fn validate_request(&self, request: &EdDsaRequest<'_>) -> Result<(), Error> {
@@ -156,7 +134,7 @@ impl EdDsaVerifyingKey {
         }
     }
 }
-pub(crate) fn verification_error(error: pkcs11_runtime::Error) -> Error {
+fn verification_error(error: pkcs11_runtime::Error) -> Error {
     match error {
         pkcs11_runtime::Error::SignatureMismatch => Error::SignatureMismatch,
         other => other.into(),
@@ -321,5 +299,15 @@ impl Client<'_> {
                 .session()
                 .eddsa_public_key(key)?,
         )
+    }
+}
+
+impl ManagementSession<'_> {
+    /// Read the public key's EdDSA curve without reading key bytes.
+    pub fn eddsa_public_curve(
+        &mut self,
+        key: &crate::PublicKeyRef,
+    ) -> Result<crate::EdDsaCurve, Error> {
+        Ok(self.session.eddsa_public_curve(key)?)
     }
 }

@@ -1,15 +1,13 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
+use crate::public_key::{encode_raw_spki, raw_key_bytes};
 use crate::{
     Error, ManagementSession, MlKemCapabilities, MlKemOperation, MlKemParameterSet, MlKemRequest,
     ObjectRef, Pkcs11Uri, PrivateKeyRef, Provider, PublicKeyRef,
 };
 
 use x509_cert::{
-    der::{
-        Decode, Encode,
-        asn1::{BitString, ObjectIdentifier},
-    },
-    spki::{AlgorithmIdentifierOwned, SubjectPublicKeyInfoOwned},
+    der::{Decode, asn1::ObjectIdentifier},
+    spki::SubjectPublicKeyInfoOwned,
 };
 
 fn oid(parameter: MlKemParameterSet) -> ObjectIdentifier {
@@ -46,29 +44,11 @@ impl MlKemPublicKey {
         .into_iter()
         .find(|parameter| oid(*parameter) == spki.algorithm.oid)
         .ok_or(Error::InvalidPublicKey)?;
-        if spki.algorithm.parameters.is_some() {
-            return Err(Error::InvalidPublicKey);
-        }
-        Self::from_bytes(
-            parameter,
-            spki.subject_public_key
-                .as_bytes()
-                .ok_or(Error::InvalidPublicKey)?
-                .to_vec(),
-        )
+        Self::from_bytes(parameter, raw_key_bytes(&spki)?.to_vec())
     }
     /// Encode RFC 9935 SubjectPublicKeyInfo DER, without algorithm parameters.
     pub fn to_spki_der(&self) -> Result<Vec<u8>, Error> {
-        SubjectPublicKeyInfoOwned {
-            algorithm: AlgorithmIdentifierOwned {
-                oid: oid(self.parameter_set()),
-                parameters: None,
-            },
-            subject_public_key: BitString::from_bytes(self.as_bytes())
-                .map_err(|_| Error::InvalidPublicKey)?,
-        }
-        .to_der()
-        .map_err(|_| Error::InvalidPublicKey)
+        encode_raw_spki(oid(self.parameter_set()), self.as_bytes())
     }
     /// FIPS 203 parameter set.
     pub fn parameter_set(&self) -> MlKemParameterSet {
@@ -161,20 +141,23 @@ impl ManagementSession<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use x509_cert::der::asn1::{Any, OctetString};
+    use x509_cert::der::{
+        Encode,
+        asn1::{Any, BitString, OctetString},
+    };
 
     const FIXTURES: &[(MlKemParameterSet, &[u8])] = &[
         (
             MlKemParameterSet::MlKem512,
-            include_bytes!("../tests/fixtures/mlkem512.spki.der"),
+            include_bytes!("../../tests/fixtures/mlkem512.spki.der"),
         ),
         (
             MlKemParameterSet::MlKem768,
-            include_bytes!("../tests/fixtures/mlkem768.spki.der"),
+            include_bytes!("../../tests/fixtures/mlkem768.spki.der"),
         ),
         (
             MlKemParameterSet::MlKem1024,
-            include_bytes!("../tests/fixtures/mlkem1024.spki.der"),
+            include_bytes!("../../tests/fixtures/mlkem1024.spki.der"),
         ),
     ];
     #[test]

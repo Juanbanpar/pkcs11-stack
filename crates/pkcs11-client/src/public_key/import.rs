@@ -1,16 +1,13 @@
-// SPDX-License-Identifier: Apache-2.0 OR MIT
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Validated import of RSA and named-curve EC public keys.
 
 use crate::{
     Attribute, EcdhPeer, Error, KeyKind, KeyType, ManagementSession, ObjectClass, PublicKeyMetadata,
 };
 use rsa::BigUint;
-use x509_cert::{
-    der::{
-        Decode, Encode,
-        asn1::{Null, ObjectIdentifier, OctetString},
-    },
-    spki::SubjectPublicKeyInfoOwned,
+use x509_cert::der::{
+    Decode, Encode,
+    asn1::{Null, ObjectIdentifier, OctetString},
 };
 
 /// Mutually exclusive permissions for a newly imported public key.
@@ -52,11 +49,7 @@ impl ClassicalPublicKey {
         if bytes.len() > 4096 {
             return Err(Error::InvalidPublicKey);
         }
-        let spki =
-            SubjectPublicKeyInfoOwned::from_der(bytes).map_err(|_| Error::InvalidPublicKey)?;
-        if spki.to_der().map_err(|_| Error::InvalidPublicKey)? != bytes {
-            return Err(Error::InvalidPublicKey);
-        }
+        let spki = super::decode_canonical_spki(bytes)?;
         let encoded = spki
             .subject_public_key
             .as_bytes()
@@ -135,7 +128,7 @@ impl ClassicalPublicKey {
             }
             _ => return Err(Error::InvalidPublicKey),
         }
-        let spki = crate::public_export::encode_public_key(metadata.clone())?;
+        let spki = crate::public_key::encode_public_key(metadata.clone())?;
         Ok(Self { metadata, spki })
     }
 
@@ -299,17 +292,20 @@ mod tests {
     #[test]
     fn rsa_and_named_ec_spki_roundtrip_and_reject_invalid_purposes() {
         for (fixture, expected) in [
-            (include_bytes!("../tests/fixtures/rsa.der").as_slice(), None),
             (
-                include_bytes!("../tests/fixtures/p256.der").as_slice(),
+                include_bytes!("../../tests/fixtures/rsa.der").as_slice(),
+                None,
+            ),
+            (
+                include_bytes!("../../tests/fixtures/p256.der").as_slice(),
                 Some(crate::NamedCurve::P256),
             ),
             (
-                include_bytes!("../tests/fixtures/p384.der").as_slice(),
+                include_bytes!("../../tests/fixtures/p384.der").as_slice(),
                 Some(crate::NamedCurve::P384),
             ),
             (
-                include_bytes!("../tests/fixtures/p521.der").as_slice(),
+                include_bytes!("../../tests/fixtures/p521.der").as_slice(),
                 Some(crate::NamedCurve::P521),
             ),
         ] {
@@ -332,7 +328,7 @@ mod tests {
                 request.validate().unwrap();
             }
         }
-        let der = spki(include_bytes!("../tests/fixtures/rsa.der"));
+        let der = spki(include_bytes!("../../tests/fixtures/rsa.der"));
         let mut trailing = der.clone();
         trailing.push(0);
         assert!(ClassicalPublicKey::from_spki_der(&trailing).is_err());
