@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
+use super::hkdf::{permits, secret_length};
+
 use crate::{
     Attribute, DigestAlgorithm, Error, HkdfRequest, MechanismType, ObjectRef, Session, SessionMode,
     error::backend,
-    hkdf::{permits, secret_length},
 };
 use cryptoki::{
     context::Function,
@@ -41,7 +42,7 @@ impl HkdfRequest<'_> {
 fn component(object: &crate::Object<'_, '_>) -> Result<(), Error> {
     if secret_length(object)? != 32
         || !matches!(
-            crate::signing::attribute(object, crate::AttributeType::KeyType, true)?,
+            crate::objects::attribute(object, crate::AttributeType::KeyType, true)?,
             Some(Attribute::KeyType(KeyType::GENERIC_SECRET))
         )
     {

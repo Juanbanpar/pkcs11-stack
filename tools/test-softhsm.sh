@@ -17,6 +17,7 @@ export PKCS11_TEST_OPENSSL=${PKCS11_TEST_OPENSSL:-${PKCS11_TEST_PQC_OPENSSL:-ope
 for number in 1 2; do
     "$util" --module "$module" --init-token --free --label runtime-test --so-pin 87654321 --pin 12345678 >/dev/null
 done
+cargo test -p pkcs11-runtime --lib --locked caught_operation_panic_discards_the_lease -- --ignored
 cargo test -p pkcs11-runtime --test softhsm --test signing_softhsm --locked -- --ignored --test-threads=1
 # Create application fixtures only after runtime tests finish: those deliberately
 # require exactly the two tokens provisioned above.

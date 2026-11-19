@@ -2,80 +2,64 @@
 #![forbid(unsafe_code)]
 #![doc = include_str!("../README.md")]
 
-mod administration;
-mod aes_gcm;
-pub use aes_gcm::{
-    AES_GCM_MAXIMUM_AAD, AES_GCM_MAXIMUM_PLAINTEXT, AES_GCM_NONCE_LENGTH, AES_GCM_TAG_LENGTH,
-    AesGcmCapabilities, AesGcmDecryptRequest, AesGcmEncryptRequest, AesGcmOperation,
-};
 mod capability;
+mod derivation;
+mod digest;
+mod encryption;
+mod error;
+mod key_establishment;
+mod key_management;
+mod mac;
+mod module;
+mod objects;
+mod secret;
+mod session;
+mod signing;
+
 pub use capability::{
     FunctionAvailability, INTERFACE_FUNCTIONS, MechanismCapability, MechanismFamily,
     MechanismOperation, is_runtime_supported, mechanism_family,
 };
-mod digest;
-mod eddsa;
-mod montgomery;
-pub use eddsa::{EdDsaCapabilities, EdDsaCurve, EdDsaPublicKey, EdDsaRequest};
-pub use montgomery::{
-    MontgomeryCapabilities, MontgomeryCurve, MontgomeryDerivation, MontgomeryKdf, MontgomeryOutput,
-    MontgomeryPublicKey,
+pub use derivation::{
+    HkdfCapabilities, HkdfOutput, HkdfRequest, KbkdfCapabilities, KbkdfMode, KbkdfOutput, KbkdfPrf,
+    KbkdfRequest,
 };
-mod encryption;
 pub use digest::{DIGEST_MAXIMUM_INPUT, HashAlgorithm};
-mod mac;
-pub use mac::{MAC_MAXIMUM_INPUT, MacAlgorithm, MacCapabilities, MacKeyRequest};
-mod symmetric;
-pub use symmetric::{
-    AES_BLOCK_SIZE, AES_MAXIMUM_INPUT, AesCipherCapabilities, AesDecryptRequest, AesDirection,
-    AesEncryptRequest, AesMode,
+pub use encryption::{
+    AES_BLOCK_SIZE, AES_GCM_MAXIMUM_AAD, AES_GCM_MAXIMUM_PLAINTEXT, AES_GCM_NONCE_LENGTH,
+    AES_GCM_TAG_LENGTH, AES_MAXIMUM_INPUT, AesCipherCapabilities, AesDecryptRequest, AesDirection,
+    AesEncryptRequest, AesGcmCapabilities, AesGcmDecryptRequest, AesGcmEncryptRequest,
+    AesGcmOperation, AesMode, RsaCipherOperation, RsaOaepCapabilities,
 };
-mod generation;
-pub use generation::{AesKeyPurpose, AesKeyRequest, AesKeySize, EcdhKeyPairRequest};
-mod hkdf;
-mod kbkdf;
-pub use kbkdf::{KbkdfCapabilities, KbkdfMode, KbkdfOutput, KbkdfPrf, KbkdfRequest};
-mod hybrid;
-mod key_operations;
-mod ml_dsa;
-mod ml_kem;
-pub use encryption::{RsaCipherOperation, RsaOaepCapabilities};
-pub use hkdf::{HkdfCapabilities, HkdfOutput, HkdfRequest};
-pub use key_operations::{EcdhDerivation, KeyOperation, KeyOperationProfile};
-pub use ml_dsa::{
-    MlDsaCapabilities, MlDsaHedging, MlDsaParameterSet, MlDsaPublicKey, MlDsaRequest,
-    MlDsaSigningPolicy,
-};
-pub use ml_kem::{
-    MlKemCapabilities, MlKemOperation, MlKemParameterSet, MlKemPublicKey, MlKemRequest,
-};
-mod pqc_hash;
-pub use pqc_hash::{
-    HashInput, HashMlDsaCapabilities, HashMlDsaRequest, HashMlDsaSigningPolicy,
-    HashSlhDsaCapabilities, HashSlhDsaRequest, HashSlhDsaSigningPolicy, PrehashAlgorithm,
-};
-mod slh_dsa;
-pub use slh_dsa::{
-    SLH_DSA_MAXIMUM_MESSAGE, SlhDsaCapabilities, SlhDsaHedging, SlhDsaKeyPairRequest,
-    SlhDsaParameterSet, SlhDsaPublicKey, SlhDsaRequest, SlhDsaSigningPolicy,
-};
-mod error;
-mod module;
-mod pool;
-mod secret;
-mod session;
-mod signing;
-pub use pool::{SessionLease, SessionPool};
-pub use signing::*;
-mod verification;
-pub use verification::{VerificationCapabilities, VerifyRequest};
-
 pub use error::Error;
+pub use key_establishment::{
+    EcdhDerivation, MlKemCapabilities, MlKemOperation, MlKemParameterSet, MlKemPublicKey,
+    MlKemRequest, MontgomeryCapabilities, MontgomeryCurve, MontgomeryDerivation, MontgomeryKdf,
+    MontgomeryOutput, MontgomeryPublicKey,
+};
+pub use key_management::{
+    AesKeyPurpose, AesKeyRequest, AesKeySize, EcdhKeyPairRequest, KeyOperation, KeyOperationProfile,
+};
+pub use mac::{MAC_MAXIMUM_INPUT, MacAlgorithm, MacCapabilities, MacKeyRequest};
 pub use module::{Module, Token, validate_token_uri};
+pub use objects::{
+    AttributeValues, CertificateRef, KeyKind, NamedCurve, Object, ObjectRef, PrivateKeyRef,
+    PublicKeyMetadata, PublicKeyRef,
+};
 pub use pkcs11_locator::SecretText;
 pub use secret::SecretBytes;
-pub use session::{AttributeValues, Authentication, Object, ObjectRef, Pin, Session, SessionMode};
-// Reuse cryptoki's domain representations, without exposing lifecycle or handles.
+pub use session::{Authentication, Pin, Session, SessionLease, SessionMode, SessionPool};
+pub use signing::{
+    DigestAlgorithm, EdDsaCapabilities, EdDsaCurve, EdDsaPublicKey, EdDsaRequest, HashInput,
+    HashLocation, HashMlDsaCapabilities, HashMlDsaRequest, HashMlDsaSigningPolicy,
+    HashSlhDsaCapabilities, HashSlhDsaRequest, HashSlhDsaSigningPolicy, HashingPolicy,
+    KeyCapabilities, MlDsaCapabilities, MlDsaHedging, MlDsaParameterSet, MlDsaPublicKey,
+    MlDsaRequest, MlDsaSigningPolicy, PrehashAlgorithm, PssParameters, SLH_DSA_MAXIMUM_MESSAGE,
+    SignInput, SignPlan, SignRequest, SignatureAlgorithm, SigningMechanism, SigningPolicy,
+    SlhDsaCapabilities, SlhDsaHedging, SlhDsaKeyPairRequest, SlhDsaParameterSet, SlhDsaPublicKey,
+    SlhDsaRequest, SlhDsaSigningPolicy, VerificationCapabilities, VerifyRequest,
+};
+// Reuse cryptoki domain representations without exposing lifecycle owners or handles.
 pub use cryptoki::{
     context::Function,
     context::Info as LibraryInfo,

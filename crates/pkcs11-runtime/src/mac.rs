@@ -8,8 +8,8 @@ use crate::{
     AesKeyPurpose, AesKeyRequest, AesKeySize, Attribute, AttributeType, Error, MechanismType,
     Object, ObjectClass, ObjectRef, Session, SessionMode, Token,
     error::{backend, function_not_supported, map_function_not_supported},
-    key_operations::validate_secret_identity,
-    signing::attribute,
+    key_management::validate_secret_identity,
+    objects::attribute,
 };
 use cryptoki::{
     context::Function,
@@ -338,8 +338,7 @@ impl Session<'_> {
         }
         let handle = self.prepare(key, algorithm, true)?;
         self.validate()?;
-        let raw = self.raw()?;
-        self.healthy.set(false);
+        let raw = self.begin_operation()?;
         match raw.verify(&algorithm.parameters(), handle, input, tag) {
             Ok(()) => {
                 self.healthy.set(true);
@@ -384,8 +383,7 @@ impl Session<'_> {
         }
         let mechanism = algorithm.parameters();
         self.validate()?;
-        let raw = self.raw()?;
-        self.healthy.set(false);
+        let raw = self.begin_operation()?;
         let result = (|| {
             raw.verify_init(&mechanism, handle)?;
             for chunk in chunks {

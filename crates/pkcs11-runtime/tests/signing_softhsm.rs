@@ -664,6 +664,21 @@ fn pooled_signing_and_recovery() {
         ),
         Err(Error::ProtectedPathUnavailable)
     ));
+    assert!(matches!(
+        lease
+            .session()
+            .sign(&auth_key, &req, &SigningPolicy::default(), None),
+        Err(Error::ContextAuthenticationRequired)
+    ));
+    assert!(matches!(
+        lease
+            .session()
+            .sign(&key, &req, &policy, Some(Pin::Value(&user))),
+        Err(Error::InvalidParameters(
+            "context PIN for a key without always-authenticate"
+        ))
+    ));
+    lease.session().info().unwrap();
     // Failed context login leaves an initialized operation. It must be discarded.
     let generation = lease.generation();
     let wrong = SecretText::from("wrong-canary");

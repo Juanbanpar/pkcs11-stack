@@ -1,7 +1,13 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
+mod parameters;
+mod prehash;
+
+pub use parameters::MlDsaParameterSet;
+pub use prehash::{HashMlDsaCapabilities, HashMlDsaRequest, HashMlDsaSigningPolicy};
+
 use crate::{
     Attribute, AttributeType, Error, MechanismType, Object, ObjectClass, Pin, PrivateKeyRef,
-    PublicKeyRef, Session, SessionMode, Token, error::backend, signing::attribute,
+    PublicKeyRef, Session, SessionMode, Token, error::backend, objects::attribute,
 };
 use cryptoki::{
     context::Function,
@@ -10,52 +16,9 @@ use cryptoki::{
         Mechanism,
         dsa::{HedgeType, SignAdditionalContext},
     },
-    object::{KeyType, MlDsaParameterSetType, ParameterSetType},
+    object::KeyType,
     session::UserType,
 };
-
-/// FIPS 204 parameter sets. Mechanism key-size bounds use public-key bytes.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum MlDsaParameterSet {
-    /// ML-DSA-44 (NIST security category 2).
-    MlDsa44,
-    /// ML-DSA-65 (NIST security category 3).
-    MlDsa65,
-    /// ML-DSA-87 (NIST security category 5).
-    MlDsa87,
-}
-impl MlDsaParameterSet {
-    /// Exact encoded public-key length, in bytes.
-    pub fn public_key_length(self) -> usize {
-        match self {
-            Self::MlDsa44 => 1312,
-            Self::MlDsa65 => 1952,
-            Self::MlDsa87 => 2592,
-        }
-    }
-    /// Exact signature length, in bytes.
-    pub fn signature_length(self) -> usize {
-        match self {
-            Self::MlDsa44 => 2420,
-            Self::MlDsa65 => 3309,
-            Self::MlDsa87 => 4627,
-        }
-    }
-    fn attribute(self) -> ParameterSetType {
-        match self {
-            Self::MlDsa44 => MlDsaParameterSetType::ML_DSA_44,
-            Self::MlDsa65 => MlDsaParameterSetType::ML_DSA_65,
-            Self::MlDsa87 => MlDsaParameterSetType::ML_DSA_87,
-        }
-        .into()
-    }
-    fn from_attribute(value: ParameterSetType) -> Result<Self, Error> {
-        [Self::MlDsa44, Self::MlDsa65, Self::MlDsa87]
-            .into_iter()
-            .find(|parameter| parameter.attribute() == value)
-            .ok_or(Error::UnsupportedSigning("unknown ML-DSA parameter set"))
-    }
-}
 
 /// Token randomness requirement for ML-DSA signing. Verification ignores it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -68,7 +31,7 @@ pub enum MlDsaHedging {
     Deterministic,
 }
 impl MlDsaHedging {
-    pub(crate) fn mechanism(self) -> HedgeType {
+    fn mechanism(self) -> HedgeType {
         match self {
             Self::Required => HedgeType::Required,
             Self::Preferred => HedgeType::Preferred,
@@ -202,10 +165,7 @@ impl MlDsaPublicKey {
     }
 }
 
-pub(crate) fn parameter_set(
-    object: &Object<'_, '_>,
-    class: ObjectClass,
-) -> Result<MlDsaParameterSet, Error> {
+fn parameter_set(object: &Object<'_, '_>, class: ObjectClass) -> Result<MlDsaParameterSet, Error> {
     if !matches!(attribute(object, AttributeType::Class, true)?, Some(Attribute::Class(value)) if value == class)
         || !matches!(
             attribute(object, AttributeType::KeyType, true)?,
@@ -220,7 +180,7 @@ pub(crate) fn parameter_set(
     }
 }
 
-pub(crate) fn permission(object: &Object<'_, '_>, kind: AttributeType) -> Result<bool, Error> {
+fn permission(object: &Object<'_, '_>, kind: AttributeType) -> Result<bool, Error> {
     match (kind, attribute(object, kind, true)?) {
         (AttributeType::Sign, Some(Attribute::Sign(value)))
         | (AttributeType::Verify, Some(Attribute::Verify(value)))
@@ -231,10 +191,7 @@ pub(crate) fn permission(object: &Object<'_, '_>, kind: AttributeType) -> Result
     }
 }
 
-pub(crate) fn allowed_mechanism(
-    object: &Object<'_, '_>,
-    mechanism: MechanismType,
-) -> Result<bool, Error> {
+fn allowed_mechanism(object: &Object<'_, '_>, mechanism: MechanismType) -> Result<bool, Error> {
     match attribute(object, AttributeType::AllowedMechanisms, false)? {
         None => Ok(true),
         Some(Attribute::AllowedMechanisms(value)) => {
@@ -248,7 +205,7 @@ fn allowed(object: &Object<'_, '_>) -> Result<bool, Error> {
     allowed_mechanism(object, MechanismType::ML_DSA)
 }
 
-pub(crate) fn mechanism_support(
+fn mechanism_support(
     token: &Token<'_>,
     parameter: MlDsaParameterSet,
     mechanism: MechanismType,
@@ -423,21 +380,11 @@ impl<'m> Session<'m> {
         let object = self.resolve(key.as_object_ref())?;
         let capabilities = capabilities(&object)?;
         capabilities.validate(request, policy)?;
-        let pin = if capabilities.always_authenticate {
-            object
-                .session
-                .login_pin(context_pin.ok_or(Error::ContextAuthenticationRequired)?)?
-        } else {
-            if context_pin.is_some() {
-                return Err(Error::InvalidParameters(
-                    "context PIN for a key without always-authenticate",
-                ));
-            }
-            None
-        };
+        let pin = object
+            .session
+            .prepare_context_pin(capabilities.always_authenticate, context_pin)?;
         let mechanism = request.mechanism();
-        let raw = object.session.raw()?;
-        object.session.healthy.set(false);
+        let raw = object.session.begin_operation()?;
         let signature = if capabilities.always_authenticate {
             raw.sign_init(&mechanism, object.handle)
                 .map_err(|e| backend("ML-DSA sign init", e))?;
@@ -500,8 +447,7 @@ impl<'m> Session<'m> {
             ));
         }
         let mechanism = request.mechanism();
-        let raw = object.session.raw()?;
-        object.session.healthy.set(false);
+        let raw = object.session.begin_operation()?;
         match raw.verify(&mechanism, object.handle, request.message, signature) {
             Ok(()) => {
                 object.session.healthy.set(true);
@@ -522,6 +468,7 @@ impl<'m> Session<'m> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cryptoki::object::ParameterSetType;
 
     #[test]
     fn context_bounds_and_debug_redaction() {

@@ -3,7 +3,7 @@ use crate::{
     Attribute, AttributeType, DigestAlgorithm, Error, KeyKind, MechanismType, ObjectClass,
     ObjectRef, PrivateKeyRef, PublicKeyRef, SecretBytes, Session,
     error::backend,
-    signing::{attribute, key_kind},
+    objects::{attribute, key_kind},
 };
 use cryptoki::mechanism::{
     Mechanism,
@@ -124,8 +124,7 @@ impl Session<'_> {
         if plaintext.len() > caps.maximum_plaintext(digest) {
             return Err(Error::InvalidParameters("OAEP plaintext length"));
         }
-        let raw = object.session.raw()?;
-        object.session.healthy.set(false);
+        let raw = object.session.begin_operation()?;
         let result = raw
             .encrypt(&mechanism(digest), object.handle, plaintext)
             .map_err(|e| backend("RSA OAEP encrypt", e))?;
@@ -149,8 +148,7 @@ impl Session<'_> {
         if ciphertext.len() != caps.ciphertext_length() {
             return Err(Error::InvalidParameters("OAEP ciphertext length"));
         }
-        let raw = object.session.raw()?;
-        object.session.healthy.set(false);
+        let raw = object.session.begin_operation()?;
         let plaintext = SecretBytes::from(
             raw.decrypt(&mechanism(digest), object.handle, ciphertext)
                 .map_err(|e| backend("RSA OAEP decrypt", e))?,

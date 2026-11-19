@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use crate::{
     Attribute, AttributeType, DigestAlgorithm, Error, MechanismType, Object, ObjectClass,
-    ObjectRef, Session, SessionMode, key_operations::validate_secret_identity, signing::attribute,
+    ObjectRef, Session, SessionMode, key_management::validate_secret_identity, objects::attribute,
 };
 use cryptoki::{
     context::Function,

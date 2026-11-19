@@ -2,11 +2,12 @@
 //! Token verification of RSA and ECDSA signatures using the same request model
 //! as signing. No software verification is performed here.
 
+use super::{mechanism, signature_input, supported_mechanism};
 use crate::{
     Attribute, AttributeType, Error, KeyCapabilities, KeyKind, Object, ObjectClass, PublicKeyRef,
     Session, SignInput, SignPlan, SignRequest, SigningMechanism, SigningPolicy,
     error::{backend, function_not_supported, map_function_not_supported},
-    signing::{attribute, key_kind, mechanism, signature_input, supported_mechanism},
+    objects::{attribute, key_kind},
 };
 use cryptoki::{
     context::Function,
@@ -149,8 +150,7 @@ impl Session<'_> {
             &request.parameters,
             plan.hash_location() == crate::HashLocation::Token,
         )?;
-        let raw = object.session.raw()?;
-        object.session.healthy.set(false);
+        let raw = object.session.begin_operation()?;
         match raw.verify(&mechanism, object.handle, &data, request.signature) {
             Ok(()) => {
                 object.session.healthy.set(true);

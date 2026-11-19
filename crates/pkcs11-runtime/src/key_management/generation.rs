@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use crate::{
-    Attribute, Error, MechanismType, NamedCurve, Object, ObjectClass, Session, SessionMode, Token,
-    key_operations::validate_secret_identity,
+    Attribute, Error, KeyKind, MechanismType, NamedCurve, Object, ObjectClass, Session,
+    SessionMode, Token, key_management::validate_secret_identity,
 };
 use cryptoki::{context::Function, mechanism::Mechanism};
 
@@ -84,7 +84,7 @@ impl std::fmt::Debug for AesKeyRequest<'_> {
             .finish_non_exhaustive()
     }
 }
-pub(crate) fn curve_parameters(curve: NamedCurve) -> Vec<u8> {
+fn curve_parameters(curve: NamedCurve) -> Vec<u8> {
     match curve {
         NamedCurve::P256 => vec![6, 8, 42, 134, 72, 206, 61, 3, 1, 7],
         NamedCurve::P384 => vec![6, 5, 43, 129, 4, 0, 34],
@@ -145,6 +145,80 @@ impl Token<'_> {
     }
 }
 impl<'m> Session<'m> {
+    /// Generate a persistent RSA or named EC signing pair with a shared label/ID.
+    /// Private keys are sensitive and nonextractable. No mechanism fallback occurs.
+    /// RSA is bounded to 2048..=16384 bits; provider bounds may be narrower.
+    pub fn generate_signing_key_pair(
+        &mut self,
+        kind: KeyKind,
+        id: &[u8],
+        label: &[u8],
+        always_authenticate: bool,
+    ) -> Result<(Object<'_, 'm>, Object<'_, 'm>), Error> {
+        if id.is_empty() {
+            return Err(Error::InvalidParameters("key ID must not be empty"));
+        }
+        let mut public = vec![
+            Attribute::Token(true),
+            Attribute::Private(false),
+            Attribute::Label(label.to_vec()),
+            Attribute::Id(id.to_vec()),
+            Attribute::Verify(true),
+        ];
+        let private = vec![
+            Attribute::Token(true),
+            Attribute::Private(true),
+            Attribute::Label(label.to_vec()),
+            Attribute::Id(id.to_vec()),
+            Attribute::Sensitive(true),
+            Attribute::Extractable(false),
+            Attribute::Sign(true),
+            Attribute::AlwaysAuthenticate(always_authenticate),
+        ];
+        let mechanism = match kind {
+            KeyKind::Edwards(_) => {
+                return Err(Error::UnsupportedSigning(
+                    "use the EdDSA key-generation operation",
+                ));
+            }
+            KeyKind::Montgomery(_) => {
+                return Err(Error::UnsupportedSigning(
+                    "use the Montgomery key-generation operation",
+                ));
+            }
+            KeyKind::Rsa { bits } => {
+                if !(2048..=16384).contains(&bits) || bits % 8 != 0 {
+                    return Err(Error::InvalidParameters("invalid RSA key size"));
+                }
+                public.extend([
+                    Attribute::ModulusBits(
+                        bits.try_into()
+                            .map_err(|_| Error::InvalidParameters("invalid RSA key size"))?,
+                    ),
+                    Attribute::PublicExponent(vec![1, 0, 1]),
+                ]);
+                Mechanism::RsaPkcsKeyPairGen
+            }
+            KeyKind::Ec(curve) => {
+                public.push(Attribute::EcParams(curve_parameters(curve)));
+                Mechanism::EccKeyPairGen
+            }
+        };
+        let (public, private) = self.write_operation("generate signing key pair", |raw| {
+            raw.generate_key_pair(&mechanism, &public, &private)
+        })?;
+        Ok((
+            Object {
+                session: self,
+                handle: public,
+            },
+            Object {
+                session: self,
+                handle: private,
+            },
+        ))
+    }
+
     /// Generate one persistent derivation pair in an RW session. The public key is
     /// public; the private key is sensitive/nonextractable and permits only derivation.
     /// Per-operation authentication is disabled; this binding cannot interleave it

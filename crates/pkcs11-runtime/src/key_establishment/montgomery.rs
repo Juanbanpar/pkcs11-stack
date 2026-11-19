@@ -8,7 +8,7 @@
 use crate::{
     AesKeySize, Attribute, AttributeType, Error, MechanismType, Object, ObjectClass, ObjectRef,
     PublicKeyRef, Session, SessionMode, Token, error::map_function_not_supported,
-    key_operations::validate_secret_identity, signing::attribute,
+    key_management::validate_secret_identity, objects::attribute,
 };
 use cryptoki::{
     context::Function,

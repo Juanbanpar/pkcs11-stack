@@ -8,8 +8,8 @@ use crate::{
     Attribute, AttributeType, Error, MechanismType, Object, ObjectClass, Pin, PrivateKeyRef,
     PublicKeyRef, Session, SessionMode, Token,
     error::{backend, function_not_supported, map_function_not_supported},
-    key_operations::validate_secret_identity,
-    signing::attribute,
+    key_management::validate_secret_identity,
+    objects::attribute,
 };
 use cryptoki::{
     error::{Error as CryptokiError, RvError},
@@ -454,8 +454,7 @@ impl<'m> Session<'m> {
             ));
         }
         let mechanism = request.curve.mechanism();
-        let raw = object.session.raw()?;
-        object.session.healthy.set(false);
+        let raw = object.session.begin_operation()?;
         let signature = raw
             .sign(&mechanism, object.handle, request.message)
             .map_err(|e| backend("EdDSA sign", e))?;
@@ -510,8 +509,7 @@ impl<'m> Session<'m> {
             ));
         }
         let mechanism = request.curve.mechanism();
-        let raw = object.session.raw()?;
-        object.session.healthy.set(false);
+        let raw = object.session.begin_operation()?;
         match raw.verify(&mechanism, object.handle, request.message, signature) {
             Ok(()) => {
                 object.session.healthy.set(true);

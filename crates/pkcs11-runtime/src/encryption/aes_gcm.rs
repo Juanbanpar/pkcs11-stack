@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use crate::{
     AesKeySize, Attribute, AttributeType, Error, MechanismType, ObjectClass, ObjectRef,
-    SecretBytes, Session, error::backend, signing::attribute,
+    SecretBytes, Session, error::backend, objects::attribute,
 };
 use cryptoki::{
     context::Function,
@@ -186,8 +186,7 @@ impl Session<'_> {
         let mut nonce = *request.nonce;
         let params = GcmParams::new(&mut nonce, request.aad, 128.into())
             .map_err(|e| backend("AES GCM parameters", e))?;
-        let raw = object.session.raw()?;
-        object.session.healthy.set(false);
+        let raw = object.session.begin_operation()?;
         let result = raw
             .encrypt(&Mechanism::AesGcm(params), object.handle, request.plaintext)
             .map_err(|e| backend("AES GCM encrypt", e))?;
@@ -213,8 +212,7 @@ impl Session<'_> {
         let mut nonce = *request.nonce;
         let params = GcmParams::new(&mut nonce, request.aad, 128.into())
             .map_err(|e| backend("AES GCM parameters", e))?;
-        let raw = object.session.raw()?;
-        object.session.healthy.set(false);
+        let raw = object.session.begin_operation()?;
         let plaintext = SecretBytes::from(
             raw.decrypt(
                 &Mechanism::AesGcm(params),
