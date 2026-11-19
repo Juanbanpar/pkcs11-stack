@@ -9,9 +9,8 @@ use cryptoki::{
 use pkcs11_runtime::{
     Attribute, AttributeInfo, AttributeType, Authentication, DigestAlgorithm, Error, HkdfOutput,
     HkdfRequest, MlKemParameterSet, MlKemRequest, Module, ObjectClass, ObjectRef, Pin,
-    PrivateKeyRef, PublicKeyRef, Session, SessionMode,
+    PrivateKeyRef, PublicKeyRef, SecretText, Session, SessionMode,
 };
-use secrecy::SecretString;
 
 fn reference(id: &[u8], kind: &str) -> ObjectRef {
     let id: String = id.iter().map(|byte| format!("%{byte:02X}")).collect();
@@ -150,8 +149,8 @@ fn typed_hkdf_known_answers_policy_and_ml_kem_agreement() {
         Ok("1")
     );
     let path = std::env::var_os("PKCS11_TEST_KDF_MODULE").unwrap();
-    let pin = SecretString::from("12345678");
-    let so = SecretString::from("87654321");
+    let pin = SecretText::from("12345678");
+    let so = SecretText::from("87654321");
     let mut module = Module::load(&path).unwrap();
     let slots = module.slots(true).unwrap();
     assert_eq!(slots.len(), 1);
@@ -389,7 +388,12 @@ fn typed_hkdf_known_answers_policy_and_ml_kem_agreement() {
         .unwrap();
     let slot = module.get_slots_with_initialized_token().unwrap()[0];
     let session = module.open_rw_session(slot).unwrap();
-    session.login(UserType::User, Some(&pin)).unwrap();
+    session
+        .login(
+            UserType::User,
+            Some(&cryptoki::types::AuthPin::from(pin.expose_secret())),
+        )
+        .unwrap();
     let find = |id: &[u8]| {
         let objects = session
             .find_objects(&[

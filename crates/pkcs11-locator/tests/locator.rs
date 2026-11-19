@@ -5,9 +5,8 @@
 #![forbid(unsafe_code)]
 
 use pkcs11_locator::{
-    Error, ObjectIdentity, ObjectType, Pkcs11Uri, ResourceIdentity, TokenIdentity,
+    Error, ObjectIdentity, ObjectType, Pkcs11Uri, ResourceIdentity, SecretText, TokenIdentity,
 };
-use secrecy::{ExposeSecret, SecretString};
 
 fn parse(s: &str) -> Pkcs11Uri {
     s.parse().unwrap()
@@ -189,11 +188,11 @@ fn unknown_attributes_round_trip_with_conservative_matching() {
     assert!(!uri.token_selector().matches(&TokenIdentity::default()));
     assert_eq!(
         uri.to_string(),
-        "pkcs11:vendor-mode=strict?another=1&extra=b&extra=a"
+        "pkcs11:vendor-mode=strict?another=[REDACTED]&extra=[REDACTED]&extra=[REDACTED]"
     );
     let values: Vec<_> = uri
         .query_values("extra")
-        .map(ExposeSecret::expose_secret)
+        .map(SecretText::expose_secret)
         .collect();
     assert_eq!(values, ["b", "a"]);
     assert!(parse("pkcs11:?vendor=yes").matches(&ResourceIdentity::default()));
@@ -395,10 +394,16 @@ fn module_path_is_platform_absolute_and_never_resolved_or_loaded() {
 
 #[test]
 fn secret_serialization_and_all_debug_paths_redact_pins() {
-    for name in ["pin-value", "PIN-VALUE", "pin-source"] {
+    for name in [
+        "pin-value",
+        "PIN-VALUE",
+        "pin-source",
+        "vendor-password",
+        "module-name",
+    ] {
         let secret = "canary-秘密;&=%/";
         let builder = Pkcs11Uri::builder()
-            .query_attribute(name, SecretString::from(secret))
+            .query_attribute(name, SecretText::from(secret))
             .unwrap();
         assert!(!format!("{builder:?}").contains("canary"));
         let uri = builder.build().unwrap();
@@ -459,9 +464,11 @@ fn serialization_is_deterministic_and_builder_matches_parser() {
         .build()
         .unwrap();
     let expected = "pkcs11:id=%00%FF;object=key%3Bone;token=prod?a=one&z=two";
-    assert_eq!(uri.to_string(), expected);
+    assert_eq!(uri.to_secret_uri().expose_secret(), expected);
     assert_eq!(
-        parse("PKCS11:token=prod;object=key%3bone;id=%00%ff?z=two&a=one").to_string(),
+        parse("PKCS11:token=prod;object=key%3bone;id=%00%ff?z=two&a=one")
+            .to_secret_uri()
+            .expose_secret(),
         expected
     );
     assert_eq!(

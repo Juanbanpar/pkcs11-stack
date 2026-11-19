@@ -2,7 +2,6 @@
 #![no_main]
 use libfuzzer_sys::fuzz_target;
 use pkcs11_locator::Pkcs11Uri;
-use secrecy::ExposeSecret;
 
 fuzz_target!(|data: &[u8]| {
     if let Ok(input) = std::str::from_utf8(data) {

@@ -174,7 +174,7 @@ impl Module {
     pub fn initialize_token(
         &mut self,
         slot: Slot,
-        pin: &secrecy::SecretString,
+        pin: &crate::SecretText,
         label: &str,
     ) -> Result<(), Error> {
         if label.len() > 32 {
@@ -183,7 +183,11 @@ impl Module {
             ));
         }
         self.raw()?
-            .init_token(slot, pin, label)
+            .init_token(
+                slot,
+                &cryptoki::types::AuthPin::from(pin.expose_secret()),
+                label,
+            )
             .map_err(|e| backend("initialize token", e))
     }
     /// Finalize an owned initialization. Active borrowed sessions prevent this call.

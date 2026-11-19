@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use std::{collections::BTreeMap, fmt, str::FromStr};
 
-use secrecy::{ExposeSecret, SecretString};
 use zeroize::Zeroizing;
 
-use crate::{ModuleSelector, ObjectSelector, SlotSelector, TokenSelector, codec};
+use crate::{ModuleSelector, ObjectSelector, SecretText, SlotSelector, TokenSelector, codec};
 
 /// A parsing/construction failure. Never contains input, attribute names or values.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -108,14 +107,14 @@ pub(crate) const PATH_NAMES: &[&str] = &[
 ];
 const QUERY_NAMES: &[&str] = &["pin-source", "pin-value", "module-name", "module-path"];
 
-/// Validated URI data. Display and Debug redact PIN values and sources.
+/// Validated URI data. Display and Debug redact every query value.
 ///
 /// No implicit secret-bearing Clone, equality or full URI comparison is provided.
 /// Query values are protected even for vendor attributes. No I/O is performed.
 #[derive(Default)]
 pub struct Pkcs11Uri {
     pub(crate) path: BTreeMap<String, Vec<u8>>,
-    pub(crate) query: BTreeMap<String, Vec<SecretString>>,
+    pub(crate) query: BTreeMap<String, Vec<SecretText>>,
 }
 
 impl Pkcs11Uri {
@@ -131,8 +130,8 @@ impl Pkcs11Uri {
 
     /// Protected query values in insertion order for this name.
     ///
-    /// Use secrecy's ExposeSecret explicitly to read them. Vendor duplicates are retained.
-    pub fn query_values(&self, name: &str) -> impl Iterator<Item = &SecretString> {
+    /// Read them with `SecretText::expose_secret`. Vendor duplicates are retained.
+    pub fn query_values(&self, name: &str) -> impl Iterator<Item = &SecretText> {
         self.query
             .get(&name.to_ascii_lowercase())
             .into_iter()
@@ -177,9 +176,9 @@ impl Pkcs11Uri {
 
     /// Deterministic, explicitly secret-inclusive URI serialization.
     ///
-    /// The returned SecretString redacts Debug and zeroizes on drop. Exposing it
+    /// The returned SecretText redacts Debug and zeroizes on drop. Exposing it
     /// is deliberate; callers remain responsible for any further copies/logging.
-    pub fn to_secret_uri(&self) -> SecretString {
+    pub fn to_secret_uri(&self) -> SecretText {
         // Reserve exactly the encoded length before writing any secrets, avoiding
         // reallocations that could leave previous secret-bearing buffers behind.
         let mut len = "pkcs11:".len();
@@ -194,14 +193,11 @@ impl Pkcs11Uri {
         }
         let mut out = Zeroizing::new(String::with_capacity(len));
         self.render(&mut out, true);
-        SecretString::from(std::mem::take(&mut *out))
+        SecretText::from(std::mem::take(&mut *out))
     }
 
     pub(crate) fn query_text(&self, name: &str) -> Option<&str> {
-        self.query
-            .get(name)?
-            .first()
-            .map(ExposeSecret::expose_secret)
+        self.query.get(name)?.first().map(SecretText::expose_secret)
     }
 
     fn render(&self, out: &mut String, secrets: bool) {
@@ -221,7 +217,7 @@ impl Pkcs11Uri {
                 delimiter = '&';
                 out.push_str(name);
                 out.push('=');
-                if !secrets && matches!(name.as_str(), "pin-value" | "pin-source") {
+                if !secrets {
                     out.push_str("[REDACTED]");
                 } else {
                     codec::encode(out, value.expose_secret().as_bytes(), false);
@@ -275,7 +271,7 @@ impl FromStr for Pkcs11Uri {
                 let (name, value) = pair.split_once('=').ok_or(Error::Attribute)?;
                 let bytes = codec::decode(value, true)?;
                 let text = std::str::from_utf8(&bytes).map_err(|_| Error::Utf8)?;
-                builder = builder.query_attribute(name, SecretString::from(text))?;
+                builder = builder.query_attribute(name, SecretText::from(text))?;
             }
         }
         builder.build()
@@ -305,7 +301,7 @@ impl Pkcs11UriBuilder {
     ///
     /// Standard attributes are unique; vendor attributes may repeat. PIN sources
     /// are stored only: no files, commands, environment or network are consulted.
-    pub fn query_attribute(mut self, name: &str, value: SecretString) -> Result<Self, Error> {
+    pub fn query_attribute(mut self, name: &str, value: SecretText) -> Result<Self, Error> {
         let name = normalize_name(name)?;
         if PATH_NAMES.contains(&name.as_str()) {
             return Err(Error::Component);

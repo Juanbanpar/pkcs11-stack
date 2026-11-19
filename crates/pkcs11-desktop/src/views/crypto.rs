@@ -9,7 +9,6 @@ use iced::{
     Element,
     widget::{column, container, row, text},
 };
-use secrecy::ExposeSecret;
 
 pub fn view(state: &UiState) -> Element<'_, Message> {
     let Some(form) = &state.crypto_form else {

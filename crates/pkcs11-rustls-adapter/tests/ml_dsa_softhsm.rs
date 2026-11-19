@@ -7,8 +7,8 @@ use pkcs11_runtime::{
     PublicKeyRef, SessionMode, SessionPool,
 };
 use pkcs11_rustls_adapter::{
-    ClientResolver, Credential, CredentialSource, Credentials, Error, PinInput, ServerResolver,
-    server_config_builder,
+    ClientResolver, Credential, CredentialSource, Credentials, Error, PinInput, SecretText,
+    ServerResolver, server_config_builder,
 };
 use rustls::{
     ClientConfig, ClientConnection, NamedGroup, RootCertStore, ServerConfig, ServerConnection,
@@ -17,7 +17,6 @@ use rustls::{
     crypto::CryptoProvider,
 };
 use rustls_pki_types::{CertificateDer, ServerName};
-use secrecy::SecretString;
 use std::{
     io::{Read, Write},
     num::NonZeroUsize,
@@ -62,8 +61,8 @@ fn source(always: bool, calls: Arc<AtomicUsize>) -> Arc<dyn CredentialSource> {
     Arc::new(move || {
         calls.fetch_add(1, Ordering::SeqCst);
         Ok(Credentials {
-            user: Some(PinInput::Value(SecretString::from("12345678"))),
-            context: always.then(|| PinInput::Value(SecretString::from("12345678"))),
+            user: Some(PinInput::Value(SecretText::from("12345678"))),
+            context: always.then(|| PinInput::Value(SecretText::from("12345678"))),
         })
     })
 }
@@ -219,7 +218,7 @@ fn token_ml_dsa_tls13_authentication_and_hybrid_exchange() {
         MlDsaParameterSet::MlDsa65,
         MlDsaParameterSet::MlDsa87,
     ];
-    let pin = SecretString::from("12345678");
+    let pin = SecretText::from("12345678");
     let mut session = module
         .open_owned_session(&token, SessionMode::ReadWrite)
         .unwrap();
@@ -511,8 +510,7 @@ fn token_ml_dsa_tls13_authentication_and_hybrid_exchange() {
         );
         if index == 0 {
             let wrong = certificate(
-                &PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                    .join("../pkcs11-client/tests/fixtures/mldsa44.der"),
+                &PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/mldsa44.der"),
             );
             assert!(matches!(
                 Credential::load_ml_dsa(

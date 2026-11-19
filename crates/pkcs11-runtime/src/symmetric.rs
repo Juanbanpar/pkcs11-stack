@@ -7,10 +7,9 @@
 
 use crate::{
     AesKeySize, Attribute, AttributeType, Error, MechanismType, Object, ObjectClass, ObjectRef,
-    Session, Token, error::map_function_not_supported, signing::attribute,
+    SecretBytes, Session, Token, error::map_function_not_supported, signing::attribute,
 };
 use cryptoki::{context::Function, mechanism::Mechanism, object::KeyType};
-use secrecy::{ExposeSecret, SecretBox};
 
 /// Maximum single-part symmetric input, in bytes (16 MiB).
 pub const AES_MAXIMUM_INPUT: usize = 16 * 1024 * 1024;
@@ -276,20 +275,20 @@ impl Session<'_> {
         &mut self,
         key: &ObjectRef,
         request: &AesDecryptRequest<'_>,
-    ) -> Result<SecretBox<Vec<u8>>, Error> {
+    ) -> Result<SecretBytes, Error> {
         request.validate()?;
         let object = self.resolve(key)?;
         capabilities(&object, request.mode, AesDirection::Decrypt)?;
         let iv = request.iv.copied();
         let mechanism = request.mode.parameters(iv)?;
-        let plaintext = SecretBox::new(Box::new(
+        let plaintext = SecretBytes::from(
             object
                 .session
                 .operation("AES decrypt", |raw| {
                     raw.decrypt(&mechanism, object.handle, request.ciphertext)
                 })
                 .map_err(|e| map_function_not_supported(e, Error::UnsupportedCipherMode))?,
-        ));
+        );
         if plaintext.expose_secret().len() > request.ciphertext.len() {
             return Err(Error::InvalidCipherOutput);
         }
@@ -340,7 +339,7 @@ impl Session<'_> {
         mode: AesMode,
         iv: Option<&[u8; AES_BLOCK_SIZE]>,
         chunks: impl IntoIterator<Item = &'a [u8]>,
-    ) -> Result<SecretBox<Vec<u8>>, Error> {
+    ) -> Result<SecretBytes, Error> {
         let object = self.resolve(key)?;
         capabilities(&object, mode, AesDirection::Decrypt)?;
         let mechanism = mode.parameters(iv.copied())?;
@@ -368,7 +367,7 @@ impl Session<'_> {
                 Ok(output)
             })
             .map_err(|e| map_function_not_supported(e, Error::UnsupportedCipherMode))?;
-        Ok(SecretBox::new(Box::new(plaintext)))
+        Ok(SecretBytes::from(plaintext))
     }
 }
 

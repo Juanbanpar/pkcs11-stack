@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! Administration acceptance in the runner's disposable token store.
-use pkcs11_client::{Authentication, Error, ErrorKind, Pin, Provider, SessionMode};
-use secrecy::SecretString;
+use pkcs11_client::{Authentication, Error, ErrorKind, Pin, Provider, SecretText, SessionMode};
 #[test]
 #[ignore = "requires the isolated SoftHSM runner"]
 fn checked_token_initialization_and_pin_lifecycle() {
@@ -15,8 +14,8 @@ fn checked_token_initialization_and_pin_lifecycle() {
         .unwrap();
     let target = snapshot.initialization_target();
     let uri = snapshot.uri().unwrap();
-    let so = SecretString::from("87654321");
-    let user = SecretString::from("12345678");
+    let so = SecretText::from("87654321");
+    let user = SecretText::from("12345678");
     let anchor = provider
         .management_owned(
             &uri,
@@ -96,7 +95,7 @@ fn checked_token_initialization_and_pin_lifecycle() {
     );
     session.initialize_pin(&user).unwrap();
     session.close().unwrap();
-    let new_user = SecretString::from("23456789");
+    let new_user = SecretText::from("23456789");
     let mut session = provider
         .management(
             &uri,
@@ -124,7 +123,7 @@ fn checked_token_initialization_and_pin_lifecycle() {
         .unwrap()
         .close()
         .unwrap();
-    let new_so = SecretString::from("98765432");
+    let new_so = SecretText::from("98765432");
     let mut session = provider
         .management(
             &uri,

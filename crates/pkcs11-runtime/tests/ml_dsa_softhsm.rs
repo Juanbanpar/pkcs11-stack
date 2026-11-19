@@ -3,9 +3,8 @@
 use pkcs11_runtime::{
     Attribute, AttributeInfo, AttributeType, Authentication, Error, MechanismType, MlDsaHedging,
     MlDsaParameterSet, MlDsaRequest, MlDsaSigningPolicy, Module, Pin, PrivateKeyRef, PublicKeyRef,
-    SessionMode,
+    SecretText, SessionMode,
 };
-use secrecy::SecretString;
 
 #[test]
 #[ignore = "requires tools/test-ml-dsa.sh"]
@@ -21,7 +20,7 @@ fn ml_dsa_runtime_permissions_context_and_authentication() {
         MlDsaParameterSet::MlDsa87,
     ];
     assert_eq!(token.ml_dsa_generation_options().unwrap(), parameters);
-    let pin = SecretString::from("12345678");
+    let pin = SecretText::from("12345678");
     let mut session = token.open_session(SessionMode::ReadWrite).unwrap();
     session
         .authenticate(Authentication::User(Pin::Value(&pin)))
@@ -280,7 +279,7 @@ fn ml_dsa_runtime_permissions_context_and_authentication() {
             .unwrap(),
     )
     .unwrap();
-    let wrong_pin = SecretString::from("incorrect");
+    let wrong_pin = SecretText::from("incorrect");
     let request = MlDsaRequest {
         parameter_set: parameters[0],
         message: b"message",

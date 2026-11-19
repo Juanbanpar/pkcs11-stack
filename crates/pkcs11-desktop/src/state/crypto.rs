@@ -146,7 +146,7 @@ pub struct CryptoForm {
     pub domain_context: String,
     pub context_required: bool,
     pub protected_path: bool,
-    pub pin: SecretString,
+    pub pin: SecretText,
     pub input: String,
     pub signature: String,
     picked_input: Option<PathBuf>,
@@ -236,7 +236,7 @@ impl UiState {
             domain_context: String::new(),
             context_required: false,
             protected_path,
-            pin: SecretString::default(),
+            pin: SecretText::default(),
             input: String::new(),
             signature: String::new(),
             picked_input: None,
@@ -276,7 +276,7 @@ impl UiState {
         form.options.clear();
         form.choice = None;
         form.loaded = false;
-        form.pin = SecretString::default();
+        form.pin = SecretText::default();
         form.context_required = false;
         Some(BackendCommand::CryptoOptions {
             id,
@@ -301,10 +301,10 @@ impl UiState {
             && form.options.contains(&choice)
         {
             form.choice = Some(choice);
-            form.pin = SecretString::default();
+            form.pin = SecretText::default();
         }
     }
-    pub fn crypto_pin(&mut self, id: RequestId, pin: SecretString) {
+    pub fn crypto_pin(&mut self, id: RequestId, pin: SecretText) {
         if !self.can_submit() {
             return;
         }
@@ -326,7 +326,7 @@ impl UiState {
         if let Some(form) = &mut self.crypto_form
             && form.id == id
         {
-            form.pin = SecretString::default();
+            form.pin = SecretText::default();
             form.protected_path = enabled;
         }
     }
@@ -434,7 +434,7 @@ impl UiState {
                 }))
         {
             self.notification = Some(Notification::Error(BackendError::SignatureChoice));
-            self.crypto_form.as_mut()?.pin = SecretString::default();
+            self.crypto_form.as_mut()?.pin = SecretText::default();
             return None;
         }
         let form = self.crypto_form.take()?;
@@ -447,7 +447,7 @@ impl UiState {
             };
             self.notification = Some(Notification::Error(error));
             self.crypto_form = Some(CryptoForm {
-                pin: SecretString::default(),
+                pin: SecretText::default(),
                 ..form
             });
             return None;
@@ -479,7 +479,7 @@ impl UiState {
         if form.scope.mode == CryptoMode::Verify {
             // Keep the scope available for stale-response checks, but no submitted credential.
             self.crypto_form = Some(CryptoForm {
-                pin: SecretString::default(),
+                pin: SecretText::default(),
                 ..form
             });
         } else {

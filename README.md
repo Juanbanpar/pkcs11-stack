@@ -26,7 +26,7 @@ loads a library. Use stable token serials and object IDs; ambiguous matches fail
 
 | Crate | Purpose |
 | --- | --- |
-| [pkcs11-locator](crates/pkcs11-locator/README.md) | Parse, build and match RFC 7512 URIs; binary IDs and PIN redaction |
+| [pkcs11-locator](crates/pkcs11-locator/README.md) | Parse, build and match RFC 7512 URIs; binary IDs and query-value redaction |
 | [pkcs11-runtime](crates/pkcs11-runtime/README.md) | Own modules, sessions and pools; discover resources and execute token operations |
 | [pkcs11-client](crates/pkcs11-client/README.md) | Application workflows, certificate binding, public import/export and administration |
 | [pkcs11ctl](crates/pkcs11ctl/README.md) | Command-line inspection, cryptography and token administration |
@@ -55,15 +55,11 @@ protection, key exchange and peer verification.
 
 ## Supported operations
 
-The stack uses `cryptoki` 0.12.1 for PKCS#11 2.40, 3.0, 3.1 and 3.2. It supports
-RSA/EC, AES, digest/MAC, ECDH/HKDF/SP 800-108, EdDSA, Montgomery, ML-DSA, ML-KEM,
-SLH-DSA and hash-PQC operations. Availability depends on the token, provider and
-application surface; see the [compatibility matrix](docs/oasis-compatibility.md).
-Formal OASIS conformance and hardware compatibility are not implied.
-
-Typed private/secret-key operations keep key material on the token. Authentication,
-permissions, mechanism support and policy are checked before execution. Mutations
-are not retried or rolled back; failures can leave persistent effects.
+Available operations depend on the token and provider. See the
+[PKCS#11 compatibility matrix](docs/oasis-compatibility.md) for supported
+mechanisms and where each is available. The
+[security model](docs/security-model.md) explains which protections depend on
+the provider or application.
 
 ## Documentation and checks
 
@@ -86,3 +82,5 @@ python3 tools/check-dependencies.py
 ## License
 
 [MIT](LICENSE-MIT) OR [Apache-2.0](LICENSE-APACHE), at your option.
+
+[Report a vulnerability](SECURITY.md) · [Changelog](CHANGELOG.md)

@@ -154,7 +154,6 @@ fn appearance_buttons_work_with_keyboard_and_keep_resource_selection() {
 }
 #[test]
 fn login_cancel_clears_pin_and_restores_resource_context() {
-    use secrecy::ExposeSecret;
     let mut app = run(
         state,
         &["click \"USER login\"", "type tab", "type \"secret-canary\""],
@@ -1282,7 +1281,12 @@ fn ml_dsa_verification_form_accepts_context_without_authentication() {
         pin: "ignored-secret-canary".into(),
     });
     assert!(
-        secrecy::ExposeSecret::expose_secret(&app.state.crypto_form.as_ref().unwrap().pin)
+        app.state
+            .crypto_form
+            .as_ref()
+            .unwrap()
+            .pin
+            .expose_secret()
             .is_empty()
     );
     for dark in [false, true] {

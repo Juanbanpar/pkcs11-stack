@@ -4,7 +4,9 @@
 //! Each operation reuses one runtime implementation; the client never
 //! reimplements PKCS#11 calls or capability checks.
 
-use crate::{Authentication, Client, Error, ManagementSession, ObjectRef, Pkcs11Uri, Provider};
+use crate::{
+    Authentication, Client, Error, ManagementSession, ObjectRef, Pkcs11Uri, Plaintext, Provider,
+};
 use pkcs11_runtime::{
     AES_BLOCK_SIZE, AesDecryptRequest, AesDirection, AesEncryptRequest, AesMode,
     FunctionAvailability, HashAlgorithm, HashMlDsaCapabilities, HashMlDsaRequest,
@@ -13,7 +15,6 @@ use pkcs11_runtime::{
     MechanismCapability, MlDsaParameterSet, SlhDsaCapabilities, SlhDsaKeyPairRequest,
     SlhDsaRequest, SlhDsaSigningPolicy, VerifyRequest,
 };
-use secrecy::SecretBox;
 use x509_cert::{
     der::{
         Encode,
@@ -166,7 +167,7 @@ impl Client<'_> {
         key: &ObjectRef,
         request: &AesDecryptRequest<'_>,
         authentication: Authentication<'_>,
-    ) -> Result<SecretBox<Vec<u8>>, Error> {
+    ) -> Result<Plaintext, Error> {
         Ok(self
             .pool()
             .try_acquire(authentication)?
@@ -522,7 +523,7 @@ impl ManagementSession<'_> {
         &mut self,
         key: &ObjectRef,
         request: &AesDecryptRequest<'_>,
-    ) -> Result<SecretBox<Vec<u8>>, Error> {
+    ) -> Result<Plaintext, Error> {
         Ok(self.session.decrypt_aes(key, request)?)
     }
 
@@ -533,7 +534,7 @@ impl ManagementSession<'_> {
         mode: AesMode,
         iv: Option<&[u8; AES_BLOCK_SIZE]>,
         chunks: impl IntoIterator<Item = &'a [u8]>,
-    ) -> Result<SecretBox<Vec<u8>>, Error> {
+    ) -> Result<Plaintext, Error> {
         Ok(self.session.decrypt_aes_chunks(key, mode, iv, chunks)?)
     }
 

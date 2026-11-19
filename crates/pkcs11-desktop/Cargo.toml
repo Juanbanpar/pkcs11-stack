@@ -7,10 +7,13 @@ license.workspace = true
 publish.workspace = true
 description = "Native PKCS#11 desktop application over pkcs11-client"
 readme = "README.md"
+repository.workspace = true
+documentation = "https://github.com/Juanbanpar/pkcs11-stack/blob/main/crates/pkcs11-desktop/README.md"
+keywords = ["pkcs11", "cryptography", "hsm", "security"]
+categories = ["cryptography", "hardware-support"]
 
 [dependencies]
 pkcs11-client.workspace = true
-secrecy.workspace = true
 iced.workspace = true
 iced_fonts = { version = "0.3.0", default-features = false, features = ["lucide"] }
 iced_aw = { version = "0.14.1", default-features = false, features = ["badge", "spinner"] }

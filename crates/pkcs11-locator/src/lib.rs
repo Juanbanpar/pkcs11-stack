@@ -4,10 +4,12 @@
 
 mod codec;
 mod matcher;
+mod secret;
 mod uri;
 
 pub use matcher::{
     ModuleIdentity, ModuleSelector, ObjectIdentity, ObjectSelector, ResourceIdentity, SlotIdentity,
     SlotSelector, TokenIdentity, TokenSelector,
 };
+pub use secret::SecretText;
 pub use uri::{Error, ObjectType, Pkcs11Uri, Pkcs11UriBuilder};

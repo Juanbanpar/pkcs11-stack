@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-use secrecy::SecretString;
+use pkcs11_client::SecretText;
 use std::io::Read;
 use zeroize::Zeroizing;
 
@@ -18,7 +18,7 @@ pub fn arguments(count: usize, usage: &'static str) -> Result<Vec<String>> {
 }
 
 // This is an application secret source, not library prompting or PIN caching.
-pub fn pin_file(path: &str) -> Result<SecretString> {
+pub fn pin_file(path: &str) -> Result<SecretText> {
     let mut bytes = Zeroizing::new(Vec::new());
     std::fs::File::open(path)?
         .take(65537)
@@ -33,5 +33,5 @@ pub fn pin_file(path: &str) -> Result<SecretString> {
     } else {
         text
     };
-    Ok(SecretString::from(text))
+    Ok(SecretText::from(text))
 }

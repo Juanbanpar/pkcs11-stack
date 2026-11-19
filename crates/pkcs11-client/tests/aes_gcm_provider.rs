@@ -2,9 +2,8 @@
 //! Generated AES keys and authenticated-decryption failures through the client API.
 use pkcs11_client::{
     AesGcmDecryptRequest, AesGcmEncryptRequest, AesGcmOperation, AesKeyPurpose, AesKeyRequest,
-    AesKeySize, Authentication, ErrorKind, ObjectRef, Pin, Provider, SessionMode,
+    AesKeySize, Authentication, ErrorKind, ObjectRef, Pin, Provider, SecretText, SessionMode,
 };
-use secrecy::{ExposeSecret, SecretString};
 #[test]
 #[ignore = "requires tools/test-softhsm.sh disposable store"]
 fn typed_aes_gcm_permissions_redaction_and_failed_session_cleanup() {
@@ -12,7 +11,7 @@ fn typed_aes_gcm_permissions_redaction_and_failed_session_cleanup() {
     let provider = Provider::load(std::env::var_os("PKCS11_TEST_MODULE").unwrap()).unwrap();
     let name = "client-test";
     let token = format!("pkcs11:token={name}").parse().unwrap();
-    let pin = SecretString::from("12345678");
+    let pin = SecretText::from("12345678");
     let auth = || Authentication::User(Pin::Value(&pin));
     let reference = |label: &str| {
         ObjectRef::new(

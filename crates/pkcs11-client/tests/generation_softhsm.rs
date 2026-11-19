@@ -3,9 +3,8 @@
 use pkcs11_client::{
     AesKeyPurpose, AesKeyRequest, AesKeySize, Authentication, DeriveRequest, EcdhKeyPairRequest,
     EcdhPeer, Error, KeyOperation, NamedCurve, ObjectRef, Pin, Provider, SecretKeyIdentity,
-    SessionMode,
+    SecretText, SessionMode,
 };
-use secrecy::SecretString;
 
 fn reference(id: &[u8], kind: &str) -> ObjectRef {
     let id: String = id.iter().map(|b| format!("%{b:02X}")).collect();
@@ -41,7 +40,7 @@ fn typed_generation_and_advisory_choices() {
             .generation_capabilities(&"pkcs11:token=missing".parse().unwrap())
             .is_err()
     );
-    let pin = SecretString::from("12345678");
+    let pin = SecretText::from("12345678");
     let auth = || Authentication::User(Pin::Value(&pin));
     let ec = EcdhKeyPairRequest {
         curve: NamedCurve::P256,

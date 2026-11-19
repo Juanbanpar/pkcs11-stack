@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use std::fmt;
 
-use cryptoki::{object::ObjectHandle, session::UserType};
+use cryptoki::{object::ObjectHandle, session::UserType, types::AuthPin};
 use pkcs11_locator::{ObjectIdentity, ObjectType, Pkcs11Uri};
-use secrecy::SecretString;
 
 use crate::{
-    Attribute, AttributeInfo, AttributeType, Error, ObjectClass, SessionInfo, Token,
+    Attribute, AttributeInfo, AttributeType, Error, ObjectClass, SecretText, SessionInfo, Token,
     error::{backend, unique},
 };
 
@@ -23,10 +22,21 @@ pub enum SessionMode {
 #[non_exhaustive]
 pub enum Pin<'a> {
     /// Host-supplied PIN held in redacted, zeroizing storage.
-    Value(&'a SecretString),
+    Value(&'a SecretText),
     /// Token-provided protected authentication path, checked before login.
     ProtectedPath,
 }
+
+pub(crate) fn login_with_pin(
+    session: &cryptoki::session::Session,
+    user: UserType,
+    pin: Option<&SecretText>,
+) -> Result<(), cryptoki::error::Error> {
+    // Cryptoki takes its own zeroizing PIN type. Keep the copy local to this call.
+    let pin = pin.map(|pin| AuthPin::from(pin.expose_secret()));
+    session.login(user, pin.as_ref())
+}
+
 /// Explicit login policy; this does not cache credentials or implicit login state.
 ///
 /// Context-specific authentication belongs to `Session::sign`, after operation init.
@@ -103,7 +113,7 @@ impl<'m> Session<'m> {
     }
     /// Validate current protected-path capability using the same identity check
     /// for ordinary and context-specific authentication.
-    pub(crate) fn login_pin<'a>(&self, pin: Pin<'a>) -> Result<Option<&'a SecretString>, Error> {
+    pub(crate) fn login_pin<'a>(&self, pin: Pin<'a>) -> Result<Option<&'a SecretText>, Error> {
         self.validate()?;
         match pin {
             Pin::Value(secret) => Ok(Some(secret)),
@@ -163,9 +173,7 @@ impl<'m> Session<'m> {
             }
         };
         let pin = self.login_pin(pin)?;
-        self.raw()?
-            .login(user, pin)
-            .map_err(|e| backend("login", e))
+        login_with_pin(self.raw()?, user, pin).map_err(|e| backend("login", e))
     }
     /// Explicit token-wide logout; it can invalidate private handles in other sessions.
     pub fn logout(&mut self) -> Result<(), Error> {
@@ -445,7 +453,7 @@ mod tests {
     }
     #[test]
     fn authentication_and_attribute_debug_do_not_expose_secrets() {
-        let pin = SecretString::from("canary");
+        let pin = SecretText::from("canary");
         assert!(!format!("{:?}", Authentication::User(Pin::Value(&pin))).contains("canary"));
         let attrs = AttributeValues(vec![Attribute::Value(b"canary".to_vec())]);
         assert!(!format!("{attrs:?}").contains(&format!("{:?}", b"canary".to_vec())));

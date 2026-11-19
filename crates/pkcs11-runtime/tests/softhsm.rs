@@ -10,9 +10,8 @@ use cryptoki::{
 use pkcs11_locator::Pkcs11Uri;
 use pkcs11_runtime::{
     Attribute, AttributeInfo, AttributeType, Authentication, Error, Module, ObjectClass, ObjectRef,
-    Pin, SessionMode, SessionState,
+    Pin, SecretText, SessionMode, SessionState,
 };
-use secrecy::SecretString;
 
 fn token_uri(serial: &str) -> Pkcs11Uri {
     Pkcs11Uri::builder()
@@ -45,8 +44,8 @@ fn software_token_runtime_foundation() {
         "use tools/test-softhsm.sh"
     );
     let path = std::env::var("PKCS11_TEST_MODULE").expect("module from test runner");
-    let user = SecretString::from("12345678");
-    let so = SecretString::from("87654321");
+    let user = SecretText::from("12345678");
+    let so = SecretText::from("87654321");
 
     // Fixture creation uses cryptoki directly, before the runtime owns lifecycle.
     let fixture = Pkcs11::new(&path).unwrap();
@@ -63,7 +62,12 @@ fn software_token_runtime_foundation() {
         .to_owned();
     {
         let session = fixture.open_rw_session(slot).unwrap();
-        session.login(UserType::User, Some(&user)).unwrap();
+        session
+            .login(
+                UserType::User,
+                Some(&cryptoki::types::AuthPin::from(user.expose_secret())),
+            )
+            .unwrap();
         for (label, private) in [
             ("unique", false),
             ("duplicate", false),
@@ -138,7 +142,7 @@ fn software_token_runtime_foundation() {
         ro.authenticate(Authentication::User(Pin::ProtectedPath)),
         Err(Error::ProtectedPathUnavailable)
     ));
-    let bad = SecretString::from("incorrect-fixture-pin");
+    let bad = SecretText::from("incorrect-fixture-pin");
     let error = ro
         .authenticate(Authentication::User(Pin::Value(&bad)))
         .unwrap_err();

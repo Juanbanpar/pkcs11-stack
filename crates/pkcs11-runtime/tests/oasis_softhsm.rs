@@ -3,9 +3,8 @@
 
 use pkcs11_runtime::{
     AesDecryptRequest, AesEncryptRequest, AesMode, Attribute, Authentication, Error, HashAlgorithm,
-    KeyType, MacAlgorithm, Module, ObjectClass, ObjectRef, Pin, SessionMode,
+    KeyType, MacAlgorithm, Module, ObjectClass, ObjectRef, Pin, SecretText, SessionMode,
 };
-use secrecy::SecretString;
 
 fn hex(value: &str) -> Vec<u8> {
     value
@@ -32,7 +31,7 @@ fn digest_mac_and_aes_block_known_answers() {
     let token = module
         .resolve_token_uri(&"pkcs11:token=client-test".parse().unwrap())
         .unwrap();
-    let pin = SecretString::from("12345678");
+    let pin = SecretText::from("12345678");
     let mut setup = token.open_session(SessionMode::ReadWrite).unwrap();
     setup
         .authenticate(Authentication::User(Pin::Value(&pin)))
@@ -137,5 +136,3 @@ fn digest_mac_and_aes_block_known_answers() {
         &plaintext
     );
 }
-
-use secrecy::ExposeSecret;

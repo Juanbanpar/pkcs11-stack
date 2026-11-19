@@ -1,15 +1,14 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 #![no_main]
 use libfuzzer_sys::fuzz_target;
-use pkcs11_locator::{ObjectIdentity, Pkcs11Uri};
-use secrecy::{ExposeSecret, SecretString};
+use pkcs11_locator::{ObjectIdentity, Pkcs11Uri, SecretText};
 
 fuzz_target!(|data: &[u8]| {
     let secret = format!("pin-canary-{}", String::from_utf8_lossy(data));
     let uri = Pkcs11Uri::builder()
         .path_attribute("id", data)
         .unwrap()
-        .query_attribute("pin-value", SecretString::from(secret.as_str()))
+        .query_attribute("pin-value", SecretText::from(secret.as_str()))
         .unwrap()
         .build()
         .unwrap();

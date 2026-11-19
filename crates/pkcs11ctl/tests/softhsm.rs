@@ -326,8 +326,7 @@ fn command_workflows() {
         &f.pin,
         "--confirm",
     ]);
-    let ed = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../pkcs11-client/tests/fixtures/ed25519.der");
+    let ed = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/ed25519.der");
     f.ok(&[
         "import",
         "--token",
@@ -748,9 +747,9 @@ fn command_workflows() {
 
 fn listed_empty_selectors_are_preserved(f: &Fixture) {
     use pkcs11_client::{Authentication, CertificateDocument, Pin, Provider, SessionMode};
-    let der = include_bytes!("../../pkcs11-client/tests/fixtures/rsa.der").to_vec();
+    let der = include_bytes!("fixtures/rsa.der").to_vec();
     let provider = Provider::load(&f.module).unwrap();
-    let pin = secrecy::SecretString::from("12345678");
+    let pin = pkcs11_client::SecretText::from("12345678");
     let mut session = provider
         .management(
             &"pkcs11:token=cli-test".parse().unwrap(),

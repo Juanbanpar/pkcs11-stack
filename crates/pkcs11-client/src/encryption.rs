@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use crate::*;
-use secrecy::SecretBox;
 
 /// SHA-2 OAEP choice with matching MGF1 digest and empty label.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -37,7 +36,7 @@ impl std::fmt::Debug for DecryptRequest<'_> {
     }
 }
 /// Owned plaintext; Debug is redacted and storage zeroizes on drop.
-pub type Plaintext = SecretBox<Vec<u8>>;
+pub type Plaintext = SecretBytes;
 impl ManagementSession<'_> {
     /// Advisory SHA-2 choices after current key permissions and mechanism checks.
     /// Never probes a provider by performing an encryption/decryption operation.
@@ -96,7 +95,7 @@ mod tests {
             digest: DigestAlgorithm::Sha256,
             ciphertext: canary,
         };
-        let plaintext = SecretBox::new(Box::new(canary.to_vec()));
+        let plaintext = Plaintext::from(canary.to_vec());
         assert!(!format!("{encrypt:?} {decrypt:?} {plaintext:?}").contains("canary"));
     }
 }

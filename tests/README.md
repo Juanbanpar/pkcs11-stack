@@ -39,17 +39,18 @@ PKCS11_TEST_PQC_OPENSSL=/absolute/path/to/pqc-kryoptic/openssl/bin/openssl \
 ./tools/test.sh
 ```
 
-Install OpenSC (`pkcs11-tool`) and OpenSSL. Provider builds also require Git,
-C/C++, Make, Perl, Autoconf, Automake, Libtool, Clang/libclang, pkg-config and SQLite
-development files; Kryoptic needs stable Rust. Builds link pinned OpenSSL 3.5.9
-without replacing system OpenSSL or changing its library search path. Kryoptic's
-source is pinned, but its Cargo dependencies resolve at build time because upstream
-supplies no lockfile.
+Install OpenSC (`pkcs11-tool`), OpenSSL, Git, a C/C++ compiler, Make, Perl,
+Autoconf, Automake, Libtool, Clang/libclang, pkg-config, and SQLite development
+headers. Kryoptic needs `rustup toolchain install 1.99.0 --profile minimal`.
+The scripts build with OpenSSL 3.5.9. Kryoptic uses the committed lockfile.
 
-`tools/test.sh` runs unit/doctests, SoftHSM, ML-DSA, ML-KEM and KEM/HKDF suites.
-Set `PKCS11_TEST_PQC_MODULE` to include SLH-DSA/hash-PQC/Montgomery; without it that
-lane is reported as not run. Missing required mechanisms/parameter sets fail the
-selected suite. Desktop backend tests run without opening a window.
+To reuse the OpenSSL build from the KDF provider, set
+`KRYOPTIC_OPENSSL_SOURCES=/absolute/path/to/kdf-provider/openssl` when building
+the PQC provider. The script checks the manifest and library hash.
+
+`tools/test.sh` runs unit, documentation, and provider tests. Set
+`PKCS11_TEST_PQC_MODULE` to include the SLH-DSA, hash-PQC, and Montgomery tests.
+Desktop backend tests run without a window.
 
 ## SoftHSM integration
 

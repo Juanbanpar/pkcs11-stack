@@ -488,7 +488,8 @@ impl Registry {
         }
         let uri_key = reference
             .uri()
-            .to_string()
+            .to_secret_uri()
+            .expose_secret()
             .parse()
             .map_err(|_| BackendError::SigningUnavailable)?;
         Ok((
@@ -526,7 +527,8 @@ impl Registry {
         let key = PublicKeyRef::new(
             reference
                 .uri()
-                .to_string()
+                .to_secret_uri()
+                .expose_secret()
                 .parse()
                 .map_err(|_| BackendError::SigningUnavailable)?,
         )
@@ -571,7 +573,8 @@ impl Registry {
         let key = PublicKeyRef::new(
             reference
                 .uri()
-                .to_string()
+                .to_secret_uri()
+                .expose_secret()
                 .parse()
                 .map_err(|_| BackendError::SigningUnavailable)?,
         )

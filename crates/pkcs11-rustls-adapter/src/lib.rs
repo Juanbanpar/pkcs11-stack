@@ -12,6 +12,7 @@ mod signing;
 
 pub use config::{hybrid_tls13_provider, server_config_builder};
 pub use credentials::{CredentialSource, Credentials, PinInput};
+pub use pkcs11_runtime::SecretText;
 pub use resolvers::{ClientResolver, ServerResolver};
 pub use signing::Credential;
 

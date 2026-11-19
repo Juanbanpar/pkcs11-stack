@@ -3,9 +3,8 @@
 use pkcs11_client::{
     AesGcmDecryptRequest, AesGcmEncryptRequest, Attribute, AttributeType, Authentication,
     DigestAlgorithm, ErrorKind, HkdfOutput, HkdfRequest, MlKemParameterSet, MlKemRequest,
-    ObjectRef, Pin, PrivateKeyRef, Provider, PublicKeyRef, SessionMode,
+    ObjectRef, Pin, PrivateKeyRef, Provider, PublicKeyRef, SecretText, SessionMode,
 };
-use secrecy::{ExposeSecret, SecretString};
 
 fn reference(id: &[u8], kind: &str) -> ObjectRef {
     let id: String = id.iter().map(|byte| format!("%{byte:02X}")).collect();
@@ -25,7 +24,7 @@ fn client_ml_kem_to_hkdf_permissions_errors_and_cleanup() {
     );
     let provider = Provider::load(std::env::var_os("PKCS11_TEST_KDF_MODULE").unwrap()).unwrap();
     let token = "pkcs11:token=kdf-test".parse().unwrap();
-    let pin = SecretString::from("12345678");
+    let pin = SecretText::from("12345678");
     let mut session = provider
         .management(
             &token,

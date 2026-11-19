@@ -3,9 +3,8 @@
 use cryptoki::{mechanism::MechanismType, object::KeyType};
 use pkcs11_runtime::{
     Attribute, AttributeType, Authentication, Error, KeyOperation, Module, ObjectClass, ObjectRef,
-    Pin, SessionMode,
+    Pin, SecretText, SessionMode,
 };
-use secrecy::SecretString;
 #[test]
 #[ignore = "requires the isolated SoftHSM runner"]
 fn key_transfer_enforces_permissions_allowed_mechanisms_trust_and_rw_mode() {
@@ -15,7 +14,7 @@ fn key_transfer_enforces_permissions_allowed_mechanisms_trust_and_rw_mode() {
         .resolve_token_uri(&"pkcs11:token=client-test".parse().unwrap())
         .unwrap();
     let mut session = token.open_session(SessionMode::ReadWrite).unwrap();
-    let pin = SecretString::from("12345678");
+    let pin = SecretText::from("12345678");
     session
         .authenticate(Authentication::User(Pin::Value(&pin)))
         .unwrap();

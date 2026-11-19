@@ -10,9 +10,8 @@ use cryptoki::{
 use pkcs11_runtime::{
     Attribute, AttributeInfo, AttributeType, Authentication, Error, MlKemOperation,
     MlKemParameterSet, MlKemRequest, Module, ObjectClass, ObjectRef, Pin, PrivateKeyRef,
-    PublicKeyRef, SessionMode,
+    PublicKeyRef, SecretText, SessionMode,
 };
-use secrecy::SecretString;
 
 fn public(index: usize) -> PublicKeyRef {
     PublicKeyRef::new(
@@ -53,7 +52,7 @@ fn typed_ml_kem_permissions_outputs_and_secret_agreement() {
         MlKemParameterSet::MlKem1024,
     ];
     assert_eq!(token.ml_kem_generation_options().unwrap(), parameters);
-    let pin = SecretString::from("12345678");
+    let pin = SecretText::from("12345678");
     let mut session = token.open_session(SessionMode::ReadWrite).unwrap();
     session
         .authenticate(Authentication::User(Pin::Value(&pin)))

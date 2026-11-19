@@ -86,7 +86,7 @@ pub(crate) struct Inputs {
     pub aes_gcm: Option<aes_gcm::Inputs>,
     pub credential: Credential,
     pub context: Credential,
-    pub new_pin: Option<secrecy::SecretString>,
+    pub new_pin: Option<pkcs11_client::SecretText>,
     pub bytes: Vec<u8>,
     pub certificate_document: Option<pkcs11_client::CertificateDocument>,
     pub verification_certificate: Option<VerificationCertificate>,

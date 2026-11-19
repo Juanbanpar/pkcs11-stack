@@ -517,7 +517,6 @@ fn selected_non_utf8_path_survives_display_conversion() {
 
 #[test]
 fn authentication_form_rejects_stale_input_and_clears_on_navigation() {
-    use secrecy::ExposeSecret;
     let mut state = browsing();
     state.open_login(LoginRole::User);
     let old = state.login_form.as_ref().unwrap().id;
@@ -544,7 +543,6 @@ fn authentication_form_rejects_stale_input_and_clears_on_navigation() {
 }
 #[test]
 fn login_submission_moves_secret_and_preserves_lifecycle_result_across_navigation() {
-    use secrecy::ExposeSecret;
     let mut state = browsing();
     state.objects = vec![object_entry(4, "old-private")];
     state.open_login(LoginRole::User);
@@ -592,7 +590,6 @@ fn login_submission_moves_secret_and_preserves_lifecycle_result_across_navigatio
 }
 #[test]
 fn protected_path_clears_host_pin_and_is_capability_gated() {
-    use secrecy::ExposeSecret;
     let mut state = browsing();
     state.open_login(LoginRole::User);
     let id = state.login_form.as_ref().unwrap().id;
@@ -916,7 +913,13 @@ fn crypto_pin_moves_once_and_signing_cannot_be_superseded() {
     state.crypto_pin(form, "redaction-canary".into());
     assert!(state.submit_crypto(form).is_none());
     assert!(
-        secrecy::ExposeSecret::expose_secret(&state.crypto_form.as_ref().unwrap().pin).is_empty()
+        state
+            .crypto_form
+            .as_ref()
+            .unwrap()
+            .pin
+            .expose_secret()
+            .is_empty()
     );
     state.crypto_edit(form, Input, "message.bin".into());
     state.crypto_edit(form, Signature, "new.sig".into());
@@ -934,10 +937,7 @@ fn crypto_pin_moves_once_and_signing_cannot_be_superseded() {
         panic!("one-shot sign command");
     };
     assert_eq!(actual, scope);
-    assert_eq!(
-        secrecy::ExposeSecret::expose_secret(&pin),
-        "redaction-canary"
-    );
+    assert_eq!(pin.expose_secret(), "redaction-canary");
     assert!(state.crypto_form.is_none());
     assert!(!state.can_submit());
     assert!(!state.can_cancel());
@@ -994,7 +994,7 @@ fn crypto_policy_picker_and_secret_messages_are_scoped() {
     let form = state.crypto_form.as_ref().unwrap();
     assert_eq!(form.id, current);
     assert!(form.input.is_empty());
-    assert!(secrecy::ExposeSecret::expose_secret(&form.pin).is_empty());
+    assert!(form.pin.expose_secret().is_empty());
     state.event(complete(
         old,
         BackendResult::CryptoOptions {
@@ -1012,11 +1012,23 @@ fn crypto_policy_picker_and_secret_messages_are_scoped() {
     state.crypto_pin(id, "canary".into());
     state.crypto_protected(id, true);
     assert!(
-        secrecy::ExposeSecret::expose_secret(&state.crypto_form.as_ref().unwrap().pin).is_empty()
+        state
+            .crypto_form
+            .as_ref()
+            .unwrap()
+            .pin
+            .expose_secret()
+            .is_empty()
     );
     state.crypto_pin(id, "ignored-canary".into());
     assert!(
-        secrecy::ExposeSecret::expose_secret(&state.crypto_form.as_ref().unwrap().pin).is_empty()
+        state
+            .crypto_form
+            .as_ref()
+            .unwrap()
+            .pin
+            .expose_secret()
+            .is_empty()
     );
     state.begin_shutdown();
     assert!(state.crypto_form.is_none());
@@ -1184,7 +1196,6 @@ fn ml_dsa_state(
 #[test]
 fn ml_dsa_context_counts_utf8_bytes_and_submission_moves_the_pin_once() {
     use crate::backend::SignatureProfile;
-    use secrecy::ExposeSecret;
     let (mut state, id, _) = ml_dsa_state(crate::backend::CryptoMode::Sign);
     assert!(state.crypto_policy(id, true).is_none());
     assert!(!state.crypto_form.as_ref().unwrap().software_hashing);
@@ -1727,7 +1738,6 @@ fn administration_requires_review_and_exact_confirmation_and_never_retains_submi
 #[test]
 fn administration_clears_secrets_on_invalid_review_navigation_login_and_shutdown() {
     use crate::backend::AdministrationKind;
-    use secrecy::ExposeSecret;
     let (mut state, id) = administration_state(AdministrationKind::ChangePin);
     fill_administration(&mut state, id);
     state.administration_pin(id, AdministrationPinField::Confirm, "different".into());

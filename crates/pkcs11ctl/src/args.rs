@@ -417,8 +417,8 @@ pub(crate) fn command() -> Command {
         auth(object(Command::new(name).about(help)
         .arg(required("nonce", "Exactly 24 hex digits; encryption requires a unique nonce per key, also after errors"))
         .arg(value("aad-file", "Additional authenticated data file, at most 1 MiB; omitted means empty; no stdin"))
-        .arg(required("input", "Input file; - reads stdin; ciphertext includes the full 16-byte tag"))
-        .arg(required("output", "New output file, or - for binary stdout; nonce/AAD are not included"))))
+        .arg(required("input", "Input file or - for stdin"))
+        .arg(required("output", "New output file or - for binary stdout"))))
     };
     let digest = Command::new("digest")
         .about("Digest a file or stdin on the token")
@@ -586,7 +586,7 @@ pub(crate) fn command() -> Command {
         auth(token(random)),
         gcm(
             "encrypt-aes-gcm",
-            "Encrypt at most 16 MiB once; output is ciphertext followed by a full tag",
+            "Encrypt up to 16 MiB. Output is ciphertext followed by a 16-byte tag",
         ),
         gcm(
             "decrypt-aes-gcm",

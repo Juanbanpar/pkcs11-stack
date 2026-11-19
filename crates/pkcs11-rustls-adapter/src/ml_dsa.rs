@@ -228,15 +228,15 @@ mod tests {
         let fixtures = [
             (
                 MlDsaParameterSet::MlDsa44,
-                include_bytes!("../../pkcs11-client/tests/fixtures/mldsa44.der").as_slice(),
+                include_bytes!("../tests/fixtures/mldsa44.der").as_slice(),
             ),
             (
                 MlDsaParameterSet::MlDsa65,
-                include_bytes!("../../pkcs11-client/tests/fixtures/mldsa65.der").as_slice(),
+                include_bytes!("../tests/fixtures/mldsa65.der").as_slice(),
             ),
             (
                 MlDsaParameterSet::MlDsa87,
-                include_bytes!("../../pkcs11-client/tests/fixtures/mldsa87.der").as_slice(),
+                include_bytes!("../tests/fixtures/mldsa87.der").as_slice(),
             ),
         ];
         let provider = rustls::crypto::aws_lc_rs::default_provider();

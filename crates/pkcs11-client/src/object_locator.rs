@@ -82,7 +82,6 @@ fn build<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use secrecy::ExposeSecret;
 
     #[test]
     fn identity_bytes_empty_constraints_and_location_survive() {

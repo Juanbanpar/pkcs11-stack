@@ -6,10 +6,9 @@
 
 use pkcs11_runtime::{
     Authentication, Error, Function, HashingPolicy, Module, Pin, PrivateKeyRef, PssParameters,
-    PublicKeyRef, SessionMode, SignInput, SignRequest, SignatureAlgorithm, SigningPolicy,
-    VerifyRequest,
+    PublicKeyRef, SecretText, SessionMode, SignInput, SignRequest, SignatureAlgorithm,
+    SigningPolicy, VerifyRequest,
 };
-use secrecy::SecretString;
 use sha2::{Digest, Sha256};
 
 fn private(token: &str, object: &str) -> PrivateKeyRef {
@@ -38,7 +37,7 @@ fn token_verifies_rsa_and_ecdsa_signatures() {
     let token = module
         .resolve_token_uri(&"pkcs11:token=client-test".parse().unwrap())
         .unwrap();
-    let pin = SecretString::from("12345678");
+    let pin = SecretText::from("12345678");
     let mut session = token.open_session(SessionMode::ReadOnly).unwrap();
     session
         .authenticate(Authentication::User(Pin::Value(&pin)))

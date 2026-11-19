@@ -9,9 +9,8 @@ use cryptoki::{
 use pkcs11_runtime::{
     Attribute, AttributeType, Authentication, DigestAlgorithm, EcdhDerivation, EcdhKeyPairRequest,
     Error, HkdfOutput, HkdfRequest, MechanismType, MlKemParameterSet, MlKemRequest, Module,
-    NamedCurve, ObjectClass, ObjectRef, Pin, PrivateKeyRef, PublicKeyRef, SessionMode,
+    NamedCurve, ObjectClass, ObjectRef, Pin, PrivateKeyRef, PublicKeyRef, SecretText, SessionMode,
 };
-use secrecy::SecretString;
 
 fn path() -> std::ffi::OsString {
     assert_eq!(
@@ -28,7 +27,10 @@ fn native() -> (Pkcs11, NativeSession) {
     let slot = module.get_slots_with_initialized_token().unwrap()[0];
     let session = module.open_rw_session(slot).unwrap();
     session
-        .login(UserType::User, Some(&SecretString::from("12345678")))
+        .login(
+            UserType::User,
+            Some(&cryptoki::types::AuthPin::from("12345678")),
+        )
         .unwrap();
     (module, session)
 }
@@ -92,7 +94,7 @@ fn token_hybrid_construction_and_policy() {
         .unwrap();
     let mut session = token.open_session(SessionMode::ReadWrite).unwrap();
     session
-        .authenticate(Authentication::User(Pin::Value(&SecretString::from(
+        .authenticate(Authentication::User(Pin::Value(&SecretText::from(
             "12345678",
         ))))
         .unwrap();

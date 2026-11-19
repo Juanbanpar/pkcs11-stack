@@ -1,9 +1,10 @@
 # OASIS PKCS#11 compatibility
 
 `pkcs11-stack` targets PKCS#11 2.40, 3.0, 3.1 and 3.2 through the published
-`cryptoki` 0.12.1 API. This is a support matrix, not a claim of formal OASIS
-conformance. Listed mechanisms have typed runtime paths; the application table
-below identifies which are exposed by the client, CLI and desktop.
+`cryptoki` 0.12.1 API. The tables list the mechanisms exposed by the runtime,
+client, CLI, and desktop. Availability depends on the token and its module.
+Integration tests use SoftHSM and Kryoptic. Check your device and firmware
+with the vendor module before deploying.
 
 ## Interface negotiation
 
@@ -20,7 +21,7 @@ metadata, but the binding does not expose the selected interface identifier.
 | ECDH | key-pair generation and raw derivation | P-256/P-384/P-521; apply a protocol KDF separately |
 | EdDSA | Ed25519/Ed448 generation, sign/verify, import/export | pure original-message profile; context authentication is blocked |
 | Montgomery | X25519/X448 generation, import/export, ECDH derivation | `CKD_NULL`, X9.63 and SP 800-56A SHA-2 KDFs |
-| AES | key generation, ECB/CBC/CBC-PAD, GCM single-part, CMAC, RFC 3394 wrap/unwrap | caller-managed nonce for GCM |
+| AES | key generation, ECB/CBC/CBC-PAD, GCM single-part, CMAC, RFC 3394 wrap/unwrap | AES-GCM takes an explicit nonce. |
 | SHA-1/SHA-2 | single-part and multipart digest | SHA-3 is blocked upstream |
 | HMAC | full-tag SHA-1/SHA-2 single-part and multipart | general-length MACs are blocked upstream |
 | SP 800-108 | counter, feedback and double-pipeline | HMAC-SHA-1/2 and AES-CMAC PRFs |

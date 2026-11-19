@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use super::{BackendError, LoadedModule, Registry, ResourceId};
-use pkcs11_client::{Authentication, Pin, SessionMode, SessionState};
-use secrecy::SecretString;
+use pkcs11_client::{Authentication, Pin, SecretText, SessionMode, SessionState};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LoginRole {
@@ -33,9 +32,9 @@ impl LoginState {
         }
     }
 }
-// Never formatted or cloned into backend results. SecretString zeroizes on drop.
+// Never formatted or cloned into backend results. SecretText zeroizes on drop.
 pub enum SecretInput {
-    Value(SecretString),
+    Value(SecretText),
     ProtectedPath,
 }
 impl LoadedModule {

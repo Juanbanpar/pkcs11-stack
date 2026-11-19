@@ -78,5 +78,6 @@ pub use pkcs11_runtime::{
     PublicKeyMetadata, PublicKeyRef, SessionMode, SessionPool, SessionState, SignInput, SignPlan,
     SignRequest, SignatureAlgorithm, SigningMechanism, SigningPolicy, SlotInfo, TokenInfo,
 };
+pub use pkcs11_runtime::{SecretBytes, SecretText};
 pub use random::{RandomBytes, RandomRequest};
 pub use signature_options::{SignatureParameters, SigningChoice, SigningOptions};

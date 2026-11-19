@@ -1,14 +1,13 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use crate::{
-    AesKeySize, Attribute, AttributeType, Error, MechanismType, ObjectClass, ObjectRef, Session,
-    error::backend, signing::attribute,
+    AesKeySize, Attribute, AttributeType, Error, MechanismType, ObjectClass, ObjectRef,
+    SecretBytes, Session, error::backend, signing::attribute,
 };
 use cryptoki::{
     context::Function,
     mechanism::{Mechanism, aead::GcmParams},
     object::KeyType,
 };
-use secrecy::{ExposeSecret, SecretBox};
 
 /// Nonce length for this AES-GCM profile, in bytes.
 pub const AES_GCM_NONCE_LENGTH: usize = 12;
@@ -207,7 +206,7 @@ impl Session<'_> {
         &mut self,
         key: &ObjectRef,
         request: &AesGcmDecryptRequest<'_>,
-    ) -> Result<SecretBox<Vec<u8>>, Error> {
+    ) -> Result<SecretBytes, Error> {
         request.validate()?;
         let object = self.resolve(key)?;
         capabilities(&object, AesGcmOperation::Decrypt)?;
@@ -216,14 +215,14 @@ impl Session<'_> {
             .map_err(|e| backend("AES GCM parameters", e))?;
         let raw = object.session.raw()?;
         object.session.healthy.set(false);
-        let plaintext = SecretBox::new(Box::new(
+        let plaintext = SecretBytes::from(
             raw.decrypt(
                 &Mechanism::AesGcm(params),
                 object.handle,
                 request.ciphertext,
             )
             .map_err(|e| backend("AES GCM decrypt", e))?,
-        ));
+        );
         if plaintext.expose_secret().len() != request.ciphertext.len() - AES_GCM_TAG_LENGTH
             || nonce != *request.nonce
         {

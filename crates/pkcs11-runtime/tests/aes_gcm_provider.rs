@@ -6,9 +6,8 @@ use cryptoki::object::KeyType;
 use pkcs11_runtime::{
     AesGcmDecryptRequest, AesGcmEncryptRequest, AesGcmOperation, AesKeyPurpose, AesKeyRequest,
     AesKeySize, Attribute, Authentication, Error, MechanismType, Module, ObjectClass, ObjectRef,
-    Pin, SessionMode,
+    Pin, SecretText, SessionMode,
 };
-use secrecy::{ExposeSecret, SecretString};
 fn hex(s: &str) -> Vec<u8> {
     s.as_bytes()
         .chunks_exact(2)
@@ -47,7 +46,7 @@ fn nist_vectors_tampering_policy_and_generated_keys() {
     let token = module
         .resolve_token_uri(&format!("pkcs11:token={name}").parse().unwrap())
         .unwrap();
-    let pin = SecretString::from("12345678");
+    let pin = SecretText::from("12345678");
     let mut setup = token.open_session(SessionMode::ReadWrite).unwrap();
     setup
         .authenticate(Authentication::User(Pin::Value(&pin)))

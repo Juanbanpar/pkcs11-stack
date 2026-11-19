@@ -311,8 +311,7 @@ fn verifies_independent_fixtures_without_loading_a_module() {
         s: UintRef<'a>,
     }
     let dir = Scratch::new();
-    let fixtures =
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../pkcs11-client/tests/fixtures");
+    let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
     let message = fixtures.join("message.txt");
     for kind in ["rsa", "rsa-pss", "p256", "p384", "p521"] {
         let (algorithm, certificate) = match kind {
@@ -379,8 +378,7 @@ fn verifies_independent_fixtures_without_loading_a_module() {
 #[test]
 fn verification_rejects_mismatch_bad_parameters_and_oversized_inputs() {
     let dir = Scratch::new();
-    let fixtures =
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../pkcs11-client/tests/fixtures");
+    let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
     let certificate = fixtures.join("rsa.der");
     let signature = fixtures.join("rsa-sha256.sig");
     let input = dir.0.join("message");
@@ -448,8 +446,7 @@ fn verification_rejects_mismatch_bad_parameters_and_oversized_inputs() {
 #[test]
 fn verification_accepts_stdin_and_rejects_multiple_stdin_inputs() {
     use std::{io::Write, process::Stdio};
-    let fixtures =
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../pkcs11-client/tests/fixtures");
+    let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
     let certificate = fixtures.join("rsa.der");
     let signature = fixtures.join("rsa-sha256.sig");
     let base = [
@@ -803,8 +800,7 @@ fn token_erasure_requires_complete_expected_identity_before_loading() {
 #[test]
 fn ml_dsa_offline_verification_checks_all_parameters_and_contexts() {
     let dir = Scratch::new();
-    let fixtures =
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../pkcs11-client/tests/fixtures");
+    let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
     let context = dir.0.join("context");
     std::fs::write(&context, b"fixture-context").unwrap();
     for parameter in ["44", "65", "87"] {
@@ -1366,6 +1362,23 @@ fn aes_gcm_preflight_rejects_invalid_parameters_before_provider_or_output() {
     let input = dir.0.join("input");
     std::fs::write(&input, [0; 15]).unwrap();
     let output = dir.0.join("output");
+    for command in ["encrypt-aes-gcm", "decrypt-aes-gcm"] {
+        let out = run(&[
+            "--module",
+            "/missing",
+            command,
+            "--object",
+            "pkcs11:token=x;object=k;type=secret-key",
+            "--input",
+            input.to_str().unwrap(),
+            "--output",
+            output.to_str().unwrap(),
+        ]);
+        assert_eq!(out.status.code(), Some(2));
+        assert!(out.stderr.starts_with(b"invalid command line"));
+        assert!(out.stdout.is_empty());
+        assert!(!output.exists());
+    }
     for (command, nonce, object, extra) in [
         (
             "encrypt-aes-gcm",

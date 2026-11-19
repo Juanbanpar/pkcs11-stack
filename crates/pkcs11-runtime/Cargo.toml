@@ -4,9 +4,14 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-publish.workspace = true
+publish = true
 description = "Shared PKCS#11 runtime infrastructure"
 readme = "README.md"
+repository.workspace = true
+documentation = "https://docs.rs/pkcs11-runtime"
+keywords = ["pkcs11", "cryptography", "hsm", "security"]
+categories = ["cryptography", "hardware-support"]
+include = ["src/**", "tests/**", "examples/**", "README.md", "Cargo.toml", "Cargo.lock", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [dependencies]
 pkcs11-locator.workspace = true

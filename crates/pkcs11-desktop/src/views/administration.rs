@@ -14,7 +14,6 @@ use iced::{
     widget::{column, container, text},
 };
 use iced_fonts::lucide;
-use secrecy::ExposeSecret;
 pub fn view(state: &UiState) -> Element<'_, Message> {
     let Some(form) = &state.administration_form else {
         let common = if state.token().is_some_and(|token| token.protected_path) {

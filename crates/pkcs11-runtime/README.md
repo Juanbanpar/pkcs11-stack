@@ -7,15 +7,14 @@ For application workflows and certificate binding, use
 
 ```no_run
 use pkcs11_locator::Pkcs11Uri;
-use pkcs11_runtime::{Module, ObjectRef, SessionMode, Authentication, Pin, AttributeType};
-use secrecy::SecretString;
+use pkcs11_runtime::{ SecretText, Module, ObjectRef, SessionMode, Authentication, Pin, AttributeType};
 
 let module = Module::load("/absolute/path/to/trusted-pkcs11.so")?;
 let locator: Pkcs11Uri = "pkcs11:token=production;serial=123".parse()?;
 let token = module.resolve_token(locator.token_selector())?;
 let mut session = token.open_session(SessionMode::ReadOnly)?;
 // Example only: the application obtains the PIN from its chosen secret source.
-let pin = SecretString::from("example-only");
+let pin = SecretText::from("example-only");
 session.authenticate(Authentication::User(Pin::Value(&pin)))?;
 let key = ObjectRef::new("pkcs11:serial=123;object=server-key;type=private".parse()?)?;
 {
@@ -106,7 +105,7 @@ validate certificate trust.
 ## Authentication and concurrency
 
 - Authentication explicitly selects no change, USER, SO or a protected path.
-  PINs are borrowed `SecretString`s and never cached; SO requires RW mode.
+  PINs are borrowed `SecretText`s and never cached; SO requires RW mode.
 - Login/logout are token-wide. `None` does not log out, and Drop never explicitly
   logs out, though closing the last session can reset authentication.
 - Standalone login does not silently adopt an existing login. Pool checkout
@@ -126,14 +125,14 @@ its multipart form. EdDSA context authentication is unsupported.
 use std::num::NonZeroUsize;
 use pkcs11_locator::Pkcs11Uri;
 use pkcs11_runtime::*;
-use secrecy::SecretString;
+use pkcs11_runtime::SecretText;
 
 let module = Module::load("/absolute/path/to/trusted-pkcs11.so")?;
 let uri: Pkcs11Uri = "pkcs11:serial=123;object=signer;type=private".parse()?;
 let token = module.resolve_token(uri.token_selector())?;
 let key = PrivateKeyRef::new(uri)?;
 let pool = SessionPool::new(token, SessionMode::ReadOnly, NonZeroUsize::new(4).unwrap());
-let pin = SecretString::from("example-only");
+let pin = SecretText::from("example-only");
 let mut lease = pool.try_acquire(Authentication::User(Pin::Value(&pin)))?;
 let request = SignRequest {
     algorithm: SignatureAlgorithm::RsaPss,
@@ -216,7 +215,7 @@ message/digest buffers are not zeroizing. `PrivateKeyRef`, `PublicKeyRef` and
 | --- | --- |
 | `rsa_oaep_capabilities`, `encrypt_rsa_oaep`, `decrypt_rsa_oaep` | RSA 2048–16384 bits; SHA-256/384/512 with matching MGF1 and empty label; plaintext must fit OAEP, ciphertext is modulus-width |
 | `aes_gcm_capabilities`, `encrypt_aes_gcm`, `decrypt_aes_gcm` | AES-128/192/256; 12-byte nonce, separate AAD and full 16-byte tag appended to ciphertext; RO or RW session |
-| `aes_capabilities`, `encrypt_aes`, `decrypt_aes` | ECB/CBC/CBC-PAD, single-part and multipart; request rustdoc defines IV, padding and bounds |
+| `aes_capabilities`, `encrypt_aes`, `decrypt_aes` | ECB/CBC/CBC-PAD without authentication, single-part or multipart. See rustdoc for IV, padding, and length requirements. |
 
 OAEP rejects per-operation-authenticated decryption before init. GCM requires a
 secret AES key with direction permission, allowed mechanisms, advertised bounds
@@ -260,13 +259,12 @@ never read. Arbitrary caller templates may contain secrets and must be protected
 access prevents initialization while borrowed consumers are live:
 
 ```compile_fail,E0502
-use pkcs11_runtime::{Module, SessionMode};
-use secrecy::SecretString;
+use pkcs11_runtime::{ SecretText, Module, SessionMode};
 fn invalid_initialization(mut module: Module) {
     let slot = module.slots(true).unwrap()[0];
     let token = module.token(slot).unwrap();
     let session = token.open_session(SessionMode::ReadOnly).unwrap();
-    module.initialize_token(slot, &SecretString::from("example"), "new").unwrap();
+    module.initialize_token(slot, &SecretText::from("example"), "new").unwrap();
     drop(session);
 }
 ```

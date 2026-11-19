@@ -637,7 +637,7 @@ impl<'m> Session<'m> {
         let signature = if capabilities.always_authenticate {
             raw.sign_init(&mechanism, object.handle)
                 .map_err(|e| backend("SLH-DSA sign init", e))?;
-            raw.login(UserType::ContextSpecific, pin)
+            crate::session::login_with_pin(raw, UserType::ContextSpecific, pin)
                 .map_err(|e| backend("SLH-DSA context login", e))?;
             raw.sign_update(request.message)
                 .map_err(|e| backend("SLH-DSA sign update", e))?;

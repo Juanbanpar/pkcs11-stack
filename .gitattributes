@@ -2,4 +2,7 @@
 * text=auto eol=lf
 crates/pkcs11-client/tests/fixtures/** -text
 crates/pkcs11-client/tests/fixtures/README.md text eol=lf
+crates/pkcs11ctl/tests/fixtures/** -text
+crates/pkcs11ctl/tests/fixtures/README.md text eol=lf
+crates/pkcs11-rustls-adapter/tests/fixtures/** -text
 fuzz/seeds/** -text

@@ -3,9 +3,8 @@
 use pkcs11_client::{
     Attribute, AttributeType, Authentication, Error, ErrorKind, MlKemOperation, MlKemParameterSet,
     MlKemPublicKey, MlKemRequest, ObjectClass, Pin, PrivateKeyRef, Provider, PublicKeyRef,
-    SessionMode, object_reference,
+    SecretText, SessionMode, object_reference,
 };
-use secrecy::SecretString;
 
 #[test]
 #[ignore = "requires tools/test-ml-kem.sh"]
@@ -22,7 +21,7 @@ fn client_ml_kem_generation_and_shared_secret_lifecycle() {
         provider.ml_kem_generation_options(&token).unwrap(),
         parameters
     );
-    let pin = SecretString::from("12345678");
+    let pin = SecretText::from("12345678");
     let mut session = provider
         .management(
             &token,

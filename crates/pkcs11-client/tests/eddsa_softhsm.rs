@@ -3,9 +3,8 @@
 
 use pkcs11_client::{
     Authentication, EdDsaCurve, EdDsaRequest, EdDsaVerifyingKey, Error, ManagementSession, Pin,
-    Provider, SessionMode,
+    Provider, SecretText, SessionMode,
 };
-use secrecy::SecretString;
 use std::num::NonZeroUsize;
 
 fn private(token: &str, object: &str) -> pkcs11_client::PrivateKeyRef {
@@ -32,7 +31,7 @@ fn client_eddsa_generation_signing_export_and_import() {
     assert_eq!(std::env::var("PKCS11_TEST_ISOLATED").as_deref(), Ok("1"));
     let provider = Provider::load(std::env::var("PKCS11_TEST_MODULE").unwrap()).unwrap();
     let token = "pkcs11:token=client-test";
-    let pin = SecretString::from("12345678");
+    let pin = SecretText::from("12345678");
     let mut management: ManagementSession<'_> = provider
         .management(
             &token.parse().unwrap(),
