@@ -94,6 +94,6 @@ not a concurrent server framework.
 
 ## Testing
 
-`./tools/test-softhsm.sh` provisions disposable token keys and executes these
+`./tools/test.sh --providers` provisions disposable token keys and executes these
 examples. It verifies signatures with OpenSSL and tests TLS authentication and
 trust failures. See the [test guide](../tests/README.md) for setup.

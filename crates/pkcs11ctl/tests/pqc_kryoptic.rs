@@ -55,7 +55,7 @@ fn success(output: &std::process::Output) {
 }
 
 #[test]
-#[ignore = "requires tools/test-pqc-kryoptic.sh disposable store"]
+#[ignore = "requires tools/test-kryoptic.sh disposable store"]
 fn hash_slh_dsa_and_montgomery_cli_workflows() {
     assert_eq!(
         std::env::var("PKCS11_TEST_PQC_ISOLATED").as_deref(),

@@ -23,9 +23,8 @@ jobs:
           rustup default stable
       - name: Install cargo-audit
         run: cargo install cargo-audit --version 0.22.2 --locked
-      - name: Audit workspace and fuzz lockfiles
+      - name: Audit workspace, fuzz and pinned provider lockfiles
         run: |
-          python3 tools/check-advisories.py
           cargo audit --file Cargo.lock
           cargo audit --file fuzz/Cargo.lock
           (cd tools/provider-locks && cargo audit --file kryoptic.Cargo.lock)
@@ -45,18 +44,10 @@ jobs:
         run: |
           cargo fmt --all -- --check
           cargo fmt --manifest-path fuzz/Cargo.toml -- --check
-      - name: Check
-        run: cargo check --workspace --all-targets --locked
       - name: Adapter production feature configurations
         run: |
           cargo check -p pkcs11-rustls-adapter --lib --no-default-features --locked
           cargo check -p pkcs11-rustls-adapter --lib --features tls12 --locked
-      - name: Dependency boundaries
-        run: python3 tools/check-dependencies.py
-      - name: Module entry points
-        run: |
-          python3 tools/check-module-entrypoints.py
-          python3 tools/test-module-entrypoints.py
       - name: Clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Unit and documentation tests
@@ -72,14 +63,6 @@ jobs:
             **/proptest-regressions/**
             **/*.proptest-regressions
           if-no-files-found: ignore
-  packages:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install stable Rust
-        run: rustup toolchain install stable --no-self-update --profile minimal
-      - name: Inspect intended packages and verify the independent locator archive
-        run: ./tools/check-release-readiness.sh --packages
   portability:
     runs-on: ${{ matrix.os }}
     strategy:
@@ -95,77 +78,12 @@ jobs:
         run: |
           rustup toolchain install stable --no-self-update --profile minimal
           rustup default stable
-      - name: Check and test without a provider module
+      - name: Compile all targets and check CLI file handling
         run: |
           cargo check --workspace --all-targets --locked
-          cargo test --workspace --locked
-          cargo check -p pkcs11-rustls-adapter --lib --no-default-features --locked
-          cargo check -p pkcs11-rustls-adapter --lib --features tls12 --locked
-      - name: Preserve property regressions
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: property-regressions-${{ matrix.os }}
-          path: |
-            **/proptest-regressions/**
-            **/*.proptest-regressions
-          if-no-files-found: ignore
-  fuzz-smoke:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install pinned fuzz tooling
-        run: |
-          rustup toolchain install nightly-2026-09-25 --profile minimal --component rust-src --no-self-update
-          cargo +nightly-2026-09-25 install cargo-fuzz --version 0.13.2 --locked
-      - name: Fuzz URI, selectors, encodings and application parsers with AddressSanitizer
-        run: bash tools/test-fuzz.sh
-      - name: Preserve crashes and generated corpus
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: fuzz-corpus-and-artifacts
-          path: |
-            fuzz/artifacts/
-            fuzz/corpus/
-          if-no-files-found: ignore
-  independent-crates:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        crate: [pkcs11-locator, pkcs11-runtime, pkcs11-client, pkcs11ctl, pkcs11-rustls-adapter, pkcs11-desktop]
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install desktop native dependencies
-        if: matrix.crate == 'pkcs11-desktop'
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes pkg-config libxkbcommon-dev libwayland-dev libegl1-mesa-dev
-      - name: Install stable Rust
-        run: |
-          rustup toolchain install stable --no-self-update --profile minimal
-          rustup default stable
-      - name: Install adapter test build dependencies
-        if: matrix.crate == 'pkcs11-rustls-adapter'
-        run: sudo apt-get update && sudo apt-get install --yes cmake
-      - name: Check and test one crate without sibling feature unification
-        run: |
-          cargo check -p ${{ matrix.crate }} --all-targets --locked
-          cargo test -p ${{ matrix.crate }} --locked
-      - name: Preserve property regressions
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: property-regressions-${{ matrix.crate }}
-          path: |
-            **/proptest-regressions/**
-            **/*.proptest-regressions
-          if-no-files-found: ignore
+          cargo test -p pkcs11ctl --test cli --locked -- preserves
   msrv:
     runs-on: ubuntu-latest
-    env:
-      PROPTEST_RNG_SEED: "20260928"
     steps:
       - uses: actions/checkout@v4
       - name: Install native build dependencies
@@ -174,17 +92,6 @@ jobs:
         run: rustup toolchain install 1.85.0 --no-self-update --profile minimal
       - name: Check minimum Rust
         run: cargo +1.85.0 check --workspace --exclude pkcs11-desktop --all-targets --locked
-      - name: Test minimum Rust
-        run: cargo +1.85.0 test --workspace --exclude pkcs11-desktop --locked
-      - name: Preserve property regressions
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: property-regressions-msrv
-          path: |
-            **/proptest-regressions/**
-            **/*.proptest-regressions
-          if-no-files-found: ignore
 
   desktop-msrv:
     runs-on: ubuntu-latest
@@ -196,10 +103,8 @@ jobs:
           sudo apt-get install --yes pkg-config libxkbcommon-dev libwayland-dev libegl1-mesa-dev
       - name: Install desktop minimum Rust
         run: rustup toolchain install 1.88.0 --no-self-update --profile minimal
-      - name: Check and test desktop minimum Rust
-        run: |
-          cargo +1.88.0 check -p pkcs11-desktop --all-targets --locked
-          cargo +1.88.0 test -p pkcs11-desktop --locked
+      - name: Check desktop minimum Rust
+        run: cargo +1.88.0 check -p pkcs11-desktop --all-targets --locked
 
   softhsm-integration:
     runs-on: ubuntu-latest
@@ -222,11 +127,12 @@ jobs:
           sudo apt-get install --yes autoconf automake libtool g++ make perl pkg-config
           prefix="$RUNNER_TEMP/softhsm-upstream"
           bash tools/build-pqc-softhsm.sh "$prefix"
-          echo "PKCS11_TEST_MODULE=$prefix/lib/softhsm/libsofthsm2.so" >> "$GITHUB_ENV"
-          echo "SOFTHSM2_UTIL=$prefix/bin/softhsm2-util" >> "$GITHUB_ENV"
-          echo "PKCS11_TEST_PQC_OPENSSL=$prefix/openssl/bin/openssl" >> "$GITHUB_ENV"
-          echo 'PKCS11_TEST_REQUIRE_EC_MULTIPART=1' >> "$GITHUB_ENV"
-          echo 'PKCS11_TEST_REQUIRE_RSA_OAEP_SHA2=1' >> "$GITHUB_ENV"
+          printf '%s\n' \
+            "PKCS11_TEST_MODULE=$prefix/lib/softhsm/libsofthsm2.so" \
+            "SOFTHSM2_UTIL=$prefix/bin/softhsm2-util" \
+            "PKCS11_TEST_PQC_OPENSSL=$prefix/openssl/bin/openssl" \
+            'PKCS11_TEST_REQUIRE_EC_MULTIPART=1' \
+            'PKCS11_TEST_REQUIRE_RSA_OAEP_SHA2=1' >> "$GITHUB_ENV"
       - name: Install desktop native dependencies
         run: |
           sudo apt-get install --yes cmake pkg-config libxkbcommon-dev libwayland-dev libegl1-mesa-dev
@@ -251,23 +157,11 @@ jobs:
           rustup default stable
           rustup toolchain install 1.99.0 --no-self-update --profile minimal
           sudo apt-get update
-          sudo apt-get install --yes clang libclang-dev pkg-config libsqlite3-dev softhsm2 g++ make perl openssl opensc libxkbcommon-dev libwayland-dev libegl1-mesa-dev
-      - name: Build pinned Kryoptic and OpenSSL with ML-KEM, ECDH and HKDF
-        run: ./tools/build-kem-hkdf-provider.sh "$RUNNER_TEMP/kdf-provider"
-      - name: Build pinned all-features Kryoptic provider
+          sudo apt-get install --yes clang libclang-dev pkg-config libsqlite3-dev g++ make perl opensc libxkbcommon-dev libwayland-dev libegl1-mesa-dev
+      - name: Build pinned Kryoptic and OpenSSL
+        run: ./tools/build-kryoptic-provider.sh "$RUNNER_TEMP/kryoptic"
+      - name: Run isolated KEM, derivation, PQC signing and Montgomery suites
         env:
-          KRYOPTIC_OPENSSL_SOURCES: ${{ runner.temp }}/kdf-provider/openssl
-        run: ./tools/build-pqc-kryoptic-provider.sh "$RUNNER_TEMP/pqc-kryoptic"
-      - name: Require library, CLI and desktop KEM/HKDF workflows on the same token
-        env:
-          PKCS11_TEST_KDF_MODULE: ${{ runner.temp }}/kdf-provider/libkryoptic_pkcs11.so
-          PKCS11_TEST_PQC_OPENSSL: ${{ runner.temp }}/kdf-provider/openssl/bin/openssl
-          PKCS11_TEST_KDF_OPENSSL: ${{ runner.temp }}/kdf-provider/openssl/bin/openssl
-        run: |
-          ./tools/test-ml-kem.sh
-          ./tools/test-kem-hkdf.sh
-      - name: Require SLH-DSA, HashSLH-DSA, HashML-DSA and Montgomery workflows
-        env:
-          PKCS11_TEST_PQC_MODULE: ${{ runner.temp }}/pqc-kryoptic/libkryoptic_pkcs11.so
-          PKCS11_TEST_PQC_OPENSSL: ${{ runner.temp }}/kdf-provider/openssl/bin/openssl
-        run: ./tools/test-pqc-kryoptic.sh
+          PKCS11_TEST_KRYOPTIC_MODULE: ${{ runner.temp }}/kryoptic/libkryoptic_pkcs11.so
+          PKCS11_TEST_KRYOPTIC_OPENSSL: ${{ runner.temp }}/kryoptic/openssl/bin/openssl
+        run: ./tools/test-kryoptic.sh

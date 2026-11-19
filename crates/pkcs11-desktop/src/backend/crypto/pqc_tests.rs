@@ -95,7 +95,7 @@ fn openssl_verify(root: &Path, public: &[u8], message: &[u8], signature: &[u8]) 
 }
 
 #[test]
-#[ignore = "requires tools/test-pqc-kryoptic.sh disposable store"]
+#[ignore = "requires tools/test-kryoptic.sh disposable store"]
 fn slh_and_hash_pqc_desktop_signing() {
     assert_eq!(
         std::env::var("PKCS11_TEST_PQC_ISOLATED").as_deref(),
@@ -414,7 +414,7 @@ fn slh_and_hash_pqc_desktop_signing() {
 }
 
 #[test]
-#[ignore = "requires tools/test-pqc-kryoptic.sh disposable store"]
+#[ignore = "requires tools/test-kryoptic.sh disposable store"]
 fn montgomery_desktop_generation_and_agreement() {
     assert_eq!(
         std::env::var("PKCS11_TEST_PQC_ISOLATED").as_deref(),

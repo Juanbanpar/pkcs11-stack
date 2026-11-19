@@ -72,7 +72,7 @@ fn create_base(module_path: &str) {
 }
 
 #[test]
-#[ignore = "requires tools/test-kem-hkdf.sh disposable Kryoptic store"]
+#[ignore = "requires tools/test-kryoptic.sh disposable Kryoptic store"]
 fn cli_derives_usable_keys_and_preserves_output_contracts() {
     assert_eq!(
         std::env::var("PKCS11_TEST_KDF_ISOLATED").as_deref(),

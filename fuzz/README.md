@@ -40,6 +40,11 @@ short and long DER sequence lengths. The runner copies seeds into ignored mutabl
 inputs to `artifacts/`; CI uploads both directories even on failure. Never put real
 PINs, private material or production data in corpora or regression files.
 
+The Fuzz workflow runs all four targets for 5 seconds each on PRs beyond
+documentation-only changes. Weekly and manually dispatched runs use 120 seconds
+per target. The PR filter is broad so changes to shared code, dependency
+manifests or lockfiles also trigger fuzzing.
+
 To explore one target longer:
 
 ```sh

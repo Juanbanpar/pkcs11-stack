@@ -11,6 +11,16 @@ fetch() {
     git -C "$scratch/$1" checkout --detach FETCH_HEAD
     test "$(git -C "$scratch/$1" rev-parse HEAD)" = "$3"
 }
+build_openssl() {
+    fetch openssl https://github.com/openssl/openssl.git "$openssl_commit"
+    (
+        cd "$scratch/openssl"
+        ./Configure --prefix="$prefix/openssl" --libdir=lib no-shared no-tests no-docs -fPIC
+        make -j2
+        make install_sw
+    )
+    record_openssl
+}
 install_provider_lock() {
     # Upstream has no lockfile. Never resolve a fresh graph during these builds.
     cp "$provider_tools/provider-locks/kryoptic.Cargo.lock" Cargo.lock

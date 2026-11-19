@@ -15,14 +15,10 @@ source "$(dirname "$(realpath "$0")")/provider-common.sh"
 
 # OpenSSL 3.5.9; static PIC libraries keep this test module independent of the
 # runner's OpenSSL version without changing its library search path.
-fetch openssl https://github.com/openssl/openssl.git 45e844fa2a14ec92d146bd8f5778ac130b6625fb
-cd "$scratch/openssl"
-./Configure --prefix="$prefix/openssl" --libdir=lib no-shared no-tests -fPIC
-make -j2
-make install_sw
-record_openssl
+build_openssl
 
-fetch softhsm https://github.com/softhsm/SoftHSMv2.git 884cb38f3d2012a0447bd5f50dbd29c429987c41
+softhsm_commit=884cb38f3d2012a0447bd5f50dbd29c429987c41
+fetch softhsm https://github.com/softhsm/SoftHSMv2.git "$softhsm_commit"
 cd "$scratch/softhsm"
 sh autogen.sh
 ./configure --prefix="$prefix" --with-crypto-backend=openssl \
@@ -30,4 +26,4 @@ sh autogen.sh
 make -j2
 make install
 
-record_provider softhsm 884cb38f3d2012a0447bd5f50dbd29c429987c41 "$prefix/lib/softhsm/libsofthsm2.so" "openssl,disable-gost,enable-mldsa"
+record_provider softhsm "$softhsm_commit" "$prefix/lib/softhsm/libsofthsm2.so" "openssl,disable-gost,enable-mldsa"

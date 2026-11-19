@@ -7,7 +7,7 @@ use pkcs11_client::{
 };
 
 #[test]
-#[ignore = "requires tools/test-ml-kem.sh"]
+#[ignore = "requires tools/test-kryoptic.sh"]
 fn client_ml_kem_generation_and_shared_secret_lifecycle() {
     assert_eq!(std::env::var("PKCS11_TEST_ISOLATED").as_deref(), Ok("1"));
     let provider = Provider::load(std::env::var_os("PKCS11_TEST_MODULE").unwrap()).unwrap();

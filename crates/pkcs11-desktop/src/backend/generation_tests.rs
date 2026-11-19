@@ -262,7 +262,7 @@ fn software_token_ml_dsa_generation() {
     pqc_generation(true);
 }
 #[test]
-#[ignore = "requires tools/test-ml-kem.sh"]
+#[ignore = "requires tools/test-kryoptic.sh"]
 fn software_token_ml_kem_generation() {
     pqc_generation(false);
 }
@@ -407,7 +407,7 @@ fn software_token_ml_dsa_public_export() {
     pqc_public_export(true);
 }
 #[test]
-#[ignore = "requires tools/test-ml-kem.sh"]
+#[ignore = "requires tools/test-kryoptic.sh"]
 fn software_token_ml_kem_public_export() {
     pqc_public_export(false);
 }
