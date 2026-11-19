@@ -48,7 +48,7 @@ fn request<'a>(id: &'a [u8]) -> KbkdfRequest<'a> {
 }
 
 #[test]
-#[ignore = "requires tools/test-kem-hkdf.sh disposable Kryoptic store"]
+#[ignore = "requires tools/test-kryoptic.sh disposable Kryoptic store"]
 fn sp800108_modes_are_deterministic_and_usable() {
     assert_eq!(
         std::env::var("PKCS11_TEST_KDF_ISOLATED").as_deref(),

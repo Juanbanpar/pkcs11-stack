@@ -16,7 +16,7 @@ fn reference(id: &[u8], kind: &str) -> ObjectRef {
     .unwrap()
 }
 #[test]
-#[ignore = "requires tools/test-kem-hkdf.sh disposable Kryoptic store"]
+#[ignore = "requires tools/test-kryoptic.sh disposable Kryoptic store"]
 fn client_ml_kem_to_hkdf_permissions_errors_and_cleanup() {
     assert_eq!(
         std::env::var("PKCS11_TEST_KDF_ISOLATED").as_deref(),

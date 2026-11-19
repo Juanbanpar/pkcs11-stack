@@ -142,7 +142,7 @@ fn base_template(id: &[u8], length: usize) -> Vec<Attribute> {
     ]
 }
 #[test]
-#[ignore = "requires tools/test-kem-hkdf.sh disposable Kryoptic store"]
+#[ignore = "requires tools/test-kryoptic.sh disposable Kryoptic store"]
 fn typed_hkdf_known_answers_policy_and_ml_kem_agreement() {
     assert_eq!(
         std::env::var("PKCS11_TEST_KDF_ISOLATED").as_deref(),

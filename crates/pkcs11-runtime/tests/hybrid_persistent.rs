@@ -86,7 +86,7 @@ fn encrypted(session: &NativeSession, id: &[u8]) -> Vec<u8> {
         .unwrap()
 }
 #[test]
-#[ignore = "requires tools/test-kem-hkdf.sh disposable Kryoptic store"]
+#[ignore = "requires tools/test-kryoptic.sh disposable Kryoptic store"]
 fn token_hybrid_construction_and_policy() {
     let module = Module::load(path()).unwrap();
     let token = module
@@ -369,7 +369,7 @@ fn token_hybrid_construction_and_policy() {
     module.finalize().unwrap();
 }
 #[test]
-#[ignore = "runs after CLI derivation in tools/test-kem-hkdf.sh"]
+#[ignore = "runs after CLI derivation in tools/test-kryoptic.sh"]
 fn cli_derived_keys_match() {
     let (module, session) = native();
     for index in 0..3 {

@@ -80,6 +80,9 @@ cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
 ```
 
+Run `./tools/test.sh --providers` for the provider suites or
+`./tools/test.sh --all` for both, after setting up the providers.
+
 - [Application examples](docs/examples.md): signing, certificate binding and TLS.
 - [Provider tests](tests/README.md): disposable SoftHSM/Kryoptic setup and full-suite commands.
 - [Fuzzing](fuzz/README.md): sanitizer runs, corpora and artifact replay.

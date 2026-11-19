@@ -38,7 +38,7 @@ fn secret(index: usize, direction: u8) -> ObjectRef {
     .unwrap()
 }
 #[test]
-#[ignore = "requires tools/test-ml-kem.sh"]
+#[ignore = "requires tools/test-kryoptic.sh"]
 fn typed_ml_kem_permissions_outputs_and_secret_agreement() {
     assert_eq!(std::env::var("PKCS11_TEST_ISOLATED").as_deref(), Ok("1"));
     let path = std::env::var_os("PKCS11_TEST_MODULE").unwrap();

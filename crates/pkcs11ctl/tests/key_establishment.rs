@@ -50,7 +50,7 @@ fn object(id: &str, kind: &str) -> String {
     format!("pkcs11:token=kdf-test;id=%D0%{id};type={kind}")
 }
 #[test]
-#[ignore = "requires tools/test-kem-hkdf.sh disposable Kryoptic store"]
+#[ignore = "requires tools/test-kryoptic.sh disposable Kryoptic store"]
 fn cli_ml_kem_public_exchange_hkdf_and_output_contracts() {
     assert_eq!(
         std::env::var("PKCS11_TEST_KDF_ISOLATED").as_deref(),
@@ -269,7 +269,7 @@ fn cli_ml_kem_public_exchange_hkdf_and_output_contracts() {
 }
 
 #[test]
-#[ignore = "requires tools/test-kem-hkdf.sh disposable Kryoptic store"]
+#[ignore = "requires tools/test-kryoptic.sh disposable Kryoptic store"]
 fn cli_hybrid_combines_token_components() {
     assert_eq!(
         std::env::var("PKCS11_TEST_KDF_ISOLATED").as_deref(),

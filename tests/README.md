@@ -13,6 +13,7 @@ No PKCS#11 module is required. Native desktop build dependencies are listed in t
 ```sh
 cargo test --workspace --locked
 RUSTDOCFLAGS='-D warnings' cargo doc --workspace --all-features --no-deps --locked
+./tools/test.sh --unit
 ```
 
 Tests cover URI parsing/redaction, ambiguity, signing plans, certificate verification,
@@ -22,38 +23,42 @@ and the regression described by GHSA-5x2r-hc65-25f9.
 
 ## Full provider suite
 
-Build the three pinned, unmodified providers once:
+Install packaged SoftHSM for compatibility testing and build the two pinned,
+unmodified providers:
 
 ```sh
-bash tools/build-pqc-softhsm.sh /absolute/path/to/softhsm-pqc
-./tools/build-kem-hkdf-provider.sh /absolute/path/to/kdf-provider
-./tools/build-pqc-kryoptic-provider.sh /absolute/path/to/pqc-kryoptic
+./tools/build-pqc-softhsm.sh /absolute/path/to/softhsm-pqc
+./tools/build-kryoptic-provider.sh /absolute/path/to/kryoptic
 
-PKCS11_TEST_MODULE=/absolute/path/to/softhsm-pqc/lib/softhsm/libsofthsm2.so \
-SOFTHSM2_UTIL=/absolute/path/to/softhsm-pqc/bin/softhsm2-util \
-PKCS11_TEST_KDF_MODULE=/absolute/path/to/kdf-provider/libkryoptic_pkcs11.so \
-PKCS11_TEST_KDF_OPENSSL=/absolute/path/to/kdf-provider/openssl/bin/openssl \
-PKCS11_TEST_PQC_MODULE=/absolute/path/to/pqc-kryoptic/libkryoptic_pkcs11.so \
-PKCS11_TEST_PQC_OPENSSL=/absolute/path/to/pqc-kryoptic/openssl/bin/openssl \
-./tools/test.sh
+export PKCS11_TEST_MODULE=/absolute/path/to/softhsm-pqc/lib/softhsm/libsofthsm2.so
+export SOFTHSM2_UTIL=/absolute/path/to/softhsm-pqc/bin/softhsm2-util
+export PKCS11_TEST_PQC_OPENSSL=/absolute/path/to/softhsm-pqc/openssl/bin/openssl
+export PKCS11_TEST_KRYOPTIC_MODULE=/absolute/path/to/kryoptic/libkryoptic_pkcs11.so
+export PKCS11_TEST_KRYOPTIC_OPENSSL=/absolute/path/to/kryoptic/openssl/bin/openssl
+
+./tools/test.sh --providers
+# Run provider-independent and provider tests in one pass
+./tools/test.sh --all
 ```
 
 Install OpenSC (`pkcs11-tool`), OpenSSL, Git, a C/C++ compiler, Make, Perl,
 Autoconf, Automake, Libtool, Clang/libclang, pkg-config, and SQLite development
 headers. Kryoptic needs `rustup toolchain install 1.99.0 --profile minimal`.
-The scripts build with OpenSSL 3.5.9. Kryoptic uses the committed lockfile.
+The builders use OpenSSL 3.5.9 and Python 3 for build provenance. Kryoptic
+uses the committed lockfile.
 
-To reuse the OpenSSL build from the KDF provider, set
-`KRYOPTIC_OPENSSL_SOURCES=/absolute/path/to/kdf-provider/openssl` when building
-the PQC provider. The script checks the manifest and library hash.
+To reuse the OpenSSL build from the pinned SoftHSM build, set
+`KRYOPTIC_OPENSSL_SOURCES=/absolute/path/to/softhsm-pqc/openssl` when building
+Kryoptic. The builder checks the manifest and library hash. Set
+`PKCS11_TEST_KRYOPTIC_OPENSSL` to the reused installation's executable.
 
-`tools/test.sh` runs unit, documentation, and provider tests. Set
-`PKCS11_TEST_PQC_MODULE` to include the SLH-DSA, hash-PQC, and Montgomery tests.
-Desktop backend tests run without a window.
+Both provider modes require packaged SoftHSM, pinned SoftHSM with multipart
+ECDSA and SHA-2 OAEP, and the combined Kryoptic profile. A missing or
+insufficient provider fails the run. Desktop backend tests run without a window.
 
 ## SoftHSM integration
 
-Install SoftHSM, OpenSC and OpenSSL, then run:
+For a partial provider run, install SoftHSM, OpenSC and OpenSSL:
 
 ```sh
 ./tools/test-softhsm.sh
@@ -73,26 +78,22 @@ SOFTHSM2_UTIL=/path/to/softhsm2-util ./tools/test-softhsm.sh
 `PKCS11_TEST_REQUIRE_EC_MULTIPART=1` requires combined multipart ECDSA support.
 Packaged SoftHSM and the pinned upstream build differ in multipart ECDSA, SHA-2
 OAEP and ML-DSA support; the PQC build can run both classical and ML-DSA suites.
-Packaged CI sets `PKCS11_TEST_SKIP_EDDSA=1` for SoftHSM 2.6.1's incorrect EdDSA bounds;
-Ed25519/Ed448 workflows remain required on the unmodified upstream build.
+The packaged compatibility run skips EdDSA for SoftHSM 2.6.1's incorrect key
+bounds. Ed25519 and Ed448 remain mandatory on the pinned upstream build.
 
 ## PQC provider compatibility
 
-Use the providers built above for individual suites:
+With the provider environment above, CI and targeted local runs can invoke
+the ML-DSA or Kryoptic runners directly:
 
 ```sh
-PKCS11_TEST_MODULE=/absolute/path/to/softhsm-pqc/lib/softhsm/libsofthsm2.so \
-SOFTHSM2_UTIL=/absolute/path/to/softhsm-pqc/bin/softhsm2-util \
-PKCS11_TEST_PQC_OPENSSL=/absolute/path/to/softhsm-pqc/openssl/bin/openssl \
 ./tools/test-ml-dsa.sh
-
-PKCS11_TEST_KDF_MODULE=/absolute/path/to/kdf-provider/libkryoptic_pkcs11.so \
-PKCS11_TEST_PQC_OPENSSL=/absolute/path/to/kdf-provider/openssl/bin/openssl \
-./tools/test-ml-kem.sh
+./tools/test-kryoptic.sh
 ```
 
-`PKCS11_TEST_PQC_OPENSSL` selects an ML-DSA/ML-KEM-capable OpenSSL executable,
-defaulting to `openssl`; missing support fails. ML-KEM uses Kryoptic because
+`PKCS11_TEST_PQC_OPENSSL` selects the OpenSSL executable for ML-DSA.
+Kryoptic reuses its module across three independently provisioned SQLite
+stores for ML-KEM, derivation and PQC/Montgomery tests. ML-KEM uses Kryoptic because
 SoftHSM advertises incorrect key bounds. No source patch or runtime metadata
 workaround is applied.
 
@@ -110,13 +111,7 @@ The adapter's production dependency graph selects no software crypto provider.
 
 ## Persistent ML-KEM and HKDF
 
-```sh
-PKCS11_TEST_KDF_MODULE=/absolute/path/to/kdf-provider/libkryoptic_pkcs11.so \
-PKCS11_TEST_KDF_OPENSSL=/absolute/path/to/kdf-provider/openssl/bin/openssl \
-./tools/test-kem-hkdf.sh
-```
-
-The runner uses disposable Kryoptic SQLite storage and requires both mechanisms.
+This part of the Kryoptic runner requires both ML-KEM and HKDF.
 It compares SHA-256/384/512 against OpenSSL, including empty salt/context and maximum
 SHA-256 output. Tests reject unsuitable bases, lengths, RO sessions and duplicate
 IDs; inspect output permissions and export refusal; and compare derived AES keys
@@ -130,14 +125,8 @@ headless desktop flows use the same token-held profiles.
 
 ## SLH-DSA, HashSLH-DSA, HashML-DSA and Montgomery
 
-```sh
-PKCS11_TEST_PQC_MODULE=/absolute/path/to/pqc-kryoptic/libkryoptic_pkcs11.so \
-PKCS11_TEST_PQC_OPENSSL=/absolute/path/to/pqc-kryoptic/openssl/bin/openssl \
-./tools/test-pqc-kryoptic.sh
-```
-
-The all-features Kryoptic build enables SLH-DSA, HashSLH-DSA, HashML-DSA, ML-DSA,
-ML-KEM, ECDH, Montgomery and SQLite. Tests cover independent OpenSSL SLH-DSA
+The combined Kryoptic build also enables SLH-DSA, HashSLH-DSA, HashML-DSA,
+ML-DSA, ECDH and Montgomery. Tests cover independent OpenSSL SLH-DSA
 verification, hash-PQC messages/caller digests, HashSLH-only generation, validated
 public import and X25519/X448 agreement checked with matching AES-GCM keys.
 Runtime/client, CLI and headless desktop workflows are included.
@@ -165,6 +154,8 @@ PROPTEST_RNG_SEED=42 PROPTEST_CASES=4096 cargo test -p pkcs11-rustls-adapter --l
 ```
 
 Retain minimized failures as regression tests. The [fuzz guide](../fuzz/README.md)
-covers sanitizers, corpus management and replay. CI also tests crates independently,
-minimum Rust versions and pure tests on Linux, Windows and macOS; provider/fuzz
-lanes run on Linux.
+covers sanitizers, corpus management and replay. Linux CI runs the full workspace
+and provider suites. Windows and macOS compile all targets and run representative
+CLI file-handling tests. Separate compile checks cover Rust 1.85 for core
+targets and Rust 1.88 for the desktop, alongside stable standalone adapter
+production checks.

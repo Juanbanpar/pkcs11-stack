@@ -104,7 +104,7 @@ fn kem_directions_profiles_and_unknown_targets_fail_without_file_effects() {
 }
 
 #[test]
-#[ignore = "requires tools/test-ml-kem.sh"]
+#[ignore = "requires tools/test-kryoptic.sh"]
 fn software_token_ml_kem_files_permissions_implicit_rejection_and_failures() {
     assert_eq!(std::env::var("PKCS11_TEST_ISOLATED").as_deref(), Ok("1"));
     let mut registry = Registry::default();
@@ -397,7 +397,7 @@ fn software_token_ml_kem_files_permissions_implicit_rejection_and_failures() {
 }
 
 #[test]
-#[ignore = "requires tools/test-ml-kem.sh"]
+#[ignore = "requires tools/test-kryoptic.sh"]
 fn software_token_ml_kem_import_validates_files_identity_authentication_and_duplicates() {
     assert_eq!(std::env::var("PKCS11_TEST_ISOLATED").as_deref(), Ok("1"));
     let mut registry = Registry::default();

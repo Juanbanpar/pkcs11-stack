@@ -109,7 +109,7 @@ fn openssl_verify_slh(
 }
 
 #[test]
-#[ignore = "requires tools/test-pqc-kryoptic.sh disposable store"]
+#[ignore = "requires tools/test-kryoptic.sh disposable store"]
 fn slh_hash_pqc_and_montgomery_provider_workflows() {
     assert_eq!(
         std::env::var("PKCS11_TEST_PQC_ISOLATED").as_deref(),
