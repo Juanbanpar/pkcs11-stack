@@ -18,3 +18,5 @@ and the application each protect.
 | [RUSTSEC-2026-0385](https://rustsec.org/advisories/RUSTSEC-2026-0385.html) (`ctutils`) | Public ML-DSA key decoding and verification. The workspace uses 0.4.2 for Rust 1.85. The fuzz workspace uses patched 0.4.8. |
 
 These uses account for the exceptions in the [workspace audit configuration](.cargo/audit.toml).
+Changes to advisory exclusions require explicit review and a written justification
+for each new exception.

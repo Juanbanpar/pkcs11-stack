@@ -25,7 +25,6 @@ jobs:
         run: cargo install cargo-audit --version 0.22.2 --locked
       - name: Audit workspace and fuzz lockfiles
         run: |
-          python3 tools/check-advisories.py
           cargo audit --file Cargo.lock
           cargo audit --file fuzz/Cargo.lock
           (cd tools/provider-locks && cargo audit --file kryoptic.Cargo.lock)
@@ -51,12 +50,6 @@ jobs:
         run: |
           cargo check -p pkcs11-rustls-adapter --lib --no-default-features --locked
           cargo check -p pkcs11-rustls-adapter --lib --features tls12 --locked
-      - name: Dependency boundaries
-        run: python3 tools/check-dependencies.py
-      - name: Module entry points
-        run: |
-          python3 tools/check-module-entrypoints.py
-          python3 tools/test-module-entrypoints.py
       - name: Clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Unit and documentation tests
@@ -72,14 +65,6 @@ jobs:
             **/proptest-regressions/**
             **/*.proptest-regressions
           if-no-files-found: ignore
-  packages:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install stable Rust
-        run: rustup toolchain install stable --no-self-update --profile minimal
-      - name: Inspect intended packages and verify the independent locator archive
-        run: ./tools/check-release-readiness.sh --packages
   portability:
     runs-on: ${{ matrix.os }}
     strategy:

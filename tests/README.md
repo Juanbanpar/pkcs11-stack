@@ -13,7 +13,6 @@ No PKCS#11 module is required. Native desktop build dependencies are listed in t
 ```sh
 cargo test --workspace --locked
 RUSTDOCFLAGS='-D warnings' cargo doc --workspace --all-features --no-deps --locked
-python3 tools/check-dependencies.py
 ```
 
 Tests cover URI parsing/redaction, ambiguity, signing plans, certificate verification,
@@ -149,6 +148,7 @@ Runtime/client, CLI and headless desktop workflows are included.
 cargo install cargo-audit --version 0.22.2 --locked
 cargo audit --file Cargo.lock
 cargo audit --file fuzz/Cargo.lock
+(cd tools/provider-locks && cargo audit --file kryoptic.Cargo.lock)
 ```
 
 Vulnerabilities, unsoundness notices and yanked packages fail; unmaintained-package
