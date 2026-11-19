@@ -46,11 +46,11 @@ impl<'m> Session<'m> {
             Pin::Value(secret) => Ok(Some(secret)),
             Pin::ProtectedPath => {
                 let current = self
-                    .token
+                    .token()
                     .module
-                    .token(self.token.slot)
+                    .token(self.token().slot)
                     .inspect_err(|_| self.healthy.set(false))?;
-                if !crate::module::same_token(self.token.info(), current.info()) {
+                if !crate::module::same_token(self.token().info(), current.info()) {
                     self.healthy.set(false);
                     return Err(Error::TokenChanged);
                 }

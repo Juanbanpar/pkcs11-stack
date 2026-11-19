@@ -13,7 +13,10 @@ use cryptoki::{
     session::UserType,
 };
 
-use super::{SlhDsaHedging, SlhDsaParameterSet};
+use super::{
+    SlhDsaHedging, SlhDsaParameterSet,
+    capabilities::{allowed_mechanism, mechanism_support, parameter_set, permission},
+};
 use crate::signing::prehash::{HashInput, PrehashAlgorithm};
 
 fn message_type(hash: PrehashAlgorithm) -> MechanismType {
@@ -166,16 +169,16 @@ fn capabilities(
     hash: PrehashAlgorithm,
     prehashed: bool,
 ) -> Result<HashSlhDsaCapabilities, Error> {
-    let parameter_set = super::parameter_set(object, ObjectClass::PRIVATE_KEY)?;
+    let parameter_set = parameter_set(object, ObjectClass::PRIVATE_KEY)?;
     let mode = if prehashed {
         MechanismType::HASH_SLH_DSA
     } else {
         message_type(hash)
     };
     let module = object.session.token().module.raw()?;
-    let can_sign = super::permission(object, AttributeType::Sign)?
-        && super::allowed_mechanism(object, mode)?
-        && super::mechanism_support(object.session.token(), parameter_set, mode, |info| {
+    let can_sign = permission(object, AttributeType::Sign)?
+        && allowed_mechanism(object, mode)?
+        && mechanism_support(object.session.token(), parameter_set, mode, |info| {
             info.sign()
         })?
         && [Function::SignInit, Function::Sign]
@@ -186,7 +189,7 @@ fn capabilities(
         hash,
         prehashed,
         can_sign,
-        always_authenticate: super::permission(object, AttributeType::AlwaysAuthenticate)?,
+        always_authenticate: permission(object, AttributeType::AlwaysAuthenticate)?,
     })
 }
 
@@ -252,12 +255,12 @@ impl Session<'_> {
             return Err(Error::SignatureMismatch);
         }
         let object = self.resolve(key.as_object_ref())?;
-        let parameter = super::parameter_set(&object, ObjectClass::PUBLIC_KEY)?;
+        let parameter = parameter_set(&object, ObjectClass::PUBLIC_KEY)?;
         let mode = request.mode_mechanism();
         if parameter != request.parameter_set
-            || !super::permission(&object, AttributeType::Verify)?
-            || !super::allowed_mechanism(&object, mode)?
-            || !super::mechanism_support(object.session.token(), parameter, mode, |info| {
+            || !permission(&object, AttributeType::Verify)?
+            || !allowed_mechanism(&object, mode)?
+            || !mechanism_support(object.session.token(), parameter, mode, |info| {
                 info.verify()
             })?
         {

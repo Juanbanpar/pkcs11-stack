@@ -2,7 +2,7 @@
 //! Token verification of RSA and ECDSA signatures using the same request model
 //! as signing. No software verification is performed here.
 
-use super::{mechanism, signature_input, supported_mechanism};
+use super::{capabilities::supported_mechanism, execution::signature_input, planning::mechanism};
 use crate::{
     Attribute, AttributeType, Error, KeyCapabilities, KeyKind, Object, ObjectClass, PublicKeyRef,
     Session, SignInput, SignPlan, SignRequest, SigningMechanism, SigningPolicy,

@@ -6,7 +6,7 @@ use crate::{Attribute, AttributeInfo, AttributeType, Error, Object};
 /// Attribute data with redacted Debug; values require explicit access.
 pub struct AttributeValues(Vec<Attribute>);
 impl AttributeValues {
-    pub(super) fn new(values: Vec<Attribute>) -> Self {
+    fn new(values: Vec<Attribute>) -> Self {
         Self(values)
     }
 
@@ -64,6 +64,30 @@ pub(crate) fn key_permission(
                 | Attribute::Trusted(true)
         )
     ))
+}
+
+impl Object<'_, '_> {
+    /// Inspect per-attribute availability/size, including Sensitive and TypeInvalid.
+    pub fn attribute_info(&self, types: &[AttributeType]) -> Result<Vec<AttributeInfo>, Error> {
+        self.session.validate()?;
+        self.session
+            .raw()?
+            .get_attribute_info(self.handle, types)
+            .map_err(|e| self.session.failed("attribute info", e))
+    }
+    /// Read requested attributes. Unavailable attributes may be absent in cryptoki's result.
+    ///
+    /// Use attribute_info to distinguish sensitive/invalid attributes. Debug of the
+    /// returned container lists types only. Explicit value access can expose secret
+    /// material for extractable objects; callers must protect it and avoid logging.
+    pub fn read_attributes(&self, types: &[AttributeType]) -> Result<AttributeValues, Error> {
+        self.session.validate()?;
+        self.session
+            .raw()?
+            .get_attributes(self.handle, types)
+            .map(AttributeValues::new)
+            .map_err(|e| self.session.failed("read attributes", e))
+    }
 }
 
 #[cfg(test)]

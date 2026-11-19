@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use pkcs11_locator::{ObjectType, Pkcs11Uri};
 
-use crate::{Attribute, AttributeType, Error, Session};
+use crate::{Attribute, AttributeType, Error, ObjectClass, Session};
 
 use super::attribute;
 
@@ -50,7 +50,7 @@ impl ObjectRef {
             .and_then(|v| std::str::from_utf8(v).ok())
             .and_then(|v| v.parse::<ObjectType>().ok())
         {
-            if let Some(class) = super::object_class(kind) {
+            if let Some(class) = object_class(kind) {
                 template.push(Attribute::Class(class));
             }
         }
@@ -105,6 +105,17 @@ impl CertificateRef {
             Some(Attribute::Value(v)) => Ok(v),
             _ => Err(Error::MissingMetadata("certificate value")),
         }
+    }
+}
+
+fn object_class(kind: ObjectType) -> Option<ObjectClass> {
+    match kind {
+        ObjectType::Public => Some(ObjectClass::PUBLIC_KEY),
+        ObjectType::Private => Some(ObjectClass::PRIVATE_KEY),
+        ObjectType::Certificate => Some(ObjectClass::CERTIFICATE),
+        ObjectType::SecretKey => Some(ObjectClass::SECRET_KEY),
+        ObjectType::Data => Some(ObjectClass::DATA),
+        _ => None,
     }
 }
 
