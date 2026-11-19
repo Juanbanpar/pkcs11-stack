@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-use crate::{inspect, key_establishment, ml_dsa, oasis, support::*};
+use super::{
+    inspect, key_establishment,
+    signing::{ml_dsa, slh_dsa},
+};
+use crate::support::*;
 use clap::ArgMatches;
 use pkcs11_client::{
     AesKeyPurpose, AesKeyRequest, AesKeySize, EcdhKeyPairRequest, EdDsaCurve, KeyKind,
@@ -40,7 +44,8 @@ fn montgomery(kind: &str) -> Option<MontgomeryCurve> {
     }
 }
 fn hash_slh_parameter(kind: &str) -> Option<pkcs11_client::SlhDsaParameterSet> {
-    kind.strip_prefix("hash-").and_then(oasis::slh_parameter)
+    kind.strip_prefix("hash-")
+        .and_then(|value| slh_dsa::parameter(Some(value)))
 }
 fn eddsa(kind: &str) -> Option<EdDsaCurve> {
     match kind {
@@ -92,7 +97,7 @@ pub(crate) fn validate(m: &ArgMatches) -> Result<()> {
         || montgomery(kind).is_some()
         || hmac(kind).is_some()
         || key_establishment::parameter(Some(kind)).is_some()
-        || oasis::slh_parameter(kind).is_some()
+        || slh_dsa::parameter(Some(kind)).is_some()
         || hash_slh_parameter(kind).is_some();
     if non_signing && flag(m, "always-authenticate") {
         return Err(usage("always-authenticate applies only to signing keys"));
@@ -135,7 +140,7 @@ pub(crate) fn validate(m: &ArgMatches) -> Result<()> {
         .map_err(|_| usage("MAC key ID and label must each contain 1..=128 bytes"))?;
     } else if key_establishment::parameter(Some(kind)).is_none()
         && ml_dsa::parameter(Some(kind)).is_none()
-        && oasis::slh_parameter(kind).is_none()
+        && slh_dsa::parameter(Some(kind)).is_none()
         && hash_slh_parameter(kind).is_none()
         && eddsa(kind).is_none()
         && montgomery(kind).is_none()
@@ -192,17 +197,17 @@ pub(crate) fn generate(session: &mut ManagementSession<'_>, m: &ArgMatches) -> R
             label,
             always_authenticate: flag(m, "always-authenticate"),
         })?;
-        let mut key = oasis::slh_key_info(parameter);
+        let mut key = slh_dsa::slh_key_info(parameter);
         key["profile"] = json!("hash-slh-dsa");
         key
-    } else if let Some(parameter) = oasis::slh_parameter(kind) {
+    } else if let Some(parameter) = slh_dsa::parameter(Some(kind)) {
         session.generate_slh_dsa_key_pair(&SlhDsaKeyPairRequest {
             parameter_set: parameter,
             id: &id,
             label,
             always_authenticate: flag(m, "always-authenticate"),
         })?;
-        oasis::slh_key_info(parameter)
+        slh_dsa::slh_key_info(parameter)
     } else {
         let kind = signing(m)?;
         session.generate_signing_key_pair(kind, &id, label, flag(m, "always-authenticate"))?;
@@ -228,9 +233,9 @@ pub(crate) fn options(provider: &Provider, m: &ArgMatches) -> Result<Value> {
         "ml_kem":options.ml_kem.into_iter().map(key_establishment::key_info).collect::<Vec<_>>(),
         "eddsa":options.eddsa.into_iter().map(|curve| curve.to_string()).collect::<Vec<_>>(),
         "montgomery":options.montgomery.into_iter().map(|curve| curve.to_string()).collect::<Vec<_>>(),
-        "slh_dsa":options.slh_dsa.iter().copied().map(oasis::slh_key_info).collect::<Vec<_>>(),
+        "slh_dsa":options.slh_dsa.iter().copied().map(slh_dsa::slh_key_info).collect::<Vec<_>>(),
         "hash_slh_dsa":options.slh_dsa.into_iter().map(|parameter| {
-            let mut info = oasis::slh_key_info(parameter);
+            let mut info = slh_dsa::slh_key_info(parameter);
             info["profile"] = json!("hash-slh-dsa");
             info
         }).collect::<Vec<_>>()

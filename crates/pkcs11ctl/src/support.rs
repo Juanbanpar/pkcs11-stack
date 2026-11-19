@@ -128,6 +128,10 @@ pub(crate) fn input(path: &str) -> Result<Vec<u8>> {
     }
     Ok(bytes)
 }
+pub(crate) fn chunks(bytes: &[u8]) -> std::slice::Chunks<'_, u8> {
+    bytes.chunks(64 * 1024)
+}
+
 pub(crate) fn bounded_input(path: &str, maximum: usize) -> Result<Vec<u8>> {
     let reader: Box<dyn Read> = if path == "-" {
         Box::new(std::io::stdin())

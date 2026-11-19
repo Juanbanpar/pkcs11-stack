@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! CLI EdDSA (Ed25519/Ed448) workflows.
 
-use crate::{operations::Inputs, operations::Output, support::*};
+use super::{Inputs, Output};
+use crate::support::*;
 use clap::ArgMatches;
 use pkcs11_client::{Client, EdDsaCurve, EdDsaRequest};
 use serde_json::json;
@@ -43,22 +44,24 @@ pub(crate) fn client_operation(
     client: &Client<'_>,
     name: &str,
     m: &ArgMatches,
+    credential: &Credential,
+    bytes: &[u8],
     inputs: &Inputs,
 ) -> Result<Output> {
-    let auth = || inputs.credential.auth(false);
+    let auth = || credential.auth(false);
     if name == "verify" {
         if let Some(key_uri) = get(m, "key") {
             let key = client.public_key(
                 key_uri.parse().map_err(|_| usage("invalid key URI"))?,
                 auth(),
             )?;
-            client.verify_eddsa(&key, &request(m, &inputs.bytes)?, &inputs.signature, auth())?;
+            client.verify_eddsa(&key, &request(m, bytes)?, &inputs.signature, auth())?;
             return Ok(Output::Structured(
                 json!({"verified":true,"trust_validated":false,"verification":"token"}),
             ));
         }
         let certificate = client.eddsa_certificate(uri(m, "certificate")?, auth())?;
-        certificate.verify_signature(&request(m, &inputs.bytes)?, &inputs.signature)?;
+        certificate.verify_signature(&request(m, bytes)?, &inputs.signature)?;
         return Ok(Output::Structured(
             json!({"verified":true,"trust_validated":false}),
         ));
@@ -83,14 +86,14 @@ pub(crate) fn client_operation(
             })
         }
         "plan" => {
-            let request = request(m, &inputs.bytes)?;
+            let request = request(m, bytes)?;
             json!({
                 "key": {"algorithm":"eddsa","curve":request.curve.to_string()},
                 "message_length": request.message.len(),
             })
         }
         "sign" => {
-            let request = request(m, &inputs.bytes)?;
+            let request = request(m, bytes)?;
             let signature = if get(m, "certificate").is_some() {
                 let certificate = client.eddsa_certificate(uri(m, "certificate")?, auth())?;
                 certificate.validate_signing_request(&request)?;

@@ -1,13 +1,19 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! CLI X25519/X448 derivation workflows.
 
-use crate::{operations::Inputs, operations::Output, support::*};
+use super::Output;
+use crate::support::*;
 use clap::ArgMatches;
 use pkcs11_client::{
     AesKeySize, ClassicalPublicKey, ManagementSession, MontgomeryCurve, MontgomeryDerivation,
     MontgomeryKdf, MontgomeryOutput, MontgomeryPublicKey, object_reference,
 };
 use serde_json::json;
+
+pub(crate) struct Inputs {
+    pub peer: Vec<u8>,
+    pub shared_info: Vec<u8>,
+}
 
 pub(crate) fn selected(name: &str) -> bool {
     name == "derive-montgomery"
@@ -89,7 +95,7 @@ pub(crate) fn operation(
     let request = MontgomeryDerivation {
         peer: &peer,
         kdf: kdf(need(m, "kdf")?)?,
-        shared_info: &inputs.montgomery_info,
+        shared_info: &inputs.shared_info,
         output: output(
             need(m, "kind")?,
             get(m, "length").map(|_| number(m, "length")).transpose()?,

@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-use crate::{
-    operations::{Inputs, Output, VerificationCertificate, verify},
-    support::*,
-};
+use super::{Inputs, Output, VerificationCertificate, verify};
+use crate::support::*;
 use clap::ArgMatches;
 use pkcs11_client::{Client, MlDsaHedging, MlDsaParameterSet, MlDsaRequest, MlDsaSigningPolicy};
 use serde_json::{Value, json};
@@ -63,9 +61,11 @@ pub(crate) fn client_operation(
     client: &Client<'_>,
     name: &str,
     m: &ArgMatches,
+    credential: &Credential,
+    bytes: &[u8],
     inputs: &Inputs,
 ) -> Result<Output> {
-    let auth = || inputs.credential.auth(false);
+    let auth = || credential.auth(false);
     if name == "verify" {
         if let Some(key_uri) = get(m, "key") {
             let key = client.public_key(
@@ -74,7 +74,7 @@ pub(crate) fn client_operation(
             )?;
             client.verify_ml_dsa(
                 &key,
-                &request(m, &inputs.bytes, &inputs.domain_context)?,
+                &request(m, bytes, &inputs.domain_context)?,
                 &inputs.signature,
                 auth(),
             )?;
@@ -83,8 +83,13 @@ pub(crate) fn client_operation(
             ));
         }
         let certificate = client.ml_dsa_certificate(uri(m, "certificate")?, auth())?;
-        return verify(&VerificationCertificate::MlDsa(certificate), m, inputs)
-            .map(Output::Structured);
+        return verify(
+            &VerificationCertificate::MlDsa(certificate),
+            m,
+            bytes,
+            inputs,
+        )
+        .map(Output::Structured);
     }
     if name == "certificate" {
         let certificate = client.ml_dsa_certificate(uri(m, "object")?, auth())?;
@@ -100,7 +105,7 @@ pub(crate) fn client_operation(
             json!({"key":key_info(caps.parameter_set), "can_sign":caps.can_sign, "always_authenticate":caps.always_authenticate})
         }
         "plan" => {
-            let request = request(m, &inputs.bytes, &inputs.domain_context)?;
+            let request = request(m, bytes, &inputs.domain_context)?;
             let caps = client.ml_dsa_capabilities(&key, auth())?;
             caps.validate(&request, &policy)
                 .map_err(pkcs11_client::Error::from)?;
@@ -118,7 +123,7 @@ pub(crate) fn client_operation(
             json!({"bound":true, "key":key_info(identity.certificate().parameter_set()), "trust_validated":false})
         }
         "sign" => {
-            let request = request(m, &inputs.bytes, &inputs.domain_context)?;
+            let request = request(m, bytes, &inputs.domain_context)?;
             let signature = if get(m, "certificate").is_some() {
                 let certificate = client.ml_dsa_certificate(uri(m, "certificate")?, auth())?;
                 certificate.validate_signing_request(&request)?;

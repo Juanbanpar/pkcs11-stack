@@ -1,10 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! SLH-DSA CLI signing workflows over `pkcs11-client`.
 
-use crate::{
-    operations::{Inputs, Output},
-    support::*,
-};
+use super::{Inputs, Output};
+use crate::support::*;
 use clap::ArgMatches;
 use pkcs11_client::{
     Client, SlhDsaHedging, SlhDsaParameterSet, SlhDsaRequest, SlhDsaSigningPolicy,
@@ -91,9 +89,11 @@ pub(crate) fn client_operation(
     client: &Client<'_>,
     name: &str,
     m: &ArgMatches,
+    credential: &Credential,
+    bytes: &[u8],
     inputs: &Inputs,
 ) -> Result<Output> {
-    let auth = || inputs.credential.auth(false);
+    let auth = || credential.auth(false);
     if name == "verify" {
         let Some(key_uri) = get(m, "key") else {
             return Err(usage(
@@ -106,7 +106,7 @@ pub(crate) fn client_operation(
         )?;
         client.verify_slh_dsa(
             &key,
-            &request(m, &inputs.bytes, &inputs.domain_context)?,
+            &request(m, bytes, &inputs.domain_context)?,
             &inputs.signature,
             auth(),
         )?;
@@ -122,14 +122,14 @@ pub(crate) fn client_operation(
             json!({"key":key_info(caps.parameter_set), "can_sign":caps.can_sign, "always_authenticate":caps.always_authenticate})
         }
         "plan" => {
-            let request = request(m, &inputs.bytes, &inputs.domain_context)?;
+            let request = request(m, bytes, &inputs.domain_context)?;
             let caps = client.slh_dsa_capabilities(&key, auth())?;
             caps.validate(&request, &policy)
                 .map_err(pkcs11_client::Error::from)?;
             json!({"key":key_info(caps.parameter_set), "context_length":request.context.len(), "hedging":get(m,"hedging").unwrap_or("required"), "context_authentication":caps.always_authenticate})
         }
         "sign" => {
-            let request = request(m, &inputs.bytes, &inputs.domain_context)?;
+            let request = request(m, bytes, &inputs.domain_context)?;
             return Ok(Output::Binary(client.sign_slh_dsa(
                 &key,
                 &request,
@@ -141,4 +141,24 @@ pub(crate) fn client_operation(
         _ => return Err(usage("unsupported SLH-DSA command")),
     };
     Ok(Output::Structured(value))
+}
+
+/// Stable JSON description of an SLH-DSA parameter set.
+pub(crate) fn slh_key_info(parameter: pkcs11_client::SlhDsaParameterSet) -> serde_json::Value {
+    use pkcs11_client::SlhDsaParameterSet as P;
+    let name = match parameter {
+        P::Sha2_128S => "slh-dsa-sha2-128s",
+        P::Sha2_128F => "slh-dsa-sha2-128f",
+        P::Sha2_192S => "slh-dsa-sha2-192s",
+        P::Sha2_192F => "slh-dsa-sha2-192f",
+        P::Sha2_256S => "slh-dsa-sha2-256s",
+        P::Sha2_256F => "slh-dsa-sha2-256f",
+        P::Shake128S => "slh-dsa-shake-128s",
+        P::Shake128F => "slh-dsa-shake-128f",
+        P::Shake192S => "slh-dsa-shake-192s",
+        P::Shake192F => "slh-dsa-shake-192f",
+        P::Shake256S => "slh-dsa-shake-256s",
+        P::Shake256F => "slh-dsa-shake-256f",
+    };
+    json!({"type":"slh-dsa","parameter_set":name})
 }

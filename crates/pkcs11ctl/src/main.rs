@@ -1,18 +1,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 #![forbid(unsafe_code)]
 //! PKCS#11 command-line workflows over the client library.
-mod aes_gcm;
 mod args;
-mod eddsa;
-mod generation;
-mod hash_pqc;
-mod inspect;
-mod key_establishment;
-mod ml_dsa;
-mod montgomery;
-mod oasis;
-mod operations;
-mod slh_dsa;
+mod commands;
+mod inputs;
 mod support;
 use std::process::ExitCode;
 use support::*;
@@ -24,9 +15,9 @@ fn execute(matches: &clap::ArgMatches) -> Result<()> {
     if get(m, "certificate-file").is_none() {
         need(matches, "module")?;
     }
-    let inputs = operations::Inputs::load(name, m)?;
-    if let Some(certificate) = &inputs.verification_certificate {
-        let value = operations::verify(certificate, m, &inputs)?;
+    let inputs = inputs::Inputs::load(name, m)?;
+    if let Some(certificate) = &inputs.signing.verification_certificate {
+        let value = commands::signing::verify(certificate, m, &inputs.bytes, &inputs.signing)?;
         return emit(name, value, get(matches, "format") == Some("json"));
     }
     let module_path = need(matches, "module")?;
@@ -36,17 +27,17 @@ fn execute(matches: &clap::ArgMatches) -> Result<()> {
         None
     };
     let mut module = pkcs11_client::Provider::load(module_path)?;
-    let outcome = operations::run(&mut module, name, m, &inputs);
+    let outcome = commands::run(&mut module, name, m, &inputs);
     let finalized = module.finalize();
     let output = finish(outcome, finalized, "module finalization")?;
     match output {
-        operations::Output::Structured(value) => {
+        commands::Output::Structured(value) => {
             emit(name, value, get(matches, "format") == Some("json"))
         }
-        operations::Output::Binary(bytes) => target
+        commands::Output::Binary(bytes) => target
             .ok_or_else(|| usage("missing output destination"))?
             .write(&bytes),
-        operations::Output::SecretBinary(bytes) => target
+        commands::Output::SecretBinary(bytes) => target
             .ok_or_else(|| usage("missing output destination"))?
             .write(bytes.expose_secret()),
     }

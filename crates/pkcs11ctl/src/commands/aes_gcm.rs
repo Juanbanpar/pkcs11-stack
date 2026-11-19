@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-use crate::{operations::Output, support::*};
+use super::Output;
+use crate::support::*;
 use clap::ArgMatches;
 use pkcs11_client::{
     AES_GCM_MAXIMUM_AAD, AES_GCM_MAXIMUM_PLAINTEXT, AES_GCM_TAG_LENGTH, AesGcmDecryptRequest,

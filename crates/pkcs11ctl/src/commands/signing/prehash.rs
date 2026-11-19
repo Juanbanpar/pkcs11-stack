@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! CLI HashML-DSA and HashSLH-DSA signing workflows.
 
-use crate::{operations::Inputs, operations::Output, support::*};
+use super::{Inputs, Output};
+use crate::support::*;
 use clap::ArgMatches;
 use pkcs11_client::{
     Client, HashInput, HashMlDsaRequest, HashMlDsaSigningPolicy, HashSlhDsaRequest,
@@ -43,7 +44,7 @@ fn ml_parameter(value: &str) -> Result<MlDsaParameterSet> {
 }
 
 fn slh_parameter(value: &str) -> Result<SlhDsaParameterSet> {
-    crate::slh_dsa::parameter(Some(value)).ok_or_else(|| usage("unsupported SLH-DSA parameter set"))
+    super::slh_dsa::parameter(Some(value)).ok_or_else(|| usage("unsupported SLH-DSA parameter set"))
 }
 
 fn hedging_ml(m: &ArgMatches) -> MlDsaHedging {
@@ -147,9 +148,11 @@ pub(crate) fn client_operation(
     client: &Client<'_>,
     name: &str,
     m: &ArgMatches,
+    credential: &Credential,
+    bytes: &[u8],
     inputs: &Inputs,
 ) -> Result<Output> {
-    let auth = || inputs.credential.auth(false);
+    let auth = || credential.auth(false);
     if name == "verify" {
         let Some(key_uri) = get(m, "key") else {
             return Err(usage(
@@ -163,14 +166,14 @@ pub(crate) fn client_operation(
         if get(m, "algorithm") == Some("hash-ml-dsa") {
             client.verify_hash_ml_dsa(
                 &key,
-                &request_ml(m, &inputs.bytes, &inputs.domain_context)?,
+                &request_ml(m, bytes, &inputs.domain_context)?,
                 &inputs.signature,
                 auth(),
             )?;
         } else {
             client.verify_hash_slh_dsa(
                 &key,
-                &request_slh(m, &inputs.bytes, &inputs.domain_context)?,
+                &request_slh(m, bytes, &inputs.domain_context)?,
                 &inputs.signature,
                 auth(),
             )?;
@@ -181,7 +184,7 @@ pub(crate) fn client_operation(
     }
     let key = client.private_key(uri(m, "key")?, auth())?;
     let value = if get(m, "algorithm") == Some("hash-ml-dsa") {
-        let request = request_ml(m, &inputs.bytes, &inputs.domain_context)?;
+        let request = request_ml(m, bytes, &inputs.domain_context)?;
         let policy = HashMlDsaSigningPolicy::default();
         match name {
             "capabilities" => {
@@ -211,7 +214,7 @@ pub(crate) fn client_operation(
             _ => return Err(usage("unsupported HashML-DSA command")),
         }
     } else {
-        let request = request_slh(m, &inputs.bytes, &inputs.domain_context)?;
+        let request = request_slh(m, bytes, &inputs.domain_context)?;
         let policy = HashSlhDsaSigningPolicy::default();
         match name {
             "capabilities" => {

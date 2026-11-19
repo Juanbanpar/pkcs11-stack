@@ -1,4 +1,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
+mod key_establishment;
+mod signing;
+
+use key_establishment::{hkdf_digest, hkdf_options, hybrid_options, kem_parameter};
+use signing::{context, signature, signing};
+
 use clap::{Arg, ArgAction, Command};
 
 fn value(name: &'static str, help: &'static str) -> Arg {
@@ -54,131 +60,6 @@ fn auth(command: Command) -> Command {
                 .default_value("user"),
         )
 }
-fn context(command: Command) -> Command {
-    command
-        .arg(
-            value(
-                "context-pin-file",
-                "Separate per-operation PIN for always-authenticate keys",
-            )
-            .conflicts_with("context-protected-path"),
-        )
-        .arg(flag(
-            "context-protected-path",
-            "Use protected path for context authentication",
-        ))
-}
-fn signature(command: Command) -> Command {
-    command
-        .arg(required("algorithm", "Signature family").value_parser([
-            "rsa-pkcs1",
-            "rsa-pss",
-            "ecdsa",
-            "ed25519",
-            "ed448",
-            "ml-dsa-44",
-            "ml-dsa-65",
-            "ml-dsa-87",
-            "ed25519",
-            "ed448",
-            "hash-ml-dsa",
-            "hash-slh-dsa",
-            "slh-dsa-sha2-128s",
-            "slh-dsa-sha2-128f",
-            "slh-dsa-sha2-192s",
-            "slh-dsa-sha2-192f",
-            "slh-dsa-sha2-256s",
-            "slh-dsa-sha2-256f",
-            "slh-dsa-shake-128s",
-            "slh-dsa-shake-128f",
-            "slh-dsa-shake-192s",
-            "slh-dsa-shake-192f",
-            "slh-dsa-shake-256s",
-            "slh-dsa-shake-256f",
-            "hash-slh-dsa-sha2-128s",
-            "hash-slh-dsa-sha2-128f",
-            "hash-slh-dsa-sha2-192s",
-            "hash-slh-dsa-sha2-192f",
-            "hash-slh-dsa-sha2-256s",
-            "hash-slh-dsa-sha2-256f",
-        ]))
-        .arg(
-            value("digest", "Required for RSA/ECDSA; forbidden for ML-DSA")
-                .required_if_eq_any([
-                    ("algorithm", "rsa-pkcs1"),
-                    ("algorithm", "rsa-pss"),
-                    ("algorithm", "ecdsa"),
-                    ("algorithm", "hash-ml-dsa"),
-                    ("algorithm", "hash-slh-dsa"),
-                ])
-                .value_parser([
-                    "sha1", "sha224", "sha256", "sha384", "sha512", "sha3-224", "sha3-256",
-                    "sha3-384", "sha3-512", "shake128", "shake256",
-                ]),
-        )
-        .arg(
-            value("mgf-digest", "Required for PSS only")
-                .value_parser(["sha1", "sha224", "sha256", "sha384", "sha512"]),
-        )
-        .arg(flag(
-            "allow-sha1",
-            "Explicitly allow the legacy SHA-1 signature profile",
-        ))
-        .arg(flag(
-            "allow-sha224",
-            "Explicitly allow the legacy SHA-224 signature profile",
-        ))
-        .arg(value("salt-length", "Exact PSS salt length in bytes"))
-        .arg(
-            value("parameter-set", "Required for hash-ml-dsa/hash-slh-dsa").value_parser([
-                "ml-dsa-44",
-                "ml-dsa-65",
-                "ml-dsa-87",
-                "slh-dsa-sha2-128s",
-                "slh-dsa-sha2-128f",
-                "slh-dsa-sha2-192s",
-                "slh-dsa-sha2-192f",
-                "slh-dsa-sha2-256s",
-                "slh-dsa-sha2-256f",
-                "slh-dsa-shake-128s",
-                "slh-dsa-shake-128f",
-                "slh-dsa-shake-192s",
-                "slh-dsa-shake-192f",
-                "slh-dsa-shake-256s",
-                "slh-dsa-shake-256f",
-            ]),
-        )
-        .arg(required("input", "Input file; - reads stdin"))
-        .arg(value(
-            "context-file",
-            "ML-DSA domain context file, at most 255 bytes; no stdin",
-        ))
-        .arg(
-            value(
-                "input-kind",
-                "Interpret input as message or already computed digest",
-            )
-            .value_parser(["message", "digest"])
-            .default_value("message"),
-        )
-}
-fn signing(command: Command) -> Command {
-    signature(command)
-        .arg(
-            value(
-                "hashing",
-                "Classical message hashing policy; defaults to token",
-            )
-            .value_parser(["token", "allow-software", "software"]),
-        )
-        .arg(
-            value(
-                "hedging",
-                "ML-DSA randomness requirement; defaults to required",
-            )
-            .value_parser(["required", "preferred", "deterministic"]),
-        )
-}
 fn mutation(command: Command) -> Command {
     command.arg(
         flag(
@@ -187,58 +68,6 @@ fn mutation(command: Command) -> Command {
         )
         .required(true),
     )
-}
-fn kem_parameter(command: Command) -> Command {
-    command.arg(
-        required("parameter-set", "Expected ML-KEM parameter set").value_parser([
-            "ml-kem-512",
-            "ml-kem-768",
-            "ml-kem-1024",
-        ]),
-    )
-}
-fn hkdf_digest(command: Command) -> Command {
-    command.arg(
-        required("digest", "HKDF hash; base key must match its output length")
-            .value_parser(["sha256", "sha384", "sha512"]),
-    )
-}
-fn hkdf_options(command: Command) -> Command {
-    hkdf_digest(command)
-        .arg(
-            required("kind", "Output key type and permissions").value_parser([
-                "aes128",
-                "aes192",
-                "aes256",
-                "derivation-secret",
-            ]),
-        )
-        .arg(
-            value("length", "Generic derivation-secret length in bytes")
-                .required_if_eq("kind", "derivation-secret"),
-        )
-        .arg(value(
-            "salt-file",
-            "Public salt file, at most 4096 bytes; omitted means zero salt",
-        ))
-        .arg(value(
-            "info-file",
-            "Public protocol context file, at most 4096 bytes; omitted means empty",
-        ))
-}
-fn hybrid_options(command: Command) -> Command {
-    hkdf_options(command)
-        .mut_arg("digest", |arg| {
-            arg.value_parser(["sha512"])
-                .help("Hybrid combiner hash: sha512")
-        })
-        .mut_arg("salt-file", |arg| {
-            arg.help("Public salt file, at most 128 bytes; omitted means zero salt")
-        })
-        .mut_arg("info-file", |arg| {
-            arg.required(true)
-                .help("Nonempty public protocol context file, at most 4096 bytes")
-        })
 }
 fn named(command: Command) -> Command {
     command
@@ -269,55 +98,9 @@ pub(crate) fn command() -> Command {
             "output",
             "New output file, or - for binary stdout",
         ));
-    let bind = Command::new("bind")
-        .about("Prove a key/certificate association with one signature")
-        .arg(required("certificate", "Explicit certificate URI"))
-        .arg(
-            value(
-                "hashing",
-                "Classical binding probe hashing policy; defaults to token",
-            )
-            .value_parser(["token", "allow-software", "software"]),
-        );
-    let sign = Command::new("sign")
-        .about("Sign once; with a certificate, bind first and verify the output")
-        .arg(value(
-            "certificate",
-            "Explicit certificate URI; binding adds one signature",
-        ))
-        .arg(required(
-            "output",
-            "New output file, or - for raw binary signature stdout",
-        ));
     let diagnose = Command::new("diagnose")
         .about("Check bounded pool capacity, role and lease reuse")
         .arg(value("pool-size", "Number of concurrent leases, 1..=64").default_value("2"));
-    let verify = Command::new("verify")
-        .about(
-            "Verify a raw signature using a certificate or token public key; no trust validation",
-        )
-        .arg(
-            value("certificate", "Token certificate URI with type=cert")
-                .required_unless_present_any(["certificate-file", "key"]),
-        )
-        .arg(
-            value(
-                "certificate-file",
-                "X.509 DER certificate file; no module required",
-            )
-            .conflicts_with_all([
-                "certificate",
-                "key",
-                "pin-file",
-                "protected-path",
-                "role",
-            ]),
-        )
-        .arg(
-            value("key", "Token public key URI with type=public")
-                .conflicts_with_all(["certificate", "certificate-file"]),
-        )
-        .arg(required("signature", "Raw signature file; - reads stdin"));
     let random = Command::new("random")
         .about("Generate bytes once using the selected token's random generator")
         .arg(required("length", "Number of bytes, 1..=1048576"))
@@ -580,9 +363,9 @@ pub(crate) fn command() -> Command {
         auth(signing(key(
             Command::new("plan").about("Plan one signing request without signing")
         ))),
-        context(auth(key(key_family(bind)))),
-        context(auth(signing(key(sign)))),
-        auth(signature(verify)),
+        context(auth(key(key_family(signing::bind())))),
+        context(auth(signing(key(signing::sign())))),
+        auth(signature(signing::verify())),
         auth(token(random)),
         gcm(
             "encrypt-aes-gcm",
