@@ -20,15 +20,24 @@ if [[ -z "$module" || ! -f "$module" || "$(basename "$module")" != libsofthsm2.s
     exit 1
 fi
 module=$(realpath "$module")
-util=$(command -v "${SOFTHSM2_UTIL:-softhsm2-util}")
+if ! util=$(command -v "${SOFTHSM2_UTIL:-softhsm2-util}"); then
+    echo 'Install softhsm2-util or set SOFTHSM2_UTIL to the matching SoftHSM utility.' >&2
+    exit 1
+fi
 util=$(realpath "$util")
 export SOFTHSM2_UTIL="$util"
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/pkcs11-stack.XXXXXXXX")
 trap 'rm -rf -- "$scratch"' EXIT
+store=$(realpath "$scratch")
+case $store in
+    *[[:cntrl:]]*)
+        echo 'The temporary directory path cannot be represented in the SoftHSM configuration.' >&2
+        exit 2 ;;
+esac
 mkdir "$scratch/tokens"
 export SOFTHSM2_CONF="$scratch/softhsm2.conf"
 cat > "$SOFTHSM2_CONF" <<CONFIG
-directories.tokendir = $scratch/tokens
+directories.tokendir = $store/tokens
 objectstore.backend = file
 log.level = ERROR
 slots.removable = false

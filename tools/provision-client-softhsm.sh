@@ -44,16 +44,11 @@ for specification in '30 EC:prime256v1 derive-p256' '31 EC:secp384r1 derive-p384
     pkcs11-tool --module "$module" --token-label client-test --login --pin 12345678 \
         --keypairgen --key-type "$type" --id "$id" --label "$label" --usage-derive --sensitive >/dev/null 2>&1
 done
-python3 - "$scratch" <<'PY'
-from pathlib import Path
-import sys
-path = Path(sys.argv[1])
-(path / "wrap-key.bin").write_bytes(bytes(range(32)))
-(path / "wrap-target.bin").write_bytes(bytes.fromhex("00112233445566778899aabbccddeeff"))
-(path / "hmac-key.bin").write_bytes(bytes(range(32)))
-(path / "cmac-key.bin").write_bytes(bytes.fromhex("2b7e151628aed2a6abf7158809cf4f3c"))
-(path / "cbc-key.bin").write_bytes(bytes.fromhex("2b7e151628aed2a6abf7158809cf4f3c"))
-PY
+printf '\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b\x1c\x1d\x1e\x1f' > "$scratch/wrap-key.bin"
+printf '\x00\x11\x22\x33\x44\x55\x66\x77\x88\x99\xaa\xbb\xcc\xdd\xee\xff' > "$scratch/wrap-target.bin"
+printf '\x2b\x7e\x15\x16\x28\xae\xd2\xa6\xab\xf7\x15\x88\x09\xcf\x4f\x3c' > "$scratch/cmac-key.bin"
+cp "$scratch/wrap-key.bin" "$scratch/hmac-key.bin"
+cp "$scratch/cmac-key.bin" "$scratch/cbc-key.bin"
 args=(--module "$module" --token-label client-test --login --pin 12345678 --type secrkey --private --sensitive)
 pkcs11-tool "${args[@]}" --write-object "$scratch/wrap-key.bin" --key-type AES:32 --id 40 --label wrapping --usage-wrap >/dev/null 2>&1
 pkcs11-tool "${args[@]}" --write-object "$scratch/wrap-target.bin" --key-type AES:16 --id 41 --label transferable --usage-decrypt --extractable >/dev/null 2>&1
