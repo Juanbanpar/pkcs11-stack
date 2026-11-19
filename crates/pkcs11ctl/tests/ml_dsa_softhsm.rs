@@ -244,21 +244,23 @@ fn ml_dsa_cli_generation_signing_binding_and_verification() {
             }
             f.ok(&sign);
             assert_eq!(std::fs::metadata(&sig).unwrap().len(), size);
-            openssl(&[
-                "pkeyutl",
-                "-verify",
-                "-pubin",
-                "-inkey",
-                &spki,
-                "-keyform",
-                "DER",
-                "-in",
-                &input,
-                "-sigfile",
-                &sig,
-                "-pkeyopt",
-                "context-string:cli-context",
-            ]);
+            if index == 1 && !bound {
+                openssl(&[
+                    "pkeyutl",
+                    "-verify",
+                    "-pubin",
+                    "-inkey",
+                    &spki,
+                    "-keyform",
+                    "DER",
+                    "-in",
+                    &input,
+                    "-sigfile",
+                    &sig,
+                    "-pkeyopt",
+                    "context-string:cli-context",
+                ]);
+            }
             for selector in [
                 ["--certificate", cert.as_str()],
                 ["--certificate-file", certificate.as_str()],

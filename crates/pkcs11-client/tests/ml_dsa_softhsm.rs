@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! Typed ML-DSA client workflows and OpenSSL interoperability.
 use pkcs11_client::{
-    Authentication, Error, ErrorKind, MlDsaCertificate, MlDsaHedging, MlDsaParameterSet,
-    MlDsaRequest, MlDsaSigningPolicy, MlDsaVerifyingKey, Pin, PrivateKeyRef, Provider,
+    Authentication, Client, Error, ErrorKind, MlDsaCertificate, MlDsaHedging, MlDsaParameterSet,
+    MlDsaRequest, MlDsaSigningPolicy, MlDsaVerifyingKey, Pin, Pkcs11Uri, PrivateKeyRef, Provider,
     PublicKeyRef, SecretText, SessionMode, SigningPolicy,
 };
 use std::{num::NonZeroUsize, path::PathBuf, process::Command};
@@ -166,15 +166,6 @@ fn client_ml_dsa_signing_binding_and_public_export() {
         let der_path = root.join(format!("mldsa-{index}.der"));
         let der = client.export_ml_dsa_public_key(&public, auth()).unwrap();
         assert_eq!(std::fs::read(&der_path).unwrap(), der);
-        openssl(&[
-            "pkey",
-            "-pubin",
-            "-inform",
-            "DER",
-            "-in",
-            der_path.to_str().unwrap(),
-            "-noout",
-        ]);
         let policy = MlDsaSigningPolicy::default();
         let request = MlDsaRequest {
             parameter_set: parameter,
@@ -342,6 +333,19 @@ fn client_ml_dsa_signing_binding_and_public_export() {
             "context-string:client-context",
         ]);
     }
+    check_key_replacement(&provider, &client, &token, &pin);
+    client.close().unwrap();
+    check_scoped_signing(&provider, &token, &pin);
+    provider.finalize().unwrap();
+}
+
+fn check_key_replacement(
+    provider: &Provider,
+    client: &Client<'_>,
+    token: &Pkcs11Uri,
+    pin: &SecretText,
+) {
+    let auth = || Authentication::User(Pin::Value(pin));
     // A reused locator must not preserve the old parameter set or cached handles.
     let private_uri = "pkcs11:token=pqc-test;id=%C1%00;type=private";
     let public_uri = "pkcs11:token=pqc-test;id=%C1%00;type=public";
@@ -364,7 +368,7 @@ fn client_ml_dsa_signing_binding_and_public_export() {
         )
         .unwrap();
     let mut management = provider
-        .management(&token, SessionMode::ReadWrite, Authentication::None)
+        .management(token, SessionMode::ReadWrite, Authentication::None)
         .unwrap();
     management
         .delete(&pkcs11_client::object_reference(private_uri.parse().unwrap()).unwrap())
@@ -373,10 +377,15 @@ fn client_ml_dsa_signing_binding_and_public_export() {
         .delete(&pkcs11_client::object_reference(public_uri.parse().unwrap()).unwrap())
         .unwrap();
     management
-        .generate_ml_dsa_key_pair(parameters[1], &[0xC1, 0], b"replacement", false)
+        .generate_ml_dsa_key_pair(
+            MlDsaParameterSet::MlDsa65,
+            &[0xC1, 0],
+            b"replacement",
+            false,
+        )
         .unwrap();
     let stale_request = MlDsaRequest {
-        parameter_set: parameters[0],
+        parameter_set: MlDsaParameterSet::MlDsa44,
         message: b"stale request",
         context: b"",
         hedging: MlDsaHedging::Required,
@@ -399,7 +408,7 @@ fn client_ml_dsa_signing_binding_and_public_export() {
             .ml_dsa_capabilities(&old_key, auth())
             .unwrap()
             .parameter_set,
-        parameters[1]
+        MlDsaParameterSet::MlDsa65
     );
     management
         .delete(&pkcs11_client::object_reference(private_uri.parse().unwrap()).unwrap())
@@ -408,7 +417,12 @@ fn client_ml_dsa_signing_binding_and_public_export() {
         .delete(&pkcs11_client::object_reference(public_uri.parse().unwrap()).unwrap())
         .unwrap();
     management
-        .generate_ml_dsa_key_pair(parameters[0], &[0xC1, 0], b"replacement", false)
+        .generate_ml_dsa_key_pair(
+            MlDsaParameterSet::MlDsa44,
+            &[0xC1, 0],
+            b"replacement",
+            false,
+        )
         .unwrap();
     assert!(matches!(
         client.sign_ml_dsa_identity(
@@ -421,9 +435,15 @@ fn client_ml_dsa_signing_binding_and_public_export() {
         Err(Error::KeyCertificateMismatch)
     ));
     management.close().unwrap();
-    client.close().unwrap();
+}
+
+fn check_scoped_signing(provider: &Provider, token: &Pkcs11Uri, pin: &SecretText) {
     let mut management = provider
-        .management(&token, SessionMode::ReadWrite, auth())
+        .management(
+            token,
+            SessionMode::ReadWrite,
+            Authentication::User(Pin::Value(pin)),
+        )
         .unwrap();
     let key = PrivateKeyRef::new(
         "pkcs11:token=pqc-test;id=%C1%00;type=private"
@@ -438,7 +458,7 @@ fn client_ml_dsa_signing_binding_and_public_export() {
     )
     .unwrap();
     let request = MlDsaRequest {
-        parameter_set: parameters[0],
+        parameter_set: MlDsaParameterSet::MlDsa44,
         message: b"scoped session",
         context: b"",
         hedging: MlDsaHedging::Preferred,
@@ -455,5 +475,4 @@ fn client_ml_dsa_signing_binding_and_public_export() {
         Err(Error::SignatureMismatch)
     ));
     management.close().unwrap();
-    provider.finalize().unwrap();
 }

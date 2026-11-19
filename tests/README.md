@@ -109,6 +109,29 @@ workaround is applied.
 
 The adapter's production dependency graph selects no software crypto provider.
 
+## Test ownership
+
+| Crate | Primary coverage |
+| --- | --- |
+| Locator | URI parsing, normalization, redaction and matching |
+| Runtime | Provider mechanisms, exhaustive parameter sets, permissions, sensitive attributes, authentication and session recovery |
+| Client | Typed application workflows, policy propagation, object identity, certificates, import and export |
+| CLI | Argument and policy mapping, JSON and exit codes, file handling and output preservation |
+| Desktop | State, workers, authentication, lifecycle and representative provider workflows |
+| rustls adapter | Credential selection, handshakes, TLS trust and authentication failures |
+
+The client ML-DSA suite verifies token signatures with OpenSSL for all three
+parameter sets. The CLI retains one OpenSSL check with context-specific
+authentication and verifies certificate-file and token-certificate workflows,
+both bound and unbound, for every parameter set. The client's exported SPKI is
+decoded by OpenSSL before certificate issuance. The later client export is
+compared byte for byte to that same SPKI.
+
+ML-KEM public-key interchange, hybrid temporary-object cleanup, SLH-DSA
+interoperability, EdDSA encoding and TLS, classical signing, and AES-GCM
+authentication and file preservation exercise distinct boundaries. These cases
+remain covered alongside the runtime known-answer and permission checks.
+
 ## Persistent ML-KEM and HKDF
 
 This part of the Kryoptic runner requires both ML-KEM and HKDF.
