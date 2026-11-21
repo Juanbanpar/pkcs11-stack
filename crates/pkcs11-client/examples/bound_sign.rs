@@ -34,7 +34,7 @@ fn main() -> support::Result<()> {
         pss: None,
     };
     let signature = client.sign_identity(&identity, &request, authentication(), None)?;
-    drop(client);
+    client.close()?;
     provider.finalize()?;
     let mut stdout = std::io::stdout().lock();
     stdout.write_all(&signature)?;
