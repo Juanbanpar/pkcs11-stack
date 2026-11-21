@@ -6,6 +6,17 @@ client, CLI, and desktop. Availability depends on the token and its module.
 Integration tests use SoftHSM and Kryoptic. Check your device and firmware
 with the vendor module before deploying.
 
+| Scope | How to read the results |
+| --- | --- |
+| Implemented | The stack exposes a typed path through the published binding. Check the surface table for the crate, CLI, or app you use. |
+| Provider-dependent | Mechanism advertisement, key permissions, supported parameters, session mode, and authentication all affect execution. An advertised mechanism alone is insufficient. |
+| Tested | The provider table names reproducible software-provider configurations. A passing profile establishes behavior for that configuration. |
+| Physical devices | The test matrix covers software providers. Qualify the firmware, driver, and module for your physical device separately. |
+| Upstream-blocked | The public binding cannot express the listed operation or parameter type. |
+
+See [troubleshooting](troubleshooting.md#the-token-advertises-a-mechanism-but-rejects-the-operation)
+for checking a specific key and mechanism.
+
 ## Interface negotiation
 
 `cryptoki` requests the 3.2 interface, then the 3.0 function list, then the

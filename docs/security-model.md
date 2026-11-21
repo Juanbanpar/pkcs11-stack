@@ -4,6 +4,12 @@ Load PKCS#11 modules from a trusted source. A module runs native code inside you
 process and has access to its memory. A PKCS#11 URI selects objects in the module
 you loaded.
 
+Use the [isolated SoftHSM quickstart](quickstart.md) for experimentation and the
+[compatibility matrix](oasis-compatibility.md#provider-tests) for tested provider
+configurations. The software-provider suites establish interoperability for the
+tested configurations. Device qualification and cryptographic certification
+require separate evidence.
+
 | Area | What to account for |
 | --- | --- |
 | Key material | Typed private-key and secret-key operations run in the provider. Generated private and secret keys are marked sensitive and nonextractable. The provider enforces those attributes. Raw attribute reads can expose extractable objects. |
@@ -21,3 +27,6 @@ For file encryption, use AES-GCM with a nonce unique to each encryption under
 the same key, including across writers, restarts, and failed attempts.
 ECB exposes repeated blocks. CBC and CBC-PAD provide no integrity protection.
 SHA-1 and SHA-224 signatures require explicit opt-in.
+
+See [troubleshooting](troubleshooting.md) for safe next steps after
+authentication, operation, or cleanup failures.
