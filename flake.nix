@@ -67,6 +67,7 @@
               nativeBuildInputs = with pkgs; [
                 cmake
                 copyDesktopItems
+                patchelf
                 pkg-config
               ];
               buildInputs = desktopLibraries ++ [ pkgs.libglvnd ];
@@ -81,6 +82,11 @@
                   ];
                 })
               ];
+
+              # Text layout tests need a system font in the build sandbox.
+              preCheck = ''
+                export FONTCONFIG_FILE=${pkgs.makeFontsConf { fontDirectories = [ pkgs.dejavu_fonts ]; }}
+              '';
 
               # Winit loads the Wayland and XKB libraries by soname at runtime.
               postFixup = ''
