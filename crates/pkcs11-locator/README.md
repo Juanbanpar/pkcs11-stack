@@ -1,7 +1,8 @@
 # pkcs11-locator
 
-RFC 7512 URI parsing, construction and selector matching without module loading
-or hardware access.
+Parse and build RFC 7512 PKCS#11 URIs, then match them against metadata from
+your own discovery code. Use this crate for selectors without opening a provider
+library or accessing a token.
 
 ## Installation
 
@@ -16,9 +17,6 @@ pkcs11-locator = "0.1.0"
 For a sibling checkout, use `pkcs11-locator = { path = "../pkcs11-stack/crates/pkcs11-locator" }`.
 
 ## Match a discovered object
-
-Supply metadata from your own discovery code. The locator parses and matches it
-without opening a module or a session.
 
 ```rust
 use pkcs11_locator::{Pkcs11Uri, ResourceIdentity, ObjectType};

@@ -7,17 +7,11 @@ operations on a token, and use token-held keys for TLS authentication.
 Use the [disposable SoftHSM quickstart](docs/quickstart.md) to generate a test
 key, then sign and verify a message from the CLI and from Rust.
 
-## What it supports
-
-- Discover tokens, mechanisms, keys, and certificates and manage persistent objects.
-- Sign, verify, encrypt, and establish or derive keys using supported token mechanisms.
-- Bind a signing key to a certificate and use token-held keys for rustls authentication.
-
 ## Crates
 
 | If you want to | Use |
 | --- | --- |
-| Integrate PKCS#11 into a Rust app. Start here for discovery, cryptography, certificate binding, and object management | [pkcs11-client](crates/pkcs11-client/README.md) |
+| Integrate PKCS#11 into a Rust app. Start with this high-level API for token discovery, signing, and object management | [pkcs11-client](crates/pkcs11-client/README.md) |
 | Inspect and administer a token by hand in a graphical interface | [pkcs11-desktop](crates/pkcs11-desktop/README.md) |
 | Use a token from the terminal or automate workflows in scripts | [pkcs11ctl](crates/pkcs11ctl/README.md) |
 | Authenticate a rustls server or mutual TLS client with a token-held key | [pkcs11-rustls-adapter](crates/pkcs11-rustls-adapter/README.md) |
@@ -72,13 +66,6 @@ flowchart TD
     desktop[pkcs11-desktop] --> client
 ```
 
-- The runtime owns the PKCS#11 lifecycle and executes token operations. Its
-  modules follow operation families such as signing, encryption, key establishment,
-  and derivation. The client builds workflows on those operations. Library callers
-  use crate-root exports.
-- Rustls applications choose the software provider used for record protection,
-  key exchange, and peer verification.
-
 ## Security and compatibility
 
 - Load a trusted module explicitly. It runs native code in your process.
@@ -91,7 +78,6 @@ flowchart TD
 
 ## Examples and documentation
 
-- [Disposable SoftHSM quickstart](docs/quickstart.md)
 - [Runnable signing and TLS examples](docs/examples.md)
 - [Mechanism support by crate](docs/oasis-compatibility.md#application-surfaces)
 - [Troubleshooting](docs/troubleshooting.md)

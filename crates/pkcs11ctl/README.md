@@ -18,16 +18,16 @@ To build from a local checkout, run the following from the repository root.
 
 ```sh
 cargo build --release -p pkcs11ctl --locked
-./target/release/pkcs11ctl --module /path/to/pkcs11.so --format json tokens
+./target/release/pkcs11ctl --help
 ```
 
 ## Discover tokens
 
 The examples below assume `pkcs11ctl` is on your PATH. From a checkout, use
 `./target/release/pkcs11ctl` in its place. Use a trusted vendor module or follow
-the [disposable SoftHSM quickstart](https://github.com/Juanbanpar/pkcs11-stack/blob/main/docs/quickstart.md)
+the [disposable SoftHSM quickstart](https://github.com/Juanbanpar/pkcs11-stack/blob/0d5eb4d83b8c5fafa064a7c398cbad9b1ebab1da/docs/quickstart.md)
 to generate a key, sign, and verify.
-Use the [troubleshooting guide](https://github.com/Juanbanpar/pkcs11-stack/blob/main/docs/troubleshooting.md)
+Use the [troubleshooting guide](https://github.com/Juanbanpar/pkcs11-stack/blob/0d5eb4d83b8c5fafa064a7c398cbad9b1ebab1da/docs/troubleshooting.md)
 for module, token, and authentication failures.
 
 ```sh
@@ -71,7 +71,7 @@ Use `pkcs11ctl COMMAND --help` for complete options.
 | --- | --- |
 | `--pin-file PATH` / `--protected-path` | Mutually exclusive. No plaintext PIN argument or implicit prompt |
 | `--role user\|so` | USER by default. SO opens RW sessions, pooled signing uses USER/RO |
-| PIN file | UTF-8, at most 65536 bytes. Remove one final LF/CRLF only. `/dev/fd/3` paths accepted. Read once |
+| PIN file | UTF-8, at most 65536 bytes. Removes one final LF/CRLF. Accepts paths such as `/dev/fd/3` |
 | `--context-pin-file` / `--context-protected-path` | Separate always-authenticate signing credential |
 | `--input -` | Read stdin where supported. Secondary context/AAD/certificate files require paths |
 | `--output PATH` | Exclusive creation, Unix mode 0600. Existing files preserved. Destination reserved before module loading |
@@ -81,12 +81,12 @@ Use `pkcs11ctl COMMAND --help` for complete options.
 - Restrict access to PIN files. PIN buffers zeroize and stay out of diagnostics.
 - Login is token-wide. Omitted authentication leaves the role as is. An active
   role may proceed without a fresh PIN check.
-- Bound signing performs a probe and a message signature. Always-authenticate
-  keys need context credentials for both. Raw and prehashed profiles cannot use
-  those credentials. Token and PIN administration requires host PIN files.
-- Files, pipes, and failed operations are read or attempted once. Cleanup failures
-  use exit 5 and retain the original operation error. A mutation can take effect
-  before cleanup or file output fails. Inspect the token before trying again.
+- Always-authenticate keys need a context credential for each signature,
+  including the binding probe. Raw and prehashed profiles cannot use context
+  credentials. Token and PIN administration requires host PIN files.
+- PIN inputs are read once and failed operations are not retried. Cleanup errors
+  retain the original operation error. Inspect the token after a failed mutation,
+  including when cleanup or output fails.
 
 ## Inspection and public export
 

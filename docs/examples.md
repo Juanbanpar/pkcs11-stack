@@ -30,12 +30,9 @@ Both programs write a raw, modulus-width signature to stdout after checked
 client closure and module finalization. Use a fresh output path. Shell
 redirection controls permissions and overwriting.
 
-```sh
-cargo run --quiet -p pkcs11-client --example sign -- \
-  /path/to/trusted-pkcs11.so \
-  'pkcs11:serial=123;id=%01;type=private' \
-  /secure/user.pin message.bin > signature.bin
+For ordinary signing, use the [client README example](../crates/pkcs11-client/README.md#sign-with-an-existing-key).
 
+```sh
 cargo run --quiet -p pkcs11-client --example bound_sign -- \
   /path/to/trusted-pkcs11.so \
   'pkcs11:serial=123;id=%01;type=private' \

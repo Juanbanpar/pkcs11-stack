@@ -5,12 +5,6 @@ on a PKCS#11 token or HSM. The token produces the handshake authentication
 signatures. The application's rustls `CryptoProvider` handles key exchange,
 record protection, randomness, and peer verification.
 
-| Integration | API |
-| --- | --- |
-| Turn a token key and certificate chain into a rustls identity | `Credential` provides a rustls `SigningKey` and `Signer` through [pkcs11-runtime](https://github.com/Juanbanpar/pkcs11-stack/blob/main/crates/pkcs11-runtime/README.md) |
-| Route server certificates by DNS name and signature scheme | `ServerResolver` |
-| Present a client certificate for mutual TLS | `ClientResolver` |
-
 ## Installation
 
 The server example uses Rust 1.88 or newer, rustls 0.23 with ring, and a trusted
@@ -93,27 +87,24 @@ credential selection on a TLS 1.2-only server with mixed key algorithms.
 
 ## Binding, authentication and ownership
 
-| Concern | Contract |
-| --- | --- |
-| Binding | `Credential::load` requires a leaf-first DER chain and explicit key selector. Signs a probe and verifies with the leaf/provider |
-| Key replacement | Every later signature is checked against the retained leaf. Shared labels/IDs alone never prove binding |
-| Trust | Loading does not check chain trust, time, EKU or revocation. Configure normal rustls peer verification |
-| Credentials | Source called once per binding/signature. Returns optional USER/context PINs in `SecretText` or `PinInput::ProtectedPath` |
-| Authentication | `None` leaves login unchanged. Matching pooled USER role does not revalidate a PIN. Always-authenticate needs separate context credentials |
-| Concurrency | Synchronous signing acquires one exclusive nonblocking lease. Exhaustion fails immediately |
-| Cleanup | Runtime discards uncertain sessions. Encoding/binding failures also discard the lease. Failed closure blocks checkout until the pool is replaced |
+Credential loading signs a probe against the leaf. The adapter verifies
+each later signature against that certificate to detect key replacement.
+Configure rustls peer verification separately for trust, validity, usage,
+and revocation.
 
-- **Credential callbacks**. The source handles storage and prompting. Returned
-  PINs stay scoped to the operation. Return `CredentialsUnavailable` without
-  leaking source diagnostics. Scheme selection and resolvers avoid token I/O and
-  credential callbacks.
-- **Operation ownership**. Calls are synchronous and use the supplied pool.
-  Applications handle logout, token removal, and slot rediscovery. Failed
-  signing calls are issued once.
-- **Checked shutdown**. Retain an application-owned `Arc<Module>`. Stop
-  connections and drop configs, credentials, signers, and pools. When
-  `Arc::try_unwrap` succeeds, call `Module::finalize`. A failed unwrap means
-  a consumer still owns the module. The example uses best-effort Drop cleanup.
+The credential source is called once per binding or signing operation.
+It supplies short-lived USER and context credentials. An existing USER login
+can satisfy authentication without checking a new PIN. Always-authenticate
+keys require a separate context credential. For scheme selection and routing
+the adapter needs neither credentials nor token I/O.
+
+Signing is synchronous. Pool checkout fails immediately when exhausted.
+Failed signing calls are issued once. The runtime discards uncertain sessions
+and blocks checkout after a session close failure.
+
+For checked shutdown, retain an application-owned `Arc<Module>`. Stop
+connections and drop the configs, credentials, signers, and pools. Unwrap
+the module with `Arc::try_unwrap` and call `Module::finalize`.
 
 ## Schemes and routing
 
@@ -132,7 +123,8 @@ credential selection on a TLS 1.2-only server with mixed key algorithms.
   receives unhashed TLS messages. Token hashing is the default, with explicit
   options to allow or require software SHA-2.
 - ECDSA converts fixed-width `r || s` to canonical DER using the curve width.
-  Ed25519 uses pure signing and a key without per-operation authentication.
+  Ring does not verify P-521 signatures. Ed25519 uses pure signing and a key
+  without per-operation authentication.
 - Unsupported profiles include restricted RSA-PSS SPKI, Ed448, and SHA-1.
 
 | Resolver | Selection |
@@ -185,11 +177,9 @@ cargo check -p pkcs11-rustls-adapter --lib --no-default-features --locked
 cargo check -p pkcs11-rustls-adapter --lib --features tls12 --locked
 ```
 
-| Suite | Coverage |
-| --- | --- |
-| Unit | Scheme selection, ML-DSA certificate parameters, encoding, and redaction |
-| SoftHSM | TLS 1.2/1.3, trust failures, concurrency, exhaustion, and replacement keys. Ring cannot verify P-521 |
-| ML-DSA provider | All parameter sets, server and mutual TLS 1.3, ML-DSA issuer, and X25519MLKEM768. Exercises authentication, policy, trust, and replacement failures |
+The SoftHSM suite exercises TLS 1.2 and 1.3, including trust failures,
+pool exhaustion, and key replacement. The ML-DSA suite uses AWS-LC for
+server and mutual TLS 1.3 with all three parameter sets.
 
 AWS-LC is a development dependency for ML-DSA tests. Applications supply
 the production provider. See the

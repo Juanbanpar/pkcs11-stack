@@ -1,16 +1,8 @@
 # pkcs11-desktop
 
-A native Iced app for inspecting PKCS#11 tokens and working with individual keys
-and certificates. Use it to see what a device supports, provision objects, or
-sign and verify files interactively.
-
-- Browse token information, object metadata, and advertised mechanisms.
-- Generate signing, agreement, and AES keys. Import certificates and public keys,
-  export public objects, or delete selected objects.
-- Sign and verify files, encrypt and decrypt, derive secrets, wrap and unwrap
-  AES keys, and generate random bytes. Actions depend on the token and key.
-- Initialize or erase a token and manage USER and security officer (SO) PINs
-  through explicit confirmation dialogs.
+A desktop app for inspecting PKCS#11 tokens and working with individual keys
+and certificates. Browse objects and mechanisms, provision keys, or sign
+and verify files interactively.
 
 ## Build and run
 
@@ -24,16 +16,10 @@ sudo apt-get install pkg-config libxkbcommon-dev libwayland-dev libegl1-mesa-dev
 cargo run --release -p pkcs11-desktop --locked
 ```
 
-| Dependency | Enabled features |
-| --- | --- |
-| Iced | `tiny-skia`, `thread-pool`, `wayland`, `advanced`, `linux-theme-detection`. Default features are disabled |
-| `iced_aw` | `badge` and `spinner` |
-| `iced_fonts` | Lucide icon font |
-
 ## Navigation and browsing
 
 Use a trusted vendor module, or load the module from the
-[disposable SoftHSM quickstart](https://github.com/Juanbanpar/pkcs11-stack/blob/main/docs/quickstart.md)
+[disposable SoftHSM quickstart](../../docs/quickstart.md)
 for an initial look. If using the quickstart store, launch the app from the
 same shell so it inherits `SOFTHSM2_CONF`.
 
@@ -77,12 +63,10 @@ Use Command instead of Ctrl on macOS.
 | --- | --- |
 | Roles | USER for private objects and user operations. SO requires a writable token. Locked or uninitialized PINs disable their role |
 | Protected path | Defaults to device authentication where supported, with host entry available. Hardware behavior has not been verified |
-| PIN handling | Masked fields disable copying and cutting and clear on submission, cancellation, or navigation. PINs use zeroizing storage and stay out of diagnostics. Iced's transient editor copies may escape zeroization |
+| PIN handling | Masked fields disable copying and cutting and clear on submission, cancellation, or navigation. PINs use zeroizing storage and stay out of diagnostics. The text editor may retain temporary copies |
 | Login state | One session per token preserves the active role without retaining the PIN. **Logout** clears the selection and details. Refresh **Objects** after login or logout |
-| Worker | Owns providers, sessions, and file operations. The UI receives metadata and local IDs. Selection changes invalidate pending reads and picker results |
 | Operations | Submitted work finishes before another operation starts. Navigation stays available. No cancellation, retry, or rollback after submission |
 | Recovery | Inventory refreshes after success or failure. Inspect it before retrying a mutation. A session close failure blocks the module and clears cached resources. Unload it before reuse |
-| Shutdown | Drains work, closes sessions, and finalizes modules off the UI thread |
 
 ## Generation, import and object management
 
@@ -119,7 +103,6 @@ depend on the token. The provider checks the selected parameters at execution.
 
 - Import preserves existing objects. Public-key validation checks the encoding.
   Verify peer identity or private-key possession separately.
-- Delete affects one selected object. Related objects are kept even when IDs or labels match.
 
 ## Signing and verification
 
