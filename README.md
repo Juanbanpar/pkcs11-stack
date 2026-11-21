@@ -112,7 +112,6 @@ See the [test guide](tests/README.md) for coverage and provider prerequisites.
 ## Documentation and checks
 
 The library READMEs also serve as rustdoc landing pages.
-See the [development guide](docs/development.md) for workspace and release checks.
 
 ```sh
 cargo doc --workspace --all-features --no-deps --locked
