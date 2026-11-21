@@ -96,14 +96,8 @@ See [runtime ownership and shutdown](../crates/pkcs11-runtime/README.md#ownershi
 See the [adapter guide](../crates/pkcs11-rustls-adapter/README.md) and the
 [loopback TLS and mutual TLS examples](examples.md#tls-and-mutual-tls).
 
-## FAQ
+## Can I export a private key?
 
-| Question | Answer |
-| --- | --- |
-| Why is an operation or a discovered key unavailable? | The module, token, key, and requested profile must all support it. Check capabilities and key permissions above. |
-| Can I export a private key? | Typed public export rejects private and secret keys. Raw attribute APIs can expose provider-permitted attributes. The provider enforces sensitivity and extractability. |
-| Does certificate binding validate trust? | Binding verifies that the key can sign for the certificate. The application decides certificate trust. |
-| Is the PIN checked for every operation? | An existing token-wide login can satisfy the requested role. Always-authenticate keys need context-specific credentials where supported. |
-| Are failed operations retried automatically? | Crypto operations and mutations run once. Inspect the token after a failed mutation. |
-| Where does the desktop run? | See the [desktop build requirements](../crates/pkcs11-desktop/README.md#build-and-run). Linux requires Wayland. See the [test scope](../tests/README.md#compatibility-scope) for what the CI checks establish. |
-| Which PKCS#11 versions and providers are covered? | The [compatibility matrix](oasis-compatibility.md) separates typed support from the software providers used in integration tests. |
+Typed public export rejects private and secret keys. Raw attribute reads can
+expose provider-permitted values. The provider enforces sensitivity and
+extractability. See the [security model](security-model.md).
