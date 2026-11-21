@@ -5,13 +5,32 @@ discovery, authentication, bounded session pools and typed cryptographic operati
 For application workflows and certificate binding, use
 [pkcs11-client](https://github.com/Juanbanpar/pkcs11-stack/blob/main/crates/pkcs11-client/README.md).
 
+## Installation
+
+Requires Rust 1.88 or newer. Use this dependency after version `0.1.0` is
+published on crates.io.
+
+```toml
+[dependencies]
+pkcs11-runtime = "0.1.0"
+```
+
+For a sibling checkout, use `pkcs11-runtime = { path = "../pkcs11-stack/crates/pkcs11-runtime" }`.
+
+## Open a session and inspect a key
+
+Use a trusted provider module and an existing RSA or other private key visible
+to a USER session. Replace the module path and token and key selectors with
+your own. The [SoftHSM quickstart](https://github.com/Juanbanpar/pkcs11-stack/blob/main/docs/quickstart.md)
+shows how to create a disposable token and key.
+See the [API reference](https://docs.rs/pkcs11-runtime) after publication, or
+build it from the checkout as described under [Documentation and tests](#documentation-and-tests).
+
 ```no_run
-use pkcs11_locator::Pkcs11Uri;
 use pkcs11_runtime::{ SecretText, Module, ObjectRef, SessionMode, Authentication, Pin, AttributeType};
 
 let module = Module::load("/absolute/path/to/trusted-pkcs11.so")?;
-let locator: Pkcs11Uri = "pkcs11:token=production;serial=123".parse()?;
-let token = module.resolve_token(locator.token_selector())?;
+let token = module.resolve_token_uri(&"pkcs11:token=production;serial=123".parse()?)?;
 let mut session = token.open_session(SessionMode::ReadOnly)?;
 // Example only: the application obtains the PIN from its chosen secret source.
 let pin = SecretText::from("example-only");

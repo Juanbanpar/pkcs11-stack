@@ -14,7 +14,8 @@ sign and verify files interactively.
 
 ## Build and run
 
-Use Rust 1.88 or newer. Linux requires Wayland. The file picker uses the desktop
+Build from the repository checkout with Rust 1.88 or newer. Linux requires
+Wayland. The file picker uses the desktop
 portal with a Zenity fallback. You can also enter paths manually.
 
 ```sh
@@ -30,6 +31,11 @@ cargo run --release -p pkcs11-desktop --locked
 | `iced_fonts` | Lucide icon font |
 
 ## Navigation and browsing
+
+Use a trusted vendor module, or load the module from the
+[disposable SoftHSM quickstart](https://github.com/Juanbanpar/pkcs11-stack/blob/main/docs/quickstart.md)
+for an initial look. If using the quickstart store, launch the app from the
+same shell so it inherits `SOFTHSM2_CONF`.
 
 1. Choose **Add Module**, select a trusted PKCS#11 library, and choose **Load**.
    Modules are executable code. Load them explicitly after each launch.

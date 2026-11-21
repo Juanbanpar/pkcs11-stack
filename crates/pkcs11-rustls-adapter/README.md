@@ -11,21 +11,31 @@ record protection, randomness, and peer verification.
 | Route server certificates by DNS name and signature scheme | `ServerResolver` |
 | Present a client certificate for mutual TLS | `ClientResolver` |
 
-## Add to your application
+## Installation
 
-For the server example below, add these dependencies to your application's
-`Cargo.toml`. The paths assume a sibling `pkcs11-stack` checkout.
+The server example uses Rust 1.88 or newer, rustls 0.23 with ring, and a trusted
+PKCS#11 module. Use these dependencies after version `0.1.0` is published.
+
+```toml
+[dependencies]
+pkcs11-rustls-adapter = "0.1.0"
+pkcs11-runtime = "0.1.0"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+```
+
+For a sibling checkout, substitute these two dependencies and keep the
+rustls dependency above.
 
 ```toml
 [dependencies]
 pkcs11-rustls-adapter = { path = "../pkcs11-stack/crates/pkcs11-rustls-adapter" }
 pkcs11-runtime = { path = "../pkcs11-stack/crates/pkcs11-runtime" }
-rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
-rustls-pki-types = "1"
 ```
 
 Pass `Arc::new(rustls::crypto::ring::default_provider())` as the example's
 `provider` argument to use ring.
+See the [API reference](https://docs.rs/pkcs11-rustls-adapter) after publication or
+generate it with the command under [Examples and tests](#examples-and-tests).
 
 ## Server configuration
 
@@ -40,8 +50,7 @@ Pass `Arc::new(rustls::crypto::ring::default_provider())` as the example's
 use std::{num::NonZeroUsize, sync::Arc};
 use pkcs11_runtime::{Module, PrivateKeyRef, SessionMode, SessionPool, SigningPolicy};
 use pkcs11_rustls_adapter::{Credential, CredentialSource, ServerResolver, server_config_builder};
-use rustls::{ServerConfig, crypto::CryptoProvider};
-use rustls_pki_types::CertificateDer;
+use rustls::{ServerConfig, crypto::CryptoProvider, pki_types::CertificateDer};
 
 fn server_config(
     provider: Arc<CryptoProvider>,

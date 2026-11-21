@@ -3,6 +3,23 @@
 RFC 7512 URI parsing, construction and selector matching without module loading
 or hardware access.
 
+## Installation
+
+Requires Rust 1.88 or newer. Use this dependency after version `0.1.0` is
+published on crates.io.
+
+```toml
+[dependencies]
+pkcs11-locator = "0.1.0"
+```
+
+For a sibling checkout, use `pkcs11-locator = { path = "../pkcs11-stack/crates/pkcs11-locator" }`.
+
+## Match a discovered object
+
+Supply metadata from your own discovery code. The locator parses and matches it
+without opening a module or a session.
+
 ```rust
 use pkcs11_locator::{Pkcs11Uri, ResourceIdentity, ObjectType};
 
@@ -91,3 +108,5 @@ cargo clippy -p pkcs11-locator --all-targets --locked -- -D warnings
 ```
 
 Tests cover parsing, binary IDs, matching, serialization and secret redaction.
+See the [API reference](https://docs.rs/pkcs11-locator) after publication or run
+`cargo doc -p pkcs11-locator --no-deps --locked` from a checkout.

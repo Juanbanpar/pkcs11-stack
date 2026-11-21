@@ -11,10 +11,17 @@ persistent objects through typed requests over [pkcs11-runtime](https://github.c
 | Inspect, generate, import, export, relabel, and delete objects, and initialize or change PINs | `ManagementSession` |
 | Encrypt and decrypt, establish or derive keys, wrap and unwrap AES keys, compute digests and MACs, and generate random bytes | `ManagementSession` |
 
-## Add to your application
+## Installation
 
-If your application sits next to a `pkcs11-stack` checkout, add this to
-your application's `Cargo.toml`.
+Requires Rust 1.88 or newer. Use this dependency after version `0.1.0` is
+published on crates.io.
+
+```toml
+[dependencies]
+pkcs11-client = "0.1.0"
+```
+
+For development against a sibling checkout, use the workspace path.
 
 ```toml
 [dependencies]
@@ -22,6 +29,12 @@ pkcs11-client = { path = "../pkcs11-stack/crates/pkcs11-client" }
 ```
 
 ## Signing with a certificate
+
+For a first signature without a certificate, follow the
+[disposable SoftHSM quickstart](https://github.com/Juanbanpar/pkcs11-stack/blob/main/docs/quickstart.md#sign-from-rust-with-the-same-key).
+Token operations use a trusted PKCS#11 module and a compatible token.
+See the [API reference](https://docs.rs/pkcs11-client) after publication or
+generate it with the command in [Tests](#tests).
 
 Use `Client::sign` for a private-key selector, or bind the key to a certificate
 when the application needs to verify each signature against that certificate.
