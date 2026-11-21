@@ -171,7 +171,7 @@ fn software_token_initialization_pin_roles_stale_targets_and_reauthentication() 
         .unwrap();
     let fixture = std::path::PathBuf::from(std::env::var_os("PKCS11_CLIENT_TEST_DIR").unwrap())
         .join("admin-certificate.der");
-    let document = include_bytes!("../../../pkcs11-client/tests/fixtures/rsa.der");
+    let document = include_bytes!("../../tests/fixtures/rsa.der");
     std::fs::write(&fixture, document).unwrap();
     assert!(matches!(
         registry.manage(

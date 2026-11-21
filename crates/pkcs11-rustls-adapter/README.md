@@ -8,7 +8,7 @@ record protection, randomness, and peer verification.
 ## Installation
 
 The server example uses Rust 1.88 or newer, rustls 0.23 with ring, and a trusted
-PKCS#11 module. Use these dependencies after version `0.1.0` is published.
+PKCS#11 module.
 
 ```toml
 [dependencies]
@@ -17,18 +17,9 @@ pkcs11-runtime = "0.1.0"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 ```
 
-For a sibling checkout, substitute these two dependencies and keep the
-rustls dependency above.
-
-```toml
-[dependencies]
-pkcs11-rustls-adapter = { path = "../pkcs11-stack/crates/pkcs11-rustls-adapter" }
-pkcs11-runtime = { path = "../pkcs11-stack/crates/pkcs11-runtime" }
-```
-
 Pass `Arc::new(rustls::crypto::ring::default_provider())` as the example's
 `provider` argument to use ring.
-See the [API reference](https://docs.rs/pkcs11-rustls-adapter) after publication or
+See the [API reference](https://docs.rs/pkcs11-rustls-adapter/0.1.0) or
 generate it with the command under [Examples and tests](#examples-and-tests).
 
 ## Server configuration
@@ -167,7 +158,7 @@ authentication as in the server and mutual TLS examples.
 
 ## Examples and tests
 
-The [server and mutual TLS examples](https://github.com/Juanbanpar/pkcs11-stack/blob/main/docs/examples.md#tls-and-mutual-tls)
+The [server and mutual TLS examples](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.0/docs/examples.md#tls-and-mutual-tls)
 use loopback connections and an explicit ring provider.
 
 ```sh
@@ -183,4 +174,4 @@ server and mutual TLS 1.3 with all three parameter sets.
 
 AWS-LC is a development dependency for ML-DSA tests. Applications supply
 the production provider. See the
-[provider setup](https://github.com/Juanbanpar/pkcs11-stack/blob/main/tests/README.md#pqc-provider-compatibility).
+[provider setup](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.0/tests/README.md#pqc-provider-compatibility).

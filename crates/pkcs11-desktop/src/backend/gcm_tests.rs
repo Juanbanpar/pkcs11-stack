@@ -3,8 +3,6 @@ use super::registry::Registry;
 use super::*;
 use pkcs11_client::{AesGcmCapabilities, AesKeyPurpose, AesKeySize, ObjectClass};
 use std::path::PathBuf;
-#[path = "../../../pkcs11-runtime/tests/fixtures/aes_gcm_vectors.rs"]
-mod vectors;
 fn managed(result: BackendResult, error: Option<BackendError>) -> Vec<ObjectEntry> {
     match result {
         BackendResult::Managed {
@@ -73,24 +71,20 @@ fn software_token_gcm_files_known_answers_tampering_and_failure_cleanup() {
         )
         .unwrap();
     let mut objects = registry.objects(module, token).unwrap();
-    // Decrypt a public NIST fixture written by the runtime runner, independently of GUI encryption.
-    let (index, vector) = vectors::VECTORS
-        .iter()
-        .enumerate()
-        .find(|(_, v)| v.key.len() == 32 && v.plaintext.len() == 26)
-        .unwrap();
+    // NIST CAVP AES-128, IVlen=96, PTlen=104, AADlen=160, Taglen=128, Count=0.
+    // The runtime provider suite imports this fixture key as gcm-vector-3.
+    let nonce = hex("3bb9eb7724cbe1943d43de21");
+    let plaintext = hex("fd331ca8646091c29f21e5f0a1");
     let input = root.join("known-cipher");
     let aad = root.join("aad");
     let output = root.join("known-plain");
-    std::fs::write(&input, hex(vector.ciphertext)).unwrap();
-    std::fs::write(&aad, hex(vector.aad)).unwrap();
-    let key = scope(
-        module,
-        token,
-        &objects,
-        &format!("gcm-vector-{index}"),
-        CryptoMode::Decrypt,
-    );
+    std::fs::write(
+        &input,
+        hex("59fe29b07b0de8d869efbbd9b4d24c3e9c1c73c0af1097e26061c857de"),
+    )
+    .unwrap();
+    std::fs::write(&aad, hex("2662d895035b6519f3510eae0faa3900ad23cfdf")).unwrap();
+    let key = scope(module, token, &objects, "gcm-vector-3", CryptoMode::Decrypt);
     let _ = managed(
         registry.cipher(
             key,
@@ -99,7 +93,7 @@ fn software_token_gcm_files_known_answers_tampering_and_failure_cleanup() {
                     key_size: AesKeySize::Bits128,
                 }),
                 aes_gcm: Some(AesGcmFiles {
-                    nonce: hex(vector.nonce).try_into().unwrap(),
+                    nonce: nonce.try_into().unwrap(),
                     aad: Some(aad.clone()),
                 }),
                 input: input.clone(),
@@ -108,7 +102,7 @@ fn software_token_gcm_files_known_answers_tampering_and_failure_cleanup() {
         ),
         None,
     );
-    assert_eq!(std::fs::read(&output).unwrap(), hex(vector.plaintext));
+    assert_eq!(std::fs::read(&output).unwrap(), plaintext);
     let input = root.join("plain");
     std::fs::write(&input, b"GUI plaintext canary").unwrap();
     std::fs::write(&aad, b"context").unwrap();

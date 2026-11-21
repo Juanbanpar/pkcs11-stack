@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 fn fixture(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../pkcs11-client/tests/fixtures/eddsa")
+        .join("tests/fixtures/eddsa")
         .join(name)
 }
 

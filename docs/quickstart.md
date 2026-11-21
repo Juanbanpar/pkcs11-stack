@@ -15,21 +15,20 @@ sudo apt-get update
 sudo apt-get install build-essential softhsm2 opensc
 ```
 
-Open a dedicated Bash shell from the repository root and run the remaining
-commands there. Build the CLI from the checkout.
+Install the CLI, then open a dedicated Bash shell for the remaining commands.
 
 ```sh
+cargo install pkcs11ctl --version 0.1.0 --locked
 bash
 ```
 
 ```sh
-cargo build -p pkcs11ctl --locked
-cli="${CARGO_TARGET_DIR:-target}/debug/pkcs11ctl"
+cli=pkcs11ctl
 "$cli" --help
 ```
 
-For a [published CLI](../crates/pkcs11ctl/README.md#installation), set
-`cli=pkcs11ctl` instead. The Rust example runs from the checkout.
+If building from source, use the [CLI checkout instructions](../crates/pkcs11ctl/README.md#from-a-checkout)
+and set `cli` to the absolute path of the resulting `pkcs11ctl` binary.
 
 ## Create an isolated token
 
@@ -101,7 +100,8 @@ before trying again because the provider may already have created an object.
 
 ## Sign from Rust with the same key
 
-Run the [client signing example](../crates/pkcs11-client/examples/sign.rs).
+From a checkout of `v0.1.0`, run the
+[client signing example](../crates/pkcs11-client/examples/sign.rs) in the same shell.
 
 ```sh
 cargo run --locked --quiet -p pkcs11-client --example sign -- \

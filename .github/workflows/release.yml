@@ -1,0 +1,76 @@
+name: Release artifacts
+
+on:
+  push:
+    tags: ['v[0-9]*']
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  linux-x86_64:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    env:
+      RUSTUP_TOOLCHAIN: 1.100.0
+      RELEASE_TARGET: x86_64-unknown-linux-gnu
+      CARGO_TARGET_DIR: target
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes build-essential cmake pkg-config libxkbcommon-dev libwayland-dev libegl1-mesa-dev
+          rustup toolchain install "$RUSTUP_TOOLCHAIN" --no-self-update --profile minimal
+      - name: Verify source and build binaries
+        run: |
+          test "$(git rev-parse HEAD)" = "$(git rev-parse "refs/tags/$GITHUB_REF_NAME^{commit}")"
+          version=$(cargo metadata --locked --no-deps --format-version 1 | jq -er '[.packages[].version] | unique | if length == 1 then .[0] else error("workspace versions differ") end')
+          test "$GITHUB_REF_NAME" = "v$version"
+          printf 'RELEASE_VERSION=%s\n' "$version" >> "$GITHUB_ENV"
+          cargo build --locked --release -p pkcs11ctl -p pkcs11-desktop
+          target/release/pkcs11ctl --help >/dev/null
+          test "$(target/release/pkcs11ctl --version)" = "pkcs11ctl $version"
+      - name: Package Linux archives and checksums
+        run: |
+          cargo install cargo-about --version 0.9.3 --features cli --locked
+          mkdir -p dist
+          for crate in pkcs11ctl pkcs11-desktop; do
+            name="$crate-$RELEASE_VERSION-$RELEASE_TARGET"
+            mkdir "dist/$name"
+            install -m755 "target/release/$crate" "dist/$name/$crate"
+            cp "crates/$crate/README.md" "crates/$crate/"LICENSE-* "dist/$name/"
+            cargo about generate --locked --fail --format json --target "$RELEASE_TARGET" \
+              --config tools/release-licenses.toml --manifest-path "crates/$crate/Cargo.toml" \
+              | jq -er '.licenses[] | "\(.id) (\([.used_by[].crate | "\(.name) \(.version)"] | unique | join(", ")))\n\n\(.text)\n"' \
+              > "dist/$name/THIRD-PARTY-LICENSES.txt"
+            tar -C dist -czf "dist/$name.tar.gz" "$name"
+          done
+          cd dist
+          sha256sum ./*.tar.gz > SHA256SUMS
+          sha256sum --check SHA256SUMS
+      - name: Attest the archives
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: |
+            dist/*.tar.gz
+            dist/SHA256SUMS
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: linux-x86_64
+          path: |
+            dist/*.tar.gz
+            dist/SHA256SUMS
+          if-no-files-found: error
+          compression-level: 0
