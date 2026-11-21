@@ -5,10 +5,24 @@ stores and remove them on exit. Use only the specified trusted software provider
 never point these runners at hardware or an existing token store. Provider tests
 do not establish formal algorithm validation or hardware compatibility.
 
+## Compatibility scope
+
+| Check | What it establishes |
+| --- | --- |
+| Unit and documentation tests | API and CLI behavior without a provider, including independent public test fixtures |
+| Provider integration | Operations and failure handling exercised with the software builds in the [compatibility matrix](../docs/oasis-compatibility.md#provider-tests) |
+| Windows and macOS CI | Workspace compilation and CLI file-preservation tests |
+| Headless desktop tests | UI and worker behavior exercised without a live window or physical HSM |
+
+Use the [SoftHSM quickstart](../docs/quickstart.md) for a first signing operation
+with the distribution's software token. The full suite below tests additional
+profiles with pinned builds.
+
 ## Unit and documentation tests
 
 No PKCS#11 module is required. Native desktop build dependencies are listed in the
 [desktop guide](../crates/pkcs11-desktop/README.md#build-and-run).
+The Ubuntu workspace CI also installs CMake for native dependency builds.
 
 ```sh
 cargo test --workspace --locked

@@ -4,14 +4,31 @@ A command-line tool for inspecting, provisioning, and using PKCS#11 tokens.
 Use it for one-off checks or automate token workflows with JSON output and
 process exit codes.
 
-## Build and invocation
+## Installation
+
+Use Rust 1.88 or newer with Cargo and a native linker. Use these commands
+after version `0.1.0` is published on crates.io.
+
+```sh
+cargo install --locked pkcs11ctl --version 0.1.0
+pkcs11ctl --help
+```
+
+To build from a local checkout, run the following from the repository root.
 
 ```sh
 cargo build --release -p pkcs11ctl --locked
 ./target/release/pkcs11ctl --module /path/to/pkcs11.so --format json tokens
 ```
 
-The examples below assume `pkcs11ctl` is on your PATH.
+## Discover tokens
+
+The examples below assume `pkcs11ctl` is on your PATH. From a checkout, use
+`./target/release/pkcs11ctl` in its place. Use a trusted vendor module or follow
+the [disposable SoftHSM quickstart](https://github.com/Juanbanpar/pkcs11-stack/blob/main/docs/quickstart.md)
+to generate a key, sign, and verify.
+Use the [troubleshooting guide](https://github.com/Juanbanpar/pkcs11-stack/blob/main/docs/troubleshooting.md)
+for module, token, and authentication failures.
 
 ```sh
 pkcs11ctl --module /path/to/pkcs11.so tokens
