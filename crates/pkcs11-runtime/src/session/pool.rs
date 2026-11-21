@@ -39,6 +39,8 @@ impl State<'_> {
 ///
 /// Only accounting is locked. Every lease owns a separate session. Use one pool
 /// per token/authentication role; token-wide logout by outside callers is not isolated.
+/// [`Self::try_acquire`] returns a [`SessionLease`]. Release all leases before
+/// calling [`Self::close`] to check cleanup.
 pub struct SessionPool<'m> {
     token: Token<'m>,
     mode: SessionMode,
@@ -88,6 +90,12 @@ impl<'m> SessionPool<'m> {
     /// Authentication means ensure the requested role, accepting a concurrent
     /// successful login only after verifying actual session state. None leaves
     /// token-wide state unchanged. No operation or failed PIN is retried.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::PoolExhausted`] means checkout could not reserve a session.
+    /// Release leases or reduce concurrent work before requesting another.
+    /// [`Error::PoolCleanupFailed`] blocks checkout until this pool is closed.
     pub fn try_acquire(
         &self,
         authentication: Authentication<'_>,

@@ -2,6 +2,10 @@
 use std::fmt;
 
 /// Runtime failure, preserving PKCS#11 operation and return-value context.
+///
+/// A provider error does not imply that a mutation was rolled back. Inspect
+/// the affected state before issuing another operation. A session invalidated
+/// by a failure returns [`Self::Closed`] on subsequent operations.
 #[derive(thiserror::Error)]
 #[non_exhaustive]
 pub enum Error {
