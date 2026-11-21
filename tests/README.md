@@ -22,8 +22,6 @@ profiles with pinned builds.
 
 No PKCS#11 module is required. Native desktop build dependencies are listed in the
 [desktop guide](../crates/pkcs11-desktop/README.md#build-and-run).
-The Ubuntu workspace CI also installs CMake for native dependency builds.
-
 ```sh
 cargo test --workspace --locked
 RUSTDOCFLAGS='-D warnings' cargo doc --workspace --all-features --no-deps --locked

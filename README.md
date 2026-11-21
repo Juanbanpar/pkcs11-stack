@@ -18,14 +18,48 @@ key, then sign and verify a message from the CLI and from Rust.
 | Control modules, sessions, pools, and typed mechanism operations directly | [pkcs11-runtime](crates/pkcs11-runtime/README.md) |
 | Parse, build, or match RFC 7512 PKCS#11 URIs, with binary IDs and query-value redaction | [pkcs11-locator](crates/pkcs11-locator/README.md) |
 
-## Build and run
+## Installation
+
+For Rust applications, start with `pkcs11-client`. The other library READMEs
+show the dependencies for their examples. Cargo builds require Rust 1.88 or newer.
+
+```toml
+[dependencies]
+pkcs11-client = "0.1.0"
+```
+
+```sh
+cargo install pkcs11ctl --version 0.1.0 --locked
+cargo install pkcs11-desktop --version 0.1.0 --locked
+```
+
+See the [desktop prerequisites](crates/pkcs11-desktop/README.md#build-and-run)
+before building the GUI. For binaries on Linux x86-64, use the
+[GitHub Releases page](https://github.com/Juanbanpar/pkcs11-stack/releases).
+
+### Nix
+
+The flake provides packages and apps for `x86_64-linux`.
+
+```sh
+nix run github:Juanbanpar/pkcs11-stack/v0.1.0#pkcs11ctl -- --help
+nix run github:Juanbanpar/pkcs11-stack/v0.1.0#pkcs11-desktop
+```
+
+Set `inputs.pkcs11-stack.url = "github:Juanbanpar/pkcs11-stack/v0.1.0";`
+in your flake. Pass the input to your modules through `specialArgs` on NixOS or
+`extraSpecialArgs` in Home Manager. Add the desired packages from
+`pkcs11-stack.packages.${pkgs.stdenv.hostPlatform.system}` to
+`environment.systemPackages` or `home.packages`, respectively.
+
+Use `nix develop` from a checkout for the development shell.
+
+### From a checkout
 
 | Component | Minimum Rust | Requirements |
 | --- | --- | --- |
 | Libraries and CLI | 1.88 | Trusted PKCS#11 module for token operations |
 | Desktop and full workspace | 1.88 | Wayland to run the app on Linux and [native build dependencies](crates/pkcs11-desktop/README.md#build-and-run) |
-
-### From a checkout
 
 ```sh
 cargo build --release -p pkcs11ctl --locked
@@ -39,17 +73,6 @@ For the desktop app, install the native dependencies above before running it.
 ```sh
 cargo run --release -p pkcs11-desktop --locked
 ```
-
-### After crates.io publication
-
-The first planned release is `0.1.0`. Use these commands after publication.
-
-```sh
-cargo install --locked pkcs11ctl --version 0.1.0
-pkcs11ctl --help
-```
-
-The library READMEs in the crate table show the dependency declarations for each example.
 
 ## Workspace crates and key dependencies
 

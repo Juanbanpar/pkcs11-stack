@@ -6,20 +6,58 @@ and verify files interactively.
 
 ## Build and run
 
-Build from the repository checkout with Rust 1.88 or newer. Linux requires
-Wayland. The file picker uses the desktop
-portal with a Zenity fallback. You can also enter paths manually.
+The desktop distribution targets Linux x86-64 with a Wayland session. Windows
+and macOS are compile-tested in CI. The file picker uses the desktop portal
+with a Zenity fallback. You can also enter paths manually.
+
+### Cargo
+
+Use Rust 1.88 or newer. Install the native build dependencies for your Linux
+distribution. On Ubuntu 24.04:
 
 ```sh
-# Ubuntu build dependencies
-sudo apt-get install pkg-config libxkbcommon-dev libwayland-dev libegl1-mesa-dev
+sudo apt-get install build-essential cmake pkg-config libxkbcommon-dev libwayland-dev libegl1-mesa-dev
+cargo install pkcs11-desktop --version 0.1.0 --locked
+pkcs11-desktop
+```
+
+### Nix
+
+```sh
+nix run github:Juanbanpar/pkcs11-stack/v0.1.0#pkcs11-desktop
+```
+
+See the [Nix setup in the workspace README](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.0/README.md#nix)
+for NixOS and Home Manager installation.
+
+### Release archive
+
+Download the Linux x86-64 desktop archive and `SHA256SUMS` from
+[GitHub Releases](https://github.com/Juanbanpar/pkcs11-stack/releases). In the
+download directory, verify and extract the archive.
+
+```sh
+sha256sum --check --ignore-missing SHA256SUMS &&
+tar -xzf pkcs11-desktop-0.1.0-x86_64-unknown-linux-gnu.tar.gz &&
+./pkcs11-desktop-0.1.0-x86_64-unknown-linux-gnu/pkcs11-desktop
+```
+
+The archive targets Ubuntu 24.04 or a compatible Linux system with glibc 2.39
+or newer. On Ubuntu, install `libwayland-client0`, `libxkbcommon0`, and
+`libfontconfig1` if they are missing.
+
+### From a checkout
+
+Install the same build dependencies as for Cargo, then run from the repository root.
+
+```sh
 cargo run --release -p pkcs11-desktop --locked
 ```
 
 ## Navigation and browsing
 
 Use a trusted vendor module, or load the module from the
-[disposable SoftHSM quickstart](../../docs/quickstart.md)
+[disposable SoftHSM quickstart](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.0/docs/quickstart.md)
 for an initial look. If using the quickstart store, launch the app from the
 same shell so it inherits `SOFTHSM2_CONF`.
 
@@ -55,7 +93,6 @@ same shell so it inherits `SOFTHSM2_CONF`.
 | Ctrl+O / Ctrl+F | Add Module / focus resource filter |
 | Ctrl+R / Ctrl+Q | Refresh / quit |
 
-Use Command instead of Ctrl on macOS.
 
 ## Authentication and execution
 
@@ -211,7 +248,7 @@ identity and role before submitting.
   submission, cancellation, navigation, or shutdown. Changing the role or
   target invalidates confirmation.
 
-See the [desktop operation matrix](https://github.com/Juanbanpar/pkcs11-stack/blob/main/docs/oasis-compatibility.md#application-surfaces).
+See the [desktop operation matrix](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.0/docs/oasis-compatibility.md#application-surfaces).
 
 ## Tests
 
@@ -224,8 +261,10 @@ cargo test -p pkcs11-desktop --locked
 | Headless UI and worker tests | Navigation, stale responses, authentication state, and file preservation |
 | SoftHSM and Kryoptic | Token management, authentication, file operations, and classical and post-quantum cryptography with disposable token stores |
 
-See the [test guide](https://github.com/Juanbanpar/pkcs11-stack/blob/main/tests/README.md) for provider setup and commands. Use vendor modules and devices to validate hardware compatibility.
+See the [test guide](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.0/tests/README.md) for provider setup and commands. Use vendor modules and devices to validate hardware compatibility.
 
 ## License
 
-[MIT](https://github.com/Juanbanpar/pkcs11-stack/blob/main/LICENSE-MIT) OR [Apache-2.0](https://github.com/Juanbanpar/pkcs11-stack/blob/main/LICENSE-APACHE), at your option.
+[MIT](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.0/LICENSE-MIT) OR [Apache-2.0](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.0/LICENSE-APACHE), at your option.
+See [LICENSE-LUCIDE](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.0/crates/pkcs11-desktop/LICENSE-LUCIDE)
+for the bundled icon attribution.
