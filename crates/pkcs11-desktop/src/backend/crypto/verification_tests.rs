@@ -14,7 +14,7 @@ const PARAMETERS: [(MlDsaParameterSet, &str); 3] = [
 ];
 fn fixture(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../pkcs11-client/tests/fixtures")
+        .join("tests/fixtures")
         .join(name)
 }
 fn job(parameter: MlDsaParameterSet, name: &str, contextual: bool) -> CryptoJob {

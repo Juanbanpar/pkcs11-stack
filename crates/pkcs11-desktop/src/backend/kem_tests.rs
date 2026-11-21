@@ -422,8 +422,7 @@ fn software_token_ml_kem_import_validates_files_identity_authentication_and_dupl
     assert_eq!(supported, 3);
     let root = std::env::temp_dir().join(format!("desktop-ml-kem-import-{}", std::process::id()));
     std::fs::create_dir(&root).unwrap();
-    let fixtures =
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../pkcs11-client/tests/fixtures");
+    let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
     for (index, name) in ["mlkem512", "mlkem768", "mlkem1024"]
         .into_iter()
         .enumerate()

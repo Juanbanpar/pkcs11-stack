@@ -611,7 +611,7 @@ mod integration_tests {
             assert!(listed.iter().all(|entry| entry.label != "desktop-key"));
         }
         let certificate_path = directory.join("fixture.der");
-        let certificate_bytes = include_bytes!("../../../pkcs11-client/tests/fixtures/ed25519.der");
+        let certificate_bytes = include_bytes!("../../tests/fixtures/ed25519.der");
         std::fs::write(&certificate_path, certificate_bytes).unwrap();
         let listed = objects(
             registry.manage(

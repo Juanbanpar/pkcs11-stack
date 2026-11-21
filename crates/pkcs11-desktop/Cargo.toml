@@ -4,13 +4,14 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-publish.workspace = true
-description = "Native PKCS#11 desktop application over pkcs11-client"
+publish = true
+description = "Inspect and administer PKCS#11 tokens and use token-held keys from a desktop app"
 readme = "README.md"
 repository.workspace = true
-documentation = "https://github.com/Juanbanpar/pkcs11-stack/blob/main/crates/pkcs11-desktop/README.md"
+documentation = "https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.0/crates/pkcs11-desktop/README.md"
 keywords = ["pkcs11", "cryptography", "hsm", "security"]
 categories = ["cryptography", "hardware-support"]
+include = ["src/**", "tests/fixtures/**", "README.md", "Cargo.toml", "Cargo.lock", "LICENSE-MIT", "LICENSE-APACHE", "LICENSE-LUCIDE"]
 
 [dependencies]
 pkcs11-client.workspace = true
