@@ -11,7 +11,7 @@ repository.workspace = true
 documentation = "https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.0/crates/pkcs11-desktop/README.md"
 keywords = ["pkcs11", "cryptography", "hsm", "security"]
 categories = ["cryptography", "hardware-support"]
-include = ["src/**", "tests/fixtures/**", "README.md", "Cargo.toml", "Cargo.lock", "LICENSE-MIT", "LICENSE-APACHE", "LICENSE-LUCIDE"]
+include = ["src/**", "tests/fixtures/**", "README.md", "Cargo.toml", "Cargo.lock", "LICENSE-*"]
 
 [dependencies]
 pkcs11-client.workspace = true

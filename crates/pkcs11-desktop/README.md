@@ -266,5 +266,7 @@ See the [test guide](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.0/test
 ## License
 
 [MIT](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.0/LICENSE-MIT) OR [Apache-2.0](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.0/LICENSE-APACHE), at your option.
-See [LICENSE-LUCIDE](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.0/crates/pkcs11-desktop/LICENSE-LUCIDE)
-for the bundled icon attribution.
+See the bundled notices for
+[Lucide](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.0/crates/pkcs11-desktop/LICENSE-LUCIDE),
+[Iced](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.0/crates/pkcs11-desktop/LICENSE-ICED), and
+[Cantarell](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.0/crates/pkcs11-desktop/LICENSE-CANTARELL).
