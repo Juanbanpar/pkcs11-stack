@@ -83,10 +83,7 @@ See the [test guide](tests/README.md) for coverage and provider prerequisites.
 
 ## Documentation and checks
 
-- The library READMEs also serve as rustdoc landing pages.
-- Keep `mod.rs` limited to external module declarations and re-exports, with
-  optional comments and attributes. Put implementations in named sibling files.
-  This convention applies to libraries, applications, examples, and tests.
+The library READMEs also serve as rustdoc landing pages.
 
 ```sh
 cargo doc --workspace --all-features --no-deps --locked
