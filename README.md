@@ -1,39 +1,44 @@
 # pkcs11-stack
 
-Rust libraries, CLI and desktop application for PKCS#11 tokens and hardware
-security modules. Load a trusted vendor module, select keys and certificates with
-PKCS#11 URIs, manage objects and perform cryptographic operations on the token.
-The rustls adapter provides token-backed TLS client and server authentication.
+Use PKCS#11 tokens and hardware security modules from Rust, the terminal, or a
+desktop app. Inspect and provision keys and certificates, run cryptographic
+operations on a token, and use token-held keys for TLS authentication.
+
+## Crates
+
+| If you want to | Use |
+| --- | --- |
+| Add token discovery, certificate binding, cryptography, and public import/export to a Rust app | [pkcs11-client](crates/pkcs11-client/README.md) |
+| Inspect and administer a token by hand in a graphical interface | [pkcs11-desktop](crates/pkcs11-desktop/README.md) |
+| Use a token from the terminal or automate workflows in scripts | [pkcs11ctl](crates/pkcs11ctl/README.md) |
+| Authenticate a rustls server or mutual TLS client with a token-held key | [pkcs11-rustls-adapter](crates/pkcs11-rustls-adapter/README.md) |
+| Own modules, sessions, and pools, discover resources, and execute PKCS#11 operations directly | [pkcs11-runtime](crates/pkcs11-runtime/README.md) |
+| Parse, build, or match RFC 7512 PKCS#11 URIs, with binary IDs and query-value redaction | [pkcs11-locator](crates/pkcs11-locator/README.md) |
 
 ## Build and run
 
 | Component | Minimum Rust | Requirements |
 | --- | --- | --- |
-| Libraries and CLI | 1.88 | A trusted PKCS#11 module for token operations |
-| Desktop and full workspace | 1.88 | Wayland on Linux; [native build dependencies](crates/pkcs11-desktop/README.md#build-and-run) |
+| Libraries and CLI | 1.88 | Trusted PKCS#11 module for token operations |
+| Desktop and full workspace | 1.88 | Wayland to run the app on Linux and [native build dependencies](crates/pkcs11-desktop/README.md#build-and-run) |
 
 ```sh
 cargo build --release -p pkcs11ctl --locked
+./target/release/pkcs11ctl --module /path/to/pkcs11.so tokens
 ./target/release/pkcs11ctl --help
-./target/release/pkcs11ctl --module /absolute/path/to/trusted-pkcs11.so tokens
+```
+
+After installing the desktop prerequisites, start the GUI.
+
+```sh
 cargo run --release -p pkcs11-desktop --locked
 ```
 
-Module paths load executable code and must come from a trusted source. A URI never
-loads a library. Use stable token serials and object IDs; ambiguous matches fail.
+- Load a trusted module explicitly. Module files contain executable code.
+- Use a PKCS#11 URI with a stable token serial and binary object ID. Operations
+  that require one result reject ambiguous matches.
 
-## Crates
-
-| Crate | Purpose |
-| --- | --- |
-| [pkcs11-locator](crates/pkcs11-locator/README.md) | Parse, build and match RFC 7512 URIs; binary IDs and query-value redaction |
-| [pkcs11-runtime](crates/pkcs11-runtime/README.md) | Own modules, sessions and pools; discover resources and execute token operations |
-| [pkcs11-client](crates/pkcs11-client/README.md) | Application workflows, certificate binding, public import/export and administration |
-| [pkcs11ctl](crates/pkcs11ctl/README.md) | Command-line inspection, cryptography and token administration |
-| [pkcs11-rustls-adapter](crates/pkcs11-rustls-adapter/README.md) | Token-backed rustls signing and certificate resolvers |
-| [pkcs11-desktop](crates/pkcs11-desktop/README.md) | Native Iced token browser, cryptographic operations and object manager |
-
-Direct production dependencies
+## Workspace crates and key dependencies
 
 ```mermaid
 flowchart TD
@@ -48,45 +53,46 @@ flowchart TD
     desktop[pkcs11-desktop] --> client
 ```
 
-The runtime owns the PKCS#11 lifecycle and executes token operations. Its internal
-modules follow operation families such as signing, encryption, key establishment
-and derivation. The client composes those operations into application workflows.
-Library callers use the crate-root exports.
-Applications choose the software crypto provider used by rustls for record
-protection, key exchange and peer verification.
+- The runtime owns the PKCS#11 lifecycle and executes token operations. Its
+  modules follow operation families such as signing, encryption, key establishment,
+  and derivation. The client builds workflows on those operations. Library callers
+  use crate-root exports.
+- Rustls applications choose the software provider used for record protection,
+  key exchange, and peer verification.
 
 ## Supported operations
 
-Available operations depend on the token and provider. See the
-[PKCS#11 compatibility matrix](docs/oasis-compatibility.md) for supported
-mechanisms and where each is available. The
-[security model](docs/security-model.md) explains which protections depend on
-the provider or application.
+Availability depends on the token and provider.
+
+- [Runnable signing and TLS examples](docs/examples.md)
+- [Mechanism support by crate](docs/oasis-compatibility.md#application-surfaces)
+- [Security model](docs/security-model.md)
+
+## Testing
+
+Run from the repository root.
+
+| Suite | Command | Setup |
+| --- | --- | --- |
+| Workspace tests and doctests | `cargo test --workspace --locked` or `./tools/test.sh --unit` | Native desktop build dependencies |
+| Provider integration | `./tools/test.sh --providers` | [Disposable SoftHSM and Kryoptic setup](tests/README.md#full-provider-suite) |
+| Both suites | `./tools/test.sh --all` | Same provider setup |
+| Fuzzing | See the [fuzzing guide](fuzz/README.md) | Sanitizer runs, corpora, and artifact replay |
+
+See the [test guide](tests/README.md) for coverage and provider prerequisites.
 
 ## Documentation and checks
 
-Keep `mod.rs` files declaration-only across library, application, example, and
-test code. They contain external module declarations and re-exports, with
-optional comments and attributes. Put implementations in named sibling files.
-Reviewers check this convention during code review.
-
-Crate READMEs are also the library rustdoc landing pages. Build API documentation
-and run checks from the repository root:
+- The library READMEs also serve as rustdoc landing pages.
+- Keep `mod.rs` limited to external module declarations and re-exports, with
+  optional comments and attributes. Put implementations in named sibling files.
+  This convention applies to libraries, applications, examples, and tests.
 
 ```sh
 cargo doc --workspace --all-features --no-deps --locked
 cargo fmt --all
 cargo clippy --workspace --all-targets --locked -- -D warnings
-cargo test --workspace --locked
 ```
-
-Run `./tools/test.sh --providers` for the provider suites or
-`./tools/test.sh --all` for both, after setting up the providers.
-
-- [Application examples](docs/examples.md): signing, certificate binding and TLS.
-- [Provider tests](tests/README.md): disposable SoftHSM/Kryoptic setup and full-suite commands.
-- [Fuzzing](fuzz/README.md): sanitizer runs, corpora and artifact replay.
-- [Development and release checks](docs/development.md): dependency boundaries, audits and package review.
 
 ## License
 
