@@ -21,3 +21,6 @@ For file encryption, use AES-GCM with a nonce unique to each encryption under
 the same key, including across writers, restarts, and failed attempts.
 ECB exposes repeated blocks. CBC and CBC-PAD provide no integrity protection.
 SHA-1 and SHA-224 signatures require explicit opt-in.
+
+See [troubleshooting](troubleshooting.md) for safe next steps after
+authentication, operation, or cleanup failures.

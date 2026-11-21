@@ -68,7 +68,11 @@ impl Module {
     }
 }
 
-/// Discovered token with stable metadata, bound to its owning module.
+/// Discovered token with stable metadata, bound to its owning [`Module`].
+///
+/// Use [`Self::open_session`] for an exclusive [`Session`] or pass this token
+/// to [`crate::SessionPool::new`] for pooled access. Operations can return
+/// [`Error::TokenChanged`] after the selected token's metadata changes.
 #[derive(Debug)]
 pub struct Token<'m> {
     pub(crate) module: ModuleRef<'m>,

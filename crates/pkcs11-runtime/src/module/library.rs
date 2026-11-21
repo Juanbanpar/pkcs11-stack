@@ -13,11 +13,12 @@ use super::Token;
 
 /// Owns one successful initialization of a trusted PKCS#11 library.
 ///
-/// Sessions borrow this owner or retain it through shared ownership.
+/// Use [`Self::tokens`] or [`Self::resolve_token_uri`] to get a [`Token`] and
+/// open a [`Session`]. Sessions borrow this owner or retain it through shared ownership.
 /// No raw context or independent clone escapes.
 /// Already-initialized modules are rejected, never adopted or finalized.
 /// Do not mix independent lifecycle owners for the same module in one process.
-/// Explicit finalize reports errors; Drop attempts best-effort finalization.
+/// [`Self::finalize`] reports errors. Drop attempts best-effort finalization.
 pub struct Module {
     raw: Option<Pkcs11>,
     path: PathBuf,
@@ -130,6 +131,9 @@ impl Module {
     }
     /// Finalize an owned initialization. Active borrowed sessions prevent this call.
     /// Owned pools must release their Arcs before the final owner can be unwrapped.
+    ///
+    /// Consumes this owner even if the provider returns an error. Investigate the
+    /// cleanup failure before starting work with a new initialization.
     pub fn finalize(mut self) -> Result<(), Error> {
         self.raw
             .take()

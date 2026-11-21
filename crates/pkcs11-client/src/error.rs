@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 /// Application workflow errors, without PINs, input bytes or certificate contents.
+///
+/// Use [`Self::kind`] for application error classification. After a failed
+/// mutation, inspect the token state before deciding whether to act again.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum Error {

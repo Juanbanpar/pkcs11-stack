@@ -111,6 +111,8 @@ const QUERY_NAMES: &[&str] = &["pin-source", "pin-value", "module-name", "module
 ///
 /// No implicit secret-bearing Clone, equality or full URI comparison is provided.
 /// Query values are protected even for vendor attributes. No I/O is performed.
+/// Use [`Pkcs11UriBuilder`] to construct a URI from decoded values and
+/// [`Self::matches`] to compare it with discovered [`crate::ResourceIdentity`].
 #[derive(Default)]
 pub struct Pkcs11Uri {
     pub(crate) path: BTreeMap<String, Vec<u8>>,
@@ -278,7 +280,7 @@ impl FromStr for Pkcs11Uri {
     }
 }
 
-/// Validating construction from decoded attributes; never percent-encode inputs.
+/// Build a [`Pkcs11Uri`] from decoded attributes. The builder handles percent encoding.
 #[derive(Default, Debug)]
 pub struct Pkcs11UriBuilder(Pkcs11Uri);
 

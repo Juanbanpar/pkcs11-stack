@@ -16,7 +16,7 @@ pub enum SessionMode {
 ///
 /// Authentication and close require exclusive access. No raw handle is public.
 /// Failed operations that invalidate the session make subsequent session/object
-/// calls return `Error::Closed`. Explicit close remains available for cleanup.
+/// calls return [`Error::Closed`]. [`Self::close`] remains available for cleanup.
 /// Drop closes but never explicitly logs out the token. Closing the last session
 /// may nevertheless reset token-wide authentication under PKCS#11 semantics.
 pub struct Session<'m> {
@@ -110,7 +110,10 @@ impl<'m> Session<'m> {
         }
         result
     }
-    /// Close the session and report closure failures. No automatic logout call.
+    /// Consume the session and report provider closure failures.
+    ///
+    /// Does not call logout. When checked closure is part of a workflow, hold
+    /// its output until this call succeeds.
     pub fn close(mut self) -> Result<(), Error> {
         self.raw
             .take()

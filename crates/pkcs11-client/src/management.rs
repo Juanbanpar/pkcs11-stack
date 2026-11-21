@@ -11,7 +11,10 @@ use pkcs11_runtime::{
 use std::{num::NonZeroUsize, path::Path, sync::Arc};
 
 /// Explicit owner of one trusted module, shared by signing and management workflows.
-/// Close borrowed and owned consumers before finalization or token initialization.
+///
+/// Use [`Self::client`] for a pooled [`Client`] and [`Self::management`] for a
+/// scoped [`ManagementSession`]. Close borrowed and owned consumers before
+/// [`Self::finalize`] or token initialization.
 #[derive(Debug)]
 pub struct Provider {
     pub(crate) module: Arc<Module>,
@@ -134,8 +137,11 @@ impl Provider {
     ) -> Result<Client<'_>, Error> {
         Client::connect(&self.module, uri, maximum, policy)
     }
-    /// Open one scoped management session and authenticate once, with no retry.
-    /// Authentication is explicit; USER/SO state is shared across token sessions.
+    /// Open one scoped [`ManagementSession`] and authenticate once, with no retry.
+    ///
+    /// USER and SO login state is token-wide. Choose read-write mode for
+    /// management operations that change token state. If authentication and
+    /// session closure both fail, this method returns the closure error.
     pub fn management(
         &self,
         uri: &Pkcs11Uri,

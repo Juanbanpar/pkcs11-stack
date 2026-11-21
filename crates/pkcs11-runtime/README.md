@@ -1,17 +1,37 @@
 # pkcs11-runtime
 
-Synchronous PKCS#11 execution over `cryptoki`: module ownership, token/object
-discovery, authentication, bounded session pools and typed cryptographic operations.
-For application workflows and certificate binding, use
-[pkcs11-client](https://github.com/Juanbanpar/pkcs11-stack/blob/main/crates/pkcs11-client/README.md).
+The lower-level Rust layer for managing PKCS#11 modules, tokens, and sessions
+and running typed mechanism operations. Use it when you need direct control
+over object resolution, authentication, or mechanism parameters. Start with
+[pkcs11-client](https://github.com/Juanbanpar/pkcs11-stack/blob/main/crates/pkcs11-client/README.md)
+for application workflows such as certificate binding and pooled signing.
+
+## Installation
+
+Requires Rust 1.88 or newer. Use this dependency after version `0.1.0` is
+published on crates.io.
+
+```toml
+[dependencies]
+pkcs11-runtime = "0.1.0"
+```
+
+For a sibling checkout, use `pkcs11-runtime = { path = "../pkcs11-stack/crates/pkcs11-runtime" }`.
+
+## Open a session and inspect a key
+
+Use a trusted provider module and an existing RSA or other private key visible
+to a USER session. Replace the module path and token and key selectors with
+your own. The [SoftHSM quickstart](https://github.com/Juanbanpar/pkcs11-stack/blob/0d5eb4d83b8c5fafa064a7c398cbad9b1ebab1da/docs/quickstart.md)
+shows how to create a disposable token and key.
+See the [API reference](https://docs.rs/pkcs11-runtime) after publication, or
+build it from the checkout as described under [Documentation and tests](#documentation-and-tests).
 
 ```no_run
-use pkcs11_locator::Pkcs11Uri;
 use pkcs11_runtime::{ SecretText, Module, ObjectRef, SessionMode, Authentication, Pin, AttributeType};
 
 let module = Module::load("/absolute/path/to/trusted-pkcs11.so")?;
-let locator: Pkcs11Uri = "pkcs11:token=production;serial=123".parse()?;
-let token = module.resolve_token(locator.token_selector())?;
+let token = module.resolve_token_uri(&"pkcs11:token=production;serial=123".parse()?)?;
 let mut session = token.open_session(SessionMode::ReadOnly)?;
 // Example only: the application obtains the PIN from its chosen secret source.
 let pin = SecretText::from("example-only");
@@ -27,25 +47,6 @@ session.close()?;
 module.finalize()?;
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
-
-## Internal architecture
-
-- `signing` owns signature request validation, policy, planning and execution.
-  RSA and ECDSA planning works from a capability snapshot without loading a
-  provider. Each of ML-DSA and SLH-DSA owns its prehash profile.
-- `encryption` owns RSA-OAEP and AES cipher operations. `key_establishment`
-  owns ECDH, Montgomery agreement and ML-KEM. `derivation` owns HKDF,
-  SP 800-108 and the hybrid HKDF combiner. `digest`, `mac` and
-  `key_management` own their operations and key templates.
-- `module` owns provider and token identity. `capability` reports advertised
-  mechanisms and entry points. Live operations check their own prerequisites
-  against the selected object and token.
-- `objects` owns persistent selectors, attribute reads and public metadata.
-  `session` owns authentication, native session health and pool reuse.
-  Each operation decides which terminal results permit reuse.
-
-These module boundaries are private. Public types remain available at the crate
-root.
 
 ## Ownership and shutdown
 

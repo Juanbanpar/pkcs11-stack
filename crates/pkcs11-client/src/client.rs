@@ -7,6 +7,9 @@ use std::num::NonZeroUsize;
 /// The client stores its pool and policy, never PINs or object handles. Share one
 /// client per token/role; concurrent calls get exclusive runtime leases. All calls
 /// are nonblocking at pool exhaustion and never retry signing or authentication.
+/// Use [`crate::Provider::client`] with a [`SigningPolicy`] to create one, then
+/// [`Self::sign`] with a [`SignRequest`] or [`Self::bind_identity`] for
+/// certificate-bound signing.
 pub struct Client<'m> {
     pool: SessionPool<'m>,
     policy: SigningPolicy,
@@ -140,6 +143,11 @@ impl<'m> Client<'m> {
     }
     /// Sign once, resolving the key and rediscovering its capabilities at execution.
     /// The runtime returns modulus-width RSA or fixed-width ECDSA r || s bytes.
+    ///
+    /// An existing USER login may satisfy `authentication` without checking a
+    /// new PIN. Supply `context_pin` separately for supported always-authenticate
+    /// keys. Use [`Self::sign_identity`] when the result must verify against a
+    /// previously bound certificate.
     pub fn sign(
         &self,
         key: &PrivateKeyRef,
@@ -210,8 +218,9 @@ impl<'m> Client<'m> {
 
 /// Proven private-key selector and immutable certificate snapshot.
 ///
-/// Does not assert certificate trust. Constructed only by `Client::bind_identity`.
-/// Use `Client::sign_identity` to verify that each subsequent signature still matches.
+/// [`Client::bind_identity`] checks possession of the key for a [`Certificate`].
+/// The application decides certificate trust. Use [`Client::sign_identity`] to
+/// verify each subsequent signature against that certificate.
 #[derive(Debug)]
 pub struct Identity {
     key: PrivateKeyRef,

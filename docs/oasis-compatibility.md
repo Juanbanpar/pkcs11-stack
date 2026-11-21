@@ -6,6 +6,13 @@ client, CLI, and desktop. Availability depends on the token and its module.
 Integration tests use SoftHSM and Kryoptic. Check your device and firmware
 with the vendor module before deploying.
 
+The surface table shows typed operations. Execution also depends on the
+provider, key permissions, parameters, session mode, and authentication.
+The provider table lists tested software configurations. The upstream limits
+identify operations or parameters the published binding cannot express.
+See [troubleshooting](troubleshooting.md#the-token-advertises-a-mechanism-but-rejects-the-operation)
+to check a specific key and mechanism.
+
 ## Interface negotiation
 
 `cryptoki` requests the 3.2 interface, then the 3.0 function list, then the

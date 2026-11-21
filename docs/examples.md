@@ -1,7 +1,9 @@
 # Application examples
 
-Runnable examples use trusted module paths and existing RSA token keys. All take
-positional arguments; `--help` needs no module.
+Run from a checkout with Rust 1.88 or newer. Use a trusted module and existing
+RSA token keys. See the [SoftHSM quickstart](quickstart.md) to provision a
+disposable signing key. All examples take positional arguments. `--help` runs
+without a module.
 
 | Example | Purpose |
 | --- | --- |
@@ -22,15 +24,15 @@ cargo build -p pkcs11-rustls-adapter --examples --locked
 ## Signing
 
 Both programs use RSA PKCS#1 v1.5 with SHA-256 and require combined token hashing.
-They write raw signatures to stdout: shell redirection controls permissions and
-overwriting. `pkcs11ctl` creates outputs exclusively and provides structured errors.
+Use a USER PIN and a signing key that does not require context authentication.
+For `bound_sign`, load a matching DER certificate on the token.
+Both programs write a raw, modulus-width signature to stdout after checked
+client closure and module finalization. Use a fresh output path. Shell
+redirection controls permissions and overwriting.
+
+For ordinary signing, use the [client README example](../crates/pkcs11-client/README.md#sign-with-an-existing-key).
 
 ```sh
-cargo run --quiet -p pkcs11-client --example sign -- \
-  /path/to/trusted-pkcs11.so \
-  'pkcs11:serial=123;id=%01;type=private' \
-  /secure/user.pin message.bin > signature.bin
-
 cargo run --quiet -p pkcs11-client --example bound_sign -- \
   /path/to/trusted-pkcs11.so \
   'pkcs11:serial=123;id=%01;type=private' \
@@ -41,7 +43,9 @@ cargo run --quiet -p pkcs11-client --example bound_sign -- \
 [sign.rs](../crates/pkcs11-client/examples/sign.rs) uses `Provider::client` and
 `Client::sign`. [bound_sign.rs](../crates/pkcs11-client/examples/bound_sign.rs)
 additionally proves the association and verifies the returned signature. Binding
-does not validate certificate trust. `token_uri` derives the token selector from the key.
+does not validate certificate trust. `token_uri` derives the token selector
+from the key. Verify the result with the matching public key as in the
+[quickstart](quickstart.md#sign-from-rust-with-the-same-key).
 
 ## TLS and mutual TLS
 
@@ -91,6 +95,9 @@ credential callback rereads its PIN file for binding and signing. Authentication
 still follows token-wide login semantics. Early errors use best-effort Drop
 cleanup and propagate the primary error. These are single-connection demonstrations,
 not a concurrent server framework.
+
+Successful exchanges print `TLS exchange complete`. For association, signature
+scheme, or trust failures, see [TLS troubleshooting](troubleshooting.md#a-tls-handshake-fails).
 
 ## Testing
 

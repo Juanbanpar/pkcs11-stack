@@ -1,35 +1,51 @@
 # pkcs11-client
 
-A synchronous Rust API for applications that use PKCS#11 tokens and HSMs. Find
-keys and certificates by URI, run cryptography with token-held keys, and manage
-persistent objects through typed requests over [pkcs11-runtime](https://github.com/Juanbanpar/pkcs11-stack/blob/main/crates/pkcs11-runtime/README.md).
+The high-level Rust API for PKCS#11. Use it to discover tokens, select keys
+and certificates, sign, and manage token objects. It resolves URI selectors
+and pools signing sessions without exposing Cryptoki handles. Applications
+supply authentication and control object lifetime and cleanup.
 
-| What you can do | API |
-| --- | --- |
-| Load a trusted module and discover slots, tokens, mechanisms, and key generation options | `Provider` |
-| Sign and verify with a bounded session pool. Bind a key to a certificate and check each resulting signature against it | `Client` |
-| Inspect, generate, import, export, relabel, and delete objects, and initialize or change PINs | `ManagementSession` |
-| Encrypt and decrypt, establish or derive keys, wrap and unwrap AES keys, compute digests and MACs, and generate random bytes | `ManagementSession` |
+Use [pkcs11-runtime](https://github.com/Juanbanpar/pkcs11-stack/blob/main/crates/pkcs11-runtime/README.md)
+directly for session and mechanism control.
 
-## Add to your application
+## Installation
 
-If your application sits next to a `pkcs11-stack` checkout, add this to
-your application's `Cargo.toml`.
+Requires Rust 1.88 or newer. Use this dependency after version `0.1.0` is
+published on crates.io.
+
+```toml
+[dependencies]
+pkcs11-client = "0.1.0"
+```
+
+For development against a sibling checkout, use the workspace path.
 
 ```toml
 [dependencies]
 pkcs11-client = { path = "../pkcs11-stack/crates/pkcs11-client" }
 ```
 
+## Sign with an existing key
+
+From the checkout, run the [sign example](https://github.com/Juanbanpar/pkcs11-stack/blob/main/crates/pkcs11-client/examples/sign.rs)
+with a trusted module, a key that supports RSA PKCS#1 v1.5 with token SHA-256
+hashing, a USER PIN file, and a message. Use a fresh output path.
+
+```sh
+cargo run --locked --quiet -p pkcs11-client --example sign -- \
+  /path/to/trusted-pkcs11.so 'pkcs11:serial=123;id=%01;type=private' \
+  /secure/user.pin message.bin > signature.bin
+```
+
+The example opens a signing client with `Provider::client` and signs through
+`Client::sign`. The [SoftHSM quickstart](https://github.com/Juanbanpar/pkcs11-stack/blob/0d5eb4d83b8c5fafa064a7c398cbad9b1ebab1da/docs/quickstart.md#sign-from-rust-with-the-same-key)
+shows how to create a disposable key and verify the signature.
+
 ## Signing with a certificate
 
-Use `Client::sign` for a private-key selector, or bind the key to a certificate
-when the application needs to verify each signature against that certificate.
-Binding proves key possession with a signature. Certificate trust remains the
-application's responsibility.
-
-This example uses an existing RSA key and matching certificate on a token
-that supports combined RSA PKCS#1 v1.5 signing with SHA-256.
+Bind an RSA signing key to a matching certificate when every signature must
+verify against its public key. The application validates certificate trust
+separately.
 
 ```no_run
 use pkcs11_client::{
@@ -67,29 +83,21 @@ assert!(!signature.is_empty());
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
-## Classical signing and certificate binding
+### Signing policy and binding
 
-| API or option | Behavior |
-| --- | --- |
-| `SigningPolicy::default()` | Token hashing, RSA minimum 2048 bits, SHA-256/384/512 |
-| `HashingPolicy::AllowSoftware` / `SoftwareOnly` | Explicit software hashing selection before signing. No retry after a token failure |
-| `SignInput::Digest` | Already computed digest of the exact selected length. Never hashed again |
-| `signing_options` / `plan` | Advisory mechanism and hashing-location selection |
-| `SignatureParameters` | Build requests from borrowed message/digest bytes |
-| `sign` | Raw modulus-width RSA or fixed-width ECDSA `r \|\| s`. No certificate required |
-| `Certificate::verification_options` / `verify_signature` | Software signature verification. Mismatch returns `SignatureMismatch` |
-| `bind_identity` / `sign_identity` | Prove association, then verify every signature against the retained certificate |
-
-| Profile or API | Details |
-| --- | --- |
-| SHA-1 and SHA-224 | Add to `policy.digests` explicitly. Software certificate verification also requires the SHA-1 opt-in |
-| PSS | Offered choices use matching message and MGF1 digests and digest-length salt. Generic token signing permits independent MGF1 parameters. Bound signing requires matching digests |
-| `CertificateDocument::from_der` | Exact X.509 DER for inspection and import, including keys outside classical signing support. Retains DER, SPKI, subject/issuer Names, and serial-number DER |
-| `Certificate::from_der` | Requires rsaEncryption RSA up to 16384 bits or named P-256/P-384/P-521. Rejects malformed keys, restricted RSA-PSS SPKI, and trailing bytes. `document()` exposes the parsed metadata |
-| `Certificate::validate_signing_request` | Checks verifier parameters independently of token capability or policy planning |
-| `bind_identity` | Signs one probe (`pkcs11-client identity binding v1` followed by NUL). Prefers RSA-PSS, then PKCS#1, or ECDSA for EC, using SHA-256/384/512 under policy. Returns `NoBindingMechanism` if no probe qualifies |
-| `sign_identity` | The identity holds a selector and certificate without handles or PINs. A signature mismatch discards the lease. Use this API for replacement-key detection |
-| Certificate trust | Applications validate issuer signatures, chains, validity, usage, revocation, and hostnames |
+- The default policy uses token hashing, SHA-256/384/512, and RSA keys of at
+  least 2048 bits. SHA-1 and SHA-224 require explicit opt-in. Software certificate
+  verification also requires its own SHA-1 opt-in. Use `signing_options` or
+  `plan` to inspect the mechanism and hashing location before signing.
+- `SignInput::Digest` takes an exact-length digest without rehashing it. RSA
+  returns a raw modulus-width signature. ECDSA returns fixed-width `r || s`.
+  Bound PSS requires matching message and MGF1 digests. Generic signing can
+  use separate MGF1 parameters.
+- `CertificateDocument` parses exact DER for import and inspection.
+  `Certificate` verifies supported RSA and named-curve EC signatures in
+  software. `bind_identity` signs one probe to prove association.
+  `sign_identity` checks each signature against the retained certificate and
+  discards the lease on mismatch, including after a key replacement.
 
 ## Discovery and administration
 
@@ -114,17 +122,10 @@ let _der = outcome?;
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
-| Workflow | Contract |
-| --- | --- |
-| `objects` / `inspect` | Read caller-requested persistent-object attributes. Distinguish unavailable, sensitive and unsupported values |
-| `attributes` / `public_metadata` / `capabilities` | Typed lookup and inspection. Raw requested attributes can expose extractable secrets |
-| `export_value` | Raw certificate/data values. Rejects key classes before reading values |
-| `export_public` | Public certificate/data values or validated RSA/EC/ML-DSA/ML-KEM/SLH-DSA SPKI. Rejects private objects and private/secret key classes |
-| Typed public-key helpers | EdDSA/Montgomery and family-specific PQC import/export. `export_classical_public_key` restricts to RSA/EC |
-| Certificate/data import | Create persistent public objects. Certificate metadata is parsed without a trust decision |
-| `import_public_key` | Validate RSA/named-EC SPKI with explicit verification or RSA-encryption purpose |
-| `object_locator` | Build a selector from available class/label/CKA_ID. Preserve empty criteria and module-path constraints |
-| `diagnose` | Explicit bounded-pool capacity, exhaustion and reuse check. Not automatic recovery |
+Use `objects` and `inspect` for metadata and `export_public` for public
+certificate, data, or supported SPKI output. Public export rejects private
+and secret keys. `export_value` reads raw values only from certificates
+and data objects.
 
 - Attribute containers redact Debug output. Explicit value access can reveal secrets.
 - Select data objects by unique label. Their IDs use CKA_OBJECT_ID, while URI IDs
@@ -237,11 +238,13 @@ fn round_trip(provider: &Provider, token: &Pkcs11Uri, key: &ObjectRef,
 }
 ```
 
-| Decryption | Contract |
-| --- | --- |
-| AES-GCM | Returns zeroizing, redacted `Plaintext` after provider success. Authentication failure invalidates the session. Preflight rejection alone leaves it usable. Failed cryptoki calls can leave temporary buffers unwiped |
-| RSA-OAEP | Uses `PublicKeyRef`/`EncryptRequest` and `PrivateKeyRef`/`DecryptRequest`. With RSA-2048 and SHA-256, up to 190 plaintext bytes produce 256 ciphertext bytes. Use for small payloads and authenticate the sender separately |
-| OAEP authentication and padding | A per-operation-authenticated key fails before initialization because the binding cannot interleave context login and single-part decryption. A provider failure preserves the requested padding policy |
+AES-GCM decryption returns zeroizing, redacted `Plaintext` after provider
+success. Authentication failure invalidates the session. A preflight rejection
+leaves it usable. Failed cryptoki calls can leave temporary buffers unwiped.
+
+For RSA-OAEP, authenticate the sender separately. Per-operation-authenticated
+keys fail before initialization because the binding cannot interleave context
+login and single-part decryption.
 
 ## Derivation and key transfer
 
@@ -321,21 +324,20 @@ let signature = outcome?;
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
-| Area | Contract |
-| --- | --- |
-| Example | Use an existing ML-DSA-65 key and matching certificate. IDs and labels can differ. Supply separate context authentication for an always-authenticate key |
-| Token verification | `verify_ml_dsa` returns `SignatureMismatch` on mismatch. Requests are validated before checkout and capabilities are checked again during execution |
-| Software verification | `MlDsaVerifyingKey` accepts raw public bytes or RFC 9881 SPKI, and checks the message and context without a module. Verification is independent of hedging. Malformed or noncanonical signatures return `SignatureMismatch` |
-| Certificate and export | `MlDsaCertificate` retains exact DER with absent algorithm parameters and a correctly sized, byte-aligned public key. Typed public export writes RFC 9881 SPKI DER |
-| Binding | `bind_ml_dsa_identity` proves association with a domain-separated probe and required hedging. `sign_ml_dsa_identity` checks every signature against the retained leaf and discards the lease on mismatch. Callers decide certificate trust |
+Use an existing ML-DSA-65 key and matching certificate. Their IDs and labels
+can differ. Supply a separate context credential for an always-authenticate
+key. `bind_ml_dsa_identity` uses a hedged probe and `sign_ml_dsa_identity`
+checks every signature against the retained leaf.
+
+Use `verify_ml_dsa` for token verification or `MlDsaVerifyingKey` for
+software verification from raw public bytes or RFC 9881 SPKI. Supply the
+same message and context on both sides.
 
 ## ML-KEM
 
-| Area | Contract |
-| --- | --- |
-| Supported profiles | ML-KEM-512/768/1024 generation, capability inspection, public import/export, encapsulation, and decapsulation. Private keys are sensitive and nonextractable |
-| SPKI | `MlKemPublicKey::from_spki_der` checks RFC 9935 encoding, absent parameters, byte alignment, length, and canonical FIPS 203 coefficients. `to_spki_der` returns that encoding |
-| Import | Use read-write mode and an explicit ID and label. Existing objects are preserved. Duplicate IDs can make selection ambiguous |
+Use ML-KEM-512, -768, or -1024 for token-held key establishment. Public keys
+use RFC 9935 SPKI. Import requires a read-write session, ID, and label. Choose
+an unambiguous ID when importing alongside existing keys.
 
 ```no_run
 use pkcs11_client::{ SecretText, Authentication, Error, MlKemParameterSet, MlKemRequest,
@@ -421,37 +423,26 @@ See the [runtime contract](https://github.com/Juanbanpar/pkcs11-stack/blob/main/
 
 ## Additional mechanisms
 
-| Family | Application API |
-| --- | --- |
-| Capabilities | `Provider::mechanism_capabilities`, `function_availability` |
-| Digest/MAC | `digest`, `digest_chunks`, `mac`, `verify_mac`. Management also supports multipart MAC |
-| Token verification | `verify`, `verify_signature` and family-specific verification for EdDSA/ML-DSA/SLH-DSA/hash-PQC |
-| SP 800-108 | Management `kbkdf_options`, `kbkdf_capabilities`, `derive_kbkdf` |
-| SLH-DSA/hash-PQC | Generation, signing, verification and public parameter inspection. HashSLH-DSA uses a separate HashSLH-only pair |
-| EdDSA | Pure Ed25519/Ed448 generation, sign/verify, public import/export, `EdDsaVerifyingKey`, `EdDsaCertificate`, `EdDsaIdentity` |
-| Montgomery | X25519/X448 generation, validated RFC 8410 public import/export and `derive_montgomery` |
+Use `Provider::mechanism_capabilities` to inspect advertised and typed
+support. The [mechanism matrix](https://github.com/Juanbanpar/pkcs11-stack/blob/main/docs/oasis-compatibility.md)
+covers digest and MAC operations, SP 800-108, EdDSA, X25519/X448 agreement,
+and the post-quantum profiles.
 
-EdDSA supports software verification with Ed25519 and Ed448 certificates.
-Token-side EdDSA signing requires a key without per-operation authentication.
-See the [mechanism matrix](https://github.com/Juanbanpar/pkcs11-stack/blob/main/docs/oasis-compatibility.md)
-for application coverage and the API rustdoc for request contracts.
+HashSLH-DSA uses a separate HashSLH-only key pair. Software verification
+supports Ed25519 and Ed448 certificates. Token-side EdDSA signing requires a
+key without per-operation authentication.
 
 ## Ownership, authentication and failure handling
 
-| API | Contract |
-| --- | --- |
-| `Provider::load` | Own one explicitly trusted module. A URI never loads code |
-| `Provider::client` / `Client::connect` | Create a read-only pool. `Client::new` accepts an existing pool |
-| `Provider::management` | Open one borrowed session with explicit mode and authentication |
-| `Provider::management_owned` | Retain the module owner across requests without borrowing the provider or retaining a PIN |
-| `Client::close` / session `close` | Report cleanup failures. Drop is best effort |
-| `Provider::finalize` | Requires closed consumers. Live owned sessions return `ProviderInUse` |
+A provider owns the module opened through `Provider::load`. A URI selects a
+token or object in that module. `Provider::client` creates a read-only pool.
+Use `management` for a scoped session or `management_owned` when the session
+must retain the module across requests. Close all consumers before
+`Provider::finalize`. A live owned session yields `ProviderInUse`.
 
-- The complete token URI is checked against the loaded module, slot, and token.
-  Token selectors reject object criteria, credentials, and unsupported constraints.
-- `object_reference`, `validate_token_uri`, and `token_uri` validate or convert
-  selectors without opening a module.
-- A borrowed client must be closed or dropped before finalizing its module.
+Token URIs enforce module, slot, and token constraints and reject object
+criteria and credential queries. Use `object_reference`, `validate_token_uri`,
+or `token_uri` to work with selectors without opening a module.
 
 ```compile_fail,E0505
 use pkcs11_client::{Client, Module, SigningPolicy};
@@ -500,9 +491,7 @@ cargo test -p pkcs11-client --locked
 cargo doc -p pkcs11-client --no-deps --locked
 ```
 
-| Suite | Coverage |
-| --- | --- |
-| Unit and doctests | Certificate and key parsing, signature verification, signing policy, redaction, and compile-fail checks for ownership |
-| SoftHSM and Kryoptic | Signing and binding, token administration, key generation, AES-GCM, ML-DSA, ML-KEM, and persistent HKDF |
+The [API reference](https://docs.rs/pkcs11-client) is available after publication.
+From a checkout, generate it with the command above.
 
 See the [test guide](https://github.com/Juanbanpar/pkcs11-stack/blob/main/tests/README.md) for disposable provider suites.

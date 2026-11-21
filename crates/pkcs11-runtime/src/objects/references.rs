@@ -6,6 +6,10 @@ use crate::{Attribute, AttributeType, Error, ObjectClass, Session};
 use super::attribute;
 
 /// A persistent, secret-free locator, never a PKCS#11 handle.
+///
+/// [`Session::resolve`] checks that exactly one object matches. Prefer a token
+/// serial and binary object ID. Persistent URI criteria can still match a
+/// replacement object.
 #[derive(Debug)]
 pub struct ObjectRef {
     uri: Pkcs11Uri,

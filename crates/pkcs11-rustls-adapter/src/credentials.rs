@@ -18,7 +18,8 @@ impl PinInput {
         }
     }
 }
-/// Authentication material for one binding/signing operation, never cached by adapter.
+/// Authentication material returned by a [`CredentialSource`] for one
+/// binding or signing operation. The adapter does not cache these credentials.
 #[derive(Debug, Default)]
 pub struct Credentials {
     /// Ensure USER login, or leave token-wide authentication unchanged when None.
@@ -40,7 +41,8 @@ impl Credentials {
 ///
 /// Scheme choice and resolver filtering never invoke this callback. No implicit
 /// prompts or retries are added. Implementations must be safe for concurrent calls.
-/// Returning CredentialsUnavailable avoids exposing secret-source error text to TLS.
+/// Return [`Error::CredentialsUnavailable`] to avoid exposing secret-source
+/// error text to TLS.
 pub trait CredentialSource: Send + Sync {
     /// Obtain short-lived USER/context credentials for the current operation.
     fn credentials(&self) -> Result<Credentials, Error>;

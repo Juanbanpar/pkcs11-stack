@@ -149,7 +149,9 @@ impl Signer for TokenSigner {
 }
 /// Proven token key and immutable leaf-first certificate chain for TLS authentication.
 /// Binding and every subsequent signature are verified with the supplied provider.
-/// This does not validate chain trust, dates, usage or revocation; peers/rustls do so.
+///
+/// Pass the credential to [`crate::ServerResolver`] or [`crate::ClientResolver`].
+/// Configure peer trust, certificate usage, and revocation policy separately.
 pub struct Credential {
     pub(crate) certified: Arc<CertifiedKey>,
     pub(crate) issuers: Vec<Vec<u8>>,
@@ -167,7 +169,13 @@ impl Credential {
     /// The source is invoked once. Planning picks a policy/provider-supported TLS
     /// scheme before signing; failure is never retried. The chain must be leaf-first.
     /// Accepts rsaEncryption, named-curve EC and Ed25519 leaf keys. Use
-    /// `load_ml_dsa` for ML-DSA.
+    /// [`Self::load_ml_dsa`] for ML-DSA.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::NoCompatibleScheme`] if no scheme satisfies the key,
+    /// policy, and provider checks. [`Error::KeyCertificateMismatch`] can mean
+    /// the probe was signed but did not verify against the supplied leaf.
     pub fn load(
         pool: Arc<SessionPool<'static>>,
         key: PrivateKeyRef,
