@@ -18,6 +18,12 @@ fn oid(parameter: MlKemParameterSet) -> ObjectIdentifier {
     })
 }
 
+pub(crate) fn ml_kem_public_key_der(
+    key: &pkcs11_runtime::MlKemPublicKey,
+) -> Result<Vec<u8>, Error> {
+    encode_raw_spki(oid(key.parameter_set()), key.as_bytes())
+}
+
 /// Validated public ML-KEM encapsulation key, with RFC 9935 SPKI conversion.
 /// Validation does not authenticate its owner or prove private-key possession.
 #[derive(Clone, Debug)]
@@ -48,7 +54,7 @@ impl MlKemPublicKey {
     }
     /// Encode RFC 9935 SubjectPublicKeyInfo DER, without algorithm parameters.
     pub fn to_spki_der(&self) -> Result<Vec<u8>, Error> {
-        encode_raw_spki(oid(self.parameter_set()), self.as_bytes())
+        ml_kem_public_key_der(&self.0)
     }
     /// FIPS 203 parameter set.
     pub fn parameter_set(&self) -> MlKemParameterSet {
@@ -89,7 +95,7 @@ impl ManagementSession<'_> {
     /// Export a uniquely selected, non-private ML-KEM public object as RFC 9935 DER.
     /// Does not require encapsulation permission or read private key material.
     pub fn export_ml_kem_public_key(&mut self, key: &PublicKeyRef) -> Result<Vec<u8>, Error> {
-        MlKemPublicKey(self.session.ml_kem_public_key(key)?).to_spki_der()
+        ml_kem_public_key_der(&self.session.ml_kem_public_key(key)?)
     }
     /// Import a validated public encapsulation key in an RW session.
     /// Duplicate IDs remain possible; existing objects are not overwritten.

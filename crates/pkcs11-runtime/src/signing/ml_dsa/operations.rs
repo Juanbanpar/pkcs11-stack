@@ -16,6 +16,23 @@ use super::{
     capabilities::{allowed, capabilities, mechanism_support, parameter_set, permission},
 };
 
+impl Object<'_, '_> {
+    /// Read the public value of this non-private ML-DSA public key.
+    pub fn ml_dsa_public_key(&self) -> Result<MlDsaPublicKey, Error> {
+        let parameter = parameter_set(self, ObjectClass::PUBLIC_KEY)?;
+        if !matches!(
+            attribute(self, AttributeType::Private, true)?,
+            Some(Attribute::Private(false))
+        ) {
+            return Err(Error::UnsupportedSigning("private ML-DSA public object"));
+        }
+        match attribute(self, AttributeType::Value, true)? {
+            Some(Attribute::Value(value)) => MlDsaPublicKey::from_bytes(parameter, value),
+            _ => Err(Error::MissingMetadata("ML-DSA public value")),
+        }
+    }
+}
+
 impl<'m> Session<'m> {
     /// Generate a persistent ML-DSA pair once, using an explicit ID and label.
     /// Private keys are sensitive and nonextractable. No seed is read or imported.
@@ -90,18 +107,7 @@ impl<'m> Session<'m> {
     /// Read CKA_VALUE only from an explicitly public, non-private ML-DSA public key.
     /// Never reads private-key CKA_VALUE or CKA_SEED.
     pub fn ml_dsa_public_key(&mut self, key: &PublicKeyRef) -> Result<MlDsaPublicKey, Error> {
-        let object = self.resolve(key.as_object_ref())?;
-        let parameter = parameter_set(&object, ObjectClass::PUBLIC_KEY)?;
-        if !matches!(
-            attribute(&object, AttributeType::Private, true)?,
-            Some(Attribute::Private(false))
-        ) {
-            return Err(Error::UnsupportedSigning("private ML-DSA public object"));
-        }
-        match attribute(&object, AttributeType::Value, true)? {
-            Some(Attribute::Value(value)) => MlDsaPublicKey::from_bytes(parameter, value),
-            _ => Err(Error::MissingMetadata("ML-DSA public value")),
-        }
+        self.resolve(key.as_object_ref())?.ml_dsa_public_key()
     }
 
     /// Sign the original message once after rediscovering current permissions.

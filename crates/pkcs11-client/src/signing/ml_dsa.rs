@@ -19,7 +19,7 @@ fn parameter_set_oid(parameter: MlDsaParameterSet) -> ObjectIdentifier {
         MlDsaParameterSet::MlDsa87 => "2.16.840.1.101.3.4.3.19",
     })
 }
-fn public_key_der(key: &MlDsaPublicKey) -> Result<Vec<u8>, Error> {
+pub(crate) fn ml_dsa_public_key_der(key: &MlDsaPublicKey) -> Result<Vec<u8>, Error> {
     encode_raw_spki(parameter_set_oid(key.parameter_set()), key.as_bytes())
 }
 
@@ -190,7 +190,7 @@ impl ManagementSession<'_> {
     }
     /// Export a public, non-private ML-DSA object as RFC 9881 SPKI DER.
     pub fn export_ml_dsa_public_key(&mut self, key: &PublicKeyRef) -> Result<Vec<u8>, Error> {
-        public_key_der(&self.session.ml_dsa_public_key(key)?)
+        ml_dsa_public_key_der(&self.session.ml_dsa_public_key(key)?)
     }
 }
 impl Client<'_> {
@@ -247,7 +247,7 @@ impl Client<'_> {
         key: &PublicKeyRef,
         authentication: Authentication<'_>,
     ) -> Result<Vec<u8>, Error> {
-        public_key_der(
+        ml_dsa_public_key_der(
             &self
                 .pool()
                 .try_acquire(authentication)?
@@ -365,7 +365,7 @@ mod tests {
             let key =
                 MlDsaPublicKey::from_bytes(parameter, vec![0xA5; parameter.public_key_length()])
                     .unwrap();
-            let encoded = public_key_der(&key).unwrap();
+            let encoded = ml_dsa_public_key_der(&key).unwrap();
             let decoded = SubjectPublicKeyInfoOwned::from_der(&encoded).unwrap();
             assert_eq!(decoded.algorithm.oid.to_string(), oid);
             assert!(decoded.algorithm.parameters.is_none());

@@ -5,3 +5,4 @@ mod montgomery;
 pub use ecdh::{DeriveRequest, EcdhPeer};
 
 pub use ml_kem::MlKemPublicKey;
+pub(crate) use ml_kem::ml_kem_public_key_der;

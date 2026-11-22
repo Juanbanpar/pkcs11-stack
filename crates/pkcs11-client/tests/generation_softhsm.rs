@@ -3,8 +3,10 @@
 use pkcs11_client::{
     AesKeyPurpose, AesKeyRequest, AesKeySize, Authentication, DeriveRequest, EcdhKeyPairRequest,
     EcdhPeer, Error, KeyOperation, NamedCurve, ObjectRef, Pin, Provider, SecretKeyIdentity,
-    SecretText, SessionMode,
+    SecretText, SessionMode, SigningPolicy,
 };
+use pkcs11_runtime::Error as RuntimeError;
+use std::num::NonZeroUsize;
 
 fn reference(id: &[u8], kind: &str) -> ObjectRef {
     let id: String = id.iter().map(|b| format!("%{b:02X}")).collect();
@@ -74,6 +76,24 @@ fn typed_generation_and_advisory_choices() {
                 .is_err()
         );
         let public = session.export_public(&reference(&id, "public")).unwrap();
+        if side == 0 {
+            let ambiguous =
+                ObjectRef::new("pkcs11:token=client-test;id=%96%00".parse().unwrap()).unwrap();
+            assert!(matches!(
+                session.export_public(&ambiguous),
+                Err(Error::Runtime(RuntimeError::Ambiguous { .. }))
+            ));
+            session
+                .set_label(&reference(&id, "public"), b"client ECDH public")
+                .unwrap();
+            let untyped = ObjectRef::new(
+                "pkcs11:token=client-test;object=client%20ECDH%20public"
+                    .parse()
+                    .unwrap(),
+            )
+            .unwrap();
+            assert_eq!(session.export_public(&untyped).unwrap(), public);
+        }
         peers.push(EcdhPeer::from_spki_der(&public).unwrap());
         assert!(matches!(
             session.export_public(&reference(&id, "private")),
@@ -128,5 +148,32 @@ fn typed_generation_and_advisory_choices() {
     ));
     session.state().unwrap();
     session.close().unwrap();
+
+    let client = provider
+        .client(&token, NonZeroUsize::MIN, SigningPolicy::default())
+        .unwrap();
+    let key = client
+        .secret_key("pkcs11:token=client-test;id=%97".parse().unwrap(), auth())
+        .unwrap();
+    assert_eq!(key.uri().path_attribute("type"), Some(&b"secret-key"[..]));
+    assert!(matches!(
+        client.secret_key(
+            "pkcs11:token=client-test;id=%96%00;type=public"
+                .parse()
+                .unwrap(),
+            auth(),
+        ),
+        Err(Error::Runtime(RuntimeError::InvalidObjectReference))
+    ));
+    assert!(matches!(
+        client.secret_key(
+            "pkcs11:token=client-test;object=client%20ECDH%20public"
+                .parse()
+                .unwrap(),
+            auth(),
+        ),
+        Err(Error::Runtime(RuntimeError::NotFound("object")))
+    ));
+    client.close().unwrap();
     provider.finalize().unwrap();
 }

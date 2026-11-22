@@ -109,52 +109,58 @@ pub struct PublicKeyMetadata {
     /// Token EC point attribute, retaining its PKCS#11 OCTET STRING encoding.
     pub ec_point: Option<Vec<u8>>,
 }
-fn public_metadata(object: &Object<'_, '_>) -> Result<PublicKeyMetadata, Error> {
-    let key = key_kind(object)?;
-    let spki = match attribute(object, AttributeType::PublicKeyInfo, false)? {
-        Some(Attribute::PublicKeyInfo(v)) if !v.is_empty() => Some(v),
-        _ => None,
-    };
-    let mut result = PublicKeyMetadata {
-        key,
-        spki,
-        modulus: None,
-        public_exponent: None,
-        ec_params: None,
-        ec_point: None,
-    };
-    match key {
-        KeyKind::Rsa { .. } => {
-            if let Some(Attribute::Modulus(v)) = attribute(object, AttributeType::Modulus, true)? {
-                result.modulus = Some(v);
+impl Object<'_, '_> {
+    /// Read only public key attributes from this resolved key object.
+    pub fn public_metadata(&self) -> Result<PublicKeyMetadata, Error> {
+        let key = key_kind(self)?;
+        let spki = match attribute(self, AttributeType::PublicKeyInfo, false)? {
+            Some(Attribute::PublicKeyInfo(v)) if !v.is_empty() => Some(v),
+            _ => None,
+        };
+        let mut result = PublicKeyMetadata {
+            key,
+            spki,
+            modulus: None,
+            public_exponent: None,
+            ec_params: None,
+            ec_point: None,
+        };
+        match key {
+            KeyKind::Rsa { .. } => {
+                if let Some(Attribute::Modulus(v)) = attribute(self, AttributeType::Modulus, true)?
+                {
+                    result.modulus = Some(v);
+                }
+                if let Some(Attribute::PublicExponent(v)) =
+                    attribute(self, AttributeType::PublicExponent, false)?
+                {
+                    result.public_exponent = Some(v);
+                }
             }
-            if let Some(Attribute::PublicExponent(v)) =
-                attribute(object, AttributeType::PublicExponent, false)?
-            {
-                result.public_exponent = Some(v);
+            KeyKind::Ec(_) | KeyKind::Edwards(_) | KeyKind::Montgomery(_) => {
+                if let Some(Attribute::EcParams(v)) =
+                    attribute(self, AttributeType::EcParams, true)?
+                {
+                    result.ec_params = Some(v);
+                }
+                if let Some(Attribute::EcPoint(v)) = attribute(self, AttributeType::EcPoint, false)?
+                {
+                    result.ec_point = Some(v);
+                }
             }
         }
-        KeyKind::Ec(_) | KeyKind::Edwards(_) | KeyKind::Montgomery(_) => {
-            if let Some(Attribute::EcParams(v)) = attribute(object, AttributeType::EcParams, true)?
-            {
-                result.ec_params = Some(v);
-            }
-            if let Some(Attribute::EcPoint(v)) = attribute(object, AttributeType::EcPoint, false)? {
-                result.ec_point = Some(v);
-            }
-        }
+        Ok(result)
     }
-    Ok(result)
 }
 impl PrivateKeyRef {
     /// Read only public attributes of this private key, using the caller's session.
     pub fn public_metadata(&self, session: &mut Session<'_>) -> Result<PublicKeyMetadata, Error> {
-        public_metadata(&session.resolve(self.as_object_ref())?)
+        session.resolve(self.as_object_ref())?.public_metadata()
     }
 }
 impl PublicKeyRef {
     /// Read public material from an independently selected public object.
     pub fn public_metadata(&self, session: &mut Session<'_>) -> Result<PublicKeyMetadata, Error> {
-        public_metadata(&session.resolve(self.as_object_ref())?)
+        session.resolve(self.as_object_ref())?.public_metadata()
     }
 }

@@ -2,6 +2,9 @@
 use crate::{
     CertificateDocument, Client, Error, Pin, Pkcs11Uri, PrivateKeyRef, SecretText, SignRequest,
     SigningOptions, SigningPolicy,
+    key_establishment::ml_kem_public_key_der,
+    public_key::encode_public_key,
+    signing::{ml_dsa_public_key_der, slh_dsa_public_key_der},
 };
 use pkcs11_runtime::{
     Attribute, AttributeInfo, AttributeType, AttributeValues, Authentication, CertificateType,
@@ -298,6 +301,7 @@ impl ManagementSession<'_> {
         Ok(self.session.sign(key, request, policy, context_pin)?)
     }
     /// Export only public certificate/data values or public keys as SPKI DER.
+    /// The selector must resolve exactly one object and may omit `type`.
     /// Private/secret key classes and CKA_PRIVATE objects are rejected before value reads.
     /// RSA, named EC, ML-DSA, ML-KEM and SLH-DSA use their observed key type; unsupported
     /// types fail without trying another encoder. Export does not authenticate the key's owner.
@@ -340,19 +344,11 @@ impl ManagementSession<'_> {
                         _ => None,
                     })
                     .ok_or(Error::UnsupportedExport)?;
-                let key = crate::PublicKeyRef::new(
-                    reference
-                        .uri()
-                        .to_secret_uri()
-                        .expose_secret()
-                        .parse()
-                        .map_err(pkcs11_runtime::Error::from)?,
-                )?;
                 match kind {
-                    KeyType::RSA | KeyType::EC => self.export_classical_public_key(&key),
-                    KeyType::ML_DSA => self.export_ml_dsa_public_key(&key),
-                    KeyType::ML_KEM => self.export_ml_kem_public_key(&key),
-                    KeyType::SLH_DSA => self.export_slh_dsa_public_key(&key),
+                    KeyType::RSA | KeyType::EC => encode_public_key(object.public_metadata()?),
+                    KeyType::ML_DSA => ml_dsa_public_key_der(&object.ml_dsa_public_key()?),
+                    KeyType::ML_KEM => ml_kem_public_key_der(&object.ml_kem_public_key()?),
+                    KeyType::SLH_DSA => slh_dsa_public_key_der(&object.slh_dsa_public_key()?),
                     _ => Err(Error::UnsupportedExport),
                 }
             }
@@ -376,8 +372,7 @@ impl ManagementSession<'_> {
         {
             return Err(Error::UnsupportedExport);
         }
-        let metadata = key.public_metadata(&mut self.session)?;
-        crate::public_key::encode_public_key(metadata)
+        encode_public_key(object.public_metadata()?)
     }
     /// Query actual token-wide login state through this live session.
     pub fn state(&self) -> Result<SessionState, Error> {
