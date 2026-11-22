@@ -24,7 +24,9 @@ fn slh_parameter_set_oid(parameter: pkcs11_runtime::SlhDsaParameterSet) -> Objec
     })
 }
 
-fn slh_public_key_der(key: &pkcs11_runtime::SlhDsaPublicKey) -> Result<Vec<u8>, Error> {
+pub(crate) fn slh_dsa_public_key_der(
+    key: &pkcs11_runtime::SlhDsaPublicKey,
+) -> Result<Vec<u8>, Error> {
     encode_raw_spki(slh_parameter_set_oid(key.parameter_set()), key.as_bytes())
 }
 
@@ -125,7 +127,7 @@ impl Client<'_> {
         key: &crate::PublicKeyRef,
         authentication: Authentication<'_>,
     ) -> Result<Vec<u8>, Error> {
-        slh_public_key_der(
+        slh_dsa_public_key_der(
             &self
                 .pool()
                 .try_acquire(authentication)?
@@ -171,7 +173,7 @@ impl ManagementSession<'_> {
         &mut self,
         key: &crate::PublicKeyRef,
     ) -> Result<Vec<u8>, Error> {
-        slh_public_key_der(&self.session.slh_dsa_public_key(key)?)
+        slh_dsa_public_key_der(&self.session.slh_dsa_public_key(key)?)
     }
 
     /// Generate a persistent SLH-DSA signing pair.
@@ -265,7 +267,7 @@ mod tests {
             let key =
                 SlhDsaPublicKey::from_bytes(parameter, vec![0; parameter.public_key_length()])
                     .unwrap();
-            let der = slh_public_key_der(&key).unwrap();
+            let der = slh_dsa_public_key_der(&key).unwrap();
             let spki = SubjectPublicKeyInfoOwned::from_der(&der).unwrap();
             assert_eq!(spki.algorithm.oid, ObjectIdentifier::new_unwrap(oid));
             assert!(spki.algorithm.parameters.is_none());

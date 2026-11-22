@@ -95,6 +95,8 @@ impl<'m> SessionPool<'m> {
     ///
     /// [`Error::PoolExhausted`] means checkout could not reserve a session.
     /// Release leases or reduce concurrent work before requesting another.
+    /// If validation of a newly opened session fails, checkout returns that error.
+    /// A failure to close that session is recorded for [`Self::close`].
     /// [`Error::PoolCleanupFailed`] blocks checkout until this pool is closed.
     pub fn try_acquire(
         &self,
@@ -136,9 +138,11 @@ impl<'m> SessionPool<'m> {
         }
         if lease.entry.is_none() {
             lease.entry = Some(Entry {
-                session: self.token.open_session(self.mode)?,
+                session: Session::open_handle(&self.token, self.mode)?,
                 generation,
             });
+            // The lease records any close failure if this validation fails.
+            lease.session().validate()?;
         }
         let session = lease.session();
         let desired = match &authentication {

@@ -19,6 +19,31 @@ use super::{
     capabilities::{allowed, capabilities, parameter_set, verification_key},
 };
 
+impl Object<'_, '_> {
+    /// Read the public value of this non-private SLH-DSA public key.
+    pub fn slh_dsa_public_key(&self) -> Result<SlhDsaPublicKey, Error> {
+        let parameter = parameter_set(self, ObjectClass::PUBLIC_KEY)?;
+        if !allowed(self)? {
+            return Err(Error::UnsupportedSigning(
+                "public key excludes pure SLH-DSA",
+            ));
+        }
+        if !matches!(
+            attribute(self, AttributeType::Private, true)?,
+            Some(Attribute::Private(false))
+        ) {
+            return Err(Error::UnsupportedSigning("private SLH-DSA public object"));
+        }
+        let values = self.read_attributes(&[AttributeType::Value])?;
+        match values.expose_values() {
+            [Attribute::Value(value)] if value.len() == parameter.public_key_length() => {
+                SlhDsaPublicKey::from_bytes(parameter, value.clone())
+            }
+            _ => Err(Error::MissingMetadata("SLH-DSA public value")),
+        }
+    }
+}
+
 impl<'m> Session<'m> {
     /// Generate a persistent SLH-DSA pair once, using an explicit ID and label.
     /// Private keys are sensitive and nonextractable. No seed is read or imported.
@@ -153,26 +178,7 @@ impl<'m> Session<'m> {
     /// Requires that CKA_ALLOWED_MECHANISMS permit pure SLH-DSA, for pure SPKI export.
     /// Never reads private-key CKA_VALUE or CKA_SEED.
     pub fn slh_dsa_public_key(&mut self, key: &PublicKeyRef) -> Result<SlhDsaPublicKey, Error> {
-        let object = self.resolve(key.as_object_ref())?;
-        let parameter = parameter_set(&object, ObjectClass::PUBLIC_KEY)?;
-        if !allowed(&object)? {
-            return Err(Error::UnsupportedSigning(
-                "public key excludes pure SLH-DSA",
-            ));
-        }
-        if !matches!(
-            attribute(&object, AttributeType::Private, true)?,
-            Some(Attribute::Private(false))
-        ) {
-            return Err(Error::UnsupportedSigning("private SLH-DSA public object"));
-        }
-        let values = object.read_attributes(&[AttributeType::Value])?;
-        match values.expose_values() {
-            [Attribute::Value(value)] if value.len() == parameter.public_key_length() => {
-                SlhDsaPublicKey::from_bytes(parameter, value.clone())
-            }
-            _ => Err(Error::MissingMetadata("SLH-DSA public value")),
-        }
+        self.resolve(key.as_object_ref())?.slh_dsa_public_key()
     }
 
     /// Sign the original message once after rediscovering current permissions.

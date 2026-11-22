@@ -240,6 +240,25 @@ impl Token<'_> {
             .collect())
     }
 }
+impl Object<'_, '_> {
+    /// Read the public value of this non-private ML-KEM public key.
+    pub fn ml_kem_public_key(&self) -> Result<MlKemPublicKey, Error> {
+        let parameter = parameter_set(self, ObjectClass::PUBLIC_KEY)?;
+        if !matches!(
+            attribute(self, AttributeType::Private, true)?,
+            Some(Attribute::Private(false))
+        ) {
+            return Err(Error::UnsupportedKeyOperation);
+        }
+        match attribute(self, AttributeType::Value, true)? {
+            Some(Attribute::Value(value)) => {
+                MlKemPublicKey::from_bytes(parameter, value).map_err(|_| Error::InvalidKeyOutput)
+            }
+            _ => Err(Error::MissingMetadata("ML-KEM public value")),
+        }
+    }
+}
+
 impl<'m> Session<'m> {
     /// Generate one persistent ML-KEM pair; the private key is sensitive and
     /// nonextractable. Requires RW mode. Duplicate IDs remain possible, as with
@@ -300,20 +319,7 @@ impl<'m> Session<'m> {
     /// Read only an explicitly public, non-private ML-KEM encapsulation key.
     /// Rejects malformed provider output; no private value or seed is read.
     pub fn ml_kem_public_key(&mut self, key: &PublicKeyRef) -> Result<MlKemPublicKey, Error> {
-        let object = self.resolve(key.as_object_ref())?;
-        let parameter = parameter_set(&object, ObjectClass::PUBLIC_KEY)?;
-        if !matches!(
-            attribute(&object, AttributeType::Private, true)?,
-            Some(Attribute::Private(false))
-        ) {
-            return Err(Error::UnsupportedKeyOperation);
-        }
-        match attribute(&object, AttributeType::Value, true)? {
-            Some(Attribute::Value(value)) => {
-                MlKemPublicKey::from_bytes(parameter, value).map_err(|_| Error::InvalidKeyOutput)
-            }
-            _ => Err(Error::MissingMetadata("ML-KEM public value")),
-        }
+        self.resolve(key.as_object_ref())?.ml_kem_public_key()
     }
     /// Import a validated public encapsulation key as a persistent public object.
     /// Requires RW mode and a nonempty ID. Existing IDs are not overwritten;

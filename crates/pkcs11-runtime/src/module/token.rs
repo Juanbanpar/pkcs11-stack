@@ -109,6 +109,7 @@ impl<'m> Token<'m> {
             .map_err(|e| backend("mechanism info", e))
     }
     /// Open a non-pooled session, verifying token metadata before and after opening.
+    /// If post-open validation and closure both fail, returns [`Error::SessionOpenCleanup`].
     pub fn open_session(&self, mode: SessionMode) -> Result<Session<'m>, Error> {
         Session::open(self, mode)
     }
