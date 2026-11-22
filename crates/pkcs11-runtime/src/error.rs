@@ -107,6 +107,15 @@ pub enum Error {
         /// Secondary failure while finalizing the owned initialization.
         cleanup: cryptoki::error::Error,
     },
+    /// Token revalidation failed after opening a session, and closing it also failed.
+    #[error("session open validation: {source}; session cleanup: {cleanup}")]
+    SessionOpenCleanup {
+        /// Primary token validation failure.
+        #[source]
+        source: Box<Error>,
+        /// Failure while closing the opened session.
+        cleanup: Box<Error>,
+    },
     /// The configured module path could not be canonicalized.
     #[error("module path: {0}")]
     ModulePath(#[source] std::io::Error),

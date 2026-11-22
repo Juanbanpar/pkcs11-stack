@@ -36,13 +36,29 @@ impl fmt::Debug for Session<'_> {
 
 impl<'m> Session<'m> {
     pub(crate) fn open(token: &Token<'m>, mode: SessionMode) -> Result<Self, Error> {
+        let session = Self::open_handle(token, mode)?;
+        if let Err(source) = session.validate() {
+            return Err(match session.close() {
+                Ok(()) => source,
+                Err(cleanup) => Error::SessionOpenCleanup {
+                    source: Box::new(source),
+                    cleanup: Box::new(cleanup),
+                },
+            });
+        }
+        Ok(session)
+    }
+
+    // The caller owns cleanup as soon as the handle opens and must revalidate
+    // the token before exposing the session.
+    pub(super) fn open_handle(token: &Token<'m>, mode: SessionMode) -> Result<Self, Error> {
         token.validate()?;
         let raw = match mode {
             SessionMode::ReadOnly => token.module.raw()?.open_ro_session(token.slot),
             SessionMode::ReadWrite => token.module.raw()?.open_rw_session(token.slot),
         }
         .map_err(|e| backend("open session", e))?;
-        let session = Self {
+        Ok(Self {
             raw: Some(raw),
             token: Token {
                 module: token.module.clone(),
@@ -51,9 +67,7 @@ impl<'m> Session<'m> {
             },
             mode,
             healthy: std::cell::Cell::new(true),
-        };
-        session.token.validate()?;
-        Ok(session)
+        })
     }
     pub(crate) fn raw(&self) -> Result<&cryptoki::session::Session, Error> {
         if !self.healthy.get() {
