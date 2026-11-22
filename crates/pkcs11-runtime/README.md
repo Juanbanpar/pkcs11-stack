@@ -1,6 +1,6 @@
 # pkcs11-runtime
 
-The lower-level Rust layer for managing PKCS#11 modules, tokens, and sessions
+A lower-level Rust API for managing PKCS#11 modules, tokens, and sessions
 and running typed mechanism operations. Use it when you need direct control
 over object resolution, authentication, or mechanism parameters. Start with
 [pkcs11-client](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.0/crates/pkcs11-client/README.md)

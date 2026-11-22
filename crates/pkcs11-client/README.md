@@ -1,6 +1,6 @@
 # pkcs11-client
 
-The high-level Rust API for PKCS#11. Use it to discover tokens, select keys
+A high-level Rust API for PKCS#11. Use it to discover tokens, select keys
 and certificates, sign, and manage token objects. It resolves URI selectors
 and pools signing sessions without exposing Cryptoki handles. Applications
 supply authentication and control object lifetime and cleanup.
