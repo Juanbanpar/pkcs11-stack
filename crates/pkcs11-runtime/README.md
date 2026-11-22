@@ -3,7 +3,7 @@
 A lower-level Rust API for managing PKCS#11 modules, tokens, and sessions
 and running typed mechanism operations. Use it when you need direct control
 over object resolution, authentication, or mechanism parameters. Start with
-[pkcs11-client](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.0/crates/pkcs11-client/README.md)
+[pkcs11-client](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.1/crates/pkcs11-client/README.md)
 for application workflows such as certificate binding and pooled signing.
 
 ## Installation
@@ -12,16 +12,16 @@ Requires Rust 1.88 or newer.
 
 ```toml
 [dependencies]
-pkcs11-runtime = "0.1.0"
+pkcs11-runtime = "0.1.1"
 ```
 
 ## Open a session and inspect a key
 
 Use a trusted provider module and an existing RSA or other private key visible
 to a USER session. Replace the module path and token and key selectors with
-your own. The [SoftHSM quickstart](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.0/docs/quickstart.md)
+your own. The [SoftHSM quickstart](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.1/docs/quickstart.md)
 shows how to create a disposable token and key.
-See the [API reference](https://docs.rs/pkcs11-runtime/0.1.0) or
+See the [API reference](https://docs.rs/pkcs11-runtime/0.1.1) or
 build it from the checkout as described under [Documentation and tests](#documentation-and-tests).
 
 ```no_run
@@ -412,7 +412,7 @@ the operation result; persistent output may already exist. Inputs are not delete
 A signature-first stub returning CKR_FUNCTION_NOT_SUPPORTED maps to
 `UnsupportedVerification` and leaves the session usable. RNG calls add no login,
 software fallback or retry; a provider failure invalidates the session.
-See the [compatibility matrix](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.0/docs/oasis-compatibility.md) for application
+See the [compatibility matrix](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.1/docs/oasis-compatibility.md) for application
 coverage and binding limits. Individual API rustdoc defines request bounds and errors.
 
 ## Documentation and tests
@@ -422,6 +422,6 @@ cargo doc -p pkcs11-runtime --no-deps --locked
 cargo test -p pkcs11-runtime --locked
 ```
 
-Doctests check ownership and lifetime errors. The [test guide](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.0/tests/README.md)
+Doctests check ownership and lifetime errors. The [test guide](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.1/tests/README.md)
 provides disposable SoftHSM/Kryoptic integration commands. Provider tests do not
 establish formal algorithm validation or hardware compatibility.

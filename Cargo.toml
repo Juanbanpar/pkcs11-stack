@@ -11,7 +11,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 rust-version = "1.88"
 license = "MIT OR Apache-2.0"
@@ -20,9 +20,9 @@ repository = "https://github.com/Juanbanpar/pkcs11-stack"
 
 [workspace.dependencies]
 iced = { version = "0.14.0", default-features = false, features = ["tiny-skia", "thread-pool", "wayland", "advanced", "linux-theme-detection"] }
-pkcs11-locator = { path = "crates/pkcs11-locator", version = "0.1.0" }
-pkcs11-runtime = { path = "crates/pkcs11-runtime", version = "0.1.0" }
-pkcs11-client = { path = "crates/pkcs11-client", version = "0.1.0" }
+pkcs11-locator = { path = "crates/pkcs11-locator", version = "0.1.1" }
+pkcs11-runtime = { path = "crates/pkcs11-runtime", version = "0.1.1" }
+pkcs11-client = { path = "crates/pkcs11-client", version = "0.1.1" }
 serde_json = "1.0.154"
 cryptoki = "0.12.1"
 rustls = { version = "0.23.46", default-features = false, features = ["std"] }

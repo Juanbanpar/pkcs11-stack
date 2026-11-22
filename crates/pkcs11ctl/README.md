@@ -9,12 +9,12 @@ process exit codes.
 Use Rust 1.88 or newer with Cargo and a native linker.
 
 ```sh
-cargo install pkcs11ctl --version 0.1.0 --locked
+cargo install pkcs11ctl --version 0.1.1 --locked
 pkcs11ctl --help
 ```
 
 Linux x86-64 users can also use the
-[Nix flake](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.0/README.md#nix)
+[Nix flake](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.1/README.md#nix)
 or download the CLI archive and `SHA256SUMS` from
 [GitHub Releases](https://github.com/Juanbanpar/pkcs11-stack/releases). The archive
 targets Ubuntu 24.04 or a compatible system with glibc 2.39 or newer.
@@ -30,9 +30,9 @@ cargo build --release -p pkcs11ctl --locked
 
 The examples below assume `pkcs11ctl` is on your PATH. From a checkout, use
 `./target/release/pkcs11ctl` in its place. Use a trusted vendor module or follow
-the [disposable SoftHSM quickstart](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.0/docs/quickstart.md)
+the [disposable SoftHSM quickstart](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.1/docs/quickstart.md)
 to generate a key, sign, and verify.
-Use the [troubleshooting guide](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.0/docs/troubleshooting.md)
+Use the [troubleshooting guide](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.1/docs/troubleshooting.md)
 for module, token, and authentication failures.
 
 ```sh
@@ -284,7 +284,7 @@ pkcs11ctl derive-kbkdf --module /path/lib.so \
 `digest`, `mac`, `verify-mac`, `encrypt-aes`, and `decrypt-aes` default to
 single-part operations and accept `--multipart`. Use AES-GCM when you need
 authenticated encryption. See the
-[compatibility matrix](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.0/docs/oasis-compatibility.md)
+[compatibility matrix](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.1/docs/oasis-compatibility.md)
 and command help for algorithm, IV, padding, and KDF options.
 
 ## ML-KEM and HKDF
@@ -428,4 +428,4 @@ cargo test -p pkcs11ctl --locked
 | CLI tests without a provider | Arguments, redaction, output preservation, exit codes, and offline verification against independent fixtures |
 | SoftHSM and Kryoptic | Classical and post-quantum workflows, token administration, independent verification, file output, and exit codes |
 
-See the [test guide](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.0/tests/README.md) for disposable provider suites.
+See the [test guide](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.1/tests/README.md) for disposable provider suites.

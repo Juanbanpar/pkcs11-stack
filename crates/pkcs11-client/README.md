@@ -5,7 +5,7 @@ and certificates, sign, and manage token objects. It resolves URI selectors
 and pools signing sessions without exposing Cryptoki handles. Applications
 supply authentication and control object lifetime and cleanup.
 
-Use [pkcs11-runtime](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.0/crates/pkcs11-runtime/README.md)
+Use [pkcs11-runtime](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.1/crates/pkcs11-runtime/README.md)
 directly for session and mechanism control.
 
 ## Installation
@@ -14,12 +14,12 @@ Requires Rust 1.88 or newer.
 
 ```toml
 [dependencies]
-pkcs11-client = "0.1.0"
+pkcs11-client = "0.1.1"
 ```
 
 ## Sign with an existing key
 
-From the checkout, run the [sign example](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.0/crates/pkcs11-client/examples/sign.rs)
+From the checkout, run the [sign example](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.1/crates/pkcs11-client/examples/sign.rs)
 with a trusted module, a key that supports RSA PKCS#1 v1.5 with token SHA-256
 hashing, a USER PIN file, and a message. Use a fresh output path.
 
@@ -30,7 +30,7 @@ cargo run --locked --quiet -p pkcs11-client --example sign -- \
 ```
 
 The example opens a signing client with `Provider::client` and signs through
-`Client::sign`. The [SoftHSM quickstart](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.0/docs/quickstart.md#sign-from-rust-with-the-same-key)
+`Client::sign`. The [SoftHSM quickstart](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.1/docs/quickstart.md#sign-from-rust-with-the-same-key)
 shows how to create a disposable key and verify the signature.
 
 ## Signing with a certificate
@@ -411,12 +411,12 @@ HKDF does not authenticate ciphertexts or combine classical/PQC inputs.
 | Ownership | Destroys the temporary concatenated secret. Inputs remain on the token. Cleanup failure can leave the persistent output |
 | Protocol | Establish independent component provenance, authenticate peers, and bind identities, roles, algorithms, and transcript in the protocol context. This is an application primitive. X-Wing, wire protocols, and the TLS key schedule are separate |
 
-See the [runtime contract](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.0/crates/pkcs11-runtime/README.md#application-hybrid-derivation).
+See the [runtime contract](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.1/crates/pkcs11-runtime/README.md#application-hybrid-derivation).
 
 ## Additional mechanisms
 
 Use `Provider::mechanism_capabilities` to inspect advertised and typed
-support. The [mechanism matrix](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.0/docs/oasis-compatibility.md)
+support. The [mechanism matrix](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.1/docs/oasis-compatibility.md)
 covers digest and MAC operations, SP 800-108, EdDSA, X25519/X448 agreement,
 and the post-quantum profiles.
 
@@ -473,7 +473,7 @@ Invalid lengths fail before allocation. Authentication is explicit and subject t
 token policy. `RandomBytes` zeroizes on drop and redacts its debug output.
 Borrow the bytes with `expose_secret()` and check session closure before releasing them.
 
-[Runnable examples](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.0/docs/examples.md) cover generic signing, certificate
+[Runnable examples](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.1/docs/examples.md) cover generic signing, certificate
 binding and shutdown with PIN files.
 
 ## Tests
@@ -483,7 +483,7 @@ cargo test -p pkcs11-client --locked
 cargo doc -p pkcs11-client --no-deps --locked
 ```
 
-See the [API reference](https://docs.rs/pkcs11-client/0.1.0).
+See the [API reference](https://docs.rs/pkcs11-client/0.1.1).
 From a checkout, generate it with the command above.
 
-See the [test guide](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.0/tests/README.md) for disposable provider suites.
+See the [test guide](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.1/tests/README.md) for disposable provider suites.

@@ -10,7 +10,7 @@ Requires Rust 1.88 or newer.
 
 ```toml
 [dependencies]
-pkcs11-locator = "0.1.0"
+pkcs11-locator = "0.1.1"
 ```
 
 ## Match a discovered object
@@ -103,5 +103,5 @@ cargo clippy -p pkcs11-locator --all-targets --locked -- -D warnings
 ```
 
 Tests cover parsing, binary IDs, matching, serialization and secret redaction.
-See the [API reference](https://docs.rs/pkcs11-locator/0.1.0) or run
+See the [API reference](https://docs.rs/pkcs11-locator/0.1.1) or run
 `cargo doc -p pkcs11-locator --no-deps --locked` from a checkout.
