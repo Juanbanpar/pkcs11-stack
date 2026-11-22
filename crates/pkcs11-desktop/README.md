@@ -17,17 +17,17 @@ distribution. On Ubuntu 24.04:
 
 ```sh
 sudo apt-get install build-essential cmake pkg-config libxkbcommon-dev libwayland-dev libegl1-mesa-dev
-cargo install pkcs11-desktop --version 0.1.0 --locked
+cargo install pkcs11-desktop --version 0.1.1 --locked
 pkcs11-desktop
 ```
 
 ### Nix
 
 ```sh
-nix run github:Juanbanpar/pkcs11-stack/v0.1.0#pkcs11-desktop
+nix run github:Juanbanpar/pkcs11-stack/v0.1.1#pkcs11-desktop
 ```
 
-See the [Nix setup in the workspace README](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.0/README.md#nix)
+See the [Nix setup in the workspace README](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.1/README.md#nix)
 for NixOS and Home Manager installation.
 
 ### Release archive
@@ -38,8 +38,8 @@ download directory, verify and extract the archive.
 
 ```sh
 sha256sum --check --ignore-missing SHA256SUMS &&
-tar -xzf pkcs11-desktop-0.1.0-x86_64-unknown-linux-gnu.tar.gz &&
-./pkcs11-desktop-0.1.0-x86_64-unknown-linux-gnu/pkcs11-desktop
+tar -xzf pkcs11-desktop-0.1.1-x86_64-unknown-linux-gnu.tar.gz &&
+./pkcs11-desktop-0.1.1-x86_64-unknown-linux-gnu/pkcs11-desktop
 ```
 
 The archive targets Ubuntu 24.04 or a compatible Linux system with glibc 2.39
@@ -57,7 +57,7 @@ cargo run --release -p pkcs11-desktop --locked
 ## Navigation and browsing
 
 Use a trusted vendor module, or load the module from the
-[disposable SoftHSM quickstart](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.0/docs/quickstart.md)
+[disposable SoftHSM quickstart](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.1/docs/quickstart.md)
 for an initial look. If using the quickstart store, launch the app from the
 same shell so it inherits `SOFTHSM2_CONF`.
 
@@ -248,7 +248,7 @@ identity and role before submitting.
   submission, cancellation, navigation, or shutdown. Changing the role or
   target invalidates confirmation.
 
-See the [desktop operation matrix](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.0/docs/oasis-compatibility.md#application-surfaces).
+See the [desktop operation matrix](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.1/docs/oasis-compatibility.md#application-surfaces).
 
 ## Tests
 
@@ -261,12 +261,12 @@ cargo test -p pkcs11-desktop --locked
 | Headless UI and worker tests | Navigation, stale responses, authentication state, and file preservation |
 | SoftHSM and Kryoptic | Token management, authentication, file operations, and classical and post-quantum cryptography with disposable token stores |
 
-See the [test guide](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.0/tests/README.md) for provider setup and commands. Use vendor modules and devices to validate hardware compatibility.
+See the [test guide](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.1/tests/README.md) for provider setup and commands. Use vendor modules and devices to validate hardware compatibility.
 
 ## License
 
-[MIT](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.0/LICENSE-MIT) OR [Apache-2.0](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.0/LICENSE-APACHE), at your option.
+[MIT](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.1/LICENSE-MIT) OR [Apache-2.0](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.1/LICENSE-APACHE), at your option.
 See the bundled notices for
-[Lucide](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.0/crates/pkcs11-desktop/LICENSE-LUCIDE),
-[Iced](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.0/crates/pkcs11-desktop/LICENSE-ICED), and
-[Cantarell](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.0/crates/pkcs11-desktop/LICENSE-CANTARELL).
+[Lucide](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.1/crates/pkcs11-desktop/LICENSE-LUCIDE),
+[Iced](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.1/crates/pkcs11-desktop/LICENSE-ICED), and
+[Cantarell](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.1/crates/pkcs11-desktop/LICENSE-CANTARELL).

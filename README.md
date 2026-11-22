@@ -25,12 +25,12 @@ show the dependencies for their examples. Cargo builds require Rust 1.88 or newe
 
 ```toml
 [dependencies]
-pkcs11-client = "0.1.0"
+pkcs11-client = "0.1.1"
 ```
 
 ```sh
-cargo install pkcs11ctl --version 0.1.0 --locked
-cargo install pkcs11-desktop --version 0.1.0 --locked
+cargo install pkcs11ctl --version 0.1.1 --locked
+cargo install pkcs11-desktop --version 0.1.1 --locked
 ```
 
 See the [desktop prerequisites](crates/pkcs11-desktop/README.md#build-and-run)
@@ -42,11 +42,11 @@ before building the GUI. For binaries on Linux x86-64, use the
 The flake provides packages and apps for `x86_64-linux`.
 
 ```sh
-nix run github:Juanbanpar/pkcs11-stack/v0.1.0#pkcs11ctl -- --help
-nix run github:Juanbanpar/pkcs11-stack/v0.1.0#pkcs11-desktop
+nix run github:Juanbanpar/pkcs11-stack/v0.1.1#pkcs11ctl -- --help
+nix run github:Juanbanpar/pkcs11-stack/v0.1.1#pkcs11-desktop
 ```
 
-Set `inputs.pkcs11-stack.url = "github:Juanbanpar/pkcs11-stack/v0.1.0";`
+Set `inputs.pkcs11-stack.url = "github:Juanbanpar/pkcs11-stack/v0.1.1";`
 in your flake. Pass the input to your modules through `specialArgs` on NixOS or
 `extraSpecialArgs` in Home Manager. Add the desired packages from
 `pkcs11-stack.packages.${pkgs.stdenv.hostPlatform.system}` to

@@ -12,14 +12,14 @@ PKCS#11 module.
 
 ```toml
 [dependencies]
-pkcs11-rustls-adapter = "0.1.0"
-pkcs11-runtime = "0.1.0"
+pkcs11-rustls-adapter = "0.1.1"
+pkcs11-runtime = "0.1.1"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 ```
 
 Pass `Arc::new(rustls::crypto::ring::default_provider())` as the example's
 `provider` argument to use ring.
-See the [API reference](https://docs.rs/pkcs11-rustls-adapter/0.1.0) or
+See the [API reference](https://docs.rs/pkcs11-rustls-adapter/0.1.1) or
 generate it with the command under [Examples and tests](#examples-and-tests).
 
 ## Server configuration
@@ -158,7 +158,7 @@ authentication as in the server and mutual TLS examples.
 
 ## Examples and tests
 
-The [server and mutual TLS examples](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.0/docs/examples.md#tls-and-mutual-tls)
+The [server and mutual TLS examples](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.1/docs/examples.md#tls-and-mutual-tls)
 use loopback connections and an explicit ring provider.
 
 ```sh
@@ -174,4 +174,4 @@ server and mutual TLS 1.3 with all three parameter sets.
 
 AWS-LC is a development dependency for ML-DSA tests. Applications supply
 the production provider. See the
-[provider setup](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.0/tests/README.md#pqc-provider-compatibility).
+[provider setup](https://github.com/Juanbanpar/pkcs11-stack/blob/v0.1.1/tests/README.md#pqc-provider-compatibility).

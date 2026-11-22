@@ -2611,7 +2611,7 @@ dependencies = [
 
 [[package]]
 name = "pkcs11-client"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ed25519-dalek",
  "ed448-goldilocks-plus",
@@ -2631,7 +2631,7 @@ dependencies = [
 
 [[package]]
 name = "pkcs11-desktop"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "iced",
  "iced_aw",
@@ -2643,7 +2643,7 @@ dependencies = [
 
 [[package]]
 name = "pkcs11-locator"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "proptest",
  "secrecy",
@@ -2653,7 +2653,7 @@ dependencies = [
 
 [[package]]
 name = "pkcs11-runtime"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "cryptoki",
  "curve25519-dalek",
@@ -2667,7 +2667,7 @@ dependencies = [
 
 [[package]]
 name = "pkcs11-rustls-adapter"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "der",
  "pkcs11-locator",
@@ -2683,7 +2683,7 @@ dependencies = [
 
 [[package]]
 name = "pkcs11ctl"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "clap",
  "der",

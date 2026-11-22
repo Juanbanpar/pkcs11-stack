@@ -18,7 +18,7 @@ sudo apt-get install build-essential softhsm2 opensc
 Install the CLI, then open a dedicated Bash shell for the remaining commands.
 
 ```sh
-cargo install pkcs11ctl --version 0.1.0 --locked
+cargo install pkcs11ctl --version 0.1.1 --locked
 bash
 ```
 
@@ -100,7 +100,7 @@ before trying again because the provider may already have created an object.
 
 ## Sign from Rust with the same key
 
-From a checkout of `v0.1.0`, run the
+From a checkout of `v0.1.1`, run the
 [client signing example](../crates/pkcs11-client/examples/sign.rs) in the same shell.
 
 ```sh

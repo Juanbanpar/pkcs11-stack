@@ -612,7 +612,7 @@ dependencies = [
 
 [[package]]
 name = "pkcs11-client"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ed25519-dalek",
  "ed448-goldilocks-plus",
@@ -631,7 +631,7 @@ dependencies = [
 
 [[package]]
 name = "pkcs11-locator"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "secrecy",
  "thiserror",
@@ -640,7 +640,7 @@ dependencies = [
 
 [[package]]
 name = "pkcs11-runtime"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "cryptoki",
  "curve25519-dalek",
@@ -654,7 +654,7 @@ dependencies = [
 
 [[package]]
 name = "pkcs11-rustls-adapter"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "pkcs11-runtime",
  "rustls",
