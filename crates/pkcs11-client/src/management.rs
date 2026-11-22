@@ -57,7 +57,7 @@ pub struct PoolDiagnostic {
     pub capacity: usize,
     /// An additional checkout was rejected while all leases were held.
     pub exhaustion_verified: bool,
-    /// Returned leases could be checked out and queried again.
+    /// A released session was checked out again and successfully queried.
     pub reuse_verified: bool,
     /// Authentication state observed on the first lease.
     pub session_state: SessionState,
@@ -193,12 +193,15 @@ impl Provider {
                 Err(error) => return Err(error.into()),
                 Ok(_) => false,
             };
+            let released_generations: Vec<_> =
+                leases.iter().map(|lease| lease.generation()).collect();
             drop(leases);
-            pool.try_acquire(authentication())?.session().info()?;
+            let mut lease = pool.try_acquire(authentication())?;
+            lease.session().info()?;
             Ok(PoolDiagnostic {
                 capacity: maximum.get(),
                 exhaustion_verified,
-                reuse_verified: true,
+                reuse_verified: released_generations.contains(&lease.generation()),
                 session_state,
             })
         })();
